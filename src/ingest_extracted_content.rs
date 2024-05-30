@@ -10,18 +10,13 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest,
-    OidSha256,
-    Sha256,
-    Sha256VarCore,
+    Digest, OidSha256, Sha256, Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
-    blob_storage::StoragePartWriter,
-    data_manager::DataManager,
+    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -156,7 +151,18 @@ impl ContentStateWriting {
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
-                labels.extend(payload.labels);
+
+                // FIXME: edwin improve error handling
+                let payload_labels: HashMap<String, prost_wkt_types::Value> = payload
+                    .labels
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
+                        (k, v)
+                    })
+                    .collect();
+
+                labels.extend(payload_labels);
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
                 let id = DataManager::make_id();
@@ -380,14 +386,8 @@ mod tests {
     use std::sync::Arc;
 
     use indexify_internal_api::{
-        ContentMetadata,
-        ExtractionGraph,
-        ExtractionPolicy,
-        ExtractionPolicyContentSource,
-        ExtractorDescription,
-        StructuredDataSchema,
-        Task,
-        TaskOutcome,
+        ContentMetadata, ExtractionGraph, ExtractionPolicy, ExtractionPolicyContentSource,
+        ExtractorDescription, StructuredDataSchema, Task, TaskOutcome,
     };
     use serde_json::json;
     use tokio::task::JoinHandle;
@@ -403,11 +403,8 @@ mod tests {
         server::NamespaceEndpointState,
         server_config::{IndexStoreKind, ServerConfig},
         test_util::db_utils::{
-            create_metadata,
-            create_test_extraction_graph,
-            mock_extractor,
-            test_mock_content_metadata,
-            DEFAULT_TEST_NAMESPACE,
+            create_metadata, create_test_extraction_graph, mock_extractor,
+            test_mock_content_metadata, DEFAULT_TEST_NAMESPACE,
         },
         vector_index::VectorIndexManager,
         vectordbs,

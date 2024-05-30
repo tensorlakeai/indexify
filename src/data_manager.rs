@@ -149,11 +149,22 @@ impl DataManager {
         for ep in req.extraction_policies {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
+
+            // FIXME: edwin think of a better way to handle this.
+            let filters = ep.filters_eq.clone().unwrap_or_default();
+            let filters = filters
+                .into_iter()
+                .map(|(k, v)| {
+                    let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
+                    (k, v)
+                })
+                .collect();
+
             let req = indexify_coordinator::ExtractionPolicyRequest {
                 namespace: namespace.to_string(),
                 extractor: ep.extractor.clone(),
                 name: ep.name.clone(),
-                filters: ep.filters_eq.clone().unwrap_or_default(),
+                filters,
                 input_params: input_params_serialized,
                 content_source: ep.content_source.clone().unwrap_or_default(),
                 created_at: SystemTime::now()
@@ -234,13 +245,23 @@ impl DataManager {
         namespace: &str,
         source_filter: &str,
         parent_id_filter: &str,
-        labels_eq_filter: Option<&HashMap<String, String>>,
+        labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<api::ContentMetadata>> {
+        let default_labels_eq = HashMap::new();
+        let labels_eq = labels_eq_filter.unwrap_or(&default_labels_eq);
+        let labels_eq = labels_eq
+            .iter()
+            .map(|(k, v)| {
+                let v: prost_wkt_types::Value = serde_json::from_value(v.clone()).unwrap();
+                (k.clone(), v)
+            })
+            .collect();
+
         let req = indexify_coordinator::ListContentRequest {
             namespace: namespace.to_string(),
             source: source_filter.to_string(),
             parent_id: parent_id_filter.to_string(),
-            labels_eq: labels_eq_filter.unwrap_or(&HashMap::new()).clone(),
+            labels_eq,
         };
         let response = self
             .coordinator_client
@@ -343,7 +364,7 @@ impl DataManager {
         id: Option<String>,
         file: &str,
         mime: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
         extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<String> {
         if !(["https://", "http://", "s3://", "file://"]
@@ -357,6 +378,17 @@ impl DataManager {
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
         let id = id.unwrap_or(nanoid!(16));
+
+        // FIXME: edwin consolidate this mf
+        let labels_converted = labels
+            .into_iter()
+            .map(|(k, v)| {
+                let string_value = serde_json::to_string(&v).unwrap();
+                let value = serde_json::from_str(&string_value).unwrap();
+                (k, value)
+            })
+            .collect();
+
         let content_metadata = indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name: file.to_string(),
@@ -365,7 +397,7 @@ impl DataManager {
             created_at: current_ts_secs as i64,
             mime: mime.to_string(),
             namespace: namespace.to_string(),
-            labels,
+            labels: labels_converted,
             source: "".to_string(),
             size_bytes: 0,
             hash: "".to_string(),
@@ -531,10 +563,17 @@ impl DataManager {
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
         }
+
+        // FIXME: edwin
         let labels = labels
             .iter()
-            .map(|(k, v)| (k.clone(), v.to_string()))
+            .map(|(k, v)| {
+                let stirng_value = serde_json::to_string(v).unwrap();
+                let value = serde_json::from_str(&stirng_value).unwrap();
+                (k.clone(), value)
+            })
             .collect();
+
         Ok(indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name,
@@ -647,10 +686,10 @@ impl DataManager {
             .labels
             .iter()
             .map(|(k, v)| {
-                (
-                    k.clone(),
-                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
-                )
+                // FIXME: edwin fix error handling
+                let string_value = serde_json::to_string(v).unwrap();
+                let value = serde_json::from_str(&string_value).unwrap();
+                (k.clone(), value)
             })
             .collect();
         let new_metadata =
@@ -777,10 +816,10 @@ impl DataManager {
             .labels
             .iter()
             .map(|(k, v)| {
-                (
-                    k.clone(),
-                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
-                )
+                // FIXME: edwin fix error handling.
+                let string_value = serde_json::to_string(v).unwrap();
+                let value = serde_json::from_str(&string_value).unwrap();
+                (k.clone(), value)
             })
             .collect();
         let metadata = Self::combine_metadata(Vec::new(), &features, content_metadata_labels);

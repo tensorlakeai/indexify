@@ -616,7 +616,7 @@ pub struct ExtractionPolicy {
     pub name: ExtractionPolicyName,
     pub namespace: String,
     pub extractor: String,
-    pub filters: HashMap<String, String>,
+    pub filters: HashMap<String, serde_json::Value>,
     pub input_params: serde_json::Value,
     // Extractor Output -> Table Name
     pub output_table_mapping: HashMap<String, String>,
@@ -629,8 +629,10 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     fn from(value: ExtractionPolicy) -> Self {
         let mut filters = HashMap::new();
         for (k, v) in value.filters {
+            let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
             filters.insert(k, v);
         }
+
         Self {
             id: value.id,
             extractor: value.extractor,
@@ -911,8 +913,13 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
         let labels = value
             .labels
             .into_iter()
-            .map(|(k, v)| (k, v.try_into().unwrap()))
+            .map(|(k, v)| {
+                // FIXME: edwin fix error handling here.
+                let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
+                (k, v)
+            })
             .collect();
+
         Self {
             id: value.id.id, //  don't expose the version on the task
             parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(), /*  don't expose the
@@ -977,6 +984,13 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
 
 impl Default for ContentMetadata {
     fn default() -> Self {
+        let test_labels = {
+            let mut labels = HashMap::new();
+            labels.insert("key1".to_string(), serde_json::json!("value1"));
+            labels.insert("key2".to_string(), serde_json::json!(25));
+            labels
+        };
+
         Self {
             id: ContentMetadataId::default(),
             parent_id: None,
@@ -985,12 +999,7 @@ impl Default for ContentMetadata {
             namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
             content_type: "test_content_type".to_string(),
-            labels: {
-                let mut labels = HashMap::new();
-                labels.insert("key1".to_string(), "value1".to_string());
-                labels.insert("key2".to_string(), "value2".to_string());
-                labels
-            },
+            labels: test_labels,
             storage_url: "http://example.com/test_url".to_string(),
             created_at: 1234567890, // example timestamp
             source: ContentSource::Ingestion,

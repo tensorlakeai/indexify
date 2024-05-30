@@ -340,10 +340,10 @@ pub struct ListContentRequest {
     pub source: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub parent_id: ::prost::alloc::string::String,
-    #[prost(map = "string, string", tag = "4")]
+    #[prost(map = "string, message", tag = "4")]
     pub labels_eq: ::std::collections::HashMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost_wkt_types::Value,
     >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -422,10 +422,10 @@ pub struct ExtractionPolicy {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
-    #[prost(map = "string, string", tag = "5")]
+    #[prost(map = "string, message", tag = "5")]
     pub filters: ::std::collections::HashMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost_wkt_types::Value,
     >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,
@@ -448,10 +448,10 @@ pub struct ExtractionPolicyRequest {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
-    #[prost(map = "string, string", tag = "5")]
+    #[prost(map = "string, message", tag = "5")]
     pub filters: ::std::collections::HashMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost_wkt_types::Value,
     >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,

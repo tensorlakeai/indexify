@@ -16,66 +16,23 @@ use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CoordinatorCommand,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateExtractionGraphRequest,
-    CreateExtractionGraphResponse,
-    CreateGcTasksRequest,
-    CreateGcTasksResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetContentTreeMetadataRequest,
-    GetExtractionPolicyRequest,
-    GetExtractionPolicyResponse,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetIngestionInfoRequest,
-    GetIngestionInfoResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    GetTaskRequest,
-    GetTaskResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListActiveContentsRequest,
-    ListActiveContentsResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    RemoveIngestionServerRequest,
-    RemoveIngestionServerResponse,
-    TaskAssignments,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateIndexesStateRequest,
-    UpdateIndexesStateResponse,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
-    WaitContentExtractionRequest,
-    WaitContentExtractionResponse,
+    self, coordinator_service_server::CoordinatorService, CoordinatorCommand, CreateContentRequest,
+    CreateContentResponse, CreateExtractionGraphRequest, CreateExtractionGraphResponse,
+    CreateGcTasksRequest, CreateGcTasksResponse, GcTask, GcTaskAcknowledgement,
+    GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest,
+    GetContentMetadataRequest, GetContentTreeMetadataRequest, GetExtractionPolicyRequest,
+    GetExtractionPolicyResponse, GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse,
+    GetIngestionInfoRequest, GetIngestionInfoResponse, GetRaftMetricsSnapshotRequest,
+    GetSchemaRequest, GetSchemaResponse, GetTaskRequest, GetTaskResponse, HeartbeatRequest,
+    HeartbeatResponse, ListActiveContentsRequest, ListActiveContentsResponse, ListContentRequest,
+    ListContentResponse, ListExtractionPoliciesRequest, ListExtractionPoliciesResponse,
+    ListExtractorsRequest, ListExtractorsResponse, ListIndexesRequest, ListIndexesResponse,
+    ListStateChangesRequest, ListTasksRequest, ListTasksResponse, RaftMetricsSnapshotResponse,
+    RegisterExecutorRequest, RegisterExecutorResponse, RegisterIngestionServerRequest,
+    RegisterIngestionServerResponse, RemoveIngestionServerRequest, RemoveIngestionServerResponse,
+    TaskAssignments, TombstoneContentRequest, TombstoneContentResponse, Uint64List,
+    UpdateIndexesStateRequest, UpdateIndexesStateResponse, UpdateTaskRequest, UpdateTaskResponse,
+    WaitContentExtractionRequest, WaitContentExtractionResponse,
 };
 use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
 use itertools::Itertools;
@@ -87,8 +44,7 @@ use opentelemetry::{
 };
 use prometheus::Encoder;
 use tokio::{
-    select,
-    signal,
+    select, signal,
     sync::{
         mpsc,
         watch::{self, Receiver, Sender},
@@ -175,11 +131,23 @@ impl CoordinatorServiceServer {
                 return Err(anyhow!(message));
             }
 
+            // FIXME: edwin improve error handling
+            let filters = policy_request
+                .filters
+                .clone()
+                .into_iter()
+                .map(|(k, v)| {
+                    let string_value = serde_json::to_string(&v).unwrap();
+                    let value = serde_json::from_str(&string_value).unwrap();
+                    (k, value)
+                })
+                .collect();
+
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
                 .name(policy_request.name.clone())
                 .extractor(policy_request.extractor.clone())
-                .filters(policy_request.filters.clone())
+                .filters(filters)
                 .input_params(input_params)
                 .content_source(content_source)
                 .build(&extraction_graph.name, extractor.clone())
@@ -240,9 +208,21 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<ListContentRequest>,
     ) -> Result<tonic::Response<ListContentResponse>, tonic::Status> {
         let req = request.into_inner();
+
+        // FIXME: edwin improve error handling
+        let labels_eq = req
+            .labels_eq
+            .into_iter()
+            .map(|(k, v)| {
+                let string_value = serde_json::to_string(&v).unwrap();
+                let value = serde_json::from_str(&string_value).unwrap();
+                (k, value)
+            })
+            .collect();
+
         let content_list = self
             .coordinator
-            .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
+            .list_content(&req.namespace, &req.source, &req.parent_id, &labels_eq)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?
             .into_iter()

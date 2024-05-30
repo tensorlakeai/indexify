@@ -3462,6 +3462,7 @@ dependencies = [
  "jsonschema",
  "mime",
  "nanoid",
+ "prost-wkt-types",
  "serde",
  "serde_json",
  "serde_with",

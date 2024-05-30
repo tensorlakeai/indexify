@@ -995,6 +995,9 @@ async fn upload_file(
                     &format!("failed to upload file: {}", e),
                 )
             })?;
+
+            // FIXME: edwin error handling
+            let value = serde_json::from_str(&value).unwrap();
             labels.insert(name, value);
         }
     }

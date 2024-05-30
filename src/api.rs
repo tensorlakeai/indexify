@@ -45,7 +45,7 @@ pub struct ExtractionPolicy {
     pub extractor: String,
     pub name: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, String>>,
+    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
     pub graph_name: String,
@@ -53,11 +53,22 @@ pub struct ExtractionPolicy {
 
 impl From<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
     fn from(value: indexify_coordinator::ExtractionPolicy) -> Self {
+        // FIXME: edwin improve error handling
+        let filters_eq = value
+            .filters
+            .into_iter()
+            .map(|(k, v)| {
+                let string_value = serde_json::to_string(&v).unwrap();
+                let value = serde_json::from_str(&string_value).unwrap();
+                (k, value)
+            })
+            .collect();
+
         Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
-            filters_eq: Some(value.filters),
+            filters_eq: Some(filters_eq),
             input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
             content_source: Some(value.content_source),
             graph_name: value.graph_name,
@@ -147,7 +158,7 @@ pub struct ExtractionPolicyRequest {
     pub extractor: String,
     pub name: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, String>>,
+    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
 }
@@ -329,7 +340,7 @@ pub struct ListContentFilters {
     )]
     pub parent_id: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub labels_eq: Option<HashMap<String, String>>,
+    pub labels_eq: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -349,7 +360,7 @@ pub struct DocumentFragment {
     pub text: String,
     pub mime_type: String,
     pub confidence_score: f32,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub root_content_metadata: Option<ContentMetadata>,
     pub content_metadata: ContentMetadata,
 }
@@ -403,7 +414,7 @@ pub struct ContentMetadata {
     pub namespace: String,
     pub name: String,
     pub mime_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub extraction_graph_names: Vec<String>,
     pub storage_url: String,
     pub created_at: i64,
@@ -414,6 +425,17 @@ pub struct ContentMetadata {
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
     fn from(value: indexify_coordinator::ContentMetadata) -> Self {
+        // FIXME: edwin improve error handling
+        let labels = value
+            .labels
+            .into_iter()
+            .map(|(k, v)| {
+                let string_value = serde_json::to_string(&v).unwrap();
+                let value = serde_json::from_str(&string_value).unwrap();
+                (k, value)
+            })
+            .collect();
+
         Self {
             id: value.id,
             parent_id: value.parent_id,
@@ -421,7 +443,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             namespace: value.namespace,
             name: value.file_name,
             mime_type: value.mime,
-            labels: value.labels,
+            labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             source: value.source,
@@ -589,7 +611,7 @@ pub struct ContentFrame {
 pub struct FinishContent {
     pub content_type: String,
     pub features: Vec<Feature>,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -711,7 +733,7 @@ pub struct IngestRemoteFile {
     pub id: Option<String>,
     pub url: String,
     pub mime_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub extraction_graph_names: Vec<String>,
 }
 
