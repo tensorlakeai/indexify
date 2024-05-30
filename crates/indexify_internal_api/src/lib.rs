@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use derive_builder::Builder;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
@@ -371,7 +371,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub features: Vec<Feature>,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 impl Content {
@@ -869,7 +869,7 @@ pub struct ContentMetadata {
     pub namespace: NamespaceName,
     pub name: String,
     pub content_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub storage_url: String,
     pub created_at: i64,
     pub source: ContentSource,
@@ -908,6 +908,11 @@ impl ContentMetadata {
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
+        let labels = value
+            .labels
+            .into_iter()
+            .map(|(k, v)| (k, v.try_into().unwrap()))
+            .collect();
         Self {
             id: value.id.id, //  don't expose the version on the task
             parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(), /*  don't expose the
@@ -916,7 +921,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             root_content_id: value.root_content_id.unwrap_or_default(),
             file_name: value.name,
             mime: value.content_type,
-            labels: value.labels,
+            labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             namespace: value.namespace,
@@ -931,6 +936,11 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
     fn from(value: indexify_coordinator::ContentMetadata) -> Self {
+        let labels = value
+            .labels
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::to_value(v).unwrap()))
+            .collect();
         let root_content_id = if value.root_content_id.is_empty() {
             None
         } else {
@@ -951,7 +961,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             latest: true,
             name: value.file_name,
             content_type: value.mime,
-            labels: value.labels,
+            labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             namespace: value.namespace,

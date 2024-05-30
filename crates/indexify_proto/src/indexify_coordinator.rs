@@ -518,10 +518,10 @@ pub struct ContentMetadata {
     pub parent_id: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub mime: ::prost::alloc::string::String,
-    #[prost(map = "string, string", tag = "5")]
+    #[prost(map = "string, message", tag = "5")]
     pub labels: ::std::collections::HashMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost_wkt_types::Value,
     >,
     #[prost(string, tag = "6")]
     pub storage_url: ::prost::alloc::string::String,

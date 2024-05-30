@@ -163,7 +163,7 @@ pub struct Text {
     pub id: Option<String>,
     pub text: String,
     #[serde(default)]
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -535,7 +535,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub features: Vec<Feature>,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 impl From<internal_api::Content> for Content {

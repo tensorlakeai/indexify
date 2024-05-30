@@ -15,6 +15,7 @@ use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActive
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
+use serde_with::serde_conv;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
@@ -436,7 +437,7 @@ impl DataManager {
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
         mime_type: Mime,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
         original_content_id: Option<&str>,
         extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
@@ -497,7 +498,7 @@ impl DataManager {
         &self,
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
         content_type: String,
         file_name: Option<&str>,
         source: &str,
@@ -530,6 +531,10 @@ impl DataManager {
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
         }
+        let labels = labels
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect();
         Ok(indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name,
