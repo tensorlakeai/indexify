@@ -359,7 +359,7 @@ mod test_deserialize_labels_eq_filter {
             labels_eq: Some({
                 let mut labels_eq = HashMap::new();
                 labels_eq.insert("key".to_string(), serde_json::json!("value"));
-                labels_eq.insert("key2".to_string(), serde_json::json!(25));
+                labels_eq.insert("key2".to_string(), serde_json::json!("25"));
 
                 labels_eq
             }),
