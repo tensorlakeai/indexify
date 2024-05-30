@@ -1,6 +1,6 @@
 [package]
 name = "indexify"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["Diptanu Gon Choudhury <diptanu@tensorlake.ai>"]
 build = "build.rs"
