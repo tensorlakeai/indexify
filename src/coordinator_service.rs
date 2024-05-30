@@ -107,7 +107,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
-    state,
+    state::{self, grpc_config::GrpcConfig},
     tonic_streamer::DropReceiver,
 };
 
@@ -1181,7 +1181,10 @@ impl CoordinatorServer {
             shutdown_rx: shutdown_rx.clone(),
         };
         let srvr =
-            indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);
+            indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc)
+                .max_decoding_message_size(GrpcConfig::MAX_DECODING_SIZE)
+                .max_encoding_message_size(GrpcConfig::MAX_ENCODING_SIZE);
+
         let shared_state = self.shared_state.clone();
         shared_state
             .initialize_raft()
