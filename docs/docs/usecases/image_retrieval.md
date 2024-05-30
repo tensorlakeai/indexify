@@ -51,7 +51,7 @@ client.upload_file("yourextractiongraphname", path="../path/to/file")
 Load Yolo Extractor in a notebook or terminal
 ```python
 from indexify_extractor_sdk import load_extractor, Content
-extractor, config_cls = load_extractor("yolo.yolo_extractor:YoloExtractor")
+extractor, config_cls = load_extractor("indexify_extractors.yolo.yolo_extractor:YoloExtractor")
 content = Content.from_file("/path/to/file.jpg")
 results =  extractor.extract(content)
 print(results)
