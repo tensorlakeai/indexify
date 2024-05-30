@@ -81,6 +81,24 @@ impl VectorChunk {
 pub enum FilterOperator {
     Eq,
     Neq,
+    Gt,
+    Lt,
+    GtEq,
+    LtEq,
+}
+
+impl FilterOperator {
+    pub fn from_str(operator: &str) -> Result<Self> {
+        match operator {
+            "=" => Ok(Self::Eq),
+            "!=" => Ok(Self::Neq),
+            ">" => Ok(Self::Gt),
+            "<" => Ok(Self::Lt),
+            "=>" => Ok(Self::GtEq),
+            "<=" => Ok(Self::LtEq),
+            _ => Err(anyhow::anyhow!("Invalid filter operator: {}", operator)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -92,19 +110,19 @@ pub struct Filter {
 
 impl Filter {
     pub fn from_str(filter: &str) -> Result<Self> {
-        // FIXME this is a very basic implementation, we should add more operators
-        let parts: Vec<&str> = filter.split('=').collect();
-        if parts.len() != 2 {
-            return Err(anyhow::anyhow!("Invalid filter: {}", filter));
+        let operators = vec!["=", "!=", ">", "<", "=>", "<="];
+        for operator in operators {
+            let parts: Vec<&str> = filter.split(operator).collect();
+            let key = parts[0].to_string();
+            let value = parts[1].to_string();
+            let operator = FilterOperator::from_str(operator)?;
+            return Ok(Self {
+                key,
+                value,
+                operator,
+            });
         }
-        let key = parts[0].to_string();
-        let value = parts[1].to_string();
-        let operator = FilterOperator::Eq;
-        Ok(Self {
-            key,
-            value,
-            operator,
-        })
+        Err(anyhow::anyhow!("Invalid filter: {}", filter))
     }
 }
 

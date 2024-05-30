@@ -19,6 +19,7 @@ use qdrant_client::{
         PointStruct,
         PointsIdsList,
         PointsSelector,
+        Range,
         SearchPoints,
         VectorParams,
         VectorsConfig,
@@ -272,6 +273,50 @@ impl VectorDb for QdrantDb {
                 match f.operator {
                     FilterOperator::Eq => must.push(Condition::matches(f.key, f.value)),
                     FilterOperator::Neq => must_not.push(Condition::matches(f.key, f.value)),
+                    FilterOperator::Lt => {
+                        let value: f64 =
+                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
+                        must.push(Condition::range(
+                            f.key,
+                            Range {
+                                lt: Some(value),
+                                ..Default::default()
+                            },
+                        ));
+                    }
+                    FilterOperator::Gt => {
+                        let value: f64 =
+                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
+                        must.push(Condition::range(
+                            f.key,
+                            Range {
+                                gt: Some(value),
+                                ..Default::default()
+                            },
+                        ));
+                    }
+                    FilterOperator::LtEq => {
+                        let value: f64 =
+                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
+                        must.push(Condition::range(
+                            f.key,
+                            Range {
+                                lte: Some(value),
+                                ..Default::default()
+                            },
+                        ));
+                    }
+                    FilterOperator::GtEq => {
+                        let value: f64 =
+                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
+                        must.push(Condition::range(
+                            f.key,
+                            Range {
+                                gte: Some(value),
+                                ..Default::default()
+                            },
+                        ));
+                    }
                 }
             }
             filter = Some(Filter {
