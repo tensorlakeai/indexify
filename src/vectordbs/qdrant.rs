@@ -268,78 +268,7 @@ impl VectorDb for QdrantDb {
     ) -> Result<Vec<SearchResult>> {
         let mut filter = None;
         if !filters.is_empty() {
-            let mut must = Vec::new();
-            let mut must_not = Vec::new();
-
-            for f in filters {
-                // Qdrant MatchValue doesn't support float values.
-                let value: MatchValue = match f.value {
-                    serde_json::Value::String(s) => MatchValue::Text(s),
-                    serde_json::Value::Bool(b) => MatchValue::Boolean(b),
-                    serde_json::Value::Number(n) => {
-                        if n.is_i64() {
-                            MatchValue::Integer(n.as_i64().unwrap())
-                        } else {
-                            return Err(anyhow!("Unsupported float type in filter value"));
-                        }
-                    }
-                    _ => return Err(anyhow!("Unsupported type in filter value")),
-                };
-
-                match f.operator {
-                    FilterOperator::Eq => must.push(Condition::matches(f.key, f.value)),
-                    FilterOperator::Neq => must_not.push(Condition::matches(f.key, f.value)),
-                    FilterOperator::Lt => {
-                        let value: f64 =
-                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
-                        must.push(Condition::range(
-                            f.key,
-                            Range {
-                                lt: Some(value),
-                                ..Default::default()
-                            },
-                        ));
-                    }
-                    FilterOperator::Gt => {
-                        let value: f64 =
-                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
-                        must.push(Condition::range(
-                            f.key,
-                            Range {
-                                gt: Some(value),
-                                ..Default::default()
-                            },
-                        ));
-                    }
-                    FilterOperator::LtEq => {
-                        let value: f64 =
-                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
-                        must.push(Condition::range(
-                            f.key,
-                            Range {
-                                lte: Some(value),
-                                ..Default::default()
-                            },
-                        ));
-                    }
-                    FilterOperator::GtEq => {
-                        let value: f64 =
-                            f.value.parse::<f64>().map_err(|e| anyhow!(e.to_string()))?;
-                        must.push(Condition::range(
-                            f.key,
-                            Range {
-                                gte: Some(value),
-                                ..Default::default()
-                            },
-                        ));
-                    }
-                }
-            }
-            filter = Some(Filter {
-                must,
-                must_not,
-                ..Default::default()
-            });
+            filter = Some(get_filters(filters)?);
         }
         let result = self
             .create_client()?
@@ -398,6 +327,93 @@ impl VectorDb for QdrantDb {
     }
 }
 
+/// Convert Indexify Filters to Qdrant Filters.
+fn get_filters(filters: Vec<super::Filter>) -> Result<Filter> {
+    let mut must = Vec::new();
+    let mut must_not = Vec::new();
+
+    for f in filters {
+        match f.operator {
+            FilterOperator::Eq => {
+                let value = get_match_value_from_json_value(f.value)?;
+                must.push(Condition::matches(f.key, value))
+            }
+            FilterOperator::Neq => {
+                let value = get_match_value_from_json_value(f.value)?;
+                must_not.push(Condition::matches(f.key, value))
+            }
+            FilterOperator::Lt => {
+                let value = get_f64_from_json_value(f.value)?;
+                must.push(Condition::range(
+                    f.key,
+                    Range {
+                        lt: Some(value),
+                        ..Default::default()
+                    },
+                ));
+            }
+            FilterOperator::Gt => {
+                let value = get_f64_from_json_value(f.value)?;
+                must.push(Condition::range(
+                    f.key,
+                    Range {
+                        gt: Some(value),
+                        ..Default::default()
+                    },
+                ));
+            }
+            FilterOperator::LtEq => {
+                let value = get_f64_from_json_value(f.value)?;
+                must.push(Condition::range(
+                    f.key,
+                    Range {
+                        lte: Some(value),
+                        ..Default::default()
+                    },
+                ));
+            }
+            FilterOperator::GtEq => {
+                let value = get_f64_from_json_value(f.value)?;
+                must.push(Condition::range(
+                    f.key,
+                    Range {
+                        gte: Some(value),
+                        ..Default::default()
+                    },
+                ));
+            }
+        }
+    }
+
+    Ok(Filter {
+        must,
+        must_not,
+        ..Default::default()
+    })
+}
+
+fn get_match_value_from_json_value(value: serde_json::Value) -> Result<MatchValue> {
+    match value {
+        serde_json::Value::String(s) => Ok(MatchValue::Text(s)),
+        serde_json::Value::Bool(b) => Ok(MatchValue::Boolean(b)),
+        serde_json::Value::Number(n) => {
+            if n.is_i64() {
+                Ok(MatchValue::Integer(n.as_i64().unwrap()))
+            } else {
+                Err(anyhow!("Unsupported float type in filter value"))
+            }
+        }
+        _ => Err(anyhow!("Unsupported type in filter value")),
+    }
+}
+
+fn get_f64_from_json_value(value: serde_json::Value) -> Result<f64> {
+    match value {
+        serde_json::Value::Number(n) => Ok(n.as_f64().ok_or(anyhow!("Invalid value"))?),
+        _ => Err(anyhow!("Unsupported type in filter value")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -407,8 +423,7 @@ mod tests {
         server_config::QdrantConfig,
         vectordbs::{
             tests::{basic_search, insertion_idempotent, search_filters, store_metadata},
-            IndexDistance,
-            VectorDBTS,
+            IndexDistance, VectorDBTS,
         },
     };
 
