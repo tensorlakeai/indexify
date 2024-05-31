@@ -53,7 +53,7 @@ You can test it locally and unlock the secrets hidden within your audio files:
 2. Load it in a notebook or terminal:
    ```python
    from indexify_extractor_sdk import load_extractor, Content
-   extractor, config_cls = load_extractor("whisper-asr.whisper_extractor:WhisperExtractor")
+   extractor, config_cls = load_extractor("indexify_extractors.whisper-asr.whisper_extractor:WhisperExtractor")
    content = Content.from_file("/path/to/audio.mp3")
    results = extractor.extract(content,params={})
    print(results)
