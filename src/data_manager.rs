@@ -240,13 +240,7 @@ impl DataManager {
     ) -> Result<Vec<api::ContentMetadata>> {
         let default_labels_eq = HashMap::new();
         let labels_eq = labels_eq_filter.unwrap_or(&default_labels_eq);
-        let labels_eq = labels_eq
-            .iter()
-            .map(|(k, v)| {
-                let v: prost_wkt_types::Value = serde_json::from_value(v.clone()).unwrap();
-                (k.clone(), v)
-            })
-            .collect();
+        let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(labels_eq.clone())?;
 
         let req = indexify_coordinator::ListContentRequest {
             namespace: namespace.to_string(),
