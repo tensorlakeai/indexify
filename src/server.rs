@@ -996,6 +996,7 @@ async fn upload_file(
                 )
             })?;
 
+            // FIXME: edwin this returns Value::String for anything.
             let value = serde_json::json!(&value);
             labels.insert(name, value);
         }

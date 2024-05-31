@@ -273,6 +273,7 @@ where
         validate_label_value(value.as_str())
             .map_err(|e| err_formatter("value invalid".to_string(), e.to_string()))?;
 
+        // FIXME: edwin this returns Value::String only.
         let value = serde_json::json!(value);
         labels_eq.insert(key, value);
     }
