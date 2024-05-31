@@ -204,6 +204,10 @@ impl Server {
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/content/:content_id/labels",
+                put(update_labels).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/content/:content_id/wait",
                 get(wait_content_extraction).with_state(namespace_endpoint_state.clone()),
             )
@@ -352,7 +356,7 @@ impl Server {
         Ok(())
     }
 
-    fn start_gc_tasks_stream(
+    pub fn start_gc_tasks_stream(
         &self,
         coordinator_client: Arc<CoordinatorClient>,
         ingestion_server_id: &str,
@@ -408,7 +412,7 @@ impl Server {
 
                         while let Ok(Some(command)) = stream.message().await {
                             if let Some(gc_task) = command.gc_task {
-                                if let Err(e) = data_manager.delete_content(&gc_task).await {
+                                if let Err(e) = data_manager.perform_gc_task(&gc_task).await {
                                     tracing::error!(
                                         "Failed to delete content for task {:?}: {}",
                                         gc_task,
@@ -670,6 +674,31 @@ async fn ingest_remote_file(
             )
         })?;
     Ok(Json(IngestRemoteFileResponse { content_id }))
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    put,
+    path = "/namespaces/{namespace}/content/{content_id}/labels",
+    request_body = UpdateLabelsRequest,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Labels updated successfully"),
+        (status = BAD_REQUEST, description = "Unable to update labels")
+    ),
+)]
+#[axum::debug_handler]
+async fn update_labels(
+    Path((namespace, content_id)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Json(body): Json<UpdateLabelsRequest>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .update_labels(&namespace, &content_id, body.labels)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(())
 }
 
 #[tracing::instrument]

@@ -1115,6 +1115,51 @@ impl App {
         Ok(filtered_tasks)
     }
 
+    pub async fn update_labels(
+        &self,
+        namespace: &str,
+        content_id: &str,
+        labels: HashMap<String, String>,
+    ) -> Result<()> {
+        let contents = self
+            .get_content_metadata_batch(vec![content_id.to_string()])
+            .await?;
+        let content = contents
+            .first()
+            .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
+        if content.namespace != namespace {
+            return Err(anyhow!("invalid namespace or content id"));
+        }
+        if content.root_content_id.is_some() {
+            return Err(anyhow!("cannot update labels for non-root content"));
+        }
+        let contents = self
+            .state_machine
+            .get_content_tree_metadata(content_id)
+            .map_err(|e| anyhow!("unable to get content tree metadata: {}", e))?;
+        let mut entries = Vec::new();
+        for mut content in contents {
+            content.labels.extend(labels.clone());
+            entries.push(CreateOrUpdateContentEntry {
+                content,
+                previous_parent: None,
+            });
+        }
+        let new_state_changes = vec![StateChange::new(
+            content.id.id.clone(),
+            internal_api::ChangeType::ContentUpdated,
+            timestamp_secs(),
+        )];
+
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateOrUpdateContent { entries },
+            new_state_changes,
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     pub async fn tasks_for_executor(
         &self,
         executor_id: &str,
