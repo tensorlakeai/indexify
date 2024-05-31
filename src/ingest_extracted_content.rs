@@ -11,13 +11,18 @@ use sha2::{
         core_api::{CoreWrapper, CtVariableCoreWrapper},
         typenum::{UInt, UTerm},
     },
-    Digest, OidSha256, Sha256, Sha256VarCore,
+    Digest,
+    OidSha256,
+    Sha256,
+    Sha256VarCore,
 };
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*, blob_storage::StoragePartWriter, data_manager::DataManager,
+    api::*,
+    blob_storage::StoragePartWriter,
+    data_manager::DataManager,
     server::NamespaceEndpointState,
 };
 
@@ -383,7 +388,6 @@ mod tests {
     use anyhow::Result;
     use indexify_internal_api::{
         ContentMetadata,
-        ExtractedEmbeddings,
         ExtractionGraph,
         ExtractionPolicy,
         ExtractionPolicyContentSource,
@@ -408,13 +412,8 @@ mod tests {
         test_util::db_utils::{
             create_metadata,
             create_test_extraction_graph,
-            create_test_extraction_graph_with_children,
             mock_extractor,
-            perform_all_tasks,
             test_mock_content_metadata,
-            wait_changes_processed,
-            wait_gc_tasks_completed,
-            Parent::{Child, Root},
             DEFAULT_TEST_NAMESPACE,
         },
         vector_index::VectorIndexManager,
