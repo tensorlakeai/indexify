@@ -165,10 +165,12 @@ async fn update_schema_with_missing_fields(
         let new_schema_clone = new_schema.clone();
         //add nulls to record batch
         let mapper = move |record_batch: &RecordBatch| {
-            let mut arrays = record_batch.columns().to_vec();
+            let mut arrays = Vec::<Arc<dyn Array>>::new();
             for _ in &new_fields {
-                let null_array = Arc::new(arrow_array::NullArray::new(record_batch.num_rows()));
-                arrays.push(null_array);
+                let num_rows = record_batch.num_rows();
+                let null_string_array =
+                    StringArray::from_iter((0..num_rows).map(|_| Option::<String>::None));
+                arrays.push(Arc::new(null_string_array));
             }
 
             let ret = RecordBatch::try_new(new_schema_clone.clone(), arrays)?;
