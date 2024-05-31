@@ -629,11 +629,9 @@ pub struct ExtractionPolicy {
 
 impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     fn from(value: ExtractionPolicy) -> Self {
-        let mut filters = HashMap::new();
-        for (k, v) in value.filters {
-            let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
-            filters.insert(k, v);
-        }
+        let filters = utils::convert_map_serde_to_prost_json(value.filters)
+            .map_err(|e| anyhow!("unable to convert to protobuff JSON value: {e:?}"))
+            .unwrap();
 
         Self {
             id: value.id,
