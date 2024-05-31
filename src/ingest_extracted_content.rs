@@ -382,14 +382,8 @@ mod tests {
 
     use anyhow::Result;
     use indexify_internal_api::{
-        ContentMetadata,
-        ExtractedEmbeddings,
-        ExtractionGraph,
-        ExtractionPolicy,
-        ExtractionPolicyContentSource,
-        ExtractorDescription,
-        StructuredDataSchema,
-        Task,
+        ContentMetadata, ExtractedEmbeddings, ExtractionGraph, ExtractionPolicy,
+        ExtractionPolicyContentSource, ExtractorDescription, StructuredDataSchema, Task,
         TaskOutcome,
     };
     use serde_json::json;
@@ -406,14 +400,9 @@ mod tests {
         server::{NamespaceEndpointState, Server},
         server_config::{IndexStoreKind, ServerConfig},
         test_util::db_utils::{
-            create_metadata,
-            create_test_extraction_graph,
-            create_test_extraction_graph_with_children,
-            mock_extractor,
-            perform_all_tasks,
-            test_mock_content_metadata,
-            wait_changes_processed,
-            wait_gc_tasks_completed,
+            create_metadata, create_test_extraction_graph,
+            create_test_extraction_graph_with_children, mock_extractor, perform_all_tasks,
+            test_mock_content_metadata, wait_changes_processed, wait_gc_tasks_completed,
             Parent::{Child, Root},
             DEFAULT_TEST_NAMESPACE,
         },
