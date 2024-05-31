@@ -997,7 +997,7 @@ async fn upload_file(
             })?;
 
             // FIXME: edwin error handling
-            let value = serde_json::from_str(&value).unwrap();
+            let value = serde_json::json!(&value);
             labels.insert(name, value);
         }
     }
