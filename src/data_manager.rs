@@ -15,7 +15,6 @@ use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActive
 use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
-use serde_with::serde_conv;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
@@ -26,9 +25,7 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
+        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
@@ -150,16 +147,8 @@ impl DataManager {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
 
-            // FIXME: edwin think of a better way to handle this.
             let filters = ep.filters_eq.clone().unwrap_or_default();
-            let filters = filters
-                .into_iter()
-                .map(|(k, v)| {
-                    let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
-                    (k, v)
-                })
-                .collect();
-
+            let filters = internal_api::utils::convert_map_serde_to_prost_json(filters)?;
             let req = indexify_coordinator::ExtractionPolicyRequest {
                 namespace: namespace.to_string(),
                 extractor: ep.extractor.clone(),
@@ -379,16 +368,7 @@ impl DataManager {
             .as_secs();
         let id = id.unwrap_or(nanoid!(16));
 
-        // FIXME: edwin consolidate this mf
-        let labels_converted = labels
-            .into_iter()
-            .map(|(k, v)| {
-                let string_value = serde_json::to_string(&v).unwrap();
-                let value = serde_json::from_str(&string_value).unwrap();
-                (k, value)
-            })
-            .collect();
-
+        let labels_converted = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
         let content_metadata = indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name: file.to_string(),
@@ -564,15 +544,7 @@ impl DataManager {
             id = original_content_id.unwrap().to_string();
         }
 
-        // FIXME: edwin
-        let labels = labels
-            .iter()
-            .map(|(k, v)| {
-                let stirng_value = serde_json::to_string(v).unwrap();
-                let value = serde_json::from_str(&stirng_value).unwrap();
-                (k.clone(), value)
-            })
-            .collect();
+        let labels = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
 
         Ok(indexify_coordinator::ContentMetadata {
             id: id.clone(),
@@ -682,16 +654,8 @@ impl DataManager {
             .metadata_index_manager
             .get_metadata_for_content(&content_metadata.namespace, &content_metadata.id)
             .await?;
-        let content_metadata_labels = content_metadata
-            .labels
-            .iter()
-            .map(|(k, v)| {
-                // FIXME: edwin fix error handling
-                let string_value = serde_json::to_string(v).unwrap();
-                let value = serde_json::from_str(&string_value).unwrap();
-                (k.clone(), value)
-            })
-            .collect();
+        let content_metadata_labels =
+            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
         let new_metadata =
             Self::combine_metadata(existing_metadata, &features, content_metadata_labels);
         self.write_extracted_features(
@@ -812,16 +776,8 @@ impl DataManager {
             }
             return Ok(());
         }
-        let content_metadata_labels = content_metadata
-            .labels
-            .iter()
-            .map(|(k, v)| {
-                // FIXME: edwin fix error handling.
-                let string_value = serde_json::to_string(v).unwrap();
-                let value = serde_json::from_str(&string_value).unwrap();
-                (k.clone(), value)
-            })
-            .collect();
+        let content_metadata_labels =
+            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
         let metadata = Self::combine_metadata(Vec::new(), &features, content_metadata_labels);
         self.write_extracted_features(
             extractor,

@@ -175,17 +175,9 @@ impl CoordinatorServiceServer {
                 return Err(anyhow!(message));
             }
 
-            // FIXME: edwin improve error handling
-            let filters = policy_request
-                .filters
-                .clone()
-                .into_iter()
-                .map(|(k, v)| {
-                    let string_value = serde_json::to_string(&v).unwrap();
-                    let value = serde_json::from_str(&string_value).unwrap();
-                    (k, value)
-                })
-                .collect();
+            let filters = internal_api::utils::convert_map_prost_to_serde_json(
+                policy_request.filters.clone(),
+            )?;
 
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
@@ -253,16 +245,8 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<ListContentResponse>, tonic::Status> {
         let req = request.into_inner();
 
-        // FIXME: edwin improve error handling
-        let labels_eq = req
-            .labels_eq
-            .into_iter()
-            .map(|(k, v)| {
-                let string_value = serde_json::to_string(&v).unwrap();
-                let value = serde_json::from_str(&string_value).unwrap();
-                (k, value)
-            })
-            .collect();
+        let labels_eq = internal_api::utils::convert_map_prost_to_serde_json(req.labels_eq)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         let content_list = self
             .coordinator
@@ -436,7 +420,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
     }
 
-    // TODO: edwin
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,

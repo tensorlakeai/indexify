@@ -733,7 +733,6 @@ impl App {
         self.state_machine.get_namespace(namespace).await
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,

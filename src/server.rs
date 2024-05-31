@@ -18,10 +18,7 @@ use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
-    self,
-    GcTaskAcknowledgement,
-    ListStateChangesRequest,
-    ListTasksRequest,
+    self, GcTaskAcknowledgement, ListStateChangesRequest, ListTasksRequest,
 };
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
@@ -996,7 +993,6 @@ async fn upload_file(
                 )
             })?;
 
-            // FIXME: edwin error handling
             let value = serde_json::json!(&value);
             labels.insert(name, value);
         }

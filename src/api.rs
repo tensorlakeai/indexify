@@ -53,16 +53,9 @@ pub struct ExtractionPolicy {
 
 impl From<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
     fn from(value: indexify_coordinator::ExtractionPolicy) -> Self {
-        // FIXME: edwin improve error handling
-        let filters_eq = value
-            .filters
-            .into_iter()
-            .map(|(k, v)| {
-                let string_value = serde_json::to_string(&v).unwrap();
-                let value = serde_json::from_str(&string_value).unwrap();
-                (k, value)
-            })
-            .collect();
+        let filters_eq = internal_api::utils::convert_map_prost_to_serde_json(value.filters)
+            .map_err(|e| anyhow!("unable to convert filters to serde JSON: {e:?}",))
+            .unwrap();
 
         Self {
             id: value.id,
@@ -425,16 +418,9 @@ pub struct ContentMetadata {
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
     fn from(value: indexify_coordinator::ContentMetadata) -> Self {
-        // FIXME: edwin improve error handling
-        let labels = value
-            .labels
-            .into_iter()
-            .map(|(k, v)| {
-                let string_value = serde_json::to_string(&v).unwrap();
-                let value = serde_json::from_str(&string_value).unwrap();
-                (k, value)
-            })
-            .collect();
+        let labels = internal_api::utils::convert_map_prost_to_serde_json(value.labels)
+            .map_err(|e| anyhow!("unable to convert labels to serde JSON: {e:?}",))
+            .unwrap();
 
         Self {
             id: value.id,

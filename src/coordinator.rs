@@ -234,7 +234,6 @@ impl Coordinator {
         Ok(addresses)
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,

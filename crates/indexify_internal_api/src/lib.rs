@@ -1,3 +1,5 @@
+pub mod utils;
+
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
@@ -5,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
@@ -910,15 +912,9 @@ impl ContentMetadata {
 
 impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
     fn from(value: ContentMetadata) -> Self {
-        let labels = value
-            .labels
-            .into_iter()
-            .map(|(k, v)| {
-                // FIXME: edwin fix error handling here.
-                let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
-                (k, v)
-            })
-            .collect();
+        let labels = utils::convert_map_serde_to_prost_json(value.labels)
+            .map_err(|e| anyhow!("unable to convert to protobuff JSON value: {e:?}"))
+            .unwrap();
 
         Self {
             id: value.id.id, //  don't expose the version on the task

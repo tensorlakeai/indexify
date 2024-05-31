@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use axum::extract::ws;
 use axum_typed_websockets::{Message, WebSocket};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use sha2::{
     digest::{
@@ -157,15 +158,9 @@ impl ContentStateWriting {
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
 
-                // FIXME: edwin improve error handling
-                let payload_labels: HashMap<String, prost_wkt_types::Value> = payload
-                    .labels
-                    .into_iter()
-                    .map(|(k, v)| {
-                        let v: prost_wkt_types::Value = serde_json::from_value(v).unwrap();
-                        (k, v)
-                    })
-                    .collect();
+                let payload_labels =
+                    internal_api::utils::convert_map_serde_to_prost_json(payload.labels.clone())
+                        .map_err(|e| anyhow!("unable to convert labels to prost: {e}"))?;
 
                 labels.extend(payload_labels);
                 let hash_result = frame_state.hasher.clone().finalize();
