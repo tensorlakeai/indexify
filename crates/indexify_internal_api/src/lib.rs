@@ -939,11 +939,10 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
 
 impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
     fn from(value: indexify_coordinator::ContentMetadata) -> Self {
-        let labels = value
-            .labels
-            .into_iter()
-            .map(|(k, v)| (k, serde_json::to_value(v).unwrap()))
-            .collect();
+        let labels = utils::convert_map_prost_to_serde_json(value.labels)
+            .map_err(|e| anyhow!("unable to convert to serde JSON value: {e:?}"))
+            .unwrap();
+
         let root_content_id = if value.root_content_id.is_empty() {
             None
         } else {
