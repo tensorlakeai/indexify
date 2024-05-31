@@ -385,8 +385,10 @@ mod tests {
 
     use std::sync::Arc;
 
+    use anyhow::Result;
     use indexify_internal_api::{
         ContentMetadata,
+        ExtractedEmbeddings,
         ExtractionGraph,
         ExtractionPolicy,
         ExtractionPolicyContentSource,
@@ -406,13 +408,18 @@ mod tests {
         data_manager::DataManager,
         metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
         metrics,
-        server::NamespaceEndpointState,
+        server::{NamespaceEndpointState, Server},
         server_config::{IndexStoreKind, ServerConfig},
         test_util::db_utils::{
             create_metadata,
             create_test_extraction_graph,
+            create_test_extraction_graph_with_children,
             mock_extractor,
+            perform_all_tasks,
             test_mock_content_metadata,
+            wait_changes_processed,
+            wait_gc_tasks_completed,
+            Parent::{Child, Root},
             DEFAULT_TEST_NAMESPACE,
         },
         vector_index::VectorIndexManager,
@@ -980,5 +987,198 @@ mod tests {
         assert_eq!(points[0].metadata, metadata1_out);
 
         coordinator.stop().await;
+    }
+
+    #[tokio::test]
+    async fn test_labels_update() -> Result<()> {
+        set_tracing();
+        let state = new_endpoint_state().await.unwrap();
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let server = Server::new(Arc::new(make_test_config()))?;
+        let server_id = "1";
+
+        let test_coordinator = TestCoordinator::new().await;
+        let coordinator = &test_coordinator.coordinator;
+
+        server.start_gc_tasks_stream(
+            state.coordinator_client.clone(),
+            server_id,
+            state.data_manager.clone(),
+            shutdown_rx,
+        );
+
+        let _ = state
+            .data_manager
+            .vector_index_manager
+            .drop_index("test_table")
+            .await;
+
+        let schema = indexify_internal_api::EmbeddingSchema {
+            dim: 3,
+            distance: "cosine".to_string(),
+        };
+        state
+            .data_manager
+            .vector_index_manager
+            .create_index("test_table", schema)
+            .await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg = create_test_extraction_graph_with_children(
+            "test_extraction_graph",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
+        );
+        coordinator.create_extraction_graph(eg.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let parent_content = test_mock_content_metadata("200", "", &eg.name);
+        let create_res = coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        coordinator.run_scheduler().await?;
+
+        let mut child_id = 100;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        for content in &tree {
+            if content.extraction_policy_ids.is_empty() {
+                continue;
+            }
+            let embedding = ExtractedEmbeddings {
+                content_id: content.id.id.clone(),
+                embedding: vec![1.0, 2.0, 3.0],
+                metadata: HashMap::new(),
+                content_metadata: content.clone(),
+                root_content_metadata: None,
+            };
+            state
+                .data_manager
+                .vector_index_manager
+                .add_embedding("test_table", vec![embedding])
+                .await?;
+        }
+
+        let labels: HashMap<_, _> = [("key1", "value1"), ("key2", "value2")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+
+        state
+            .data_manager
+            .update_labels(DEFAULT_TEST_NAMESPACE, "200", labels.clone())
+            .await?;
+
+        let content = state
+            .data_manager
+            .get_content_metadata(DEFAULT_TEST_NAMESPACE, vec!["200".to_string()])
+            .await?
+            .first()
+            .cloned()
+            .unwrap();
+
+        assert_eq!(content.labels, labels);
+
+        let content = state
+            .data_manager
+            .get_content_metadata(DEFAULT_TEST_NAMESPACE, vec!["101".to_string()])
+            .await?
+            .first()
+            .cloned()
+            .unwrap();
+
+        assert_eq!(content.labels, labels);
+
+        wait_changes_processed(coordinator).await?;
+        wait_gc_tasks_completed(coordinator).await?;
+
+        let points = state
+            .data_manager
+            .vector_index_manager
+            .get_points("test_table", vec!["200".to_string(), "101".to_string()])
+            .await?;
+
+        assert_eq!(points.len(), 2);
+        assert_eq!(points[0].metadata, create_metadata(&labels));
+        assert_eq!(points[1].metadata, create_metadata(&labels));
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        // Update labels again and check if values change.
+        let labels: HashMap<_, _> = [("key1", "value3"), ("key2", "value4")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+
+        state
+            .data_manager
+            .update_labels(DEFAULT_TEST_NAMESPACE, "200", labels.clone())
+            .await?;
+
+        let content = state
+            .data_manager
+            .get_content_metadata(DEFAULT_TEST_NAMESPACE, vec!["200".to_string()])
+            .await?
+            .first()
+            .cloned()
+            .unwrap();
+
+        assert_eq!(content.labels, labels);
+
+        let content = state
+            .data_manager
+            .get_content_metadata(DEFAULT_TEST_NAMESPACE, vec!["101".to_string()])
+            .await?
+            .first()
+            .cloned()
+            .unwrap();
+
+        assert_eq!(content.labels, labels);
+
+        wait_changes_processed(coordinator).await?;
+        wait_gc_tasks_completed(coordinator).await?;
+
+        let points = state
+            .data_manager
+            .vector_index_manager
+            .get_points("test_table", vec!["200".to_string(), "101".to_string()])
+            .await?;
+
+        assert_eq!(points.len(), 2);
+        assert_eq!(points[0].metadata, create_metadata(&labels));
+        assert_eq!(points[1].metadata, create_metadata(&labels));
+
+        shutdown_tx.send(true)?;
+
+        test_coordinator.stop().await;
+
+        Ok(())
     }
 }

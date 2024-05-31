@@ -399,6 +399,11 @@ pub struct ListContentResponse {
     pub content_list: Vec<ContentMetadata>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, ToSchema, IntoParams)]
+pub struct UpdateLabelsRequest {
+    pub labels: HashMap<String, String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema, Clone)]
 pub struct ContentMetadata {
     pub id: String,

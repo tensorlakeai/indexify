@@ -69,6 +69,8 @@ service CoordinatorService {
     rpc WaitContentExtraction(WaitContentExtractionRequest) returns (WaitContentExtractionResponse) {}
 
     rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
+
+    rpc UpdateLabels(UpdateLabelsRequest) returns (UpdateLabelsResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -231,12 +233,18 @@ message GCTaskAcknowledgement {
     string ingestion_server_id = 3;
 }
 
+enum GcTaskType {
+    Delete = 0;
+    UpdateLabels = 1;
+}
+
 message GCTask {
     string task_id = 1;
     string namespace = 2;
     string content_id = 3;
     repeated string output_tables = 5;
     string blob_store_path = 6;
+    GcTaskType task_type = 7;
 }
 
 message HeartbeatRequest {
@@ -520,3 +528,11 @@ message ListActiveContentsRequest {
 message ListActiveContentsResponse {
     repeated string content_ids = 1;
 }
+
+message UpdateLabelsRequest {
+    string namespace = 1;
+    string content_id = 2;
+    map<string, string> labels = 3;
+}
+
+message UpdateLabelsResponse {}
