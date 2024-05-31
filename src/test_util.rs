@@ -3,15 +3,32 @@ pub mod db_utils {
     use std::collections::HashMap;
 
     use indexify_internal_api as internal_api;
-    use internal_api::{ContentMetadataId, ExtractionGraph, ExtractionPolicy};
+    use indexify_proto::indexify_coordinator::CreateContentStatus;
+    use internal_api::{
+        ContentMetadataId,
+        ContentSource,
+        ExtractionGraph,
+        ExtractionPolicy,
+        Task,
+        TaskOutcome,
+    };
     use serde_json::json;
+    use tokio::time::{sleep, Duration};
 
+    use crate::coordinator::Coordinator;
     pub const DEFAULT_TEST_NAMESPACE: &str = "test_namespace";
 
     pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
 
-    pub fn create_metadata(val: Vec<(&str, &str)>) -> HashMap<String, serde_json::Value> {
-        val.iter().map(|(k, v)| (k.to_string(), json!(v))).collect()
+    pub fn create_metadata<I, K, V>(val: I) -> HashMap<String, serde_json::Value>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        val.into_iter()
+            .map(|(k, v)| (k.as_ref().to_string(), json!(v.as_ref())))
+            .collect()
     }
 
     pub fn test_mock_content_metadata(
@@ -133,5 +150,108 @@ pub mod db_utils {
 
     pub fn mock_extractors() -> Vec<internal_api::ExtractorDescription> {
         vec![mock_extractor()]
+    }
+
+    pub async fn complete_task(
+        coordinator: &Coordinator,
+        task: &Task,
+        executor_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut task_clone = task.clone();
+        task_clone.outcome = internal_api::TaskOutcome::Success;
+        coordinator
+            .shared_state
+            .update_task(task_clone, Some(executor_id.to_string()))
+            .await
+    }
+
+    pub fn next_child(child_id: &mut i32) -> String {
+        let child_id_str = format!("{}", child_id);
+        *child_id += 1;
+        child_id_str
+    }
+
+    pub async fn create_content_for_task(
+        coordinator: &Coordinator,
+        task: &Task,
+        id: &str,
+    ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
+        let mut content = test_mock_content_metadata(
+            id,
+            task.content_metadata.get_root_id(),
+            &task.content_metadata.extraction_graph_names[0],
+        );
+        content.parent_id = Some(task.content_metadata.id.clone());
+        let policy = coordinator.get_extraction_policy(task.extraction_policy_id.clone())?;
+        content.source = ContentSource::ExtractionPolicyName(policy.name);
+        Ok(content)
+    }
+
+    pub async fn perform_task(
+        coordinator: &Coordinator,
+        task: &Task,
+        id: &str,
+        executor_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        println!(
+            "creating content for task parent: {:?} id: {:?}",
+            task.content_metadata.id.id, id
+        );
+        let content = create_content_for_task(coordinator, task, id).await?;
+        let create_res = coordinator
+            .create_content_metadata(vec![content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
+        complete_task(coordinator, task, executor_id).await
+    }
+
+    // run all tasks creating child contents until no new tasks are generated
+    pub async fn perform_all_tasks(
+        coordinator: &Coordinator,
+        executor_id: &str,
+        child_id: &mut i32,
+    ) -> Result<(), anyhow::Error> {
+        loop {
+            coordinator.run_scheduler().await?;
+            let tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+            if tasks.is_empty() {
+                break;
+            }
+            for task in tasks {
+                perform_task(coordinator, &task, &next_child(child_id), executor_id).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn wait_changes_processed(coordinator: &Coordinator) -> Result<(), anyhow::Error> {
+        while !coordinator
+            .shared_state
+            .unprocessed_state_change_events()
+            .await?
+            .is_empty()
+        {
+            coordinator.run_scheduler().await?;
+            sleep(Duration::from_millis(1)).await;
+        }
+        Ok(())
+    }
+
+    async fn gc_tasks_pending(coordinator: &Coordinator) -> Result<bool, anyhow::Error> {
+        Ok(coordinator
+            .shared_state
+            .list_all_gc_tasks()
+            .await?
+            .iter()
+            .any(|task| task.outcome == TaskOutcome::Unknown))
+    }
+
+    pub async fn wait_gc_tasks_completed(coordinator: &Coordinator) -> Result<(), anyhow::Error> {
+        while gc_tasks_pending(coordinator).await? {
+            coordinator.run_scheduler().await?;
+            sleep(Duration::from_millis(1)).await;
+        }
+        Ok(())
     }
 }

@@ -494,6 +494,12 @@ impl From<Task> for indexify_coordinator::Task {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Copy)]
+pub enum ServerTaskType {
+    Delete = 0,
+    UpdateLabels = 1,
+}
+
 pub type GarbageCollectionTaskId = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
@@ -509,6 +515,7 @@ pub struct GarbageCollectionTask {
     pub outcome: TaskOutcome,
     pub blob_store_path: String,
     pub assigned_to: Option<String>,
+    pub task_type: ServerTaskType,
 }
 
 impl GarbageCollectionTask {
@@ -516,6 +523,7 @@ impl GarbageCollectionTask {
         namespace: &str,
         content_metadata: ContentMetadata,
         output_tables: HashSet<String>,
+        task_type: ServerTaskType,
     ) -> Self {
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
@@ -531,6 +539,7 @@ impl GarbageCollectionTask {
             outcome: TaskOutcome::Unknown,
             blob_store_path: content_metadata.storage_url,
             assigned_to: None,
+            task_type,
         }
     }
 }
@@ -543,6 +552,7 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
             content_id: value.content_id.id,
             output_tables: value.output_tables.into_iter().collect::<Vec<String>>(),
             blob_store_path: value.blob_store_path,
+            task_type: value.task_type as i32,
         }
     }
 }
@@ -1066,7 +1076,7 @@ pub enum ChangeType {
     TombstoneContentTree,
     ExecutorAdded,
     ExecutorRemoved,
-    NewGargabeCollectionTask,
+    ContentUpdated,
     TaskCompleted { root_content_id: ContentMetadataId },
 }
 
@@ -1077,7 +1087,7 @@ impl fmt::Display for ChangeType {
             ChangeType::TombstoneContentTree => write!(f, "TombstoneContentTree"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
-            ChangeType::NewGargabeCollectionTask => write!(f, "NewGarbageCollectionTask"),
+            ChangeType::ContentUpdated => write!(f, "ContentUpdated"),
             ChangeType::TaskCompleted {
                 root_content_id: content_id,
             } => {

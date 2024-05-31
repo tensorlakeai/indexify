@@ -222,6 +222,20 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    async fn update_labels(
+        &self,
+        request: tonic::Request<indexify_coordinator::UpdateLabelsRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::UpdateLabelsResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .update_labels(&request.namespace, &request.content_id, request.labels)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(
+            indexify_coordinator::UpdateLabelsResponse {},
+        ))
+    }
+
     async fn tombstone_content(
         &self,
         request: tonic::Request<TombstoneContentRequest>,
@@ -478,7 +492,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 ))
             })?;
         self.coordinator
-            .create_gc_tasks(&state_change)
+            .create_gc_tasks(state_change)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateGcTasksResponse {}))
