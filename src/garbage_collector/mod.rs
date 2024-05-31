@@ -3,7 +3,12 @@ use std::{
     sync::Arc,
 };
 
-use indexify_internal_api::{ContentMetadata, ContentMetadataId, GarbageCollectionTask};
+use indexify_internal_api::{
+    ContentMetadata,
+    ContentMetadataId,
+    GarbageCollectionTask,
+    ServerTaskType,
+};
 use rand::seq::IteratorRandom;
 use tokio::sync::RwLock;
 
@@ -69,15 +74,20 @@ impl GarbageCollector {
         &self,
         content_metadata: Vec<ContentMetadata>,
         outputs: HashMap<ContentMetadataId, HashSet<String>>,
+        task_type: ServerTaskType,
     ) -> Result<Vec<GarbageCollectionTask>, anyhow::Error> {
         let mut created_gc_tasks = Vec::new();
         let namespace = content_metadata[0].namespace.clone();
         for content in content_metadata {
             let output_tables = outputs.get(&content.id).cloned().unwrap_or_default();
+            if task_type == ServerTaskType::UpdateLabels && output_tables.is_empty() {
+                continue;
+            }
             let mut gc_task = indexify_internal_api::GarbageCollectionTask::new(
                 &namespace,
                 content,
                 output_tables,
+                task_type,
             );
 
             //  add and assign the task
@@ -96,7 +106,7 @@ impl GarbageCollector {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId};
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, ServerTaskType};
 
     use crate::garbage_collector::GarbageCollector;
 
@@ -142,7 +152,9 @@ mod tests {
 
         //  Create a task
         let (content_metadata, outputs, _) = create_data_for_task(1);
-        let tasks = gc.create_gc_tasks(content_metadata, outputs).await?;
+        let tasks = gc
+            .create_gc_tasks(content_metadata, outputs, ServerTaskType::Delete)
+            .await?;
 
         //  verify task has been stored and assigned
         let tasks_guard = gc.gc_tasks.read().await;
@@ -163,7 +175,9 @@ mod tests {
 
         // Assign a task to server1
         let (content_metadata, outputs, _) = create_data_for_task(1);
-        let tasks = gc.create_gc_tasks(content_metadata, outputs).await?;
+        let tasks = gc
+            .create_gc_tasks(content_metadata, outputs, ServerTaskType::Delete)
+            .await?;
 
         //  task should be assigned to server 1
         {
@@ -213,7 +227,9 @@ mod tests {
 
         //  Create a couple of tasks
         let (content_metadata, outputs, _) = create_data_for_task(2);
-        let _ = gc.create_gc_tasks(content_metadata, outputs).await?;
+        let _ = gc
+            .create_gc_tasks(content_metadata, outputs, ServerTaskType::Delete)
+            .await?;
 
         //  all tasks should be unassigned since there are no ingestion servers
         {
@@ -244,7 +260,9 @@ mod tests {
         //  Create a couple of tasks
         gc.register_ingestion_server(server_id).await;
         let (content_metadata, outputs, _) = create_data_for_task(3);
-        let tasks = gc.create_gc_tasks(content_metadata, outputs).await?;
+        let tasks = gc
+            .create_gc_tasks(content_metadata, outputs, ServerTaskType::Delete)
+            .await?;
 
         //  Mark all tasks as complete and check that they are removed
         for task in tasks {

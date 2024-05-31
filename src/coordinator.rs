@@ -14,6 +14,7 @@ use internal_api::{
     ExtractionPolicyId,
     GarbageCollectionTask,
     OutputSchema,
+    ServerTaskType,
     StateChange,
     StructuredDataSchema,
 };
@@ -87,6 +88,17 @@ impl Coordinator {
             .list_content(namespace, parent_id, |c| {
                 content_filter(c, source, labels_eq)
             })
+            .await
+    }
+
+    pub async fn update_labels(
+        &self,
+        namespace: &str,
+        content_id: &str,
+        labels: HashMap<String, String>,
+    ) -> Result<()> {
+        self.shared_state
+            .update_labels(namespace, content_id, labels)
             .await
     }
 
@@ -386,17 +398,14 @@ impl Coordinator {
         Ok(indexes_to_create)
     }
 
-    pub async fn create_gc_tasks(
+    pub async fn create_content_tree_tasks(
         &self,
-        state_change: &StateChange,
-    ) -> Result<Vec<GarbageCollectionTask>> {
-        let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
-        let content_tree_metadata = self
-            .shared_state
-            .get_content_tree_metadata_with_version(&content_id)?;
+        content_tree: Vec<internal_api::ContentMetadata>,
+        state_change: StateChange,
+    ) -> Result<()> {
         let mut output_tables = HashMap::new();
 
-        for content_metadata in &content_tree_metadata {
+        for content_metadata in &content_tree {
             if content_metadata.extraction_policy_ids.keys().len() == 0 {
                 continue;
             }
@@ -427,21 +436,31 @@ impl Coordinator {
             }
         }
 
+        let task_type = match state_change.change_type {
+            indexify_internal_api::ChangeType::TombstoneContentTree => ServerTaskType::Delete,
+            _ => ServerTaskType::UpdateLabels,
+        };
         let tasks = self
             .garbage_collector
-            .create_gc_tasks(content_tree_metadata, output_tables)
+            .create_gc_tasks(content_tree, output_tables, task_type)
             .await?;
         self.shared_state.create_gc_tasks(tasks.clone()).await?;
         self.shared_state
-            .mark_change_events_as_processed(vec![state_change.clone()], Vec::new())
+            .mark_change_events_as_processed(vec![state_change], Vec::new())
             .await?;
-        Ok(tasks)
+        Ok(())
     }
 
-    async fn handle_tombstone_content_tree_state_change(
-        &self,
-        change: StateChange,
-    ) -> Result<Vec<GarbageCollectionTask>> {
+    pub async fn create_gc_tasks(&self, state_change: StateChange) -> Result<()> {
+        let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
+        let content_tree_metadata = self
+            .shared_state
+            .get_content_tree_metadata_with_version(&content_id)?;
+        self.create_content_tree_tasks(content_tree_metadata, state_change)
+            .await
+    }
+
+    async fn handle_tombstone_content_tree_state_change(&self, change: StateChange) -> Result<()> {
         if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
             let leader_id = forward_to_leader
                 .leader_id
@@ -452,13 +471,21 @@ impl Coordinator {
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             self.forwardable_coordinator
-                .create_gc_tasks(&leader_coord_addr, &change)
+                .create_gc_tasks(&leader_coord_addr, change)
                 .await?;
-            return Ok(Vec::new());
+            return Ok(());
         }
 
         //  this coordinator node is the leader
-        self.create_gc_tasks(&change).await
+        self.create_gc_tasks(change).await
+    }
+
+    async fn handle_content_updated(&self, state_change: StateChange) -> Result<()> {
+        let content_tree = self
+            .shared_state
+            .get_content_tree_metadata(&state_change.object_id)?;
+        self.create_content_tree_tasks(content_tree, state_change)
+            .await
     }
 
     async fn handle_task_completion_state_change(
@@ -539,7 +566,9 @@ impl Coordinator {
                 indexify_internal_api::ChangeType::ExecutorRemoved => {
                     self.scheduler.handle_executor_removed(change).await?
                 }
-                indexify_internal_api::ChangeType::NewGargabeCollectionTask => {}
+                indexify_internal_api::ChangeType::ContentUpdated => {
+                    self.handle_content_updated(change).await?
+                }
             }
         }
         Ok(())
@@ -605,8 +634,7 @@ mod tests {
 
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator::CreateContentStatus;
-    use internal_api::{ContentMetadataId, ContentSource, Task, TaskOutcome};
-    use test_util::db_utils::Parent::{Child, Root};
+    use internal_api::{ContentMetadataId, ContentSource, TaskOutcome};
 
     use super::Coordinator;
     use crate::{
@@ -614,15 +642,18 @@ mod tests {
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
         state::App,
-        test_util::{
-            self,
-            db_utils::{
-                create_test_extraction_graph,
-                create_test_extraction_graph_with_children,
-                mock_extractor,
-                test_mock_content_metadata,
-                DEFAULT_TEST_NAMESPACE,
-            },
+        test_util::db_utils::{
+            complete_task,
+            create_content_for_task,
+            create_test_extraction_graph,
+            create_test_extraction_graph_with_children,
+            mock_extractor,
+            next_child,
+            perform_all_tasks,
+            perform_task,
+            test_mock_content_metadata,
+            Parent::{Child, Root},
+            DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
     };
@@ -1269,75 +1300,6 @@ mod tests {
             }
         }
 
-        Ok(())
-    }
-
-    async fn create_content_for_task(
-        coordinator: &Coordinator,
-        task: &Task,
-        id: &str,
-    ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
-        let mut content = test_mock_content_metadata(
-            id,
-            task.content_metadata.get_root_id(),
-            &task.content_metadata.extraction_graph_names[0],
-        );
-        content.parent_id = Some(task.content_metadata.id.clone());
-        let policy = coordinator.get_extraction_policy(task.extraction_policy_id.clone())?;
-        content.source = ContentSource::ExtractionPolicyName(policy.name);
-        Ok(content)
-    }
-
-    async fn complete_task(
-        coordinator: &Coordinator,
-        task: &Task,
-        executor_id: &str,
-    ) -> Result<(), anyhow::Error> {
-        let mut task_clone = task.clone();
-        task_clone.outcome = internal_api::TaskOutcome::Success;
-        coordinator
-            .shared_state
-            .update_task(task_clone, Some(executor_id.to_string()))
-            .await
-    }
-
-    async fn perform_task(
-        coordinator: &Coordinator,
-        task: &Task,
-        id: &str,
-        executor_id: &str,
-    ) -> Result<(), anyhow::Error> {
-        let content = create_content_for_task(coordinator, task, id).await?;
-        let create_res = coordinator
-            .create_content_metadata(vec![content.clone()])
-            .await?;
-        assert_eq!(create_res.len(), 1);
-        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
-        complete_task(coordinator, task, executor_id).await
-    }
-
-    fn next_child(child_id: &mut i32) -> String {
-        let child_id_str = format!("child_{}", child_id);
-        *child_id += 1;
-        child_id_str
-    }
-
-    // run all tasks creating child contents until no new tasks are generated
-    async fn perform_all_tasks(
-        coordinator: &Coordinator,
-        executor_id: &str,
-        child_id: &mut i32,
-    ) -> Result<(), anyhow::Error> {
-        loop {
-            coordinator.run_scheduler().await?;
-            let tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
-            if tasks.is_empty() {
-                break;
-            }
-            for task in tasks {
-                perform_task(coordinator, &task, &next_child(child_id), executor_id).await?;
-            }
-        }
         Ok(())
     }
 

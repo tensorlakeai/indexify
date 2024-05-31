@@ -311,6 +311,54 @@ impl DataManager {
         Ok(())
     }
 
+    pub async fn perform_gc_task(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
+        match gc_task.task_type.try_into() {
+            Ok(indexify_coordinator::GcTaskType::Delete) => self.delete_content(gc_task).await,
+            Ok(indexify_coordinator::GcTaskType::UpdateLabels) => {
+                self.update_index_labels(gc_task).await
+            }
+            _ => Ok(()),
+        }
+    }
+
+    #[tracing::instrument]
+    pub async fn update_index_labels(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
+        let metadata = self
+            .metadata_index_manager
+            .get_metadata_for_content(&gc_task.namespace, &gc_task.content_id)
+            .await?;
+        let content_metadata = self
+            .coordinator_client
+            .get()
+            .await?
+            .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
+                content_list: vec![gc_task.content_id.clone()],
+            })
+            .await?
+            .into_inner()
+            .content_list
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("content not found"))?;
+        let content_metadata_labels = content_metadata
+            .labels
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
+                )
+            })
+            .collect();
+        let new_metadata = DataManager::combine_metadata(metadata, &[], content_metadata_labels);
+        for table in &gc_task.output_tables {
+            self.vector_index_manager
+                .update_metadata(table, gc_task.content_id.clone(), new_metadata.clone())
+                .await?;
+        }
+        Ok(())
+    }
+
     #[tracing::instrument]
     pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
         //  Remove content from blob storage
@@ -454,6 +502,25 @@ impl DataManager {
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
         Ok(content_metadata)
+    }
+
+    pub async fn update_labels(
+        &self,
+        namespace: &str,
+        content_id: &str,
+        labels: HashMap<String, String>,
+    ) -> Result<()> {
+        let req = indexify_coordinator::UpdateLabelsRequest {
+            content_id: content_id.to_string(),
+            namespace: namespace.to_string(),
+            labels,
+        };
+        self.coordinator_client
+            .get()
+            .await?
+            .update_labels(req)
+            .await?;
+        Ok(())
     }
 
     pub async fn create_content_metadata(

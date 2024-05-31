@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api, ServerTaskType};
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
@@ -1475,7 +1475,7 @@ impl IndexifyState {
                 gc_task,
                 mark_finished,
             } => {
-                if mark_finished {
+                if mark_finished && gc_task.task_type == ServerTaskType::Delete {
                     self.content_children_table.remove_all(&gc_task.content_id);
                 }
                 Ok(())
@@ -1548,8 +1548,6 @@ impl IndexifyState {
 
     //  START READER METHODS FOR ROCKSDB FORWARD INDEXES
 
-    /// This function is a helper method that will get the latest version of any
-    /// piece of content in the database by building a prefix foward iterator
     pub fn get_latest_version_of_content(
         &self,
         content_id: &str,

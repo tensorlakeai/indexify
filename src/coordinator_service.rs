@@ -107,7 +107,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
-    state,
+    state::{self, grpc_config::GrpcConfig},
     tonic_streamer::DropReceiver,
 };
 
@@ -220,6 +220,20 @@ impl CoordinatorService for CoordinatorServiceServer {
                 .ok_or_else(|| tonic::Status::aborted("result invalid"))?
                 as i32,
         }))
+    }
+
+    async fn update_labels(
+        &self,
+        request: tonic::Request<indexify_coordinator::UpdateLabelsRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::UpdateLabelsResponse>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .update_labels(&request.namespace, &request.content_id, request.labels)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(
+            indexify_coordinator::UpdateLabelsResponse {},
+        ))
     }
 
     async fn tombstone_content(
@@ -478,7 +492,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 ))
             })?;
         self.coordinator
-            .create_gc_tasks(&state_change)
+            .create_gc_tasks(state_change)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(CreateGcTasksResponse {}))
@@ -1181,7 +1195,10 @@ impl CoordinatorServer {
             shutdown_rx: shutdown_rx.clone(),
         };
         let srvr =
-            indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc);
+            indexify_coordinator::coordinator_service_server::CoordinatorServiceServer::new(svc)
+                .max_decoding_message_size(GrpcConfig::MAX_DECODING_SIZE)
+                .max_encoding_message_size(GrpcConfig::MAX_ENCODING_SIZE);
+
         let shared_state = self.shared_state.clone();
         shared_state
             .initialize_raft()

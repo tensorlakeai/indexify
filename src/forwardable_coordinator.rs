@@ -46,9 +46,9 @@ impl ForwardableCoordinator {
     pub async fn create_gc_tasks(
         &self,
         leader_addr: &str,
-        state_change: &indexify_internal_api::StateChange,
+        state_change: indexify_internal_api::StateChange,
     ) -> Result<(), anyhow::Error> {
-        let state_change: indexify_coordinator::StateChange = (*state_change).clone().try_into()?;
+        let state_change: indexify_coordinator::StateChange = state_change.try_into()?;
         let req = indexify_coordinator::CreateGcTasksRequest {
             state_change: Some(state_change),
         };

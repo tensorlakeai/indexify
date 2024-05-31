@@ -208,6 +208,10 @@ impl VectorDb for LanceDb {
             Field::new("content_metadata", DataType::Utf8, false),
         ]));
         let batches = RecordBatchIterator::new(vec![], schema.clone());
+        let table_names = self.conn.table_names().execute().await?;
+        if table_names.contains(&index.vectordb_index_name) {
+            return Ok(());
+        }
         let _ = self
             .conn
             .create_table(&index.vectordb_index_name, Box::new(batches))
