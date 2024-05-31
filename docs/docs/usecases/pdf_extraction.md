@@ -90,7 +90,7 @@ You can test it locally:
    ```python
    from indexify_extractor_sdk import load_extractor, Content
 
-   extractor, config_cls = load_extractor("pdf-extractor.pdf_extractor:PDFExtractor")
+   extractor, config_cls = load_extractor("indexify_extractors.pdf-extractor.pdf_extractor:PDFExtractor")
    content = Content.from_file("/path/to/file.pdf")
 
    results =  extractor.extract(content)
