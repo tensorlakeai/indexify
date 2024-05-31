@@ -1,5 +1,6 @@
-use anyhow::Result;
 use std::collections::HashMap;
+
+use anyhow::Result;
 
 pub fn convert_serde_to_prost_json(
     serde_json: serde_json::Value,
