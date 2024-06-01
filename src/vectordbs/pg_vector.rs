@@ -279,7 +279,8 @@ mod tests {
         vectordbs::{
             pg_vector::PgVector,
             tests::{basic_search, crud_operations, insertion_idempotent, search_filters},
-            IndexDistance, VectorDBTS,
+            IndexDistance,
+            VectorDBTS,
         },
     };
 
