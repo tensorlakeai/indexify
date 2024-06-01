@@ -768,10 +768,10 @@ pub struct UpdateLabelsRequest {
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub content_id: ::prost::alloc::string::String,
-    #[prost(map = "string, string", tag = "3")]
+    #[prost(map = "string, message", tag = "3")]
     pub labels: ::std::collections::HashMap<
         ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
+        ::prost_wkt_types::Value,
     >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

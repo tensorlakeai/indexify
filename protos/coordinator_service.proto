@@ -532,7 +532,7 @@ message ListActiveContentsResponse {
 message UpdateLabelsRequest {
     string namespace = 1;
     string content_id = 2;
-    map<string, string> labels = 3;
+    map<string, google.protobuf.Value> labels = 3;
 }
 
 message UpdateLabelsResponse {}
