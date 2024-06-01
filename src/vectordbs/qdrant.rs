@@ -268,10 +268,17 @@ impl VectorDb for QdrantDb {
         if !filters.is_empty() {
             let mut must = Vec::new();
             let mut must_not = Vec::new();
+
             for f in filters {
+                // FIXME: edwin handle other case
+                let value = match f.value {
+                    serde_json::Value::String(s) => s,
+                    _ => return Err(anyhow!("Invalid filter value")),
+                };
+
                 match f.operator {
-                    FilterOperator::Eq => must.push(Condition::matches(f.key, f.value)),
-                    FilterOperator::Neq => must_not.push(Condition::matches(f.key, f.value)),
+                    FilterOperator::Eq => must.push(Condition::matches(f.key, value)),
+                    FilterOperator::Neq => must_not.push(Condition::matches(f.key, value)),
                 }
             }
             filter = Some(Filter {

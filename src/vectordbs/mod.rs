@@ -86,7 +86,7 @@ pub enum FilterOperator {
 #[derive(Debug, Clone)]
 pub struct Filter {
     pub key: String,
-    pub value: String,
+    pub value: serde_json::Value,
     pub operator: FilterOperator,
 }
 
@@ -98,7 +98,7 @@ impl Filter {
             return Err(anyhow::anyhow!("Invalid filter: {}", filter));
         }
         let key = parts[0].to_string();
-        let value = parts[1].to_string();
+        let value = serde_json::json!(parts[1]);
         let operator = FilterOperator::Eq;
         Ok(Self {
             key,
@@ -349,7 +349,7 @@ mod tests {
                 2,
                 vec![Filter {
                     key: "key1".to_string(),
-                    value: "value1".to_string(),
+                    value: serde_json::json!("value1"),
                     operator: FilterOperator::Eq,
                 }],
             )
@@ -365,7 +365,7 @@ mod tests {
                 2,
                 vec![Filter {
                     key: "key1".to_string(),
-                    value: "value1".to_string(),
+                    value: serde_json::json!("value1"),
                     operator: FilterOperator::Neq,
                 }],
             )
@@ -382,12 +382,12 @@ mod tests {
                 vec![
                     Filter {
                         key: "key1".to_string(),
-                        value: "value1".to_string(),
+                        value: serde_json::json!("value1"),
                         operator: FilterOperator::Neq,
                     },
                     Filter {
                         key: "key2".to_string(),
-                        value: "value4".to_string(),
+                        value: serde_json::json!("value4"),
                         operator: FilterOperator::Eq,
                     },
                 ],
@@ -405,12 +405,12 @@ mod tests {
                 vec![
                     Filter {
                         key: "key1".to_string(),
-                        value: "value1".to_string(),
+                        value: serde_json::json!("value1"),
                         operator: FilterOperator::Eq,
                     },
                     Filter {
                         key: "key2".to_string(),
-                        value: "value4".to_string(),
+                        value: serde_json::json!("value4"),
                         operator: FilterOperator::Eq,
                     },
                 ],
