@@ -1118,7 +1118,7 @@ impl App {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let contents = self
             .get_content_metadata_batch(vec![content_id.to_string()])

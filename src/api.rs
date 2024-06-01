@@ -401,7 +401,7 @@ pub struct ListContentResponse {
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema, IntoParams)]
 pub struct UpdateLabelsRequest {
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema, Clone)]

@@ -231,8 +231,10 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<indexify_coordinator::UpdateLabelsRequest>,
     ) -> Result<tonic::Response<indexify_coordinator::UpdateLabelsResponse>, tonic::Status> {
         let request = request.into_inner();
+        let labels = internal_api::utils::convert_map_prost_to_serde_json(request.labels)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         self.coordinator
-            .update_labels(&request.namespace, &request.content_id, request.labels)
+            .update_labels(&request.namespace, &request.content_id, labels)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(

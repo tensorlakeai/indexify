@@ -347,16 +347,8 @@ impl DataManager {
             .into_iter()
             .next()
             .ok_or_else(|| anyhow!("content not found"))?;
-        let content_metadata_labels = content_metadata
-            .labels
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
-                )
-            })
-            .collect();
+        let content_metadata_labels =
+            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
         let new_metadata = DataManager::combine_metadata(metadata, &[], content_metadata_labels);
         for table in &gc_task.output_tables {
             self.vector_index_manager
@@ -517,12 +509,13 @@ impl DataManager {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
+        let prost_labels = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
         let req = indexify_coordinator::UpdateLabelsRequest {
             content_id: content_id.to_string(),
             namespace: namespace.to_string(),
-            labels,
+            labels: prost_labels,
         };
         self.coordinator_client
             .get()

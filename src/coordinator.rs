@@ -95,7 +95,7 @@ impl Coordinator {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         self.shared_state
             .update_labels(namespace, content_id, labels)

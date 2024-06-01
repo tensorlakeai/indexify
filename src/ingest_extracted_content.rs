@@ -1085,7 +1085,7 @@ mod tests {
 
         let labels: HashMap<_, _> = [("key1", "value1"), ("key2", "value2")]
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
             .collect();
 
         state
@@ -1123,8 +1123,8 @@ mod tests {
             .await?;
 
         assert_eq!(points.len(), 2);
-        assert_eq!(points[0].metadata, create_metadata(&labels));
-        assert_eq!(points[1].metadata, create_metadata(&labels));
+        assert_eq!(points[0].metadata, labels);
+        assert_eq!(points[1].metadata, labels);
 
         let tree = coordinator
             .shared_state
@@ -1134,7 +1134,7 @@ mod tests {
         // Update labels again and check if values change.
         let labels: HashMap<_, _> = [("key1", "value3"), ("key2", "value4")]
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
             .collect();
 
         state
@@ -1172,8 +1172,8 @@ mod tests {
             .await?;
 
         assert_eq!(points.len(), 2);
-        assert_eq!(points[0].metadata, create_metadata(&labels));
-        assert_eq!(points[1].metadata, create_metadata(&labels));
+        assert_eq!(points[0].metadata, labels);
+        assert_eq!(points[1].metadata, labels);
 
         shutdown_tx.send(true)?;
 
