@@ -98,7 +98,8 @@ impl Filter {
             return Err(anyhow::anyhow!("Invalid filter: {}", filter));
         }
         let key = parts[0].to_string();
-        let value: serde_json::Value = serde_json::from_str(parts[1])?;
+        let value = serde_json::from_str(parts[1]).unwrap_or(serde_json::json!(parts[1]));
+
         let operator = FilterOperator::Eq;
         Ok(Self {
             key,
