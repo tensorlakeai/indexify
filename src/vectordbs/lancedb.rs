@@ -91,7 +91,7 @@ async fn vector_chunk_from_batch(
             let mut i = 0;
             for row in as_string_array(batch.column_by_name(field_name).unwrap()) {
                 let row = row.ok_or(anyhow!("metadata is null"))?;
-                let value: serde_json::Value = serde_json::json!(row);
+                let value: serde_json::Value = serde_json::from_str(&row)?;
                 metadatas[i].insert(field_name.to_string(), value);
                 i += 1;
             }
