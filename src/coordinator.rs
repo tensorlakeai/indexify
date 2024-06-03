@@ -16,6 +16,7 @@ use internal_api::{
     OutputSchema,
     ServerTaskType,
     StateChange,
+    StateChangeId,
     StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
@@ -578,7 +579,7 @@ impl Coordinator {
         self.shared_state.subscribe_to_gc_task_events().await
     }
 
-    pub fn get_state_watcher(&self) -> Receiver<StateChange> {
+    pub fn get_state_watcher(&self) -> Receiver<StateChangeId> {
         self.shared_state.get_state_change_watcher()
     }
 

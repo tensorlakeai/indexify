@@ -13,6 +13,28 @@ pub struct RaftReply {
     #[prost(string, tag = "2")]
     pub error: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SnapshotFileChunkRequest {
+    #[prost(string, tag = "1")]
+    pub vote: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub snapshot_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "4")]
+    pub offset: u64,
+    #[prost(bytes = "vec", tag = "5")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InstallSnapshotRequest {
+    #[prost(string, tag = "1")]
+    pub snapshot_meta: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub vote: ::prost::alloc::string::String,
+}
 /// Generated client implementations.
 pub mod raft_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
@@ -144,7 +166,7 @@ pub mod raft_api_client {
         }
         pub async fn install_snapshot(
             &mut self,
-            request: impl tonic::IntoRequest<super::RaftRequest>,
+            request: impl tonic::IntoRequest<super::InstallSnapshotRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
             self.inner
                 .ready()
@@ -162,6 +184,28 @@ pub mod raft_api_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("indexify_raft.RaftApi", "InstallSnapshot"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn transfer_snapshot(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SnapshotFileChunkRequest>,
+        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/indexify_raft.RaftApi/TransferSnapshot",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("indexify_raft.RaftApi", "TransferSnapshot"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn vote(
@@ -227,7 +271,11 @@ pub mod raft_api_server {
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
         async fn install_snapshot(
             &self,
-            request: tonic::Request<super::RaftRequest>,
+            request: tonic::Request<super::InstallSnapshotRequest>,
+        ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
+        async fn transfer_snapshot(
+            &self,
+            request: tonic::Request<super::SnapshotFileChunkRequest>,
         ) -> std::result::Result<tonic::Response<super::RaftReply>, tonic::Status>;
         async fn vote(
             &self,
@@ -408,7 +456,9 @@ pub mod raft_api_server {
                 "/indexify_raft.RaftApi/InstallSnapshot" => {
                     #[allow(non_camel_case_types)]
                     struct InstallSnapshotSvc<T: RaftApi>(pub Arc<T>);
-                    impl<T: RaftApi> tonic::server::UnaryService<super::RaftRequest>
+                    impl<
+                        T: RaftApi,
+                    > tonic::server::UnaryService<super::InstallSnapshotRequest>
                     for InstallSnapshotSvc<T> {
                         type Response = super::RaftReply;
                         type Future = BoxFuture<
@@ -417,7 +467,7 @@ pub mod raft_api_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RaftRequest>,
+                            request: tonic::Request<super::InstallSnapshotRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -434,6 +484,52 @@ pub mod raft_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = InstallSnapshotSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/indexify_raft.RaftApi/TransferSnapshot" => {
+                    #[allow(non_camel_case_types)]
+                    struct TransferSnapshotSvc<T: RaftApi>(pub Arc<T>);
+                    impl<
+                        T: RaftApi,
+                    > tonic::server::UnaryService<super::SnapshotFileChunkRequest>
+                    for TransferSnapshotSvc<T> {
+                        type Response = super::RaftReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SnapshotFileChunkRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as RaftApi>::transfer_snapshot(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = TransferSnapshotSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
