@@ -8,6 +8,7 @@ use qdrant_client::{
     qdrant::{
         point_id::PointIdOptions::Num,
         points_selector::PointsSelectorOneOf,
+        r#match::MatchValue,
         vectors::VectorsOptions,
         vectors_config::Config,
         with_payload_selector::SelectorOptions,
@@ -270,10 +271,18 @@ impl VectorDb for QdrantDb {
             let mut must_not = Vec::new();
 
             for f in filters {
-                // FIXME: edwin handle other case
-                let value = match f.value {
-                    serde_json::Value::String(s) => s,
-                    _ => return Err(anyhow!("Invalid filter value")),
+                // Qdrant MatchValue doesn't support float values.
+                let value: MatchValue = match f.value {
+                    serde_json::Value::String(s) => MatchValue::Text(s),
+                    serde_json::Value::Bool(b) => MatchValue::Boolean(b),
+                    serde_json::Value::Number(n) => {
+                        if n.is_i64() {
+                            MatchValue::Integer(n.as_i64().unwrap())
+                        } else {
+                            return Err(anyhow!("Unsupported float type in filter value"));
+                        }
+                    }
+                    _ => return Err(anyhow!("Unsupported type in filter value")),
                 };
 
                 match f.operator {

@@ -321,7 +321,10 @@ mod tests {
 
     pub async fn search_filters(vector_db: VectorDBTS, index_name: &str) {
         let content_ids = vec![make_id(), make_id()];
-        let metadata1 = create_metadata(vec![("key1", "value1"), ("key2", "value2")]);
+        let metadata1 = HashMap::from([
+            ("key1".to_string(), json!("value1")),
+            ("key2".to_string(), json!(25)),
+        ]);
         let chunk = VectorChunk {
             content_id: content_ids[0].clone(),
             embedding: vec![0., 2.],
@@ -427,5 +430,21 @@ mod tests {
                 .len(),
             2
         );
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![Filter {
+                    key: "key2".to_string(),
+                    value: serde_json::json!(25),
+                    operator: FilterOperator::Eq,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
     }
 }
