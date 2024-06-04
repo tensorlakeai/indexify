@@ -273,8 +273,7 @@ where
         validate_label_value(value.as_str())
             .map_err(|e| err_formatter("value invalid".to_string(), e.to_string()))?;
 
-        // FIXME: edwin this returns Value::String only.
-        let value = serde_json::json!(value);
+        let value = serde_json::from_str(&value).unwrap_or(serde_json::json!(value));
         labels_eq.insert(key, value);
     }
 
@@ -359,7 +358,7 @@ mod test_deserialize_labels_eq_filter {
             labels_eq: Some({
                 let mut labels_eq = HashMap::new();
                 labels_eq.insert("key".to_string(), serde_json::json!("value"));
-                labels_eq.insert("key2".to_string(), serde_json::json!("25"));
+                labels_eq.insert("key2".to_string(), serde_json::json!(25));
 
                 labels_eq
             }),

@@ -193,7 +193,6 @@ impl VectorDb for PgVector {
             let filter_query = filters
                 .into_iter()
                 .map(|filter| {
-                    // FIXME: edwin handle other types of values
                     let value = match filter.value {
                         serde_json::Value::String(s) => s,
                         _ => filter.value.to_string(),
