@@ -1,0 +1,19 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: indexify
+data:
+  postgres.yml: |-
+    db_url: postgres://postgres:indexify@vector-store/indexify
+    index_config:
+      # The pg_vector_config parameter specifies the configuration for the Postgres pg_embedding extension
+      index_store: PgVector
+      pg_vector_config:
+        addr: postgres://postgres:indexify@vector-store/indexify
+        m: 16
+        efconstruction: 64
+        efsearch: 40
+    metadata_storage:
+      metadata_store: postgres
+      conn_url: postgres://postgres:indexify@vector-store/indexify

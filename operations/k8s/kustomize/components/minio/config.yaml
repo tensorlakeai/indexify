@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: indexify
+data:
+  minio.yml: |-
+    blob_storage:
+      backend: s3
+      s3:
+        bucket: indexify
+        region: us-east-1
