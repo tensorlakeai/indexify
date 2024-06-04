@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+images:
+  - name: postgres
+    newName: pgvector/pgvector
+    newTag: pg16
+
+resources:
+  - vector-store.yaml
+
+patches:
+  - path: config.yaml

@@ -1,0 +1,127 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blob-store
+  labels:
+    app.kubernetes.io/component: blob-store
+spec:
+  ports:
+    - port: 9000
+      name: api
+    - port: 9090
+      name: console
+  selector:
+    app.kubernetes.io/name: blob-store
+    app.kubernetes.io/component: blob-store
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blob-store
+  labels:
+    app.kubernetes.io/name: blob-store
+    app.kubernetes.io/component: blob-store
+data:
+  retry.sh: |-
+    #!/bin/bash
+
+    function retry {
+      local retries=$1
+      shift
+
+      local count=0
+      until "$@"; do
+        exit=$?
+        wait=$((2 ** $count))
+        count=$(($count + 1))
+        if [ $count -lt $retries ]; then
+          echo "Retry $count/$retries exited $exit, retrying in $wait seconds..."
+          sleep $wait
+        else
+          echo "Retry $count/$retries exited $exit, no more retries left."
+          return $exit
+        fi
+      done
+      return 0
+    }
+
+    retry $@
+  init.sh: |-
+    #!/bin/bash
+
+    /scripts/retry.sh 3 mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+    mc mb local/indexify
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: blob-store
+  labels:
+    app.kubernetes.io/name: blob-store
+    app.kubernetes.io/component: blob-store
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blob-store
+  labels:
+    app.kubernetes.io/name: blob-store
+    app.kubernetes.io/component: blob-store
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blob-store
+      app.kubernetes.io/component: blob-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blob-store
+        app.kubernetes.io/component: blob-store
+    spec:
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:latest
+
+          command: ['/bin/bash', '-c']
+          args:
+            - minio server /data --console-address :9090
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: blob-store
+                  key: AWS_ACCESS_KEY_ID
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: blob-store
+                  key: AWS_SECRET_ACCESS_KEY
+
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /scripts/init.sh >/proc/1/fd/1 2>&1
+
+          volumeMounts:
+            - mountPath: /data
+              name: data
+            - mountPath: /scripts
+              name: scripts
+              readOnly: true
+
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: blob-store
+            defaultMode: 0755

@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: indexify
+
+resources:
+  - ../base
+  - ../components/chunker
+  - ../components/minilm-l6
+
+components:
+  - ../components/postgres
+  - ../components/minio
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/part-of: indexify
