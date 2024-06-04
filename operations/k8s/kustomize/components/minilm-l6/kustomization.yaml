@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+components:
+  - ../extractor
+
+images:
+  - name: tensorlake/extractor:latest
+    newName: tensorlake/minilm-l6
+    newTag: latest
+
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: extractor
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: minilm-l6
+      - op: add
+        path: /spec/selector/matchLabels/app.kubernetes.io~1name
+        value: minilm-l6
+      - op: add
+        path: /metadata/labels/app.kubernetes.io~1name
+        value: minilm-l6
+      - op: add
+        path: /spec/template/metadata/labels/app.kubernetes.io~1name
+        value: minilm-l6
+  - target:
+      version: v1
+      kind: Service
+      name: extractor
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: minilm-l6
+      - op: add
+        path: /metadata/labels/app.kubernetes.io~1name
+        value: minilm-l6
+      - op: add
+        path: /spec/selector/app.kubernetes.io~1name
+        value: minilm-l6

@@ -1,0 +1,81 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-store
+spec:
+  ports:
+    - port: 5432
+  selector:
+    app.kubernetes.io/name: vector-store
+    app.kubernetes.io/component: vector-store
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vector-store
+  labels:
+    app.kubernetes.io/name: vector-store
+    app.kubernetes.io/component: vector-store
+type: Opaque
+stringData:
+  password: indexify
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: initdb
+  labels:
+    app.kubernetes.io/name: vector-store
+    app.kubernetes.io/component: vector-store
+data:
+  initdb.sql: |-
+    create database indexify;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector-store
+  labels:
+    app.kubernetes.io/name: vector-store
+    app.kubernetes.io/component: vector-store
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector-store
+      app.kubernetes.io/component: vector-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vector-store
+        app.kubernetes.io/component: vector-store
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:latest
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vector-store
+                  key: password
+
+            - name: PGDATA
+              value: /data
+
+          volumeMounts:
+            - mountPath: /docker-entrypoint-initdb.d
+              name: initdb
+              readOnly: true
+            - mountPath: /data
+              name: data
+
+      volumes:
+        - name: initdb
+          configMap:
+            name: initdb
+        - name: data
+          emptyDir: {}

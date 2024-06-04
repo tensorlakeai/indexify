@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: indexify
+data:
+  config.yaml: |-
+    coordinator_addr: coordinator:8950
+    raft_port: 8970
+    seed_node: localhost:8970
+    node_id: 0
+
+    state_store:
+      path: /data/state
