@@ -4,24 +4,25 @@
 
 The resources have been split into separate components:
 
-- [base](base) - this includes the API server and the coordinator.
-- [components/postgres](components/postgres) - a simple, ephemeral example of
-  using postgres for all database operations including the vector store.
-- [components/minio](components/minio) - an ephemeral example of using S3 for
-  blog storage.
-- [components/extractors](components/extractors) - extractors are published as
-  common containers, this component is used by all the extractors, such as
-  [minilm-l6](components/minilm-l6) to provide extraction.
+- [base](kustomize/base) - this includes the API server and the coordinator.
+- [components/postgres](kustomize/components/postgres) - a simple, ephemeral
+  example of using postgres for all database operations including the vector
+  store.
+- [components/minio](kustomize/components/minio) - an ephemeral example of using
+  S3 for blog storage.
+- [components/extractors](kustomize/components/extractors) - extractors are
+  published as common containers, this component is used by all the extractors,
+  such as [minilm-l6](kustomize/components/minilm-l6) to provide extraction.
 
 > [!NOTE] The API server comes with an ingress resource by default that exposes
 > the api at `/`. Make sure to change this if you'd like it at a different
 > location.
 
-To run locally, you can apply the [local](local) setup and then go through the
-getting started guide.
+To run locally, you can apply the [local](kustomize/local) setup and then go
+through the getting started guide.
 
 ```bash
-kubectl apply -k local
+kubectl apply -k kustomize/local
 ```
 
 ## Cluster Standup
