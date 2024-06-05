@@ -110,7 +110,7 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
 
 2. Start a long-running PDF Extractor:
    ```bash
-   indexify-extractor download hub://pdf/pdf-extractor
+   indexify-extractor download tensorlake/pdf-extractor
    indexify-extractor join-server
    ```
 

@@ -37,10 +37,10 @@ curl https://getindexify.ai | sh
 
 # Indexify extractors.
 pip install indexify-extractor-sdk
-indexify-extractor download hub://audio/whisper-asr
-indexify-extractor download hub://video/audio-extractor
-indexify-extractor download hub://text/chunking
-indexify-extractor download hub://embedding/minilm-l6
+indexify-extractor download tensorlake/whisper-asr
+indexify-extractor download tensorlake/audio-extractor 
+indexify-extractor download tensorlake/chunk-extractor 
+indexify-extractor download tensorlake/minilm-l6
 ```
 
 ### Start Indexify and Extractors in Terminal
