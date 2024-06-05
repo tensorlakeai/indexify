@@ -324,6 +324,11 @@ impl VectorDb for LanceDb {
                 }
             }
 
+            if some_values.is_empty() {
+                continue;
+            }
+
+            validate_value_with_column_type(some_values[0], field)?;
             arrays.push(from_serde_json_to_arrow_array(some_values[0], all_values)?);
         }
 
@@ -587,6 +592,38 @@ fn from_arrow_column_to_json_values(column: &Arc<dyn Array>) -> Result<Vec<serde
     }
 
     Ok(values)
+}
+
+fn validate_value_with_column_type(
+    value: &serde_json::Value,
+    field: &Field,
+) -> Result<(), anyhow::Error> {
+    let field_name = field.name();
+    let datatype = field.data_type();
+    let err = Err(anyhow!(
+        "Type of value {value:?} mismatch for field {field_name} ({datatype:?})"
+    ));
+
+    match value {
+        serde_json::Value::Number(_) => match datatype {
+            DataType::Float64 => {}
+            DataType::Int64 => {}
+            _ => return err,
+        },
+        serde_json::Value::String(_) => {
+            if *field.data_type() != DataType::Utf8 {
+                return err;
+            }
+        }
+        serde_json::Value::Bool(_) => {
+            if *field.data_type() != DataType::Boolean {
+                return err;
+            }
+        }
+        _ => return err,
+    };
+
+    Ok(())
 }
 
 #[cfg(test)]
