@@ -339,11 +339,12 @@ impl RaftApi for RaftGrpcServer {
         let chunk = request.into_inner();
         let vote: Vote<u64> = serde_json::from_str(&chunk.vote)
             .map_err(|e| Status::invalid_argument(format!("failed to parse vote: {}", e)))?;
-        let my_vote = self
-            .raft
-            .with_raft_state(|state| *state.vote_ref())
-            .await
-            .unwrap();
+        let my_vote = match self.raft.with_raft_state(|state| *state.vote_ref()).await {
+            Ok(vote) => vote,
+            Err(e) => {
+                return GrpcHelper::err_response(e);
+            }
+        };
         if vote < my_vote {
             // terminate early if vote is stale
             return GrpcHelper::ok_response(my_vote);
