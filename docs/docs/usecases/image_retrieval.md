@@ -19,25 +19,11 @@ curl https://getindexify.ai | sh
 indexify server -d 
 ```
 
-### Upload Files
-Let's add some files stored remotely, which we can use for the rest of the tutorial.
-```
-file_names=["skate.jpg", "congestion.jpg", "bushwick-bred.jpg", "141900.jpg", "132500.jpg", "123801.jpg","120701.jpg", "103701.jpg"]
-file_urls = [f"https://extractor-files.diptanu-6d5.workers.dev/images/{file_name}" for file_name in file_names]
-for file_url in file_urls:
-    client.ingest_remote_file(file_url, "image/png", {})
-```
-If you have local files, you can upload them by -
-```
-client.upload_file("yourextractiongraphname", path="../path/to/file")
-```
-
-## SQL Based Retrieval 
 ### Download and Run Yolo Extractor
 === "Shell"
 
     ```shell
-    indexify-extractor download hub://image/yolo
+    indexify-extractor download tensorlake/yolo-extractor
     indexify-extractor join-server
     ```
 
@@ -47,7 +33,8 @@ client.upload_file("yourextractiongraphname", path="../path/to/file")
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/yolo-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500 --workers=1
     ```
 
-### How to test Yolo Extractor Locally
+
+### (Optional) How to test Yolo Extractor Locally
 Load Yolo Extractor in a notebook or terminal
 ```python
 from indexify_extractor_sdk import load_extractor, Content
@@ -69,6 +56,21 @@ extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
 ```
 
+### Upload Files
+Let's add some files stored remotely, which we can use for the rest of the tutorial.
+```
+file_names=["skate.jpg", "congestion.jpg", "bushwick-bred.jpg", "141900.jpg", "132500.jpg", "123801.jpg","120701.jpg", "103701.jpg"]
+file_urls = [f"https://extractor-files.diptanu-6d5.workers.dev/images/{file_name}" for file_name in file_names]
+for file_url in file_urls:
+    client.ingest_remote_file(file_url, "image/png", {})
+```
+If you have local files, you can upload them by -
+```
+client.upload_file("yourextractiongraphname", path="../path/to/file")
+```
+
+
+## SQL Based Retrieval 
 ### Search using SQL
 Lets find a image with a skateboard! 
 ```
