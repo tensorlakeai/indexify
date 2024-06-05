@@ -82,7 +82,7 @@ You can test it locally:
 
 1. Download a PDF Extractor:
    ```bash
-   indexify-extractor download hub://pdf/pdf-extractor
+   indexify-extractor download tensorlake/pdf-extractor
    indexify-extractor join-server
    ```
 

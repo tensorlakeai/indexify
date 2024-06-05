@@ -7,7 +7,7 @@ chunks with timestamps are represented as metadata of the content.
 === "Bash"
 
     ```bash
-    indexify-extractor download hub://audio/whisper-asr
+    indexify-extractor download tensorlake/whisper-asr
     ```
 === "Docker"
 
@@ -21,7 +21,7 @@ This extractor indentifies the speaker for each sentence in the transcription ge
 === "Bash"
 
     ```bash
-    indexify-extractor download hub://audio/whisper-diarization
+    indexify-extractor download tensorlake/whisper-diarization
     ```
 === "Docker"
 

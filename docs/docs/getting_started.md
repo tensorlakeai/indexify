@@ -58,8 +58,8 @@ Next, we'll need to download two extractors - one for chunking our pages that we
 
 ```bash title="( Terminal 2 ) Download Indexify Extractors"
 source venv/bin/activate
-indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor download hub://text/chunking
+indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/chunk-extractor
 ```
 
 We can then run all avaliable extractors using the command below.
