@@ -12,7 +12,6 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
-use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
 use sha2::{Digest, Sha256};

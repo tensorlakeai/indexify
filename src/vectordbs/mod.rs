@@ -324,7 +324,8 @@ mod tests {
         let content_ids = vec![make_id(), make_id()];
         let metadata1 = HashMap::from([
             ("key1".to_string(), json!("value1")),
-            ("key2".to_string(), json!(25)),
+            ("key2".to_string(), json!("value2")),
+            ("key3".to_string(), json!(25)),
         ]);
         let chunk = VectorChunk {
             content_id: content_ids[0].clone(),
@@ -438,7 +439,7 @@ mod tests {
                 vec![0., 2.],
                 2,
                 vec![Filter {
-                    key: "key2".to_string(),
+                    key: "key3".to_string(),
                     value: serde_json::json!(25),
                     operator: FilterOperator::Eq,
                 }],
