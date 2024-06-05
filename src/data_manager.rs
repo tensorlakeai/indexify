@@ -85,7 +85,11 @@ impl DataManager {
             .into_iter()
             .map(|r| api::DataNamespace {
                 name: r.name,
-                extraction_graphs: r.extraction_graphs.into_iter().map(Into::into).collect(),
+                extraction_graphs: r
+                    .extraction_graphs
+                    .into_iter()
+                    .map(|g| g.try_into().unwrap())
+                    .collect(),
             })
             .collect();
         Ok(data_namespaces)
@@ -119,7 +123,7 @@ impl DataManager {
             .await?
             .into_inner();
         let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
-        Ok(namespace.into())
+        Ok(namespace.try_into()?)
     }
 
     pub async fn get_extraction_policy(&self, id: &str) -> Result<api::ExtractionPolicy> {
@@ -136,7 +140,7 @@ impl DataManager {
         let policy = resp
             .policy
             .ok_or_else(|| anyhow!("extraction policy not found"))?;
-        Ok(policy.into())
+        Ok(policy.try_into()?)
     }
 
     pub async fn create_extraction_graph(
@@ -254,12 +258,11 @@ impl DataManager {
             .await?
             .list_content(req)
             .await?;
-        let content_list = response
-            .into_inner()
-            .content_list
-            .into_iter()
-            .map(|c| c.into())
-            .collect_vec();
+        let mut content_list = vec![];
+        for content in response.into_inner().content_list {
+            let content: api::ContentMetadata = content.try_into()?;
+            content_list.push(content);
+        }
         Ok(content_list)
     }
 
@@ -454,7 +457,12 @@ impl DataManager {
             .get_content_metadata(req)
             .await?
             .into_inner();
-        Ok(response.content_list.into_iter().map(Into::into).collect())
+        let mut content_list = vec![];
+        for content in response.content_list {
+            let content: api::ContentMetadata = content.try_into()?;
+            content_list.push(content);
+        }
+        Ok(content_list)
     }
 
     pub async fn get_content_tree_metadata(
@@ -469,12 +477,11 @@ impl DataManager {
             .await?
             .get_content_tree_metadata(req)
             .await?;
-        let content_list: Vec<api::ContentMetadata> = response
-            .into_inner()
-            .content_list
-            .into_iter()
-            .map(|content| content.into())
-            .collect();
+        let mut content_list: Vec<api::ContentMetadata> = vec![];
+        for content in response.into_inner().content_list {
+            let content: api::ContentMetadata = content.try_into()?;
+            content_list.push(content);
+        }
         Ok(content_list)
     }
 

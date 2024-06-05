@@ -64,7 +64,7 @@ impl Coordinator {
     ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
         let mut content_meta_list = Vec::new();
         for content in content_list {
-            let content: indexify_coordinator::ContentMetadata = content.into();
+            let content: indexify_coordinator::ContentMetadata = content.try_into()?;
             content_meta_list.push(content.clone());
         }
         Ok(content_meta_list)
@@ -73,8 +73,13 @@ impl Coordinator {
     pub fn external_content_metadata_to_internal(
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
-    ) -> Vec<internal_api::ContentMetadata> {
-        content_list.into_iter().map(|v| v.into()).collect()
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        let mut contents = vec![];
+        for content in content_list {
+            let content: internal_api::ContentMetadata = content.try_into()?;
+            contents.push(content.clone());
+        }
+        Ok(contents)
     }
 
     pub async fn list_content(
@@ -183,7 +188,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -207,7 +212,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -316,7 +321,7 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        Ok(task.into())
+        Ok(task.try_into()?)
     }
 
     pub async fn get_task_and_root_content(

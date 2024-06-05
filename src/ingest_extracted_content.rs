@@ -77,7 +77,11 @@ impl ContentStateWriting {
         if task.content_metadata.is_none() {
             return Err(anyhow!("task does not have content metadata"));
         }
-        let root_content = root_content.map(|c| c.into());
+        let root_content = if let Some(content) = root_content {
+            Some(content.try_into()?)
+        } else {
+            None
+        };
         Ok(Self {
             ingest_metadata,
             task,
@@ -169,7 +173,7 @@ impl ContentStateWriting {
                 let root_content_metadata = self
                     .root_content_metadata
                     .clone()
-                    .unwrap_or(self.task.content_metadata.clone().unwrap().into());
+                    .unwrap_or(self.task.content_metadata.clone().unwrap().try_into()?);
                 let extraction_policy = state
                     .data_manager
                     .get_extraction_policy(&self.task.extraction_policy_id)
@@ -512,7 +516,7 @@ mod tests {
                 .unwrap();
             let content_metadata = test_mock_content_metadata("1", "1", &eg.name);
             test_coordinator
-                .create_content(content_metadata.clone().into())
+                .create_content(content_metadata.clone().try_into().unwrap())
                 .await
                 .unwrap();
             let internal_content_metadata = test_coordinator
@@ -557,7 +561,7 @@ mod tests {
             content: indexify_coordinator::ContentMetadata,
         ) -> Result<()> {
             self.coordinator
-                .create_content_metadata(vec![content.into()])
+                .create_content_metadata(vec![content.try_into()?])
                 .await
                 .unwrap();
 
