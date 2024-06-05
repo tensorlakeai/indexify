@@ -1,0 +1,25 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/component: api
+spec:
+  template:
+    spec:
+      containers:
+        - name: indexify
+          env:
+            - name: AWS_ENDPOINT_URL
+              value: http://blob-store:9000
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: blob-store
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: blob-store
+                  key: AWS_SECRET_ACCESS_KEY

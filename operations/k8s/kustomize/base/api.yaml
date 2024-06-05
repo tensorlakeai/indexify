@@ -51,7 +51,8 @@ spec:
           image: alpine:3
           command: ['/bin/sh', '-c']
           args:
-            - find /fragments -type f | xargs -I{} sh -c "cat {}; echo ''" > /config/config.yaml
+            - |-
+              find /fragments -type f | xargs -I{} sh -c "cat {}; echo ''" > /config/config.yaml
 
           volumeMounts:
             - mountPath: /config
