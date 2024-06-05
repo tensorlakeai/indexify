@@ -46,11 +46,12 @@ pip install indexify indexify-extractor-sdk
 
 #### Download some extractors
 ```bash title="Terminal 2"
-indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor download hub://pdf/pdf-extractor
-indexify-extractor download hub://image/yolo
-indexify-extractor download hub://text/chunking
-indexify-extractor download hub://audio/whisper-asr
+indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/pdf-extractor
+indexify-extractor download tensorlake/yolo-extractor
+indexify-extractor download tensorlake/chunk-extractor
+indexify-extractor download tensorlake/summarization
+indexify-extractor download tensorlake/asrdiarization
 indexify-extractor join-server
 ```
 
