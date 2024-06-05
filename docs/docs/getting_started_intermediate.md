@@ -25,9 +25,9 @@ Before we begin, let's download the extractors
 python3 -m venv venv
 source venv/bin/activate
 pip3 install indexify-extractor-sdk indexify wikipedia openai
-indexify-extractor download hub://pdf/marker
-indexify-extractor download hub://embedding/minilm-l6
-indexify-extractor download hub://text/chunking
+indexify-extractor download tensorlake/marker
+indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/chunk-extractor
 ```
 
 ## Start the Extractors

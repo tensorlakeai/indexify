@@ -71,8 +71,8 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
 
 2. Start a long-running Audio Extractor:
    ```bash
-   indexify-extractor download hub://audio/whisper-asr
-   indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor
+   indexify-extractor download tensorlake/whisper-asr
+   indexify-extractor join-server
    ```
 
 3. Create an Extraction Graph:
