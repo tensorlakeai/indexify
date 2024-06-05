@@ -13,7 +13,7 @@ axum-server = { git = "https://github.com/grafbase/axum-server", branch = "rustl
 members = [".", "crates/indexify_internal_api", "crates/indexify_proto"]
 
 [workspace.dependencies]
-anyerror = "*"
+anyerror = { version = "*", features=["anyhow"]}
 anyhow = { version = "1" }
 async-trait = "0.1"
 askama = { version = "0.12" }
@@ -47,7 +47,7 @@ mime = { version = "0.3" }
 mime_guess = { version = "2" }
 moka = { version = "0.12", features = ["default", "future"] }
 nanoid = { version = "0.4" }
-openraft = {version = "0.9.11", features =["serde_json", "serde", "storage-v2"]}
+openraft = {version = "0.9.11", features =["serde_json", "serde", "storage-v2", "generic-snapshot-data"]}
 opensearch = { version = "2", default_features = false, features = [
     "rustls-tls",
 ] }

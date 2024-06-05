@@ -1,38 +1,41 @@
-use std::{error::Error, fmt::Display, sync::Arc};
+use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 
 use anyerror::AnyError;
+use futures::{Future, FutureExt};
+use indexify_proto::indexify_raft::{InstallSnapshotRequest, SnapshotFileChunkRequest};
 use openraft::{
-    error::{NetworkError, RemoteError, Unreachable},
+    error::{Fatal, NetworkError, RemoteError, ReplicationClosed, StreamingError, Unreachable},
     network::{RPCOption, RaftNetwork, RaftNetworkFactory},
     raft::{
         AppendEntriesRequest,
         AppendEntriesResponse,
-        InstallSnapshotRequest,
-        InstallSnapshotResponse,
+        SnapshotResponse,
         VoteRequest,
         VoteResponse,
     },
     BasicNode,
+    ErrorVerb,
+    OptionalSend,
+    StorageError,
+    Vote,
 };
+use tokio::{fs, fs::File, io::AsyncReadExt};
 use tonic::IntoRequest;
+use tracing::{info, warn};
 
 use super::store::requests::StateMachineUpdateResponse;
 use crate::{
     grpc_helper::GrpcHelper,
-    metrics::{
-        create_timed_future,
-        raft_metrics::{self, network::incr_snapshot_recv_seconds},
-        CounterGuard,
-    },
+    metrics::raft_metrics::{self},
     state::{
+        openraft::Snapshot,
         raft_client::RaftClient,
         store::requests::{RequestPayload, StateMachineUpdateRequest},
-        typ::{InstallSnapshotError, RPCError, RaftError},
+        typ::{RPCError, RaftError},
         NodeId,
         TypeConfig,
     },
 };
-
 pub struct Network {
     raft_client: Arc<RaftClient>,
 }
@@ -158,6 +161,19 @@ pub struct NetworkConnection {
     raft_client: Arc<RaftClient>,
 }
 
+fn anyhow_to_unreachable(e: anyhow::Error) -> Unreachable {
+    Unreachable::new(&Into::<AnyError>::into(e))
+}
+
+async fn snapshot_files(path: &PathBuf) -> Result<Vec<fs::DirEntry>, std::io::Error> {
+    let mut dir = fs::read_dir(path).await?;
+    let mut entries = Vec::new();
+    while let Some(entry) = dir.next_entry().await? {
+        entries.push(entry);
+    }
+    Ok(entries)
+}
+
 impl NetworkConnection {
     fn status_to_unreachable<E>(&self, status: tonic::Status) -> RPCError<RaftError<E>>
     where
@@ -205,51 +221,139 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
         raft_res.map_err(|e| self.to_rpc_err(e))
     }
 
-    async fn install_snapshot(
+    async fn full_snapshot(
         &mut self,
-        req: InstallSnapshotRequest<TypeConfig>,
+        vote: Vote<NodeId>,
+        snapshot: Snapshot<TypeConfig>,
+        _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
         _option: RPCOption,
-    ) -> Result<InstallSnapshotResponse<NodeId>, RPCError<RaftError<InstallSnapshotError>>> {
-        let _guard_inflight = CounterGuard::new(&self.target_node.addr, move |addr, cnt| {
-            raft_metrics::network::incr_snapshot_send_inflight(addr, cnt);
-        });
-
+    ) -> Result<SnapshotResponse<NodeId>, StreamingError<TypeConfig, Fatal<NodeId>>> {
+        info!(
+            "full snapshot path {:?} target {:?}",
+            snapshot.snapshot.snapshot_dir, self.target_node.addr,
+        );
         let mut client = self
             .raft_client
+            .clone()
             .get(&self.target_node.addr)
             .await
-            .map_err(|e| self.status_to_unreachable(tonic::Status::aborted(e.to_string())))?;
+            .map_err(|e| StreamingError::Unreachable(anyhow_to_unreachable(e)))?;
 
-        let raft_req = GrpcHelper::encode_raft_request(&req).map_err(|e| Unreachable::new(&e))?;
-        let req = GrpcHelper::into_req(raft_req);
+        let entries = snapshot_files(&snapshot.snapshot.snapshot_dir)
+            .await
+            .map_err(|e| {
+                StorageError::from_io_error(
+                    openraft::ErrorSubject::Snapshot(None),
+                    ErrorVerb::Read,
+                    e,
+                )
+            })?;
 
-        let bytes_sent = req.get_ref().data.len() as u64;
-        raft_metrics::network::incr_sent_bytes(&self.target_node.addr, bytes_sent);
+        let mut c = std::pin::pin!(_cancel);
+        for entry in entries {
+            let mut file = File::open(entry.path()).await.map_err(|e| {
+                StorageError::from_io_error(
+                    openraft::ErrorSubject::Snapshot(None),
+                    ErrorVerb::Read,
+                    e,
+                )
+            })?;
+            let mut offset = 0;
+            info!("send snapshot file {:?}", entry.file_name());
+            loop {
+                // Check for cancellation.
+                if let Some(err) = c.as_mut().now_or_never() {
+                    return Err(err.into());
+                }
 
-        let addr = self.target_node.addr.clone();
-        let timed_future = create_timed_future(client.install_snapshot(req), move |duration| {
-            incr_snapshot_recv_seconds(&addr, duration);
-        });
+                let mut buf = Vec::with_capacity(1024 * 1024);
+                let n = file.read_buf(&mut buf).await.map_err(|e| {
+                    StorageError::from_io_error(
+                        openraft::ErrorSubject::Snapshot(None),
+                        ErrorVerb::Read,
+                        e,
+                    )
+                })?;
+                if n == 0 {
+                    break;
+                }
+                let req = SnapshotFileChunkRequest {
+                    snapshot_id: snapshot.meta.snapshot_id.clone(),
 
-        let grpc_res = timed_future.await;
+                    vote: serde_json::to_string(&vote)
+                        .map_err(|e| new_net_err(&e, || "serialize error"))?,
+                    name: entry.file_name().into_string().map_err(|e| {
+                        let err = std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("Failed to convert OsString to String: {:?}", e),
+                        );
+                        new_net_err(&err, || "serialize error")
+                    })?,
+                    data: buf,
+                    offset,
+                };
 
-        let resp = grpc_res.map_err(|e| {
-            raft_metrics::network::incr_sent_failures(&self.target_node.addr);
-            self.status_to_unreachable(e)
-        })?;
+                raft_metrics::network::incr_sent_bytes(&self.target_node.addr, n as u64);
 
-        let raft_res = GrpcHelper::parse_raft_reply(resp).map_err(|serde_err| {
-            raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
-            new_net_err(&serde_err, || "parse install_snapshot reply")
-        })?;
+                let ret = client
+                    .transfer_snapshot(req.into_request())
+                    .await
+                    .map_err(|e| Unreachable::new(&e))?
+                    .into_inner();
+                if ret.error != "" {
+                    let err: Fatal<NodeId> = serde_json::from_str(&ret.error)
+                        .map_err(|e| new_net_err(&e, || "deserialize snapshot error"))?;
+                    return Err(RemoteError::new(self.target, err).into());
+                } else {
+                    let reply_vote: Vote<u64> = serde_json::from_str(&ret.data)
+                        .map_err(|e| new_net_err(&e, || "deserialize vote"))?;
+                    if reply_vote > vote {
+                        return Err(ReplicationClosed::new(format!(
+                            "vote changed: my {:?} receiver {:?}",
+                            vote, reply_vote
+                        ))
+                        .into());
+                    }
+                }
 
-        if raft_res.is_ok() {
-            raft_metrics::network::incr_snapshot_send_success(&self.target_node.addr);
-        } else {
-            raft_metrics::network::incr_snapshot_send_failure(&self.target_node.addr);
+                offset += n as u64;
+            }
         }
 
-        raft_res.map_err(|e| self.to_rpc_err(e))
+        let vote =
+            serde_json::to_string(&vote).map_err(|e| new_net_err(&e, || "serialize vote"))?;
+        let snapshot_meta = serde_json::to_string(&snapshot.meta)
+            .map_err(|e| new_net_err(&e, || "serialize snapshot"))?;
+        let req = InstallSnapshotRequest {
+            vote,
+            snapshot_meta,
+        };
+
+        let grpc_res = client.install_snapshot(req.into_request()).await;
+
+        let resp = grpc_res
+            .map_err(|e| {
+                raft_metrics::network::incr_sent_failures(&self.target_node.addr);
+                Unreachable::new(&e)
+            })?
+            .into_inner();
+        if resp.error != "" {
+            let err: Fatal<NodeId> = serde_json::from_str(&resp.error)
+                .map_err(|e| new_net_err(&e, || "deserialize install snapshot error"))?;
+            warn!(
+                "snapshot target {:?} received error {:?}",
+                self.target_node.addr, err
+            );
+            return Err(RemoteError::new(self.target, err).into());
+        } else {
+            let reply: SnapshotResponse<u64> = serde_json::from_str(&resp.data)
+                .map_err(|e| new_net_err(&e, || "deserialize vote"))?;
+            info!(
+                "snapshot target {:?} received response {:?}",
+                self.target_node.addr, reply.vote
+            );
+            Ok(reply)
+        }
     }
 
     async fn vote(

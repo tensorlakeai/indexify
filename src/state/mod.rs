@@ -4,8 +4,7 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
-    io::Cursor,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     time::SystemTime,
 };
@@ -76,7 +75,10 @@ pub mod store;
 
 pub type NodeId = u64;
 
-pub type SnapshotData = Cursor<Vec<u8>>;
+#[derive(Debug, Clone)]
+pub struct SnapshotData {
+    pub snapshot_dir: PathBuf,
+}
 
 openraft::declare_raft_types!(
     pub TypeConfig:
@@ -133,7 +135,7 @@ pub struct App {
     pub leader_change_rx: Receiver<bool>,
     join_handles: Mutex<Vec<JoinHandle<Result<()>>>>,
     pub config: Arc<openraft::Config>,
-    state_change_rx: Receiver<StateChange>,
+    state_change_rx: Receiver<StateChangeId>,
     pub network: Network,
     pub node_addr: String,
     pub state_machine: Arc<StateMachineStore>,
@@ -201,18 +203,10 @@ impl App {
                 .validate()
                 .map_err(|e| anyhow!("invalid raft config: {}", e.to_string()))?,
         );
-        let db_path = server_config
-            .state_store
-            .path
-            .clone()
-            .unwrap_or_default()
-            .clone();
-        let db_path_str = db_path.as_str().to_owned() + "/db";
-        let sm_blob_store_path_str = db_path.as_str().to_owned() + "/sm-blob";
-        let db_path: &Path = Path::new(&db_path_str);
-        let sm_blob_store_path: &Path = Path::new(&sm_blob_store_path_str);
+        let storage_path = server_config.state_store.path.clone().unwrap_or_default();
+        let db_path = Path::new(storage_path.as_str());
 
-        let (log_store, state_machine) = new_storage(db_path, sm_blob_store_path).await;
+        let (log_store, state_machine) = new_storage(db_path).await;
         let state_change_rx = state_machine.state_change_rx.clone();
 
         let raft_client = Arc::new(RaftClient::new());
@@ -350,7 +344,7 @@ impl App {
         }
     }
 
-    pub fn get_state_change_watcher(&self) -> Receiver<StateChange> {
+    pub fn get_state_change_watcher(&self) -> Receiver<StateChangeId> {
         self.state_change_rx.clone()
     }
 

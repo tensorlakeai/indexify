@@ -59,6 +59,33 @@ impl GrpcHelper {
         Ok(tonic::Response::new(reply))
     }
 
+    pub fn err_response<E>(e: E) -> Result<tonic::Response<RaftReply>, tonic::Status>
+    where
+        E: serde::Serialize,
+    {
+        let error = serde_json::to_string(&e).map_err(|e| {
+            tonic::Status::invalid_argument(format!("fail to serialize resp: {}", e))
+        })?;
+        let reply = RaftReply {
+            data: "".to_string(),
+            error,
+        };
+        Ok(tonic::Response::new(reply))
+    }
+
+    pub fn result_response<T, E>(
+        d: Result<T, E>,
+    ) -> Result<tonic::Response<RaftReply>, tonic::Status>
+    where
+        T: serde::Serialize,
+        E: serde::Serialize,
+    {
+        match d {
+            Ok(data) => Self::ok_response(data),
+            Err(e) => Self::err_response(e),
+        }
+    }
+
     /// Parse string and decode it into required type.
     pub fn parse<T>(s: &str) -> Result<T, tonic::Status>
     where

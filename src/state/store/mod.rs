@@ -1,11 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    fs::{self, File},
-    io::{BufReader, Cursor, Read, Write},
+    fs::{
+        File,
+        {self},
+    },
+    io::{BufReader, Read},
     ops::RangeBounds,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use anyhow::{anyhow, Result};
@@ -16,7 +19,6 @@ use indexify_internal_api::{
     ContentMetadataId,
     ExecutorMetadata,
     NamespaceName,
-    StateChange,
     StructuredDataSchema,
 };
 use openraft::{
@@ -38,18 +40,22 @@ use openraft::{
     Vote,
 };
 use rocksdb::{
+    checkpoint::Checkpoint,
     ColumnFamily,
     ColumnFamilyDescriptor,
+    DBCommon,
     Direction,
     IteratorMode,
     OptimisticTransactionDB,
     Options,
+    SingleThreaded,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
 use tracing::debug;
+use uuid::Uuid;
 
 type Node = BasicNode;
 
@@ -58,7 +64,7 @@ use indexify_internal_api::StateChangeId;
 use self::{
     requests::RequestPayload,
     serializer::{JsonEncode, JsonEncoder},
-    state_machine_objects::{IndexifyState, IndexifyStateSnapshot},
+    state_machine_objects::IndexifyState,
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::{
@@ -112,10 +118,16 @@ pub enum StateMachineColumns {
     ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
     CoordinatorAddress,                 //  NodeId -> Coordinator address
     ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
+    RaftState,                          //  Raft state
 }
 
+const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
+const LAST_APPLIED_LOG_ID_KEY: &[u8] = b"last_applied_log_id";
+const STORE_VERSION: &[u8] = b"store_version";
+const CURRENT_STORE_VERSION: u64 = 2;
+
 impl StateMachineColumns {
-    pub fn cf<'a>(&'a self, db: &'a Arc<OptimisticTransactionDB>) -> &'a ColumnFamily {
+    pub fn cf<'a>(&'a self, db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
                 tracing::error!("failed to get column family handle for {}", self.as_ref());
@@ -140,165 +152,297 @@ pub struct StoredSnapshot {
 pub struct StateMachineData {
     pub last_applied_log_id: RwLock<Option<LogId<NodeId>>>,
 
-    pub last_membership: RwLock<StoredMembership<NodeId, Node>>,
+    pub last_membership: std::sync::RwLock<StoredMembership<NodeId, Node>>,
 
     /// State built from applying the raft log
     pub indexify_state: IndexifyState,
 
-    state_change_tx: Arc<tokio::sync::watch::Sender<StateChange>>,
+    state_change_tx: Arc<tokio::sync::watch::Sender<StateChangeId>>,
 
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
+}
+
+/// This method fetches a key from a specific column family
+pub fn get_from_cf<T, K>(
+    db: &OptimisticTransactionDB,
+    column: StateMachineColumns,
+    key: K,
+) -> Result<Option<T>, anyhow::Error>
+where
+    T: DeserializeOwned,
+    K: AsRef<[u8]>,
+{
+    let result_bytes = match db.get_cf(column.cf(db), key)? {
+        Some(bytes) => bytes,
+        None => return Ok(None),
+    };
+    let result = JsonEncoder::decode::<T>(&result_bytes)
+        .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
+
+    Ok(Some(result))
+}
+
+fn delete_incomplete_snapshots(path: impl AsRef<Path>) -> std::io::Result<()> {
+    let entries = fs::read_dir(path)?;
+
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("tmp") {
+                fs::remove_dir_all(path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Read snapshot metadata from checkpoint directory
+fn snapshot_meta(path: &PathBuf) -> Result<SnapshotMeta<NodeId, Node>, StorageError<NodeId>> {
+    let db = open_db(&path).map_err(|e| {
+        StorageIOError::read_snapshot(None, anyhow!("Failed to open snapshot: {}", e))
+    })?;
+    let last_membership = get_from_cf(&db, StateMachineColumns::RaftState, LAST_MEMBERSHIP_KEY)
+        .map_err(|e| StorageIOError::read_snapshot(None, e))?;
+    let last_applied_log_id =
+        get_from_cf(&db, StateMachineColumns::RaftState, LAST_APPLIED_LOG_ID_KEY)
+            .map_err(|e| StorageIOError::read_snapshot(None, e))?;
+
+    Ok(SnapshotMeta {
+        last_log_id: last_applied_log_id,
+        last_membership: last_membership.unwrap_or_default(),
+        snapshot_id: "0".to_string(),
+    })
+}
+
+fn read_snapshots(
+    path: impl AsRef<Path>,
+) -> Result<Vec<Snapshot<TypeConfig>>, StorageError<NodeId>> {
+    let entries = fs::read_dir(path).map_err(|e| StorageIOError::read_snapshot(None, &e))?;
+
+    let mut snapshots = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| StorageIOError::read_snapshot(None, &e))?;
+        if entry
+            .file_type()
+            .map_err(|e| StorageIOError::read_snapshot(None, &e))?
+            .is_dir()
+        {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("tmp") {
+                let snapshot = Snapshot {
+                    meta: snapshot_meta(&path)?,
+                    snapshot: Box::new(SnapshotData { snapshot_dir: path }),
+                };
+                snapshots.push(snapshot);
+            }
+        }
+    }
+
+    snapshots.sort_by(|a, b| a.meta.last_log_id.cmp(&b.meta.last_log_id));
+
+    Ok(snapshots)
 }
 
 pub struct StateMachineStore {
     pub data: StateMachineData,
 
-    snapshot_idx: Mutex<u64>,
+    db: Arc<std::sync::RwLock<OptimisticTransactionDB>>,
 
-    db: Arc<OptimisticTransactionDB>,
+    pub state_change_rx: tokio::sync::watch::Receiver<StateChangeId>,
 
-    pub state_change_rx: tokio::sync::watch::Receiver<StateChange>,
+    db_path: PathBuf,
 
-    snapshot_file_path: PathBuf,
+    snapshot: std::sync::RwLock<Option<Snapshot<TypeConfig>>>,
 
     metrics: Metrics,
 }
 
 impl StateMachineStore {
-    async fn new(
-        db: Arc<OptimisticTransactionDB>,
-        snapshot_file_path: PathBuf,
-    ) -> Result<StateMachineStore, StorageError<NodeId>> {
-        let (tx, rx) = tokio::sync::watch::channel(StateChange::default());
+    async fn new(db_path: PathBuf) -> Result<StateMachineStore, StorageError<NodeId>> {
+        let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         let (gc_tasks_tx, _) = broadcast::channel(100);
+
+        delete_incomplete_snapshots(&db_path).map_err(|e| {
+            StorageError::from_io_error(ErrorSubject::Snapshot(None), ErrorVerb::Delete, e)
+        })?;
+
+        let mut snapshots = read_snapshots(&db_path)?;
+        if snapshots.is_empty() {
+            // Create new database if no valid directory found
+            let db_name = Uuid::new_v4().to_string();
+            let db_path = db_path.join(db_name);
+            let db = open_db(&db_path)?;
+            db.put_cf(
+                StateMachineColumns::RaftState.cf(&db),
+                STORE_VERSION,
+                &CURRENT_STORE_VERSION.to_be_bytes(),
+            )
+            .map_err(|e| {
+                StorageIOError::write_state_machine(anyhow!("failed to init db: {}", e))
+            })?;
+
+            snapshots.push(Snapshot {
+                meta: Default::default(),
+                snapshot: Box::new(SnapshotData {
+                    snapshot_dir: db_path,
+                }),
+            });
+        }
+
+        // live db is the directory with the latest applied log id
+        let live_snapshot = snapshots.pop().unwrap();
+
+        // Remove all but last snapshot directories
+        let snapshot = if snapshots.len() >= 1 {
+            for snapshot in snapshots[..snapshots.len() - 1].iter() {
+                fs::remove_dir_all(&snapshot.snapshot.snapshot_dir).map_err(|e| {
+                    StorageIOError::read_snapshot(None, anyhow!("Failed to remove snapshot: {}", e))
+                })?;
+            }
+            Some(snapshots.pop().unwrap())
+        } else {
+            None
+        };
+
+        let db = open_db(&live_snapshot.snapshot.snapshot_dir)?;
+
+        let store_version = db
+            .get_cf(StateMachineColumns::RaftState.cf(&db), STORE_VERSION)
+            .map_err(|e| {
+                StorageIOError::read_state_machine(anyhow!("failed to read version: {}", e))
+            })?;
+        if store_version != Some(CURRENT_STORE_VERSION.to_be_bytes().to_vec()) {
+            return Err(
+                StorageIOError::read_state_machine(anyhow!("Store version mismatch")).into(),
+            );
+        }
+
         let sm = Self {
             data: StateMachineData {
-                last_applied_log_id: RwLock::new(None),
-                last_membership: RwLock::new(StoredMembership::default()),
+                last_applied_log_id: RwLock::new(live_snapshot.meta.last_log_id),
+                last_membership: std::sync::RwLock::new(live_snapshot.meta.last_membership),
                 indexify_state: IndexifyState::default(),
                 state_change_tx: Arc::new(tx),
                 gc_tasks_tx,
             },
-            snapshot_idx: Mutex::new(0),
-            db,
+            db: Arc::new(std::sync::RwLock::new(db)),
             state_change_rx: rx,
-            snapshot_file_path,
+            db_path,
+            snapshot: std::sync::RwLock::new(snapshot),
             metrics: Metrics::new(),
         };
 
-        let snapshot = sm.get_current_snapshot_()?;
-        if let Some(snap) = snapshot {
-            sm.update_state_machine_(snap).await?;
-        }
+        sm.data
+            .indexify_state
+            .rebuild_reverse_indexes(&sm.db.read().unwrap())
+            .map_err(|e| {
+                StorageIOError::new(
+                    ErrorSubject::StateMachine,
+                    ErrorVerb::Read,
+                    anyhow!("failed to rebuild cache: {}", e),
+                )
+            })?;
 
         Ok(sm)
     }
 
-    /// This method is used to update the in-memory state machine when a new
-    /// state machine is provided via the InstallSnapshot RPC
-    async fn update_state_machine_(
+    fn update_applied_log_id<'a>(
         &self,
-        snapshot: StoredSnapshot,
-    ) -> Result<(), StorageError<NodeId>> {
-        let indexify_state_snapshot: IndexifyStateSnapshot = JsonEncoder::decode(&snapshot.data)
-            .map_err(|e| StorageIOError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
+        log_id: LogId<NodeId>,
+        txn: &'a rocksdb::Transaction<'a, OptimisticTransactionDB>,
+    ) -> Result<(), StateMachineError> {
+        let applied_data = JsonEncoder::encode(&log_id).map_err(|e| {
+            StateMachineError::SerializationError(format!("Failed to serialize log id: {}", e))
+        })?;
+        let db = self.db.read().unwrap();
+        txn.put_cf(
+            StateMachineColumns::RaftState.cf(&db),
+            LAST_APPLIED_LOG_ID_KEY,
+            &applied_data,
+        )
+        .map_err(|e| StateMachineError::DatabaseError(format!("Failed to write log id: {}", e)))
+    }
 
+    fn update_membership(
+        &self,
+        membership: StoredMembership<NodeId, Node>,
+        txn: rocksdb::Transaction<'_, OptimisticTransactionDB>,
+    ) -> Result<(), StateMachineError> {
+        {
+            let mut guard = self.data.last_membership.write().unwrap();
+            *guard = membership.clone();
+        }
+        let membership_data = JsonEncoder::encode(&membership).map_err(|e| {
+            StateMachineError::SerializationError(format!("Failed to serialize membership: {}", e))
+        })?;
+        txn.put_cf(
+            StateMachineColumns::RaftState.cf(&self.db.read().unwrap()),
+            LAST_MEMBERSHIP_KEY,
+            &membership_data,
+        )
+        .map_err(|e| {
+            StateMachineError::DatabaseError(format!("Failed to write membership: {}", e))
+        })?;
+        txn.commit().map_err(|e| {
+            StateMachineError::TransactionError(format!("Failed to commit transaction: {}", e))
+        })
+    }
+
+    async fn apply_entry(&self, entry: typ::Entry) -> Result<Option<String>, StateMachineError> {
         {
             let mut guard = self.data.last_applied_log_id.write().await;
-            *guard = snapshot.meta.last_log_id;
+            *guard = Some(entry.log_id);
         }
-        {
-            let mut guard = self.data.last_membership.write().await;
-            *guard = snapshot.meta.last_membership.clone();
+        let db = self.db.read().unwrap();
+        let txn = db.transaction();
+        self.update_applied_log_id(entry.log_id, &txn)?;
+        match entry.payload {
+            EntryPayload::Blank => {
+                txn.commit().map_err(|e| {
+                    StateMachineError::TransactionError(format!(
+                        "Failed to commit transaction: {}",
+                        e
+                    ))
+                })?;
+            }
+            EntryPayload::Normal(req) => {
+                let change_id =
+                    self.data
+                        .indexify_state
+                        .apply_state_machine_updates(req.clone(), &db, txn)?;
+                if let Some(change_id) = change_id {
+                    let _ = self.data.state_change_tx.send(change_id);
+                }
+
+                //  if the payload is a GC task, send it via channel
+                if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
+                    req.payload
+                {
+                    let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
+                    for gc_task in gc_tasks {
+                        match self.data.gc_tasks_tx.send(gc_task.clone()) {
+                            Ok(sent_count) => {
+                                if sent_count < expected_receiver_count {
+                                    tracing::error!(
+                                        "The gc task event did not reach all listeners"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                            }
+                        }
+                    }
+                }
+            }
+            EntryPayload::Membership(membership) => {
+                let membership = StoredMembership::new(Some(entry.log_id), membership);
+                self.update_membership(membership, txn)?;
+            }
         }
-
-        self.data
-            .indexify_state
-            .install_snapshot(&self.db, indexify_state_snapshot)
-            .map_err(|e| StorageError::IO {
-                source: StorageIOError::write(&e),
-            })?;
-
-        Ok(())
-    }
-
-    fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
-        if !self.snapshot_file_path.exists() {
-            debug!("The snapshot file does not exist");
-            return Ok(None);
-        }
-
-        let file = File::open(&self.snapshot_file_path).map_err(|e| StorageError::IO {
-            source: StorageIOError::read(&e),
-        })?;
-
-        //  Decompress the data with ZLib decoder
-        let buf_reader = BufReader::new(file);
-        let mut decoder = ZlibDecoder::new(buf_reader);
-        let mut decompressed_data = Vec::new();
-        decoder
-            .read_to_end(&mut decompressed_data)
-            .map_err(|e| StorageError::IO {
-                source: StorageIOError::read(&e),
-            })?;
-
-        //  deserialize the data and return it
-        let snapshot: StoredSnapshot =
-            JsonEncoder::decode(&decompressed_data).map_err(|e| StorageError::IO {
-                source: StorageIOError::read(&e),
-            })?;
-        Ok(Some(snapshot))
-    }
-
-    /// This method is called when a new snapshot is received via
-    /// InstallSnapshot RPC and is used to write the snapshot to disk
-    fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
-        //  Serialize the data into JSON bytes
-        let serialized_data = JsonEncoder::encode(&snap).map_err(|e| StorageError::IO {
-            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-        })?;
-        let uncompressed_size = serialized_data.len();
-
-        //  Compress the serialized meta and data using Zlib
-        let mut encoder =
-            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder
-            .write_all(&serialized_data)
-            .map_err(|e| StorageError::IO {
-                source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-            })?;
-        let compressed_data = encoder.finish().map_err(|e| StorageError::IO {
-            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-        })?;
-        let compressed_size = compressed_data.len();
-
-        //  Create a temp file, write to temp file and then swap inode pointers
-        let temp_file_path = self.snapshot_file_path.with_extension("tmp");
-        let mut temp_file = File::create(&temp_file_path).map_err(|e| StorageError::IO {
-            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-        })?;
-        temp_file
-            .write_all(&compressed_data)
-            .map_err(|e| StorageError::IO {
-                source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-            })?;
-        temp_file.sync_all().map_err(|e| StorageError::IO {
-            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-        })?;
-        fs::rename(&temp_file_path, &self.snapshot_file_path).map_err(|e| StorageError::IO {
-            source: StorageIOError::write_snapshot(Some(snap.meta.signature()), &e),
-        })?;
-
-        // Calculate compression ratio or percentage
-        let compression_ratio = compressed_size as f64 / uncompressed_size as f64;
-        let compression_percentage = (1.0 - compression_ratio) * 100.0;
-
-        debug!("Uncompressed size: {} bytes", uncompressed_size);
-        debug!("Compressed size: {} bytes", compressed_size);
-        debug!("Compression ratio: {:.2}", compression_ratio);
-        debug!("Compressed by: {:.2}%", compression_percentage);
-
-        Ok(())
+        Ok(None)
     }
 
     /// Register to task deletion events
@@ -313,10 +457,11 @@ impl StateMachineStore {
         &self,
         content_id: &str,
     ) -> Result<Option<ContentMetadata>> {
-        let txn = self.db.transaction();
+        let db = self.db.read().unwrap();
+        let txn = db.transaction();
         self.data
             .indexify_state
-            .get_latest_version_of_content(content_id, &self.db, &txn)
+            .get_latest_version_of_content(content_id, &db, &txn)
             .map_err(|e| anyhow::anyhow!("Failed to get latest version of content: {}", e))
     }
 
@@ -330,13 +475,13 @@ impl StateMachineStore {
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
-        self.data.indexify_state.get_from_cf(&self.db, column, key)
+        get_from_cf(&self.db.read().unwrap(), column, key)
     }
 
     pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
         self.data
             .indexify_state
-            .list_active_contents(&self.db, namespace)
+            .list_active_contents(&self.db.read().unwrap(), namespace)
             .map_err(|e| anyhow::anyhow!("Failed to list active contents: {}", e))
     }
 
@@ -347,14 +492,14 @@ impl StateMachineStore {
     ) -> Result<Vec<indexify_internal_api::Task>> {
         self.data
             .indexify_state
-            .get_tasks_for_executor(executor_id, limit, &self.db)
+            .get_tasks_for_executor(executor_id, limit, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!("Failed to get tasks for executor: {}", e))
     }
 
     pub async fn get_all_task_assignments(&self) -> Result<HashMap<TaskId, ExecutorId>> {
         self.data
             .indexify_state
-            .get_all_task_assignments(&self.db)
+            .get_all_task_assignments(&self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!("Failed to get task assignments: {}", e))
     }
 
@@ -364,7 +509,7 @@ impl StateMachineStore {
     ) -> Result<Vec<indexify_internal_api::Index>> {
         self.data
             .indexify_state
-            .get_indexes_from_ids(task_ids, &self.db)
+            .get_indexes_from_ids(task_ids, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -374,7 +519,7 @@ impl StateMachineStore {
     ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
         self.data
             .indexify_state
-            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db)
+            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -386,7 +531,12 @@ impl StateMachineStore {
     ) -> Result<Vec<Option<indexify_internal_api::ExtractionPolicy>>> {
         self.data
             .indexify_state
-            .get_extraction_policy_by_names(namespace, graph_name, policy_names, &self.db)
+            .get_extraction_policy_by_names(
+                namespace,
+                graph_name,
+                policy_names,
+                &self.db.read().unwrap(),
+            )
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -396,7 +546,7 @@ impl StateMachineStore {
     ) -> Result<Vec<ExecutorMetadata>> {
         self.data
             .indexify_state
-            .get_executors_from_ids(executor_ids, &self.db)
+            .get_executors_from_ids(executor_ids, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -406,7 +556,7 @@ impl StateMachineStore {
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
-            .get_content_from_ids(content_ids, &self.db)
+            .get_content_from_ids(content_ids, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -416,9 +566,10 @@ impl StateMachineStore {
         parent_id: &str,
         predicate: impl Fn(&ContentMetadata) -> bool,
     ) -> Result<Vec<ContentMetadata>> {
-        let txn = self.db.transaction();
+        let db = self.db.read().unwrap();
+        let txn = db.transaction();
         let iter = txn.iterator_cf(
-            StateMachineColumns::ContentTable.cf(&self.db),
+            StateMachineColumns::ContentTable.cf(&db),
             IteratorMode::Start,
         );
         let mut contents = Vec::new();
@@ -446,14 +597,14 @@ impl StateMachineStore {
     ) -> Result<Option<ContentMetadata>> {
         self.data
             .indexify_state
-            .get_content_by_id_and_version(&self.db, content_id)
+            .get_content_by_id_and_version(&self.db.read().unwrap(), content_id)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
-            .get_content_tree_metadata(content_id, &self.db)
+            .get_content_tree_metadata(content_id, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -463,7 +614,7 @@ impl StateMachineStore {
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
-            .get_content_tree_metadata_with_version(content_id, &self.db)
+            .get_content_tree_metadata_with_version(content_id, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -471,11 +622,15 @@ impl StateMachineStore {
         &self,
         namespace: &str,
     ) -> Result<Option<indexify_internal_api::Namespace>> {
-        self.data.indexify_state.get_namespace(namespace, &self.db)
+        self.data
+            .indexify_state
+            .get_namespace(namespace, &self.db.read().unwrap())
     }
 
     pub async fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
-        self.data.indexify_state.get_schemas(ids, &self.db)
+        self.data
+            .indexify_state
+            .get_schemas(ids, &self.db.read().unwrap())
     }
 
     pub fn get_extraction_graphs(
@@ -484,7 +639,7 @@ impl StateMachineStore {
     ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
         self.data
             .indexify_state
-            .get_extraction_graphs(extraction_graph_ids, &self.db)
+            .get_extraction_graphs(extraction_graph_ids, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -495,14 +650,14 @@ impl StateMachineStore {
     ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
         self.data
             .indexify_state
-            .get_extraction_graphs_by_name(namespace, graph_names, &self.db)
+            .get_extraction_graphs_by_name(namespace, graph_names, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub async fn get_coordinator_addr(&self, node_id: NodeId) -> Result<Option<String>> {
         self.data
             .indexify_state
-            .get_coordinator_addr(node_id, &self.db)
+            .get_coordinator_addr(node_id, &self.db.read().unwrap())
     }
 
     /// Test utility method to get all key-value pairs from a column family
@@ -515,7 +670,7 @@ impl StateMachineStore {
     {
         self.data
             .indexify_state
-            .get_all_rows_from_cf(column, &self.db)
+            .get_all_rows_from_cf(column, &self.db.read().unwrap())
             .map_err(|e| anyhow::anyhow!("Failed to get all rows from column family: {}", e))
     }
 
@@ -590,6 +745,7 @@ impl StateMachineStore {
             .indexify_state
             .insert_executor_running_task_count(executor_id, task_count);
     }
+
     //  END REVERSE INDEX WRITER METHOD INTERFACES
 }
 
@@ -598,31 +754,33 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
         let (last_applied_log, last_membership) = {
             let guard = self.data.last_applied_log_id.read().await;
             let last_applied_log = *guard;
-            let guard = self.data.last_membership.read().await;
+            let guard = self.data.last_membership.read().unwrap();
             let last_membership = guard.clone();
             (last_applied_log, last_membership)
         };
 
-        let indexify_state_json = {
-            let indexify_state_snapshot = self
-                .data
-                .indexify_state
-                .build_snapshot(&self.db)
-                .map_err(|e| StorageIOError::read_state_machine(&e))?;
-            JsonEncoder::encode(&indexify_state_snapshot)
-                .map_err(|e| StorageIOError::read_state_machine(&e))?
-        };
+        // Make snapshot ids globally unique since db snapshot reprentation is not
+        // guaranteed to be same even if contents is same.
+        let snapshot_id = Uuid::new_v4().to_string();
 
-        let snapshot_id = if let Some(last) = last_applied_log {
-            format!(
-                "{}-{}-{}",
-                last.leader_id,
-                last.index,
-                self.snapshot_idx.lock().unwrap()
-            )
-        } else {
-            format!("--{}", self.snapshot_idx.lock().unwrap())
-        };
+        // Create a checkpoint of the database
+        let db = self.db.read().unwrap();
+        let checkpoint = Checkpoint::new(&db).map_err(|e| {
+            StorageIOError::write_snapshot(None, anyhow!("failed to create checkpoint: {}", e))
+        })?;
+        let snapshot_tmp_id = format!("{}.tmp", snapshot_id);
+        let snapshot_tmp_dir = self.db_path.join(&snapshot_tmp_id);
+        checkpoint
+            .create_checkpoint(&snapshot_tmp_dir)
+            .map_err(|e| {
+                StorageIOError::write_snapshot(None, anyhow!("Failed to create checkpoint: {}", e))
+            })?;
+
+        // Move snapshot to final location
+        let snapshot_dir = self.db_path.join(&snapshot_id);
+        fs::rename(&snapshot_tmp_dir, &snapshot_dir).map_err(|e| {
+            StorageIOError::write_snapshot(None, anyhow!("Failed to move snapshot: {}", e))
+        })?;
 
         let meta = SnapshotMeta {
             last_log_id: last_applied_log,
@@ -630,16 +788,23 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
             snapshot_id,
         };
 
-        let snapshot = StoredSnapshot {
-            meta: meta.clone(),
-            data: indexify_state_json.clone(),
+        if let Some(prev_snapshot) = (*self.snapshot.read().unwrap()).as_ref() {
+            fs::remove_dir_all(&prev_snapshot.snapshot.snapshot_dir).map_err(|e| {
+                StorageIOError::write_snapshot(
+                    Some(meta.signature()),
+                    anyhow!("Failed to remove previous snapshot: {}", e),
+                )
+            })?;
+        }
+
+        let snapshot = Snapshot {
+            meta,
+            snapshot: Box::new(SnapshotData { snapshot_dir }),
         };
 
-        self.set_current_snapshot_(snapshot)?;
-        Ok(Snapshot {
-            meta,
-            snapshot: Box::new(Cursor::new(indexify_state_json)),
-        })
+        *self.snapshot.write().unwrap() = Some(snapshot.clone());
+
+        Ok(snapshot)
     }
 }
 
@@ -652,7 +817,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         let (last_applied_log_id, last_membership) = {
             let guard = self.data.last_applied_log_id.read().await;
             let last_applied_log_id = *guard;
-            let guard = self.data.last_membership.read().await;
+            let guard = self.data.last_membership.read().unwrap();
             let last_membership = guard.clone();
             (last_applied_log_id, last_membership)
         };
@@ -667,105 +832,125 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         let _timer = Timer::start(&self.metrics.state_machine_apply);
         let entries = entries.into_iter();
         let mut replies = Vec::with_capacity(entries.size_hint().0);
-        let mut change_events: Vec<StateChange> = Vec::new();
 
-        for ent in entries {
-            {
-                let mut guard = self.data.last_applied_log_id.write().await;
-                *guard = Some(ent.log_id);
-            }
-            let resp_value = None;
-            match ent.payload {
-                EntryPayload::Blank => {}
-                EntryPayload::Normal(req) => {
-                    match self
-                        .data
-                        .indexify_state
-                        .apply_state_machine_updates(req.clone(), &self.db)
-                    {
-                        Ok(changes) => {
-                            change_events.extend(changes);
-                        }
-                        Err(e) => {
-                            panic!("error applying state machine update: {}", e);
-                        }
-                    }
-
-                    //  if the payload is a GC task, send it via channel
-                    if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
-                        req.payload
-                    {
-                        let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
-                        for gc_task in gc_tasks {
-                            match self.data.gc_tasks_tx.send(gc_task.clone()) {
-                                Ok(sent_count) => {
-                                    if sent_count < expected_receiver_count {
-                                        tracing::error!(
-                                            "The gc task event did not reach all listeners"
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to send task {:?}: {}", gc_task, e);
-                                }
-                            }
-                        }
-                    }
+        for entry in entries {
+            let resp_value = match self.apply_entry(entry).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    panic!("Failed to apply entry: {}", e);
                 }
-                EntryPayload::Membership(mem) => {
-                    let mut guard = self.data.last_membership.write().await;
-                    *guard = StoredMembership::new(Some(ent.log_id), mem.clone());
-                }
-            }
-
+            };
             replies.push(Response { value: resp_value });
         }
 
-        for change_event in change_events {
-            if let Err(err) = self.data.state_change_tx.send(change_event) {
-                tracing::error!("error sending state change event: {}", err);
-            }
-        }
         Ok(replies)
     }
 
     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
-        let mut l = self.snapshot_idx.lock().unwrap();
-        *l += 1;
         self.clone()
     }
 
+    // Create directory to receive snapshot into
     async fn begin_receiving_snapshot(
         &mut self,
-    ) -> Result<Box<Cursor<Vec<u8>>>, StorageError<NodeId>> {
-        Ok(Box::new(Cursor::new(Vec::new())))
+    ) -> Result<Box<SnapshotData>, StorageError<NodeId>> {
+        let name = Uuid::new_v4().to_string();
+        let snapshot_dir = self.db_path.join(format!("{}.tmp", name));
+        fs::create_dir_all(&snapshot_dir).map_err(|e| {
+            StorageIOError::write_snapshot(None, anyhow!("Failed to create directory: {}", e))
+        })?;
+
+        Ok(Box::new(SnapshotData { snapshot_dir }))
     }
 
+    // Install snapshot from received rocksdb checkpoint.
+    // Open snapshot db and checkpoint it into the new database directory,
+    // so we have both current database and snapshot preserved.
+    // Remove old database when finished.
     async fn install_snapshot(
         &mut self,
         meta: &SnapshotMeta<NodeId, Node>,
         snapshot: Box<SnapshotData>,
     ) -> Result<(), StorageError<NodeId>> {
-        let new_snapshot = StoredSnapshot {
-            meta: meta.clone(),
-            data: snapshot.into_inner(),
+        let new_db_path = self.db_path.join(Uuid::new_v4().to_string());
+
+        {
+            let snap_db = open_db(&snapshot.snapshot_dir).map_err(|e| {
+                StorageIOError::write_snapshot(
+                    Some(meta.signature()),
+                    anyhow!("Failed to open checkpoint db: {}", e),
+                )
+            })?;
+
+            let checkpoint = Checkpoint::new(&snap_db).map_err(|e| {
+                StorageIOError::write_snapshot(
+                    Some(meta.signature()),
+                    anyhow!("Failed to create checkpoint: {}", e),
+                )
+            })?;
+
+            checkpoint.create_checkpoint(&new_db_path).map_err(|e| {
+                StorageIOError::write_snapshot(
+                    Some(meta.signature()),
+                    anyhow!("Failed to create checkpoint: {}", e),
+                )
+            })?;
+        }
+
+        let db = open_db(&new_db_path).map_err(|e| {
+            StorageIOError::write_snapshot(
+                Some(meta.signature()),
+                anyhow!("Failed to open db: {}", e),
+            )
+        })?;
+
+        // Move snapshot to final location.
+        let snapshot_dir_without_tmp = snapshot.snapshot_dir.with_extension("");
+        fs::rename(snapshot.snapshot_dir, &snapshot_dir_without_tmp).map_err(|e| {
+            StorageIOError::write_snapshot(
+                Some(meta.signature()),
+                anyhow!("Failed to move db: {}", e),
+            )
+        })?;
+
+        let path = {
+            let mut guard = self.db.write().unwrap();
+            let path = guard.path().to_path_buf();
+            *guard = db;
+            path
         };
 
-        self.update_state_machine_(new_snapshot.clone()).await?;
+        fs::remove_dir_all(path).map_err(|e| {
+            StorageIOError::write_snapshot(
+                Some(meta.signature()),
+                anyhow!("Failed to remove old db: {}", e),
+            )
+        })?;
 
-        self.set_current_snapshot_(new_snapshot)?;
+        self.data
+            .indexify_state
+            .rebuild_reverse_indexes(&self.db.read().unwrap())
+            .map_err(|e| StorageError::IO {
+                source: StorageIOError::write(&e),
+            })?;
+
+        {
+            let mut guard = self.data.last_applied_log_id.write().await;
+            *guard = meta.last_log_id;
+        }
+        {
+            let mut guard = self.data.last_membership.write().unwrap();
+            *guard = meta.last_membership.clone();
+        }
 
         Ok(())
     }
 
+    // Find the snapshot with the highest log id.
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
-        let x = self.get_current_snapshot_()?;
-        Ok(x.map(|s| Snapshot {
-            meta: s.meta.clone(),
-            snapshot: Box::new(Cursor::new(s.data.clone())),
-        }))
+        Ok(self.snapshot.read().unwrap().clone())
     }
 }
 
@@ -787,15 +972,15 @@ fn bin_to_id(buf: &[u8]) -> u64 {
     (&buf[0..8]).read_u64::<BigEndian>().unwrap()
 }
 
+fn store_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+    db.cf_handle("store").unwrap()
+}
+
+fn logs_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+    db.cf_handle("logs").unwrap()
+}
+
 impl LogStore {
-    fn store(&self) -> &ColumnFamily {
-        self.db.cf_handle("store").unwrap()
-    }
-
-    fn logs(&self) -> &ColumnFamily {
-        self.db.cf_handle("logs").unwrap()
-    }
-
     fn flush(
         &self,
         subject: ErrorSubject<NodeId>,
@@ -807,10 +992,9 @@ impl LogStore {
         Ok(())
     }
 
-    fn get_last_purged_(&self) -> StorageResult<Option<LogId<u64>>> {
-        Ok(self
-            .db
-            .get_cf(self.store(), b"last_purged_log_id")
+    fn get_last_purged_(&self, db: &OptimisticTransactionDB) -> StorageResult<Option<LogId<u64>>> {
+        Ok(db
+            .get_cf(store_column(&db), b"last_purged_log_id")
             .map_err(|e| StorageIOError::read(&e))?
             .and_then(|v| JsonEncoder::decode(&v).ok()))
     }
@@ -818,7 +1002,7 @@ impl LogStore {
     fn set_last_purged_(&self, log_id: LogId<u64>) -> StorageResult<()> {
         self.db
             .put_cf(
-                self.store(),
+                store_column(&self.db),
                 b"last_purged_log_id",
                 JsonEncoder::encode(&log_id).unwrap().as_slice(),
             )
@@ -835,7 +1019,7 @@ impl LogStore {
         let json = JsonEncoder::encode(committed).unwrap();
 
         self.db
-            .put_cf(self.store(), b"committed", json)
+            .put_cf(store_column(&self.db), b"committed", json)
             .map_err(|e| StorageIOError::write(&e))?;
 
         self.flush(ErrorSubject::Store, ErrorVerb::Write)?;
@@ -845,7 +1029,7 @@ impl LogStore {
     fn get_committed_(&self) -> StorageResult<Option<LogId<NodeId>>> {
         Ok(self
             .db
-            .get_cf(self.store(), b"committed")
+            .get_cf(store_column(&self.db), b"committed")
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::read(&e),
             })?
@@ -854,7 +1038,11 @@ impl LogStore {
 
     fn set_vote_(&self, vote: &Vote<NodeId>) -> StorageResult<()> {
         self.db
-            .put_cf(self.store(), b"vote", JsonEncoder::encode(vote).unwrap())
+            .put_cf(
+                store_column(&self.db),
+                b"vote",
+                JsonEncoder::encode(vote).unwrap(),
+            )
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_vote(&e),
             })?;
@@ -866,7 +1054,7 @@ impl LogStore {
     fn get_vote_(&self) -> StorageResult<Option<Vote<NodeId>>> {
         Ok(self
             .db
-            .get_cf(self.store(), b"vote")
+            .get_cf(store_column(&self.db), b"vote")
             .map_err(|e| StorageError::IO {
                 source: StorageIOError::write_vote(&e),
             })?
@@ -885,7 +1073,10 @@ impl RaftLogReader<TypeConfig> for LogStore {
             std::ops::Bound::Unbounded => id_to_bin(0),
         };
         self.db
-            .iterator_cf(self.logs(), IteratorMode::From(&start, Direction::Forward))
+            .iterator_cf(
+                logs_column(&self.db),
+                IteratorMode::From(&start, Direction::Forward),
+            )
             .map(|res| {
                 let (id, val) = res.unwrap();
                 let entry: StorageResult<Entry<_>> =
@@ -909,14 +1100,14 @@ impl RaftLogStorage<TypeConfig> for LogStore {
     async fn get_log_state(&mut self) -> StorageResult<LogState<TypeConfig>> {
         let last = self
             .db
-            .iterator_cf(self.logs(), IteratorMode::End)
+            .iterator_cf(logs_column(&self.db), IteratorMode::End)
             .next()
             .and_then(|res| {
                 let (_, ent) = res.unwrap();
                 Some(JsonEncoder::decode::<Entry<TypeConfig>>(&ent).ok()?.log_id)
             });
 
-        let last_purged_log_id = self.get_last_purged_()?;
+        let last_purged_log_id = self.get_last_purged_(&self.db)?;
 
         let last_log_id = match last {
             None => last_purged_log_id,
@@ -961,7 +1152,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
             assert_eq!(bin_to_id(&id), entry.log_id.index);
             self.db
                 .put_cf(
-                    self.logs(),
+                    logs_column(&self.db),
                     id,
                     JsonEncoder::encode(&entry).map_err(|e| StorageIOError::write_logs(&e))?,
                 )
@@ -980,7 +1171,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         let from = id_to_bin(log_id.index);
         let to = id_to_bin(0xff_ff_ff_ff_ff_ff_ff_ff);
         self.db
-            .delete_file_in_range_cf(self.logs(), &from, &to)
+            .delete_file_in_range_cf(logs_column(&self.db), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
@@ -992,7 +1183,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
         let from = id_to_bin(0);
         let to = id_to_bin(log_id.index + 1);
         self.db
-            .delete_file_in_range_cf(self.logs(), &from, &to)
+            .delete_file_in_range_cf(logs_column(&self.db), &from, &to)
             .map_err(|e| StorageIOError::write_logs(&e).into())
     }
 
@@ -1001,39 +1192,251 @@ impl RaftLogStorage<TypeConfig> for LogStore {
     }
 }
 
-pub(crate) async fn new_storage<P: AsRef<Path>>(
-    db_path: P,
-    snapshot_path: P,
-) -> (LogStore, Arc<StateMachineStore>) {
+fn open_db_with_columns<I>(
+    path: &Path,
+    columns: I,
+) -> Result<OptimisticTransactionDB, StorageError<NodeId>>
+where
+    I: IntoIterator<Item = ColumnFamilyDescriptor>,
+{
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true);
     db_opts.create_if_missing(true);
 
+    let db: OptimisticTransactionDB =
+        OptimisticTransactionDB::open_cf_descriptors(&db_opts, path, columns)
+            .map_err(|e| StorageIOError::read_state_machine(&e))?;
+
+    Ok(db)
+}
+
+pub(crate) fn open_db(path: &Path) -> Result<OptimisticTransactionDB, StorageError<NodeId>> {
+    let sm_column_families = StateMachineColumns::iter()
+        .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
+
+    open_db_with_columns(path, sm_column_families)
+}
+
+pub(crate) fn open_logs(path: &Path) -> Result<OptimisticTransactionDB, StorageError<NodeId>> {
     let store = ColumnFamilyDescriptor::new("store", Options::default());
     let logs = ColumnFamilyDescriptor::new("logs", Options::default());
 
-    //  Create the column families for the state machine columns
-    let sm_columns: Vec<String> = StateMachineColumns::iter()
-        .map(|cf| cf.to_string())
-        .collect();
-    let sm_column_families: Vec<ColumnFamilyDescriptor> = sm_columns
-        .iter()
-        .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
-        .collect();
-    let mut all_column_families = vec![store, logs];
-    all_column_families.extend(sm_column_families);
+    open_db_with_columns(path, [store, logs])
+}
 
-    let db: OptimisticTransactionDB =
-        OptimisticTransactionDB::open_cf_descriptors(&db_opts, db_path, all_column_families)
+fn get_v1_snapshot(snapshot_file_path: PathBuf) -> StorageResult<Option<StoredSnapshot>> {
+    if !snapshot_file_path.exists() {
+        debug!("The snapshot file does not exist");
+        return Ok(None);
+    }
+
+    let file = File::open(&snapshot_file_path).map_err(|e| StorageError::IO {
+        source: StorageIOError::read(&e),
+    })?;
+
+    //  Decompress the data with ZLib decoder
+    let buf_reader = BufReader::new(file);
+    let mut decoder = ZlibDecoder::new(buf_reader);
+    let mut decompressed_data = Vec::new();
+    decoder
+        .read_to_end(&mut decompressed_data)
+        .map_err(|e| StorageError::IO {
+            source: StorageIOError::read(&e),
+        })?;
+
+    //  deserialize the data and return it
+    let snapshot: StoredSnapshot =
+        JsonEncoder::decode(&decompressed_data).map_err(|e| StorageError::IO {
+            source: StorageIOError::read(&e),
+        })?;
+    Ok(Some(snapshot))
+}
+
+fn apply_v1_snapshot(
+    db: &OptimisticTransactionDB,
+    snapshot: &state_machine_objects::V1Snapshot,
+) -> StorageResult<()> {
+    fn put_cf<K, T>(
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        cf: &ColumnFamily,
+        key: K,
+        value: &T,
+    ) -> StorageResult<()>
+    where
+        K: AsRef<[u8]>,
+        T: serde::Serialize + Debug,
+    {
+        let serialized =
+            serde_json::to_vec(value).map_err(|e| StorageIOError::write_state_machine(&e))?;
+        txn.put_cf(cf, key, serialized)
+            .map_err(|e| StorageIOError::write_state_machine(&e).into())
+    }
+
+    let txn = db.transaction();
+
+    println!("applying snapshot {:?}", snapshot);
+
+    //  Build the rocksdb forward indexes
+    for (_, eg) in &snapshot.extraction_graphs {
+        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        put_cf(&txn, cf, &eg.id, &eg)?;
+    }
+    for (executor_id, executor_metadata) in &snapshot.executors {
+        let cf = StateMachineColumns::Executors.cf(db);
+        put_cf(&txn, cf, executor_id, &executor_metadata)?;
+    }
+    for (task_id, task) in &snapshot.tasks {
+        let cf = StateMachineColumns::Tasks.cf(db);
+        put_cf(&txn, cf, task_id, &task)?;
+    }
+    for (gc_task_id, gc_task) in &snapshot.gc_tasks {
+        let cf = StateMachineColumns::GarbageCollectionTasks.cf(db);
+        put_cf(&txn, cf, gc_task_id, &gc_task)?;
+    }
+    for (executor_id, task_ids) in &snapshot.task_assignments {
+        let cf = StateMachineColumns::TaskAssignments.cf(db);
+        put_cf(&txn, cf, executor_id, &task_ids)?;
+    }
+    for (state_change_id, state_change) in &snapshot.state_changes {
+        let cf = StateMachineColumns::StateChanges.cf(db);
+        put_cf(&txn, cf, state_change_id.to_key(), &state_change)?;
+    }
+    for (_, content) in &snapshot.content_table {
+        let cf = StateMachineColumns::ContentTable.cf(db);
+        put_cf(&txn, cf, &content.id_key(), &content)?;
+    }
+    for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
+        let cf = StateMachineColumns::ExtractionPolicies.cf(db);
+        put_cf(&txn, cf, extraction_policy_id, &extraction_policy_ids)?;
+    }
+    for (extractor_name, extractor_description) in &snapshot.extractors {
+        let cf = StateMachineColumns::Extractors.cf(db);
+        put_cf(&txn, cf, extractor_name, &extractor_description)?;
+    }
+    for namespace in &snapshot.namespaces {
+        let cf = StateMachineColumns::Namespaces.cf(db);
+        put_cf(&txn, cf, &namespace, &namespace)?;
+    }
+    for (index_name, index) in &snapshot.index_table {
+        let cf = StateMachineColumns::IndexTable.cf(db);
+        put_cf(&txn, cf, index_name, &index)?;
+    }
+    for (schema_id, schema) in &snapshot.structured_data_schemas {
+        let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
+        put_cf(&txn, cf, schema_id, &schema)?;
+    }
+    for (node_id, addr) in &snapshot.coordinator_address {
+        let cf = StateMachineColumns::CoordinatorAddress.cf(db);
+        put_cf(&txn, cf, &node_id.to_string(), &addr)?;
+    }
+    txn.commit()
+        .map_err(|e| StorageIOError::write_state_machine(&e).into())
+}
+
+// Convert the v1 store to the new store.
+// Split out the logs and store column families into new logs db
+// Restore sm store from snapshot if present
+// Store last log id and membership in sm store
+fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), StorageError<NodeId>> {
+    let opts = Options::default();
+    let cf_names = rocksdb::DB::list_cf(&opts, &v1_db_path).unwrap();
+    let cf_descriptors: Vec<ColumnFamilyDescriptor> = cf_names
+        .iter()
+        .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, Options::default()))
+        .collect();
+
+    let v1_db: DBCommon<SingleThreaded, _> =
+        OptimisticTransactionDB::open_cf_descriptors(&opts, &v1_db_path, cf_descriptors).unwrap();
+
+    let new_db_path = db_path.join("store");
+    if new_db_path.exists() {
+        fs::remove_dir_all(&new_db_path).unwrap();
+    }
+
+    let new_log_path = db_path.join("log");
+    if new_log_path.exists() {
+        fs::remove_dir_all(&new_log_path).unwrap();
+    }
+
+    let db_name = Uuid::new_v4().to_string();
+    let new_db_path = new_db_path.join(db_name);
+    let new_db = open_db(&new_db_path).unwrap();
+    let logs = open_logs(&new_log_path).unwrap();
+
+    // Copy logs column to new logs db
+    for val in v1_db.iterator_cf(logs_column(&v1_db), IteratorMode::Start) {
+        let (key, value) = val.unwrap();
+        logs.put_cf(logs_column(&logs), key, value).unwrap();
+    }
+    for val in v1_db.iterator_cf(store_column(&v1_db), IteratorMode::Start) {
+        let (key, value) = val.unwrap();
+        logs.put_cf(store_column(&logs), key, value).unwrap();
+    }
+
+    // Restore new db from snapshot if present
+    let v1_snapshot_path = db_path.join("sm-blob");
+    let snapshot = get_v1_snapshot(v1_snapshot_path.clone()).unwrap();
+    if let Some(snapshot) = snapshot {
+        let indexify_state_snapshot: state_machine_objects::V1Snapshot =
+            JsonEncoder::decode(&snapshot.data).unwrap();
+
+        if let Some(data) = snapshot.meta.last_log_id {
+            let applied_data = JsonEncoder::encode(&data).unwrap();
+            new_db
+                .put_cf(
+                    StateMachineColumns::RaftState.cf(&new_db),
+                    LAST_APPLIED_LOG_ID_KEY,
+                    &applied_data,
+                )
+                .unwrap();
+        }
+
+        let membership_data = JsonEncoder::encode(&snapshot.meta.last_membership).unwrap();
+        new_db
+            .put_cf(
+                StateMachineColumns::RaftState.cf(&new_db),
+                LAST_MEMBERSHIP_KEY,
+                &membership_data,
+            )
             .unwrap();
 
-    let db = Arc::new(db);
+        new_db
+            .put_cf(
+                StateMachineColumns::RaftState.cf(&new_db),
+                STORE_VERSION,
+                &CURRENT_STORE_VERSION.to_be_bytes(),
+            )
+            .unwrap();
+        apply_v1_snapshot(&new_db, &indexify_state_snapshot).unwrap();
 
-    let log_store = LogStore { db: db.clone() };
+        fs::remove_file(&v1_snapshot_path).unwrap();
+    }
+    fs::remove_dir_all(&v1_db_path).unwrap();
+    Ok(())
+}
 
-    let snapshot_path = PathBuf::from(snapshot_path.as_ref());
+pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<StateMachineStore>) {
+    fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
-    let sm_store = StateMachineStore::new(db, snapshot_path).await.unwrap();
+    let db_path = PathBuf::from(db_path.as_ref());
+
+    let v1_db_path = db_path.clone().join("db");
+    if v1_db_path.exists() {
+        convert_v1_store(db_path.clone(), v1_db_path).unwrap();
+    }
+
+    let log_path = db_path.join("log");
+    let log_db = open_logs(log_path.as_ref()).unwrap();
+
+    let log_store = LogStore {
+        db: Arc::new(log_db),
+    };
+
+    let db_path = db_path.join("store");
+
+    fs::create_dir_all(&db_path).expect("Failed to create db directory");
+
+    let sm_store = StateMachineStore::new(db_path).await.unwrap();
 
     (log_store, Arc::new(sm_store))
 }
@@ -1044,15 +1447,15 @@ mod tests {
 
     use indexify_internal_api::ContentMetadataId;
 
-    use crate::{state::RaftConfigOverrides, test_utils::RaftTestCluster};
+    use crate::{setup_fmt_tracing, state::RaftConfigOverrides, test_utils::RaftTestCluster};
 
     /// This is a dummy test which forces building a snapshot on the cluster by
     /// passing in some overrides Manually check that the snapshot file was
     /// actually created. Still need to find a way to force reading and
     /// deserialization
     #[tokio::test]
-    #[tracing_test::traced_test]
     async fn test_install_snapshot() -> anyhow::Result<()> {
+        setup_fmt_tracing();
         //  set up raft cluster
         let overrides = RaftConfigOverrides {
             snapshot_policy: Some(openraft::SnapshotPolicy::LogsSinceLast(1)),
