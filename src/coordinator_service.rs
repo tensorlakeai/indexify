@@ -77,7 +77,12 @@ use indexify_proto::indexify_coordinator::{
     WaitContentExtractionRequest,
     WaitContentExtractionResponse,
 };
-use internal_api::{ExtractionGraph, ExtractionGraphBuilder, ExtractionPolicyBuilder, StateChange};
+use internal_api::{
+    ExtractionGraph,
+    ExtractionGraphBuilder,
+    ExtractionPolicyBuilder,
+    StateChangeId,
+};
 use itertools::Itertools;
 use opentelemetry::{
     global,
@@ -1297,7 +1302,7 @@ impl CoordinatorServer {
 async fn run_scheduler(
     mut shutdown_rx: Receiver<()>,
     mut leader_changed: Receiver<bool>,
-    mut state_watcher_rx: Receiver<StateChange>,
+    mut state_watcher_rx: Receiver<StateChangeId>,
     coordinator: Arc<Coordinator>,
 ) -> Result<()> {
     let is_leader = AtomicBool::new(false);

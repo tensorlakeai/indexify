@@ -8,12 +8,17 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api::{self as internal_api, ServerTaskType};
 use internal_api::{
+    ContentMetadata,
     ContentMetadataId,
+    ExecutorMetadata,
     ExtractionGraph,
     ExtractionPolicy,
     ExtractionPolicyName,
     ExtractorDescription,
+    Index,
     StateChange,
+    StructuredDataSchema,
+    Task,
     TaskOutcome,
 };
 use itertools::Itertools;
@@ -38,7 +43,7 @@ use super::{
     StateMachineError,
     TaskId,
 };
-use crate::state::NodeId;
+use crate::state::{store::get_from_cf, NodeId};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct UnassignedTasks {
@@ -691,10 +696,10 @@ impl fmt::Display for IndexifyState {
 impl IndexifyState {
     fn set_extraction_graph(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extraction_graph: &ExtractionGraph,
-        structured_data_schema: &internal_api::StructuredDataSchema,
+        structured_data_schema: &StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
         let _ = txn
@@ -713,7 +718,7 @@ impl IndexifyState {
 
     fn set_new_state_changes(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         state_changes: &mut Vec<StateChange>,
     ) -> Result<(), StateMachineError> {
@@ -737,7 +742,7 @@ impl IndexifyState {
 
     fn set_processed_state_changes(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         state_changes: &Vec<StateChangeProcessed>,
     ) -> Result<Vec<StateChange>, StateMachineError> {
@@ -749,8 +754,12 @@ impl IndexifyState {
             let result = txn
                 .get_cf(state_changes_cf, key)
                 .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            let result = result
-                .ok_or_else(|| StateMachineError::DatabaseError("State change not found".into()))?;
+            let result = result.ok_or_else(|| {
+                StateMachineError::DatabaseError(format!(
+                    "State change {:?} not found",
+                    change.state_change_id
+                ))
+            })?;
 
             let mut state_change = JsonEncoder::decode::<StateChange>(&result)?;
             state_change.processed_at = Some(change.processed_at);
@@ -764,9 +773,9 @@ impl IndexifyState {
 
     fn set_index(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        index: &internal_api::Index,
+        index: &Index,
         id: &String,
     ) -> Result<(), StateMachineError> {
         let serialized_index = JsonEncoder::encode(index)?;
@@ -777,9 +786,9 @@ impl IndexifyState {
 
     fn set_tasks(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        tasks: &Vec<internal_api::Task>,
+        tasks: &Vec<Task>,
     ) -> Result<(), StateMachineError> {
         // content_id -> Set(Extraction Policy Ids)
         for task in tasks {
@@ -803,9 +812,9 @@ impl IndexifyState {
 
     fn update_tasks(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        tasks: Vec<&internal_api::Task>,
+        tasks: Vec<&Task>,
         update_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
@@ -831,7 +840,7 @@ impl IndexifyState {
 
     fn set_garbage_collection_tasks(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         garbage_collection_tasks: &Vec<internal_api::GarbageCollectionTask>,
     ) -> Result<(), StateMachineError> {
@@ -849,7 +858,7 @@ impl IndexifyState {
 
     fn update_garbage_collection_tasks(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         garbage_collection_tasks: &Vec<&internal_api::GarbageCollectionTask>,
     ) -> Result<(), StateMachineError> {
@@ -867,7 +876,7 @@ impl IndexifyState {
 
     fn get_task_assignments_for_executor(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<HashSet<TaskId>, StateMachineError> {
@@ -894,7 +903,7 @@ impl IndexifyState {
     /// Set the list of tasks that have been assigned to some executor
     fn set_task_assignments(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         task_assignments: &HashMap<String, HashSet<TaskId>>,
     ) -> Result<(), StateMachineError> {
@@ -915,7 +924,7 @@ impl IndexifyState {
     // FIXME USE MULTI-GET HERE
     fn delete_task_assignments_for_executor(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<Vec<TaskId>, StateMachineError> {
@@ -951,9 +960,9 @@ impl IndexifyState {
 
     fn set_content<'a>(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        contents_vec: impl IntoIterator<Item = &'a internal_api::ContentMetadata>,
+        contents_vec: impl IntoIterator<Item = &'a ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
             let serialized_content = JsonEncoder::encode(content)?;
@@ -971,9 +980,9 @@ impl IndexifyState {
 
     fn tombstone_content_tree(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_metadata: &Vec<indexify_internal_api::ContentMetadata>,
+        content_metadata: &Vec<ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in content_metadata {
             let cf = StateMachineColumns::ContentTable.cf(db);
@@ -998,7 +1007,7 @@ impl IndexifyState {
     /// Function to delete content based on content ids
     fn delete_content(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_ids: Vec<ContentMetadataId>,
     ) -> Result<(), StateMachineError> {
@@ -1019,14 +1028,14 @@ impl IndexifyState {
 
     fn set_executor(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         addr: String,
         executor_id: &str,
         extractors: &Vec<ExtractorDescription>,
         ts_secs: &u64,
     ) -> Result<(), StateMachineError> {
-        let serialized_executor = JsonEncoder::encode(&internal_api::ExecutorMetadata {
+        let serialized_executor = JsonEncoder::encode(&ExecutorMetadata {
             id: executor_id.into(),
             last_seen: *ts_secs,
             addr: addr.clone(),
@@ -1043,18 +1052,17 @@ impl IndexifyState {
 
     fn delete_executor(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         executor_id: &str,
-    ) -> Result<Option<internal_api::ExecutorMetadata>, StateMachineError> {
+    ) -> Result<Option<ExecutorMetadata>, StateMachineError> {
         //  Get a handle on the executor before deleting it from the DB
         let executors_cf = StateMachineColumns::Executors.cf(db);
         match txn.get_cf(executors_cf, executor_id).map_err(|e| {
             StateMachineError::DatabaseError(format!("Error reading executor: {}", e))
         })? {
             Some(executor) => {
-                let executor_meta =
-                    JsonEncoder::decode::<internal_api::ExecutorMetadata>(&executor)?;
+                let executor_meta = JsonEncoder::decode::<ExecutorMetadata>(&executor)?;
                 txn.delete_cf(executors_cf, executor_id).map_err(|e| {
                     StateMachineError::DatabaseError(format!("Error deleting executor: {}", e))
                 })?;
@@ -1066,7 +1074,7 @@ impl IndexifyState {
 
     fn set_extractors(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extractors: &Vec<ExtractorDescription>,
     ) -> Result<(), StateMachineError> {
@@ -1086,7 +1094,7 @@ impl IndexifyState {
 
     fn set_extraction_policy(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         extraction_policy: &ExtractionPolicy,
     ) -> Result<(), StateMachineError> {
@@ -1104,7 +1112,7 @@ impl IndexifyState {
 
     fn set_namespace(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         namespace: &NamespaceName,
     ) -> Result<(), StateMachineError> {
@@ -1120,9 +1128,9 @@ impl IndexifyState {
 
     fn set_schema(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        schema: &internal_api::StructuredDataSchema,
+        schema: &StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_schema = JsonEncoder::encode(schema)?;
         txn.put_cf(
@@ -1136,7 +1144,7 @@ impl IndexifyState {
 
     pub fn update_content_extraction_policy_state(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: &ContentMetadataId,
         extraction_policy_id: &str,
@@ -1156,7 +1164,7 @@ impl IndexifyState {
                     content_id
                 ))
             })?;
-        let mut content_meta = JsonEncoder::decode::<internal_api::ContentMetadata>(&value)?;
+        let mut content_meta = JsonEncoder::decode::<ContentMetadata>(&value)?;
         let epoch_time = policy_completion_time
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|e| {
@@ -1187,7 +1195,7 @@ impl IndexifyState {
 
     pub fn set_coordinator_addr(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         node_id: NodeId,
         coordinator_addr: &str,
@@ -1219,7 +1227,7 @@ impl IndexifyState {
     fn update_extraction_graph_reverse_idx(
         &self,
         extraction_graph: &ExtractionGraph,
-        structured_data_schema: internal_api::StructuredDataSchema,
+        structured_data_schema: StructuredDataSchema,
     ) {
         for ep in &extraction_graph.extraction_policies {
             self.extraction_policies_table.insert(&ep.namespace, &ep.id);
@@ -1236,10 +1244,9 @@ impl IndexifyState {
     pub fn apply_state_machine_updates(
         &self,
         mut request: StateMachineUpdateRequest,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<StateChange>, StateMachineError> {
-        let txn = db.transaction();
-
+        db: &OptimisticTransactionDB,
+        txn: rocksdb::Transaction<OptimisticTransactionDB>,
+    ) -> Result<Option<StateChangeId>, StateMachineError> {
         self.set_new_state_changes(db, &txn, &mut request.new_state_changes)?;
         let mut state_changes_processed =
             self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
@@ -1356,7 +1363,7 @@ impl IndexifyState {
                 // Remove from the executor load table
                 self.executor_running_task_count.remove(executor_id);
 
-                return Ok(request.new_state_changes);
+                return Ok(request.new_state_changes.last().map(|sc| sc.id));
             }
             RequestPayload::CreateOrUpdateContent { entries } => {
                 self.set_content(db, &txn, entries.iter().map(|e| &e.content))?;
@@ -1400,7 +1407,7 @@ impl IndexifyState {
             }
         }
 
-        let new_state_changes = request.new_state_changes.clone();
+        let last_change_id = request.new_state_changes.last().map(|sc| sc.id);
 
         self.update_reverse_indexes(request).map_err(|e| {
             StateMachineError::ExternalError(anyhow!(
@@ -1412,7 +1419,7 @@ impl IndexifyState {
         txn.commit()
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
 
-        Ok(new_state_changes)
+        Ok(last_change_id)
     }
 
     /// This method handles all reverse index writes. All reverse indexes are
@@ -1438,7 +1445,7 @@ impl IndexifyState {
                         .insert(&extractor.name, &executor_id);
                 }
 
-                let _executor_info = internal_api::ExecutorMetadata {
+                let _executor_info = ExecutorMetadata {
                     id: executor_id.clone(),
                     last_seen: ts_secs,
                     addr: addr.clone(),
@@ -1551,34 +1558,13 @@ impl IndexifyState {
     pub fn get_latest_version_of_content(
         &self,
         content_id: &str,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-    ) -> Result<Option<internal_api::ContentMetadata>, StateMachineError> {
+    ) -> Result<Option<ContentMetadata>, StateMachineError> {
         txn.get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-            .map(|data| JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&data))
+            .map(|data| JsonEncoder::decode::<ContentMetadata>(&data))
             .transpose()
-    }
-
-    /// This method fetches a key from a specific column family
-    pub fn get_from_cf<T, K>(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        column: StateMachineColumns,
-        key: K,
-    ) -> Result<Option<T>, anyhow::Error>
-    where
-        T: DeserializeOwned,
-        K: AsRef<[u8]>,
-    {
-        let result_bytes = match db.get_cf(column.cf(db), key)? {
-            Some(bytes) => bytes,
-            None => return Ok(None),
-        };
-        let result = JsonEncoder::decode::<T>(&result_bytes)
-            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
-
-        Ok(Some(result))
     }
 
     /// This method is used to get the tasks assigned to an executor
@@ -1588,8 +1574,8 @@ impl IndexifyState {
         &self,
         executor_id: &str,
         limit: Option<u64>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::Task>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<Task>, StateMachineError> {
         //  NOTE: Don't do deserialization within the transaction
         let txn = db.transaction();
         let task_ids_bytes = txn
@@ -1610,7 +1596,7 @@ impl IndexifyState {
         // FIXME Use MULTIGET
         let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
 
-        let tasks: Result<Vec<indexify_internal_api::Task>, StateMachineError> = task_ids
+        let tasks: Result<Vec<Task>, StateMachineError> = task_ids
             .into_iter()
             .take(limit)
             .map(|task_id| {
@@ -1630,10 +1616,10 @@ impl IndexifyState {
     pub fn get_indexes_from_ids(
         &self,
         task_ids: HashSet<TaskId>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::Index>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<Index>, StateMachineError> {
         let txn = db.transaction();
-        let indexes: Result<Vec<indexify_internal_api::Index>, StateMachineError> = task_ids
+        let indexes: Result<Vec<Index>, StateMachineError> = task_ids
             .into_iter()
             .map(|task_id| {
                 let index_bytes = txn
@@ -1653,36 +1639,35 @@ impl IndexifyState {
     pub fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ExecutorMetadata>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<ExecutorMetadata>, StateMachineError> {
         let txn = db.transaction();
-        let executors: Result<Vec<indexify_internal_api::ExecutorMetadata>, StateMachineError> =
-            executor_ids
-                .into_iter()
-                .map(|executor_id| {
-                    let executor_bytes = txn
-                        .get_cf(
-                            StateMachineColumns::Executors.cf(db),
-                            executor_id.as_bytes(),
-                        )
-                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                        .ok_or_else(|| {
-                            StateMachineError::DatabaseError(format!(
-                                "Executor {} not found",
-                                executor_id
-                            ))
-                        })?;
-                    JsonEncoder::decode(&executor_bytes).map_err(StateMachineError::from)
-                })
-                .collect();
+        let executors: Result<Vec<ExecutorMetadata>, StateMachineError> = executor_ids
+            .into_iter()
+            .map(|executor_id| {
+                let executor_bytes = txn
+                    .get_cf(
+                        StateMachineColumns::Executors.cf(db),
+                        executor_id.as_bytes(),
+                    )
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
+                    .ok_or_else(|| {
+                        StateMachineError::DatabaseError(format!(
+                            "Executor {} not found",
+                            executor_id
+                        ))
+                    })?;
+                JsonEncoder::decode(&executor_bytes).map_err(StateMachineError::from)
+            })
+            .collect();
         executors
     }
 
     pub fn get_content_by_id_and_version(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         content_id: &ContentMetadataId,
-    ) -> Result<Option<indexify_internal_api::ContentMetadata>, StateMachineError> {
+    ) -> Result<Option<ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
         let content_metadata_bytes = txn
             .get_cf(
@@ -1693,9 +1678,8 @@ impl IndexifyState {
         if content_metadata_bytes.is_none() {
             return Ok(None);
         }
-        let content_metadata = JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(
-            &content_metadata_bytes.unwrap(),
-        )?;
+        let content_metadata =
+            JsonEncoder::decode::<ContentMetadata>(&content_metadata_bytes.unwrap())?;
         Ok(Some(content_metadata))
     }
 
@@ -1706,8 +1690,8 @@ impl IndexifyState {
     pub fn get_content_from_ids(
         &self,
         content_ids: impl IntoIterator<Item = String>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
         let mut contents = Vec::new();
         let cf_handle = StateMachineColumns::ContentTable.cf(db);
@@ -1719,9 +1703,7 @@ impl IndexifyState {
         for res in results {
             match res {
                 Ok(Some(value)) => {
-                    contents.push(
-                        JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?,
-                    );
+                    contents.push(JsonEncoder::decode::<ContentMetadata>(&value)?);
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -1742,11 +1724,11 @@ impl IndexifyState {
         &self,
         content_id: &str,
         version: Option<u64>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<ContentMetadata>, StateMachineError> {
         let txn = db.transaction();
         let mut collected_content_metadata = Vec::new();
-        let content_key = internal_api::ContentMetadata::make_id_key(content_id, version);
+        let content_key = ContentMetadata::make_id_key(content_id, version);
         let cf_handle = StateMachineColumns::ContentTable.cf(db);
         let val = txn
             .get_cf(cf_handle, content_key)
@@ -1754,7 +1736,7 @@ impl IndexifyState {
 
         let content = match val {
             None => return Ok(collected_content_metadata),
-            Some(bytes) => JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&bytes)?,
+            Some(bytes) => JsonEncoder::decode::<ContentMetadata>(&bytes)?,
         };
 
         let mut cf_ids = Vec::new();
@@ -1772,8 +1754,7 @@ impl IndexifyState {
 
         for res in content_metadata_bytes {
             if let Ok(Some(value)) = res {
-                let content =
-                    JsonEncoder::decode::<indexify_internal_api::ContentMetadata>(&value)?;
+                let content = JsonEncoder::decode::<ContentMetadata>(&value)?;
                 collected_content_metadata.push(content);
             }
         }
@@ -1786,8 +1767,8 @@ impl IndexifyState {
     pub fn get_content_tree_metadata(
         &self,
         content_id: &str,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<ContentMetadata>, StateMachineError> {
         self.get_content_tree_metadata_inner(content_id, None, db)
     }
 
@@ -1797,8 +1778,8 @@ impl IndexifyState {
     pub fn get_content_tree_metadata_with_version(
         &self,
         content_id: &ContentMetadataId,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<indexify_internal_api::ContentMetadata>, StateMachineError> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<ContentMetadata>, StateMachineError> {
         self.get_content_tree_metadata_inner(&content_id.id, Some(content_id.version), db)
     }
 
@@ -1808,7 +1789,7 @@ impl IndexifyState {
     pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Option<Vec<ExtractionPolicy>>, StateMachineError> {
         let txn = db.transaction();
 
@@ -1845,7 +1826,7 @@ impl IndexifyState {
         namespace: &str,
         graph_name: &str,
         policy_names: &HashSet<ExtractionPolicyName>,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Vec<Option<ExtractionPolicy>>, StateMachineError> {
         let mut policies = Vec::new();
         for policy_name in policy_names {
@@ -1871,7 +1852,7 @@ impl IndexifyState {
     /// This method gets all task assignments stored in the relevant CF
     pub fn get_all_task_assignments(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<HashMap<TaskId, ExecutorId>, StateMachineError> {
         let mut assignments = HashMap::new();
         let iter = db.iterator_cf(
@@ -1916,9 +1897,9 @@ impl IndexifyState {
     pub fn get_namespace(
         &self,
         namespace: &str,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Option<indexify_internal_api::Namespace>> {
-        let ns_name = match self.get_from_cf(db, StateMachineColumns::Namespaces, namespace)? {
+        let ns_name = match get_from_cf(db, StateMachineColumns::Namespaces, namespace)? {
             Some(name) => name,
             None => return Ok(None),
         };
@@ -1942,8 +1923,8 @@ impl IndexifyState {
     pub fn get_schemas(
         &self,
         ids: HashSet<String>,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<Vec<internal_api::StructuredDataSchema>> {
+        db: &OptimisticTransactionDB,
+    ) -> Result<Vec<StructuredDataSchema>> {
         let txn = db.transaction();
         let keys = ids
             .iter()
@@ -1964,7 +1945,7 @@ impl IndexifyState {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<ExtractionGraphId>,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids
@@ -1996,7 +1977,7 @@ impl IndexifyState {
         &self,
         namespace: &str,
         graph_names: &[String],
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
         let eg_ids: Vec<String> = graph_names
             .iter()
@@ -2029,20 +2010,45 @@ impl IndexifyState {
     pub fn get_coordinator_addr(
         &self,
         node_id: NodeId,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Option<String>> {
-        self.get_from_cf(
+        get_from_cf(
             db,
             StateMachineColumns::CoordinatorAddress,
             node_id.to_string(),
         )
     }
 
+    pub fn iter_cf<'a, V>(
+        &self,
+        db: &'a OptimisticTransactionDB,
+        column: StateMachineColumns,
+    ) -> impl Iterator<Item = Result<(Box<[u8]>, V), StateMachineError>> + 'a
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = db
+            .cf_handle(column.as_ref())
+            .ok_or(StateMachineError::DatabaseError(format!(
+                "Failed to get column family {}",
+                column
+            )))
+            .unwrap();
+        db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start)
+            .map(|item| {
+                item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
+                    .and_then(|(key, value)| match JsonEncoder::decode::<V>(&value) {
+                        Ok(value) => Ok((key, value)),
+                        Err(e) => Err(StateMachineError::SerializationError(e.to_string())),
+                    })
+            })
+    }
+
     /// Test utility method to get all key-value pairs from a column family
     pub fn get_all_rows_from_cf<V>(
         &self,
         column: StateMachineColumns,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
     ) -> Result<Vec<(String, V)>, StateMachineError>
     where
         V: DeserializeOwned,
@@ -2087,7 +2093,7 @@ impl IndexifyState {
 
     pub fn list_active_contents(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
+        db: &OptimisticTransactionDB,
         namespace: &str,
     ) -> Result<Vec<String>, StateMachineError> {
         let root_content_guard = self.root_task_counts.read().unwrap();
@@ -2229,165 +2235,12 @@ impl IndexifyState {
 
     //  END WRITER METHODS FOR REVERSE INDEXES
 
-    //  START SNAPSHOT METHODS
-    pub fn build_snapshot(
+    //  Build the in-memory reverse indexes on startup or when restoring from
+    // snapshot.
+    pub fn rebuild_reverse_indexes(
         &self,
-        db: &Arc<OptimisticTransactionDB>,
-    ) -> Result<IndexifyStateSnapshot, StateMachineError> {
-        let executors = self.get_all_rows_from_cf::<internal_api::ExecutorMetadata>(
-            StateMachineColumns::Executors,
-            db,
-        )?;
-        let tasks =
-            self.get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks, db)?;
-        let gc_tasks = self.get_all_rows_from_cf::<internal_api::GarbageCollectionTask>(
-            StateMachineColumns::GarbageCollectionTasks,
-            db,
-        )?;
-        let task_assignments =
-            self.get_all_rows_from_cf::<HashSet<TaskId>>(StateMachineColumns::TaskAssignments, db)?;
-        let state_changes: HashMap<StateChangeId, StateChange> = self
-            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges, db)?
-            .into_iter()
-            .map(|(key, value)| {
-                let key = key
-                    .parse::<u64>()
-                    .map_err(|e| StateMachineError::ExternalError(e.into()))?;
-                Ok((StateChangeId::new(key), value))
-            })
-            .collect::<Result<_, StateMachineError>>()?;
-        let content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata> = self
-            .get_all_rows_from_cf::<internal_api::ContentMetadata>(
-                StateMachineColumns::ContentTable,
-                db,
-            )?
-            .into_iter()
-            .map(|(_, value)| Ok((value.id.clone(), value)))
-            .collect::<Result<_, StateMachineError>>()?;
-        let extraction_policies = self.get_all_rows_from_cf::<ExtractionPolicy>(
-            StateMachineColumns::ExtractionPolicies,
-            db,
-        )?;
-        let extractors =
-            self.get_all_rows_from_cf::<ExtractorDescription>(StateMachineColumns::Extractors, db)?;
-        let namespaces: HashSet<String> = self
-            .get_all_rows_from_cf::<NamespaceName>(StateMachineColumns::Namespaces, db)?
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-        let index_table =
-            self.get_all_rows_from_cf::<internal_api::Index>(StateMachineColumns::IndexTable, db)?;
-        let structured_data_schemas = self
-            .get_all_rows_from_cf::<internal_api::StructuredDataSchema>(
-                StateMachineColumns::StructuredDataSchemas,
-                db,
-            )?;
-        let coordinator_address: HashMap<NodeId, String> = self
-            .get_all_rows_from_cf::<String>(StateMachineColumns::CoordinatorAddress, db)?
-            .into_iter()
-            .map(|(key, value)| {
-                let k = key
-                    .parse::<u64>()
-                    .map_err(|e| StateMachineError::ExternalError(e.into()))?;
-                Ok((k, value))
-            })
-            .collect::<Result<_, StateMachineError>>()?;
-        let extraction_graphs = self
-            .get_all_rows_from_cf::<ExtractionGraph>(StateMachineColumns::ExtractionGraphs, db)?;
-        let metrics = self.metrics.lock().unwrap().clone();
-
-        let snapshot = IndexifyStateSnapshot {
-            executors: executors.into_iter().collect(),
-            tasks: tasks.into_iter().collect(),
-            gc_tasks: gc_tasks.into_iter().collect(),
-            task_assignments: task_assignments.into_iter().collect(),
-            state_changes: state_changes.into_iter().collect(),
-            content_table: content_table.into_iter().collect(),
-            extraction_policies: extraction_policies.into_iter().collect(),
-            extractors: extractors.into_iter().collect(),
-            namespaces: namespaces.into_iter().collect(),
-            index_table: index_table.into_iter().collect(),
-            structured_data_schemas: structured_data_schemas.into_iter().collect(),
-            coordinator_address: coordinator_address.into_iter().collect(),
-            extraction_graphs: extraction_graphs.into_iter().collect(),
-            metrics,
-        };
-        Ok(snapshot)
-    }
-
-    pub fn install_snapshot(
-        &self,
-        db: &Arc<OptimisticTransactionDB>,
-        snapshot: IndexifyStateSnapshot,
+        db: &OptimisticTransactionDB,
     ) -> Result<(), StateMachineError> {
-        fn put_cf<K, T>(
-            txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-            cf: &rocksdb::ColumnFamily,
-            key: K,
-            value: &T,
-        ) -> Result<(), StateMachineError>
-        where
-            K: AsRef<[u8]>,
-            T: serde::Serialize + std::fmt::Debug,
-        {
-            let serialized = JsonEncoder::encode(value)?;
-            txn.put_cf(cf, key, serialized)
-                .map_err(|e| StateMachineError::TransactionError(e.to_string()))
-        }
-
-        let txn = db.transaction();
-
-        //  Build the rocksdb forward indexes
-        for (executor_id, executor_metadata) in &snapshot.executors {
-            let cf = StateMachineColumns::Executors.cf(db);
-            put_cf(&txn, cf, executor_id, &executor_metadata)?;
-        }
-        for (task_id, task) in &snapshot.tasks {
-            let cf = StateMachineColumns::Tasks.cf(db);
-            put_cf(&txn, cf, task_id, &task)?;
-        }
-        for (gc_task_id, gc_task) in &snapshot.gc_tasks {
-            let cf = StateMachineColumns::GarbageCollectionTasks.cf(db);
-            put_cf(&txn, cf, gc_task_id, &gc_task)?;
-        }
-        for (executor_id, task_ids) in &snapshot.task_assignments {
-            let cf = StateMachineColumns::TaskAssignments.cf(db);
-            put_cf(&txn, cf, executor_id, &task_ids)?;
-        }
-        for (state_change_id, state_change) in &snapshot.state_changes {
-            let cf = StateMachineColumns::StateChanges.cf(db);
-            put_cf(&txn, cf, state_change_id.to_key(), &state_change)?;
-        }
-        for (content_id, content) in &snapshot.content_table {
-            let cf = StateMachineColumns::ContentTable.cf(db);
-            put_cf(&txn, cf, &content_id.id, &content)?;
-        }
-        for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
-            let cf = StateMachineColumns::ExtractionPolicies.cf(db);
-            put_cf(&txn, cf, extraction_policy_id, &extraction_policy_ids)?;
-        }
-        for (extractor_name, extractor_description) in &snapshot.extractors {
-            let cf = StateMachineColumns::Extractors.cf(db);
-            put_cf(&txn, cf, extractor_name, &extractor_description)?;
-        }
-        for namespace in snapshot.namespaces {
-            let cf = StateMachineColumns::Namespaces.cf(db);
-            put_cf(&txn, cf, &namespace, &namespace)?;
-        }
-        for (index_name, index) in &snapshot.index_table {
-            let cf = StateMachineColumns::IndexTable.cf(db);
-            put_cf(&txn, cf, index_name, &index)?;
-        }
-        for (schema_id, schema) in &snapshot.structured_data_schemas {
-            let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
-            put_cf(&txn, cf, schema_id, &schema)?;
-        }
-        for (node_id, addr) in &snapshot.coordinator_address {
-            let cf = StateMachineColumns::CoordinatorAddress.cf(db);
-            put_cf(&txn, cf, &node_id.to_string(), &addr)?;
-        }
-
-        //  Build the in-memory reverse indexes
         let mut unassigned_tasks = self.unassigned_tasks.unassigned_tasks.write().unwrap();
         let mut unprocessed_state_changes_guard = self
             .unprocessed_state_changes
@@ -2440,84 +2293,14 @@ impl IndexifyState {
             .write()
             .unwrap();
 
-        for (task_id, task) in &snapshot.tasks {
+        for task in self.iter_cf::<Task>(db, StateMachineColumns::Tasks) {
+            let (_, task) = task?;
             if !task.terminal_state() {
-                unassigned_tasks.insert(task_id.clone());
-            }
-        }
-        for task_ids in snapshot.task_assignments.values() {
-            for task_id in task_ids {
-                unassigned_tasks.remove(task_id);
-            }
-        }
-
-        for state_change_id in snapshot.state_changes.keys() {
-            unprocessed_state_changes_guard.insert(*state_change_id);
-        }
-
-        for (content_id, content) in &snapshot.content_table {
-            content_namespace_table_guard
-                .entry(content.namespace.clone())
-                .or_default()
-                .insert(content_id.clone());
-        }
-
-        for (extraction_policy_id, extraction_policy) in &snapshot.extraction_policies {
-            extraction_policies_table
-                .entry(extraction_policy.namespace.clone())
-                .or_default()
-                .insert(extraction_policy_id.clone());
-        }
-
-        for (executor_id, executor_metadata) in &snapshot.executors {
-            for extractor in &executor_metadata.extractors {
-                extractor_executors_table
-                    .entry(extractor.name.clone())
-                    .or_default()
-                    .insert(executor_id.clone());
-            }
-        }
-
-        for (index_id, index) in &snapshot.index_table {
-            namespace_index_table
-                .entry(index.namespace.clone())
-                .or_default()
-                .insert(index_id.clone());
-        }
-
-        for (task_id, task) in &snapshot.tasks {
-            if !task.terminal_state() {
+                unassigned_tasks.insert(task.id.clone());
                 unfinished_tasks_by_extractor
                     .entry(task.extractor.clone())
                     .or_default()
-                    .insert(task_id.clone());
-            }
-        }
-
-        for (executor_id, task_ids) in &snapshot.task_assignments {
-            *executor_running_task_count
-                .entry(executor_id.clone())
-                .or_insert(0) += task_ids.len() as u64;
-        }
-
-        for (schema_id, schema) in &snapshot.structured_data_schemas {
-            schemas_by_namespace
-                .entry(schema.namespace.clone())
-                .or_default()
-                .insert(schema_id.clone());
-        }
-
-        for (content_id, content) in &snapshot.content_table {
-            if let Some(parent_id) = &content.parent_id {
-                content_children_table
-                    .entry(parent_id.clone())
-                    .or_default()
-                    .insert(content_id.clone());
-            }
-        }
-
-        for (task_id, task) in &snapshot.tasks {
-            if !task.terminal_state() {
+                    .insert(task.id.clone());
                 let content_id = &task.content_metadata.id;
                 let extraction_policy_id = &task.extraction_policy_id;
 
@@ -2527,36 +2310,115 @@ impl IndexifyState {
                 let tasks_set = policies_map
                     .entry(extraction_policy_id.clone())
                     .or_default();
-                tasks_set.insert(task_id.clone());
+                tasks_set.insert(task.id.clone());
             }
         }
 
-        //  set the metrics
-        *self.metrics.lock().unwrap() = snapshot.metrics;
+        for task_assignment in
+            self.iter_cf::<HashSet<TaskId>>(db, StateMachineColumns::TaskAssignments)
+        {
+            let (executor_key, task_ids) = task_assignment?;
+            let executor_id = String::from_utf8(executor_key.to_vec()).map_err(|e| {
+                StateMachineError::DatabaseError(format!("Failed to decode executor key: {}", e))
+            })?;
+            *executor_running_task_count.entry(executor_id).or_insert(0) += task_ids.len() as u64;
+            for task_id in task_ids {
+                unassigned_tasks.remove(&task_id);
+            }
+        }
 
-        txn.commit()
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+        let mut max_change_id = StateChangeId::new(0);
+        for state_change in self.iter_cf::<StateChange>(db, StateMachineColumns::StateChanges) {
+            let (_, state_change) = state_change?;
+            if state_change.processed_at.is_none() {
+                unprocessed_state_changes_guard.insert(state_change.id);
+            }
+            if state_change.id > max_change_id {
+                max_change_id = state_change.id;
+            }
+        }
+        let val: u64 = max_change_id.into();
+        *self.change_id.lock().unwrap() = val + 1;
+
+        for content in self.iter_cf::<ContentMetadata>(db, StateMachineColumns::ContentTable) {
+            let (_, content) = content?;
+            content_namespace_table_guard
+                .entry(content.namespace.clone())
+                .or_default()
+                .insert(content.id.clone());
+            if let Some(parent_id) = &content.parent_id {
+                content_children_table
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .insert(content.id.clone());
+            }
+            content_namespace_table_guard
+                .entry(content.namespace.clone())
+                .or_default()
+                .insert(content.id.clone());
+        }
+
+        for extraction_policy in
+            self.iter_cf::<ExtractionPolicy>(db, StateMachineColumns::ExtractionPolicies)
+        {
+            let (_, extraction_policy) = extraction_policy?;
+            extraction_policies_table
+                .entry(extraction_policy.namespace.clone())
+                .or_default()
+                .insert(extraction_policy.id.clone());
+        }
+
+        for executor in self.iter_cf::<ExecutorMetadata>(db, StateMachineColumns::Executors) {
+            let (_, executor) = executor?;
+            for extractor in &executor.extractors {
+                extractor_executors_table
+                    .entry(extractor.name.clone())
+                    .or_default()
+                    .insert(executor.id.clone());
+            }
+        }
+
+        for index in self.iter_cf::<Index>(db, StateMachineColumns::IndexTable) {
+            let (_, index) = index?;
+            namespace_index_table
+                .entry(index.namespace.clone())
+                .or_default()
+                .insert(index.id.clone());
+        }
+
+        for schema in
+            self.iter_cf::<StructuredDataSchema>(db, StateMachineColumns::StructuredDataSchemas)
+        {
+            let (_, schema) = schema?;
+            schemas_by_namespace
+                .entry(schema.namespace.clone())
+                .or_default()
+                .insert(schema.id.clone());
+        }
+
         Ok(())
     }
-    //  END SNAPSHOT METHODS
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
-pub struct IndexifyStateSnapshot {
-    executors: HashMap<ExecutorId, internal_api::ExecutorMetadata>,
-    tasks: HashMap<TaskId, internal_api::Task>,
-    gc_tasks: HashMap<internal_api::GarbageCollectionTaskId, internal_api::GarbageCollectionTask>,
-    task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
-    state_changes: HashMap<StateChangeId, StateChange>,
-    content_table: HashMap<ContentMetadataId, internal_api::ContentMetadata>,
-    extraction_policies: HashMap<ExtractionPolicyId, ExtractionPolicy>,
-    extractors: HashMap<ExtractorName, ExtractorDescription>,
-    namespaces: HashSet<NamespaceName>,
-    index_table: HashMap<String, internal_api::Index>,
-    structured_data_schemas: HashMap<String, internal_api::StructuredDataSchema>,
-    coordinator_address: HashMap<NodeId, String>,
-    extraction_graphs: HashMap<ExtractionGraphId, ExtractionGraph>,
-    metrics: Metrics,
+pub struct V1Snapshot {
+    pub executors: HashMap<ExecutorId, ExecutorMetadata>,
+    pub tasks: HashMap<TaskId, Task>,
+    pub gc_tasks: HashMap<
+        indexify_internal_api::GarbageCollectionTaskId,
+        indexify_internal_api::GarbageCollectionTask,
+    >,
+    pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
+    pub state_changes: HashMap<StateChangeId, StateChange>,
+    pub content_table: HashMap<ContentMetadataId, ContentMetadata>,
+    pub extraction_policies: HashMap<ExtractionPolicyId, ExtractionPolicy>,
+    pub extractors: HashMap<ExtractorName, ExtractorDescription>,
+    pub namespaces: HashSet<NamespaceName>,
+    pub index_table: HashMap<String, Index>,
+    pub structured_data_schemas: HashMap<String, StructuredDataSchema>,
+    pub coordinator_address: HashMap<NodeId, String>,
+    pub extraction_graphs: HashMap<ExtractionGraphId, ExtractionGraph>,
+    pub metrics: Metrics,
 }
 
 #[cfg(test)]

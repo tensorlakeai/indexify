@@ -1,21 +1,44 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, BTreeMap, HashMap},
+    sync::Arc,
+};
 
+use anyhow::anyhow;
 use async_trait::async_trait;
-use indexify_proto::indexify_raft::{raft_api_server::RaftApi, RaftReply, RaftRequest};
+use futures::lock::Mutex;
+use indexify_proto::indexify_raft::{
+    raft_api_server::RaftApi,
+    InstallSnapshotRequest,
+    RaftReply,
+    RaftRequest,
+    SnapshotFileChunkRequest,
+};
 use openraft::{
-    error::{CheckIsLeaderError, ForwardToLeader, RaftError},
+    error::{CheckIsLeaderError, Fatal, ForwardToLeader, RaftError},
     BasicNode,
+    Snapshot,
+    SnapshotMeta,
+    StorageError,
+    StorageIOError,
+    Vote,
 };
 use requests::{RequestPayload, StateMachineUpdateRequest, StateMachineUpdateResponse};
+use tokio::{fs, fs::File, io::AsyncWriteExt};
 use tonic::{Request, Status};
 use tracing::info;
 
 use super::{raft_client::RaftClient, NodeId};
 use crate::{
     grpc_helper::GrpcHelper,
-    metrics::{raft_metrics, CounterGuard},
-    state::{store::requests, Raft},
+    metrics::raft_metrics,
+    state::{store::requests, Raft, SnapshotData},
 };
+
+struct SnapshotState {
+    snapshot_id: String,
+    files: HashMap<String, File>,
+    dir: Box<SnapshotData>,
+}
 
 pub struct RaftGrpcServer {
     id: NodeId,
@@ -23,6 +46,7 @@ pub struct RaftGrpcServer {
     raft_client: Arc<RaftClient>,
     address: String,
     coordinator_address: String,
+    receiving_snapshot: Arc<Mutex<Option<SnapshotState>>>,
 }
 
 impl RaftGrpcServer {
@@ -39,6 +63,7 @@ impl RaftGrpcServer {
             raft_client,
             address,
             coordinator_address: coordinator_addr,
+            receiving_snapshot: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -167,6 +192,81 @@ impl RaftGrpcServer {
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
         GrpcHelper::ok_response(response)
     }
+
+    async fn begin_receiving_snapshot<'a>(
+        &self,
+        snapshot_id: &str,
+        state: &'a mut Option<SnapshotState>,
+    ) -> Result<(), Fatal<NodeId>> {
+        let dir = match self.raft.begin_receiving_snapshot().await {
+            Ok(dir) => dir,
+            Err(RaftError::APIError(_)) => {
+                panic!("Failed with infallible error");
+            }
+            Err(RaftError::Fatal(e)) => {
+                return Err(e);
+            }
+        };
+        *state = Some(SnapshotState {
+            snapshot_id: snapshot_id.to_string(),
+            files: HashMap::new(),
+            dir,
+        });
+        Ok(())
+    }
+
+    async fn trasnfer_snapshot_(
+        &self,
+        chunk: SnapshotFileChunkRequest,
+    ) -> Result<(), Fatal<NodeId>> {
+        let mut receive_state = self.receiving_snapshot.lock().await;
+        match receive_state.as_ref() {
+            None => {
+                self.begin_receiving_snapshot(&chunk.snapshot_id, &mut receive_state)
+                    .await?;
+            }
+            Some(state) => {
+                if state.snapshot_id != chunk.snapshot_id {
+                    fs::remove_dir_all(&state.dir.snapshot_dir)
+                        .await
+                        .map_err(|e| {
+                            let storage_error: StorageError<_> =
+                                StorageIOError::<u64>::write_snapshot(None, &e).into();
+                            Fatal::from(storage_error)
+                        })?;
+                    self.begin_receiving_snapshot(&chunk.snapshot_id, &mut receive_state)
+                        .await?;
+                }
+            }
+        };
+        let state = receive_state.as_mut().ok_or_else(|| {
+            let storage_error: StorageError<_> = StorageIOError::<u64>::write_snapshot(
+                None,
+                anyhow!("Snapshot state not found after starting snapshot receive"),
+            )
+            .into();
+            Fatal::from(storage_error)
+        })?;
+
+        let file = match state.files.entry(chunk.name.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let file_path = state.dir.snapshot_dir.join(&chunk.name);
+                let file = File::create(&file_path).await.map_err(|e| {
+                    let storage_error: StorageError<_> =
+                        StorageIOError::<u64>::write_snapshot(None, &e).into();
+                    Fatal::from(storage_error)
+                })?;
+                entry.insert(file)
+            }
+        };
+
+        file.write_all(&chunk.data).await.map_err(|e| {
+            let storage_error: StorageError<_> =
+                StorageIOError::<u64>::write_snapshot(None, &e).into();
+            Fatal::from(storage_error)
+        })
+    }
 }
 
 #[async_trait]
@@ -215,41 +315,6 @@ impl RaftApi for RaftGrpcServer {
         GrpcHelper::ok_response(resp)
     }
 
-    async fn install_snapshot(
-        &self,
-        request: Request<RaftRequest>,
-    ) -> Result<tonic::Response<RaftReply>, Status> {
-        let request_addr = self.get_request_addr(&request);
-        let _guard_inflight = {
-            CounterGuard::new(&request_addr, move |addr, cnt| {
-                raft_metrics::network::incr_snapshot_recv_inflight(addr, cnt);
-            })
-        };
-        self.incr_recv_bytes(&request);
-
-        let remote_addr = self.get_request_addr(&request);
-        let is_req: openraft::raft::InstallSnapshotRequest<super::TypeConfig> =
-            GrpcHelper::parse_req(request)?;
-        let snapshot_size = is_req.data.len() as u64;
-        let resp = self.raft.install_snapshot(is_req).await.map_err(|e| {
-            raft_metrics::network::incr_snapshot_recv_failure(&remote_addr);
-            GrpcHelper::internal_err(e.to_string())
-        });
-
-        if resp.is_ok() {
-            raft_metrics::network::incr_snapshot_recv_success(&remote_addr);
-            raft_metrics::network::add_snapshot_size(snapshot_size);
-            raft_metrics::network::set_last_snapshot_creation_time(std::time::Instant::now());
-        } else {
-            raft_metrics::network::incr_snapshot_recv_failure(&remote_addr);
-        }
-
-        match resp {
-            Ok(resp) => GrpcHelper::ok_response(resp),
-            Err(e) => Err(e),
-        }
-    }
-
     async fn vote(
         &self,
         request: Request<RaftRequest>,
@@ -265,6 +330,68 @@ impl RaftApi for RaftGrpcServer {
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
         GrpcHelper::ok_response(resp)
+    }
+
+    async fn transfer_snapshot(
+        &self,
+        request: Request<SnapshotFileChunkRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        let chunk = request.into_inner();
+        let vote: Vote<u64> = serde_json::from_str(&chunk.vote)
+            .map_err(|e| Status::invalid_argument(format!("failed to parse vote: {}", e)))?;
+        let my_vote = match self.raft.with_raft_state(|state| *state.vote_ref()).await {
+            Ok(vote) => vote,
+            Err(e) => {
+                return GrpcHelper::err_response(e);
+            }
+        };
+        if vote < my_vote {
+            // terminate early if vote is stale
+            return GrpcHelper::ok_response(my_vote);
+        }
+
+        let ret = match self.trasnfer_snapshot_(chunk).await {
+            Ok(_) => Ok(my_vote),
+            Err(e) => Err(e),
+        };
+        GrpcHelper::result_response(ret)
+    }
+
+    async fn install_snapshot(
+        &self,
+        request: Request<InstallSnapshotRequest>,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        let msg = request.into_inner();
+
+        let vote = serde_json::from_str(&msg.vote)
+            .map_err(|e| Status::invalid_argument(format!("failed to parse vote: {}", e)))?;
+        let meta: SnapshotMeta<NodeId, BasicNode> = serde_json::from_str(&msg.snapshot_meta)
+            .map_err(|e| {
+                Status::invalid_argument(format!("failed to parse snapshot meta: {}", e))
+            })?;
+
+        let snapshot_id = meta.snapshot_id.clone();
+        let mut receive_state = self.receiving_snapshot.lock().await;
+        let state = match receive_state.as_mut() {
+            None => {
+                return Err(GrpcHelper::internal_err(format!(
+                    "Snapshot state not found"
+                )));
+            }
+            Some(state) => {
+                if state.snapshot_id != snapshot_id {
+                    return Err(GrpcHelper::internal_err(format!("Snapshot id mismatch")));
+                } else {
+                    state
+                }
+            }
+        };
+        let snapshot = Snapshot {
+            meta,
+            snapshot: state.dir.clone(),
+        };
+        let resp = self.raft.install_full_snapshot(vote, snapshot).await;
+        GrpcHelper::result_response(resp)
     }
 
     async fn join_cluster(
