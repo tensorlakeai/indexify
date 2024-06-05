@@ -46,11 +46,11 @@ You can test it locally and unlock the secrets hidden within your audio files:
 
 1. Download an Audio Extractor:
    ```bash
-   indexify-extractor download hub://audio/whisper-asr
+   indexify-extractor download tensorlake/whisper-asr
    indexify-extractor join-server whisper-asr.whisper_extractor:WhisperExtractor
    ```
 
-2. Load it in a notebook or terminal:
+2. (Optional) Load it in a notebook or terminal:
    ```python
    from indexify_extractor_sdk import load_extractor, Content
    extractor, config_cls = load_extractor("indexify_extractors.whisper-asr.whisper_extractor:WhisperExtractor")
