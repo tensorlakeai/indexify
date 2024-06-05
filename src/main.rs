@@ -151,7 +151,7 @@ fn setup_tracing(trace_type: &str) -> Result<()> {
     }
 }
 
-fn setup_fmt_tracing() {
+pub(crate) fn setup_fmt_tracing() {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     println!("Running with tracing filter {}", env_filter);

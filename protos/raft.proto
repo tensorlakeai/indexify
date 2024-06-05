@@ -13,10 +13,24 @@ message RaftReply {
     string error = 2;
 }
 
+message SnapshotFileChunkRequest {
+    string vote = 1;
+    string snapshot_id = 2;
+    string name = 3;
+    uint64 offset = 4;
+    bytes data = 5;
+}
+
+message InstallSnapshotRequest {
+    string snapshot_meta = 1;
+    string vote = 2;
+}
+
 service RaftApi { 
     rpc Forward(RaftRequest) returns (RaftReply);
     rpc AppendEntries(RaftRequest) returns (RaftReply);
-    rpc InstallSnapshot(RaftRequest) returns (RaftReply);
+    rpc InstallSnapshot(InstallSnapshotRequest) returns (RaftReply);
+    rpc TransferSnapshot(SnapshotFileChunkRequest) returns (RaftReply);
     rpc Vote(RaftRequest) returns (RaftReply);
     rpc JoinCluster(RaftRequest) returns (RaftReply);
 }

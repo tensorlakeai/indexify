@@ -573,16 +573,12 @@ mod tests {
         }
 
         pub async fn create_task(&self, task: Task) -> Result<()> {
-            let state_change_id = self
-                .coordinator
-                .shared_state
-                .get_state_change_watcher()
-                .borrow_and_update()
-                .id;
+            let mut watcher = self.coordinator.shared_state.get_state_change_watcher();
+            let state_change_id = watcher.borrow_and_update();
 
             self.coordinator
                 .shared_state
-                .create_tasks(vec![task], state_change_id)
+                .create_tasks(vec![task], *state_change_id)
                 .await
                 .unwrap();
             Ok(())
