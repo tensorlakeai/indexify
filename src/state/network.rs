@@ -280,11 +280,21 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
                 let req = SnapshotFileChunkRequest {
                     snapshot_id: snapshot.meta.snapshot_id.clone(),
 
-                    vote: serde_json::to_string(&vote).unwrap(),
-                    name: entry.file_name().into_string().unwrap().to_string(),
+                    vote: serde_json::to_string(&vote)
+                        .map_err(|e| new_net_err(&e, || "serialize error"))?,
+                    name: entry.file_name().into_string().map_err(|e| {
+                        let err = std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("Failed to convert OsString to String: {:?}", e),
+                        );
+                        new_net_err(&err, || "serialize error")
+                    })?,
                     data: buf,
                     offset,
                 };
+
+                raft_metrics::network::incr_sent_bytes(&self.target_node.addr, n as u64);
+
                 let ret = client
                     .transfer_snapshot(req.into_request())
                     .await
@@ -300,7 +310,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
                     if reply_vote > vote {
                         return Err(ReplicationClosed::new(format!(
                             "vote changed: my {:?} receiver {:?}",
-                            vote, vote
+                            vote, reply_vote
                         ))
                         .into());
                     }

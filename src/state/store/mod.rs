@@ -269,7 +269,6 @@ impl StateMachineStore {
         })?;
 
         let mut snapshots = read_snapshots(&db_path)?;
-        println!("snapshots: {:?}", snapshots);
         if snapshots.is_empty() {
             // Create new database if no valid directory found
             let db_name = Uuid::new_v4().to_string();
