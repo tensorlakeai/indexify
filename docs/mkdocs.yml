@@ -1,4 +1,4 @@
-site_name: ""
+site_name: ''
 site_url: https://docs.getindexify.ai/
 
 repo_url: https://github.com/tensorlakeai/indexify
@@ -25,56 +25,55 @@ markdown_extensions:
   - pymdownx.snippets
   - meta
 
-
 nav:
   - Home:
-    - Indexify: index.md
-    - Getting Started - Basic: 'getting_started.md'
-    - Getting Started - Intermediate: 'getting_started_intermediate.md'
-    - Key Concepts: 'concepts.md'
-    - Architecture: 'architecture.md'
-    - Comparisons: 'comparisons.md'
+      - Indexify: index.md
+      - Getting Started - Basic: 'getting_started.md'
+      - Getting Started - Intermediate: 'getting_started_intermediate.md'
+      - Key Concepts: 'concepts.md'
+      - Architecture: 'architecture.md'
+      - Comparisons: 'comparisons.md'
   - CLI and UI:
-    - User Interface: 'ui.md'
-    - Extractor CLI: 'extractor_cli.md'
-    - Server CLI: 'server_cli.md'
+      - User Interface: 'ui.md'
+      - Extractor CLI: 'extractor_cli.md'
+      - Server CLI: 'server_cli.md'
   - Extractors:
-    - Introduction: 'apis/extractors.md'
-    - Develop Extractors: 'apis/develop_extractors.md'
-    - Available Extractors:
-      - Text: 'apis/extractors/text.md'
-      - PDF: 'apis/extractors/pdf.md'
-      - Image: 'apis/extractors/image.md'
-      - Audio: 'apis/extractors/audio.md'
-      - Video: 'apis/extractors/video.md'
-      - Embedding: 'apis/extractors/embedding.md'
-      - Web: 'apis/extractors/web.md'
+      - Introduction: 'apis/extractors.md'
+      - Develop Extractors: 'apis/develop_extractors.md'
+      - Available Extractors:
+          - Text: 'apis/extractors/text.md'
+          - PDF: 'apis/extractors/pdf.md'
+          - Image: 'apis/extractors/image.md'
+          - Audio: 'apis/extractors/audio.md'
+          - Video: 'apis/extractors/video.md'
+          - Embedding: 'apis/extractors/embedding.md'
+          - Web: 'apis/extractors/web.md'
 
   - APIs:
-    - Install: 'apis/install_clients.md'
-    - Content Ingestion: 'apis/content_ingestion.md'
-    - Extraction Graphs: 'apis/extraction_graphs.md'
-    - Retrieval: 'apis/retrieval.md'
+      - Install: 'apis/install_clients.md'
+      - Content Ingestion: 'apis/content_ingestion.md'
+      - Extraction Graphs: 'apis/extraction_graphs.md'
+      - Retrieval: 'apis/retrieval.md'
   - Use Cases:
-    - Basic RAG: 'usecases/rag.md'
-    - Audio Extraction: 'usecases/audio_extraction.md'
-    - PDF Extraction: 'usecases/pdf_extraction.md'
-    - Image Retrieval: 'usecases/image_retrieval.md'
-    - Video Understanding: 'usecases/video_rag.md'
+      - Basic RAG: 'usecases/rag.md'
+      - Audio Extraction: 'usecases/audio_extraction.md'
+      - PDF Extraction: 'usecases/pdf_extraction.md'
+      - Image Retrieval: 'usecases/image_retrieval.md'
+      - Video Understanding: 'usecases/video_rag.md'
   - LLM Frameworks:
-    - Langchain:
-      - Python: 'integrations/langchain/python_langchain.md'
-      - TypeScript: 'integrations/langchain/typescript_langchain.md'
-    - DSPy:
-      - Python: 'integrations/dspy/python_dspy.md'
+      - Langchain:
+          - Python: 'integrations/langchain/python_langchain.md'
+          - TypeScript: 'integrations/langchain/typescript_langchain.md'
+      - DSPy:
+          - Python: 'integrations/dspy/python_dspy.md'
   - Deployment and Operation:
-    - Configuration: 'configuration.md'
-    - Deployment: 'deployment.md'
-    - Metrics: 'metrics.md'
-    - Develop Indexify: 'develop.md'
-    - Extractors on GPU: 'gpu-deployment.md'
+      - Kubernetes: 'operations/kubernetes.md'
+      - Configuration: 'configuration.md'
+      - Metrics: 'metrics.md'
+      - Develop Indexify: 'develop.md'
+      - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
-    - All Examples: 'examples/landing.md'
+      - All Examples: 'examples/landing.md'
 
 plugins:
   - mkdocs-jupyter
@@ -100,9 +99,6 @@ theme:
     - content.code.copy
     - content.code.annotate
 
-
-
-  
   palette:
     - scheme: default
       toggle:
