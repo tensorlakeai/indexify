@@ -444,7 +444,6 @@ impl VectorDb for LanceDb {
             .map_err(|e| anyhow!("unable to create vector search query: {}", e))?
             .distance_type(lancedb::DistanceType::Cosine);
         if !filters.is_empty() {
-            println!("Filters: {:?}", from_filter_to_str(filters.clone()));
             query = query.only_if(from_filter_to_str(filters));
         }
         let res = query
