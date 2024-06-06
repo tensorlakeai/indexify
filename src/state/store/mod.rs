@@ -18,6 +18,8 @@ use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
     ExecutorMetadata,
+    ExtractionGraph,
+    ExtractionPolicy,
     NamespaceName,
     StructuredDataSchema,
 };
@@ -516,7 +518,7 @@ impl StateMachineStore {
     pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
+    ) -> Result<Option<Vec<ExtractionPolicy>>> {
         self.data
             .indexify_state
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db.read().unwrap())
@@ -528,7 +530,7 @@ impl StateMachineStore {
         namespace: &str,
         graph_name: &str,
         policy_names: &HashSet<String>,
-    ) -> Result<Vec<Option<indexify_internal_api::ExtractionPolicy>>> {
+    ) -> Result<Vec<Option<ExtractionPolicy>>> {
         self.data
             .indexify_state
             .get_extraction_policy_by_names(
@@ -636,7 +638,7 @@ impl StateMachineStore {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<String>,
-    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
+    ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.data
             .indexify_state
             .get_extraction_graphs(extraction_graph_ids, &self.db.read().unwrap())
@@ -647,7 +649,7 @@ impl StateMachineStore {
         &self,
         namespace: &str,
         graph_names: &[String],
-    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
+    ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.data
             .indexify_state
             .get_extraction_graphs_by_name(namespace, graph_names, &self.db.read().unwrap())
@@ -1277,6 +1279,7 @@ fn apply_v1_snapshot(
     //  Build the rocksdb forward indexes
     for (_, eg) in &snapshot.extraction_graphs {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let eg: ExtractionGraph = eg.clone().into();
         put_cf(&txn, cf, &eg.id, &eg)?;
     }
     for (executor_id, executor_metadata) in &snapshot.executors {
@@ -1301,11 +1304,13 @@ fn apply_v1_snapshot(
     }
     for (_, content) in &snapshot.content_table {
         let cf = StateMachineColumns::ContentTable.cf(db);
+        let content: ContentMetadata = content.clone().into();
         put_cf(&txn, cf, &content.id_key(), &content)?;
     }
     for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
         let cf = StateMachineColumns::ExtractionPolicies.cf(db);
-        put_cf(&txn, cf, extraction_policy_id, &extraction_policy_ids)?;
+        let policy: ExtractionPolicy = extraction_policy_ids.clone().into();
+        put_cf(&txn, cf, extraction_policy_id, &policy)?;
     }
     for (extractor_name, extractor_description) in &snapshot.extractors {
         let cf = StateMachineColumns::Extractors.cf(db);

@@ -24,7 +24,9 @@ use crate::{
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata, MetadataReaderTS, MetadataStorageTS,
+        ExtractedMetadata,
+        MetadataReaderTS,
+        MetadataStorageTS,
     },
     vector_index::{ScoredText, VectorIndexManager},
 };
