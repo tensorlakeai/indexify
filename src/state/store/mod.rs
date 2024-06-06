@@ -1398,17 +1398,17 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
             )
             .unwrap();
 
-        new_db
-            .put_cf(
-                StateMachineColumns::RaftState.cf(&new_db),
-                STORE_VERSION,
-                &CURRENT_STORE_VERSION.to_be_bytes(),
-            )
-            .unwrap();
         apply_v1_snapshot(&new_db, &indexify_state_snapshot).unwrap();
 
         fs::remove_file(&v1_snapshot_path).unwrap();
     }
+    new_db
+        .put_cf(
+            StateMachineColumns::RaftState.cf(&new_db),
+            STORE_VERSION,
+            &CURRENT_STORE_VERSION.to_be_bytes(),
+        )
+        .unwrap();
     fs::remove_dir_all(&v1_db_path).unwrap();
     Ok(())
 }
