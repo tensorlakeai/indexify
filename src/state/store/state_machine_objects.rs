@@ -2327,18 +2327,18 @@ impl IndexifyState {
             }
         }
 
-        let mut max_change_id = StateChangeId::new(0);
+        let mut max_change_id = None;
         for state_change in self.iter_cf::<StateChange>(db, StateMachineColumns::StateChanges) {
             let (_, state_change) = state_change?;
             if state_change.processed_at.is_none() {
                 unprocessed_state_changes_guard.insert(state_change.id);
             }
-            if state_change.id > max_change_id {
-                max_change_id = state_change.id;
-            }
+            max_change_id = std::cmp::max(max_change_id, Some(state_change.id));
         }
-        let val: u64 = max_change_id.into();
-        *self.change_id.lock().unwrap() = val + 1;
+        *self.change_id.lock().unwrap() = match max_change_id {
+            Some(val) => Into::<u64>::into(val) + 1,
+            None => 0,
+        };
 
         for content in self.iter_cf::<ContentMetadata>(db, StateMachineColumns::ContentTable) {
             let (_, content) = content?;
