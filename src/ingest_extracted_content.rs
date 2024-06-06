@@ -77,11 +77,7 @@ impl ContentStateWriting {
         if task.content_metadata.is_none() {
             return Err(anyhow!("task does not have content metadata"));
         }
-        let root_content = if let Some(content) = root_content {
-            Some(content.try_into()?)
-        } else {
-            None
-        };
+        let root_content = root_content.map(|c| c.try_into()).transpose()?;
         Ok(Self {
             ingest_metadata,
             task,

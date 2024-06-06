@@ -33,16 +33,16 @@ impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
     type Error = anyhow::Error;
 
     fn try_from(value: ExtractionGraph) -> Result<Self> {
-        let mut extraction_policies = vec![];
-        for policy in value.extraction_policies {
-            let policy = indexify_coordinator::ExtractionPolicy::try_from(policy)?;
-            extraction_policies.push(policy);
-        }
+        let extraction_policies: Result<_, _> = value
+            .extraction_policies
+            .into_iter()
+            .map(|policy| policy.try_into())
+            .collect();
         Ok(Self {
             id: value.id,
             name: value.name,
             namespace: value.namespace,
-            extraction_policies,
+            extraction_policies: extraction_policies?,
         })
     }
 }
@@ -929,10 +929,7 @@ impl TryFrom<ContentMetadata> for indexify_coordinator::ContentMetadata {
     type Error = anyhow::Error;
 
     fn try_from(value: ContentMetadata) -> Result<Self> {
-        let labels = utils::convert_map_serde_to_prost_json(value.labels)
-            .map_err(|e| anyhow!("unable to convert to protobuff JSON value: {e:?}"))
-            .unwrap();
-
+        let labels = utils::convert_map_serde_to_prost_json(value.labels)?;
         Ok(Self {
             id: value.id.id, //  don't expose the version on the task
             parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(), /*  don't expose the

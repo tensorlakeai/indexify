@@ -314,22 +314,21 @@ impl VectorDb for LanceDb {
                 continue;
             }
 
-            let mut some_values = vec![]; // Used to check the type.
-            let mut all_values = vec![];
-            for chunk in &chunks {
-                let value = chunk.metadata.get(field.name());
-                all_values.push(value);
+            let all_values: Vec<Option<&serde_json::Value>> = chunks
+                .iter()
+                .map(|c| c.metadata.get(field.name()))
+                .collect();
+
+            for value in &all_values {
                 if let Some(value) = value {
-                    some_values.push(value);
+                    validate_value_with_column_type(value, field)?;
                 }
             }
 
-            if some_values.is_empty() {
-                continue;
-            }
-
-            validate_value_with_column_type(some_values[0], field)?;
-            arrays.push(from_serde_json_to_arrow_array(some_values[0], all_values)?);
+            arrays.push(from_serde_json_to_arrow_array(
+                field.data_type(),
+                all_values,
+            )?);
         }
 
         let batches = RecordBatchIterator::new(
@@ -505,31 +504,30 @@ impl VectorDb for LanceDb {
 }
 
 fn from_serde_json_to_arrow_array(
-    match_value: &serde_json::Value,
+    datatype: &DataType,
     values: Vec<Option<&serde_json::Value>>,
 ) -> Result<Arc<dyn Array>> {
     let iterator = values.iter();
-    match match_value {
-        serde_json::Value::Number(n) => {
-            if n.is_f64() {
-                let arr = iterator
-                    .map(|v| match v {
-                        Some(serde_json::Value::Number(n)) => Some(n.as_f64().unwrap()),
-                        _ => None,
-                    })
-                    .collect::<PrimitiveArray<types::Float64Type>>();
-                Ok(Arc::new(arr))
-            } else {
-                let arr = iterator
-                    .map(|v| match v {
-                        Some(serde_json::Value::Number(n)) => Some(n.as_i64().unwrap()),
-                        _ => None,
-                    })
-                    .collect::<PrimitiveArray<types::Int64Type>>();
-                Ok(Arc::new(arr))
-            }
+    match datatype {
+        DataType::Float64 => {
+            let arr = iterator
+                .map(|v| match v {
+                    Some(serde_json::Value::Number(n)) => Some(n.as_f64()?),
+                    _ => None,
+                })
+                .collect::<PrimitiveArray<types::Float64Type>>();
+            Ok(Arc::new(arr))
         }
-        serde_json::Value::String(_) => {
+        DataType::Int64 => {
+            let arr = iterator
+                .map(|v| match v {
+                    Some(serde_json::Value::Number(n)) => Some(n.as_i64()?),
+                    _ => None,
+                })
+                .collect::<PrimitiveArray<types::Int64Type>>();
+            Ok(Arc::new(arr))
+        }
+        DataType::Utf8 => {
             let arr = iterator
                 .map(|v| match v {
                     Some(serde_json::Value::String(s)) => Some(s.to_string()),
@@ -538,7 +536,7 @@ fn from_serde_json_to_arrow_array(
                 .collect::<StringArray>();
             Ok(Arc::new(arr))
         }
-        serde_json::Value::Bool(_) => {
+        DataType::Boolean => {
             let arr = iterator
                 .map(|v| match v {
                     Some(serde_json::Value::Bool(b)) => Some(*b),
