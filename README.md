@@ -201,7 +201,7 @@ client.get_extracted_content(content_id)
 ```
 
 ### LLM Framework Integration 
-Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
+Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
 
 ### Try out other extractors
 We have a ton of other extractors, you can list them and try them out - 
@@ -217,7 +217,7 @@ Any extraction or transformation algorithm can be expressed as an Indexify Extra
 Extractors which produce structured data from content, such as bounding boxes and object type, or line items of invoices are stored in
 structured store. You can query extracted structured data using Indexify's SQL interface.
 
-We have an example [here](https://getindexify.ai/usecases/image_retrieval/)
+We have an example [here](https://docs.getindexify.ai/usecases/image_retrieval/)
 
 ## Contributions
 Please open an issue to discuss new features, or join our Discord group. Contributions are welcome, there are a bunch of open tasks we could use help with! 
