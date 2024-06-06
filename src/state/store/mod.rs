@@ -1274,8 +1274,6 @@ fn apply_v1_snapshot(
 
     let txn = db.transaction();
 
-    println!("applying snapshot {:?}", snapshot);
-
     //  Build the rocksdb forward indexes
     for (_, eg) in &snapshot.extraction_graphs {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
