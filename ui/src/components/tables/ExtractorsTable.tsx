@@ -1,15 +1,15 @@
-import React from "react";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { Alert, Chip, IconButton, Typography } from "@mui/material";
-import { Box, Stack } from "@mui/system";
-import MemoryIcon from "@mui/icons-material/MemoryOutlined";
-import InfoIcon from "@mui/icons-material/Info";
-import { Extractor } from "getindexify";
+import React from 'react'
+import { DataGrid, GridColDef } from '@mui/x-data-grid'
+import { Alert, Chip, IconButton, Typography } from '@mui/material'
+import { Box, Stack } from '@mui/system'
+import MemoryIcon from '@mui/icons-material/MemoryOutlined'
+import InfoIcon from '@mui/icons-material/Info'
+import { Extractor } from 'getindexify'
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const columns: GridColDef[] = [
-    { field: "name", headerName: "Name", width: 300 },
-    { field: "description", headerName: "Description", width: 300 },
+    { field: 'name', headerName: 'Name', width: 300 },
+    { field: 'description', headerName: 'Description', width: 300 },
     // {
     //   field: "input_mime_types",
     //   headerName: "Input MimeTypes",
@@ -33,56 +33,56 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
     //   },
     // },
     {
-      field: "input_params",
-      headerName: "Input Parameters",
+      field: 'input_params',
+      headerName: 'Input Parameters',
       width: 300,
       valueGetter: (params) => {
-        return params.value?.properties;
+        return params.value?.properties
       },
       renderCell: (params) => {
         if (!params.value) {
-          return <Typography variant="body1">None</Typography>;
+          return <Typography variant="body1">None</Typography>
         }
         return (
-          <Box sx={{ overflowX: "scroll" }}>
+          <Box sx={{ overflowX: 'scroll' }}>
             <Stack gap={1} direction="row">
               {Object.keys(params.value).map((val: string) => {
                 return (
                   <Chip key={val} label={`${val}:${params.value[val].type}`} />
-                );
+                )
               })}
             </Stack>
           </Box>
-        );
+        )
       },
     },
     {
-      field: "outputs",
-      headerName: "Outputs",
+      field: 'outputs',
+      headerName: 'Outputs',
       width: 300,
       valueGetter: (params) => {
-        return params.value ?? {};
+        return params.value ?? {}
       },
       renderCell: (params) => {
         if (!params.value) {
-          return <Typography variant="body1">None</Typography>;
+          return <Typography variant="body1">None</Typography>
         }
         return (
           <Box overflow="scroll">
             <Stack gap={1} direction="row" overflow="scroll">
               {Object.keys(params.value).map((val: string) => {
-                return <Chip key={val} label={val} />;
+                return <Chip key={val} label={val} />
               })}
             </Stack>
           </Box>
-        );
+        )
       },
     },
-  ];
+  ]
 
   const getRowId = (row: Extractor) => {
-    return row.name;
-  };
+    return row.name
+  }
 
   const renderContent = () => {
     if (extractors.length === 0) {
@@ -92,16 +92,16 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
             No Extractors Found
           </Alert>
         </Box>
-      );
+      )
     }
     return (
       <Box
         sx={{
-          width: "100%",
+          width: '100%',
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: "white" }}
+          sx={{ backgroundColor: 'white' }}
           autoHeight
           getRowId={getRowId}
           rows={extractors}
@@ -114,22 +114,22 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
           pageSizeOptions={[5, 10]}
         />
       </Box>
-    );
-  };
+    )
+  }
 
   return (
     <>
       <Stack
-        display={"flex"}
-        direction={"row"}
-        alignItems={"center"}
+        display={'flex'}
+        direction={'row'}
+        alignItems={'center'}
         spacing={2}
       >
         <MemoryIcon />
         <Typography variant="h3">
           Extractors
           <IconButton
-            href="https://getindexify.ai/concepts/#extractor"
+            href="https://docs.getindexify.ai/concepts/#extractor"
             target="_blank"
           >
             <InfoIcon fontSize="small" />
@@ -138,7 +138,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
       </Stack>
       {renderContent()}
     </>
-  );
-};
+  )
+}
 
-export default ExtractorsTable;
+export default ExtractorsTable
