@@ -94,7 +94,7 @@ impl FilterOperator {
             "!=" => Ok(Self::Neq),
             ">" => Ok(Self::Gt),
             "<" => Ok(Self::Lt),
-            "=>" => Ok(Self::GtEq),
+            ">=" => Ok(Self::GtEq),
             "<=" => Ok(Self::LtEq),
             _ => Err(anyhow::anyhow!("Invalid filter operator: {}", operator)),
         }
@@ -110,9 +110,14 @@ pub struct Filter {
 
 impl Filter {
     pub fn from_str(filter: &str) -> Result<Self> {
-        let operators = vec!["=", "!=", ">", "<", "=>", "<="];
+        // This parser must start with the longest operators first.
+        let operators = vec!["!=", ">=", "<=", "=", ">", "<"];
         for operator in operators {
             let parts: Vec<&str> = filter.split(operator).collect();
+            if parts.len() != 2 {
+                continue;
+            }
+
             let key = parts[0].to_string();
             let value = serde_json::from_str(parts[1]).unwrap_or(serde_json::json!(parts[1]));
             let operator = FilterOperator::from_str(operator)?;
