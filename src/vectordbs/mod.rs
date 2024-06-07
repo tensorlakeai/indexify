@@ -338,132 +338,181 @@ mod tests {
     }
 
     pub async fn search_filters(vector_db: VectorDBTS, index_name: &str) {
-        let content_ids = vec![make_id(), make_id()];
+        let content_ids = vec![make_id(), make_id(), make_id()];
+        let mut metadatas = Vec::new();
+
+        // This metadata is used to test the filters
+        // and is created in a way that with overlapping values.
         let metadata1 = HashMap::from([
-            ("key1".to_string(), json!("value1")),
-            ("key2".to_string(), json!("value2")),
-            ("key3".to_string(), json!(25)),
+            ("tag".to_string(), json!("value1")),
+            ("number".to_string(), json!(25)),
+            ("bool".to_string(), json!(true)),
         ]);
-        let chunk = VectorChunk {
-            content_id: content_ids[0].clone(),
-            embedding: vec![0., 2.],
-            metadata: metadata1,
-            root_content_metadata: Some(test_mock_content_metadata(&content_ids[0], "1", "graph1")),
-            content_metadata: test_mock_content_metadata(&content_ids[0], "1", "graph1"),
+
+        let metadata2 = HashMap::from([
+            ("tag".to_string(), json!("value2")),
+            ("number".to_string(), json!(30)),
+            ("bool".to_string(), json!(true)),
+        ]);
+
+        let metadata3 = HashMap::from([
+            ("tag".to_string(), json!("value2")),
+            ("number".to_string(), json!(35)),
+            ("bool".to_string(), json!(false)),
+        ]);
+
+        metadatas.push(metadata1.clone());
+        metadatas.push(metadata2.clone());
+        metadatas.push(metadata3.clone());
+
+        let mut chunks = vec![];
+        for (i, (content_id, metadata)) in content_ids.iter().zip(metadatas.iter()).enumerate() {
+            let embedding = vec![i as f32 + 0.1, i as f32 + 0.2];
+            let content_metadata = test_mock_content_metadata(content_id, "1", "graph1");
+            let chunk = VectorChunk {
+                content_id: content_id.clone(),
+                embedding,
+                metadata: metadata.clone(),
+                root_content_metadata: Some(content_metadata.clone()),
+                content_metadata,
+            };
+            chunks.push(chunk);
+        }
+
+        vector_db.add_embedding(index_name, chunks).await.unwrap();
+
+        let k = 3;
+        let query = vec![0.1, 0.2];
+
+        // Test basic string filters eq
+        let filter = Filter {
+            key: "tag".to_string(),
+            value: serde_json::json!("value1"),
+            operator: FilterOperator::Eq,
         };
-        let metadata2 = create_metadata(vec![("key1", "value3"), ("key2", "value4")]);
-        let chunk1 = VectorChunk {
-            content_id: content_ids[1].clone(),
-            embedding: vec![0., 3.],
-            metadata: metadata2,
-            root_content_metadata: Some(test_mock_content_metadata(&content_ids[1], "1", "graph1")),
-            content_metadata: test_mock_content_metadata(&content_ids[1], "1", "graph1"),
-        };
-        vector_db
-            .add_embedding(index_name, vec![chunk, chunk1])
+
+        let res = vector_db
+            .search(index_name.to_string(), query.clone(), k, vec![filter])
             .await
             .unwrap();
 
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![Filter {
-                    key: "key1".to_string(),
-                    value: serde_json::json!("value1"),
-                    operator: FilterOperator::Eq,
-                }],
-            )
-            .await
-            .unwrap();
         assert_eq!(res.len(), 1);
         assert_eq!(res.first().unwrap().content_id, content_ids[0]);
 
+        // Test basic string filters neq
+        let filter = Filter {
+            key: "tag".to_string(),
+            value: serde_json::json!("value1"),
+            operator: FilterOperator::Neq,
+        };
+
         let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![Filter {
-                    key: "key1".to_string(),
-                    value: serde_json::json!("value1"),
-                    operator: FilterOperator::Neq,
-                }],
-            )
+            .search(index_name.to_string(), query.clone(), k, vec![filter])
             .await
             .unwrap();
+
+        assert_eq!(res.len(), 2);
+        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
+
+        // Test single boolean filter
+        let filter = Filter {
+            key: "bool".to_string(),
+            value: serde_json::json!(true),
+            operator: FilterOperator::Eq,
+        };
+
+        let res = vector_db
+            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .await
+            .unwrap();
+
+        assert_eq!(res.len(), 2);
+        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
+
+        // Test multi filter string and boolean
+        let filters = vec![
+            Filter {
+                key: "tag".to_string(),
+                value: serde_json::json!("value2"),
+                operator: FilterOperator::Eq,
+            },
+            Filter {
+                key: "bool".to_string(),
+                value: serde_json::json!(true),
+                operator: FilterOperator::Neq,
+            },
+        ];
+
+        let res = vector_db
+            .search(index_name.to_string(), query.clone(), k, filters)
+            .await
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[2]);
+
+        // Test single number equality filter
+        let filter = Filter {
+            key: "number".to_string(),
+            value: serde_json::json!(30),
+            operator: FilterOperator::Eq,
+        };
+
+        let res = vector_db
+            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .await
+            .unwrap();
+
         assert_eq!(res.len(), 1);
         assert_eq!(res.first().unwrap().content_id, content_ids[1]);
 
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![
-                    Filter {
-                        key: "key1".to_string(),
-                        value: serde_json::json!("value1"),
-                        operator: FilterOperator::Neq,
-                    },
-                    Filter {
-                        key: "key2".to_string(),
-                        value: serde_json::json!("value4"),
-                        operator: FilterOperator::Eq,
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert_eq!(res.first().unwrap().content_id, content_ids[1]);
+        // Test single range filter
+        let filter = Filter {
+            key: "number".to_string(),
+            value: serde_json::json!(30),
+            operator: FilterOperator::GtEq,
+        };
 
         let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![
-                    Filter {
-                        key: "key1".to_string(),
-                        value: serde_json::json!("value1"),
-                        operator: FilterOperator::Eq,
-                    },
-                    Filter {
-                        key: "key2".to_string(),
-                        value: serde_json::json!("value4"),
-                        operator: FilterOperator::Eq,
-                    },
-                ],
-            )
+            .search(index_name.to_string(), query.clone(), k, vec![filter])
             .await
             .unwrap();
+
+        assert_eq!(res.len(), 2);
+
+        // Test multi range filter
+        let filters = vec![
+            Filter {
+                key: "number".to_string(),
+                value: serde_json::json!(25),
+                operator: FilterOperator::GtEq,
+            },
+            Filter {
+                key: "number".to_string(),
+                value: serde_json::json!(35),
+                operator: FilterOperator::Lt,
+            },
+        ];
+
+        let res = vector_db
+            .search(index_name.to_string(), query.clone(), k, filters)
+            .await
+            .unwrap();
+
+        assert_eq!(res.len(), 2);
+
+        // Test no results
+        let filter = Filter {
+            key: "number".to_string(),
+            value: serde_json::json!(40),
+            operator: FilterOperator::Gt,
+        };
+
+        let res = vector_db
+            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .await
+            .unwrap();
+
         assert_eq!(res.len(), 0);
-
-        assert_eq!(
-            vector_db
-                .search(index_name.to_string(), vec![0., 2.], 2, vec![])
-                .await
-                .unwrap()
-                .len(),
-            2
-        );
-
-        let res = vector_db
-            .search(
-                index_name.to_string(),
-                vec![0., 2.],
-                2,
-                vec![Filter {
-                    key: "key3".to_string(),
-                    value: serde_json::json!(25),
-                    operator: FilterOperator::Eq,
-                }],
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
     }
 }
