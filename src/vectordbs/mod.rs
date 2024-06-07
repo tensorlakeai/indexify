@@ -104,7 +104,7 @@ impl FilterOperator {
 #[derive(Debug, Clone)]
 pub struct Filter {
     pub key: String,
-    pub value: String,
+    pub value: serde_json::Value,
     pub operator: FilterOperator,
 }
 
@@ -114,7 +114,7 @@ impl Filter {
         for operator in operators {
             let parts: Vec<&str> = filter.split(operator).collect();
             let key = parts[0].to_string();
-            let value = parts[1].to_string();
+            let value = serde_json::from_str(parts[1]).unwrap_or(serde_json::json!(parts[1]));
             let operator = FilterOperator::from_str(operator)?;
             return Ok(Self {
                 key,
@@ -339,7 +339,11 @@ mod tests {
 
     pub async fn search_filters(vector_db: VectorDBTS, index_name: &str) {
         let content_ids = vec![make_id(), make_id()];
-        let metadata1 = create_metadata(vec![("key1", "value1"), ("key2", "value2")]);
+        let metadata1 = HashMap::from([
+            ("key1".to_string(), json!("value1")),
+            ("key2".to_string(), json!("value2")),
+            ("key3".to_string(), json!(25)),
+        ]);
         let chunk = VectorChunk {
             content_id: content_ids[0].clone(),
             embedding: vec![0., 2.],
@@ -367,7 +371,7 @@ mod tests {
                 2,
                 vec![Filter {
                     key: "key1".to_string(),
-                    value: "value1".to_string(),
+                    value: serde_json::json!("value1"),
                     operator: FilterOperator::Eq,
                 }],
             )
@@ -383,7 +387,7 @@ mod tests {
                 2,
                 vec![Filter {
                     key: "key1".to_string(),
-                    value: "value1".to_string(),
+                    value: serde_json::json!("value1"),
                     operator: FilterOperator::Neq,
                 }],
             )
@@ -400,12 +404,12 @@ mod tests {
                 vec![
                     Filter {
                         key: "key1".to_string(),
-                        value: "value1".to_string(),
+                        value: serde_json::json!("value1"),
                         operator: FilterOperator::Neq,
                     },
                     Filter {
                         key: "key2".to_string(),
-                        value: "value4".to_string(),
+                        value: serde_json::json!("value4"),
                         operator: FilterOperator::Eq,
                     },
                 ],
@@ -423,12 +427,12 @@ mod tests {
                 vec![
                     Filter {
                         key: "key1".to_string(),
-                        value: "value1".to_string(),
+                        value: serde_json::json!("value1"),
                         operator: FilterOperator::Eq,
                     },
                     Filter {
                         key: "key2".to_string(),
-                        value: "value4".to_string(),
+                        value: serde_json::json!("value4"),
                         operator: FilterOperator::Eq,
                     },
                 ],
@@ -445,5 +449,21 @@ mod tests {
                 .len(),
             2
         );
+
+        let res = vector_db
+            .search(
+                index_name.to_string(),
+                vec![0., 2.],
+                2,
+                vec![Filter {
+                    key: "key3".to_string(),
+                    value: serde_json::json!(25),
+                    operator: FilterOperator::Eq,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res.first().unwrap().content_id, content_ids[0]);
     }
 }

@@ -927,7 +927,7 @@ async fn upload_file(
     Query(params): Query<UploadFileQueryParams>,
     mut files: Multipart,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
-    let mut labels = HashMap::new();
+    let mut labels: HashMap<String, serde_json::Value> = HashMap::new();
 
     let extraction_graph_names = params
         .extraction_graph_names
@@ -1017,14 +1017,16 @@ async fn upload_file(
                 .add(size_bytes, &[]);
             return Ok(Json(UploadFileResponse { content_id: id }));
         } else if let Some(name) = field.name() {
-            let name = name.to_string();
-            let value = field.text().await.map_err(|e| {
+            if name != "labels" {
+                continue;
+            }
+
+            labels = serde_json::from_str(&field.text().await.unwrap()).map_err(|e| {
                 IndexifyAPIError::new(
                     StatusCode::BAD_REQUEST,
                     &format!("failed to upload file: {}", e),
                 )
             })?;
-            labels.insert(name, value);
         }
     }
     Err(IndexifyAPIError::new(

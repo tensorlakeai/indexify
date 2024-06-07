@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use axum::extract::ws;
 use axum_typed_websockets::{Message, WebSocket};
+use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator;
 use sha2::{
     digest::{
@@ -76,7 +77,7 @@ impl ContentStateWriting {
         if task.content_metadata.is_none() {
             return Err(anyhow!("task does not have content metadata"));
         }
-        let root_content = root_content.map(|c| c.into());
+        let root_content = root_content.map(|c| c.try_into()).transpose()?;
         Ok(Self {
             ingest_metadata,
             task,
@@ -156,14 +157,19 @@ impl ContentStateWriting {
             )),
             FrameState::Writing(frame_state) => {
                 frame_state.writer.writer.shutdown().await?;
-                labels.extend(payload.labels);
+
+                let payload_labels =
+                    internal_api::utils::convert_map_serde_to_prost_json(payload.labels.clone())
+                        .map_err(|e| anyhow!("unable to convert labels to prost: {e}"))?;
+
+                labels.extend(payload_labels);
                 let hash_result = frame_state.hasher.clone().finalize();
                 let content_hash = format!("{:x}", hash_result);
                 let id = DataManager::make_id();
                 let root_content_metadata = self
                     .root_content_metadata
                     .clone()
-                    .unwrap_or(self.task.content_metadata.clone().unwrap().into());
+                    .unwrap_or(self.task.content_metadata.clone().unwrap().try_into()?);
                 let extraction_policy = state
                     .data_manager
                     .get_extraction_policy(&self.task.extraction_policy_id)
@@ -506,7 +512,7 @@ mod tests {
                 .unwrap();
             let content_metadata = test_mock_content_metadata("1", "1", &eg.name);
             test_coordinator
-                .create_content(content_metadata.clone().into())
+                .create_content(content_metadata.clone().try_into().unwrap())
                 .await
                 .unwrap();
             let internal_content_metadata = test_coordinator
@@ -551,7 +557,7 @@ mod tests {
             content: indexify_coordinator::ContentMetadata,
         ) -> Result<()> {
             self.coordinator
-                .create_content_metadata(vec![content.into()])
+                .create_content_metadata(vec![content.try_into()?])
                 .await
                 .unwrap();
 
@@ -1075,7 +1081,7 @@ mod tests {
 
         let labels: HashMap<_, _> = [("key1", "value1"), ("key2", "value2")]
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
             .collect();
 
         state
@@ -1113,8 +1119,8 @@ mod tests {
             .await?;
 
         assert_eq!(points.len(), 2);
-        assert_eq!(points[0].metadata, create_metadata(&labels));
-        assert_eq!(points[1].metadata, create_metadata(&labels));
+        assert_eq!(points[0].metadata, labels);
+        assert_eq!(points[1].metadata, labels);
 
         let tree = coordinator
             .shared_state
@@ -1124,7 +1130,7 @@ mod tests {
         // Update labels again and check if values change.
         let labels: HashMap<_, _> = [("key1", "value3"), ("key2", "value4")]
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
             .collect();
 
         state
@@ -1162,8 +1168,8 @@ mod tests {
             .await?;
 
         assert_eq!(points.len(), 2);
-        assert_eq!(points[0].metadata, create_metadata(&labels));
-        assert_eq!(points[1].metadata, create_metadata(&labels));
+        assert_eq!(points[0].metadata, labels);
+        assert_eq!(points[1].metadata, labels);
 
         shutdown_tx.send(true)?;
 

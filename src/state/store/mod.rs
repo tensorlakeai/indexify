@@ -18,8 +18,11 @@ use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
     ExecutorMetadata,
+    ExtractionGraph,
+    ExtractionPolicy,
     NamespaceName,
     StructuredDataSchema,
+    Task,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
@@ -38,6 +41,12 @@ use openraft::{
     StorageIOError,
     StoredMembership,
     Vote,
+};
+use requests::{
+    CreateOrUpdateContentEntry,
+    StateMachineUpdateRequest,
+    V1RequestPayload,
+    V1StateMachineUpdateRequest,
 };
 use rocksdb::{
     checkpoint::Checkpoint,
@@ -407,6 +416,7 @@ impl StateMachineStore {
                     ))
                 })?;
             }
+            // TODO: edwin
             EntryPayload::Normal(req) => {
                 let change_id =
                     self.data
@@ -489,7 +499,7 @@ impl StateMachineStore {
         &self,
         executor_id: &str,
         limit: Option<u64>,
-    ) -> Result<Vec<indexify_internal_api::Task>> {
+    ) -> Result<Vec<Task>> {
         self.data
             .indexify_state
             .get_tasks_for_executor(executor_id, limit, &self.db.read().unwrap())
@@ -516,7 +526,7 @@ impl StateMachineStore {
     pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
-    ) -> Result<Option<Vec<indexify_internal_api::ExtractionPolicy>>> {
+    ) -> Result<Option<Vec<ExtractionPolicy>>> {
         self.data
             .indexify_state
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db.read().unwrap())
@@ -528,7 +538,7 @@ impl StateMachineStore {
         namespace: &str,
         graph_name: &str,
         policy_names: &HashSet<String>,
-    ) -> Result<Vec<Option<indexify_internal_api::ExtractionPolicy>>> {
+    ) -> Result<Vec<Option<ExtractionPolicy>>> {
         self.data
             .indexify_state
             .get_extraction_policy_by_names(
@@ -636,7 +646,7 @@ impl StateMachineStore {
     pub fn get_extraction_graphs(
         &self,
         extraction_graph_ids: &Vec<String>,
-    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
+    ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.data
             .indexify_state
             .get_extraction_graphs(extraction_graph_ids, &self.db.read().unwrap())
@@ -647,7 +657,7 @@ impl StateMachineStore {
         &self,
         namespace: &str,
         graph_names: &[String],
-    ) -> Result<Vec<Option<indexify_internal_api::ExtractionGraph>>> {
+    ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.data
             .indexify_state
             .get_extraction_graphs_by_name(namespace, graph_names, &self.db.read().unwrap())
@@ -1277,6 +1287,7 @@ fn apply_v1_snapshot(
     //  Build the rocksdb forward indexes
     for (_, eg) in &snapshot.extraction_graphs {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
+        let eg: ExtractionGraph = eg.clone().into();
         put_cf(&txn, cf, &eg.id, &eg)?;
     }
     for (executor_id, executor_metadata) in &snapshot.executors {
@@ -1285,6 +1296,7 @@ fn apply_v1_snapshot(
     }
     for (task_id, task) in &snapshot.tasks {
         let cf = StateMachineColumns::Tasks.cf(db);
+        let task: Task = task.clone().into();
         put_cf(&txn, cf, task_id, &task)?;
     }
     for (gc_task_id, gc_task) in &snapshot.gc_tasks {
@@ -1301,11 +1313,13 @@ fn apply_v1_snapshot(
     }
     for (_, content) in &snapshot.content_table {
         let cf = StateMachineColumns::ContentTable.cf(db);
+        let content: ContentMetadata = content.clone().into();
         put_cf(&txn, cf, &content.id_key(), &content)?;
     }
     for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
         let cf = StateMachineColumns::ExtractionPolicies.cf(db);
-        put_cf(&txn, cf, extraction_policy_id, &extraction_policy_ids)?;
+        let policy: ExtractionPolicy = extraction_policy_ids.clone().into();
+        put_cf(&txn, cf, extraction_policy_id, &policy)?;
     }
     for (extractor_name, extractor_description) in &snapshot.extractors {
         let cf = StateMachineColumns::Extractors.cf(db);
@@ -1364,8 +1378,23 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
     // Copy logs column to new logs db
     for val in v1_db.iterator_cf(logs_column(&v1_db), IteratorMode::Start) {
         let (key, value) = val.unwrap();
+        let entry: Entry<V1TypeConfig> = JsonEncoder::decode(&value).unwrap();
+
+        if let EntryPayload::Normal(req) = entry.payload {
+            let log = convert_v1_log(req);
+            let updated_entry: typ::Entry = Entry {
+                log_id: entry.log_id,
+                payload: EntryPayload::Normal(log),
+            };
+
+            let updated_value = JsonEncoder::encode(&updated_entry).unwrap();
+            logs.put_cf(logs_column(&logs), key, updated_value).unwrap();
+            continue;
+        }
+
         logs.put_cf(logs_column(&logs), key, value).unwrap();
     }
+
     for val in v1_db.iterator_cf(store_column(&v1_db), IteratorMode::Start) {
         let (key, value) = val.unwrap();
         logs.put_cf(store_column(&logs), key, value).unwrap();
@@ -1413,6 +1442,94 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
     Ok(())
 }
 
+fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest {
+    let payload = match log.payload {
+        V1RequestPayload::JoinCluster {
+            node_id,
+            address,
+            coordinator_addr,
+        } => RequestPayload::JoinCluster {
+            node_id,
+            address,
+            coordinator_addr,
+        },
+        V1RequestPayload::RegisterExecutor {
+            addr,
+            executor_id,
+            extractors,
+            ts_secs,
+        } => RequestPayload::RegisterExecutor {
+            addr,
+            executor_id,
+            extractors,
+            ts_secs,
+        },
+        V1RequestPayload::RemoveExecutor { executor_id } => {
+            RequestPayload::RemoveExecutor { executor_id }
+        }
+        V1RequestPayload::CreateNamespace { name } => RequestPayload::CreateNamespace { name },
+        V1RequestPayload::CreateTasks { tasks } => {
+            let tasks: Vec<Task> = tasks.into_iter().map(|t| t.into()).collect();
+            RequestPayload::CreateTasks { tasks }
+        }
+        V1RequestPayload::AssignTask { assignments } => RequestPayload::AssignTask { assignments },
+        V1RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
+            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks }
+        }
+        V1RequestPayload::UpdateGarbageCollectionTask {
+            gc_task,
+            mark_finished,
+        } => RequestPayload::UpdateGarbageCollectionTask {
+            gc_task,
+            mark_finished,
+        },
+        V1RequestPayload::CreateExtractionGraph {
+            extraction_graph,
+            structured_data_schema,
+            indexes,
+        } => {
+            let extraction_graph: ExtractionGraph = extraction_graph.into();
+            RequestPayload::CreateExtractionGraph {
+                extraction_graph,
+                structured_data_schema,
+                indexes,
+            }
+        }
+        V1RequestPayload::CreateOrUpdateContent { entries } => {
+            let entries: Vec<CreateOrUpdateContentEntry> =
+                entries.into_iter().map(|e| e.into()).collect();
+            RequestPayload::CreateOrUpdateContent { entries }
+        }
+        V1RequestPayload::TombstoneContentTree { content_metadata } => {
+            let content_metadata: Vec<ContentMetadata> =
+                content_metadata.into_iter().map(|c| c.into()).collect();
+            RequestPayload::TombstoneContentTree { content_metadata }
+        }
+        V1RequestPayload::SetIndex { indexes } => RequestPayload::SetIndex { indexes },
+        V1RequestPayload::UpdateTask {
+            task,
+            executor_id,
+            update_time,
+        } => {
+            let task: Task = task.into();
+            RequestPayload::UpdateTask {
+                task,
+                executor_id,
+                update_time,
+            }
+        }
+        V1RequestPayload::MarkStateChangesProcessed { state_changes } => {
+            RequestPayload::MarkStateChangesProcessed { state_changes }
+        }
+    };
+
+    StateMachineUpdateRequest {
+        payload,
+        new_state_changes: log.new_state_changes,
+        state_changes_processed: log.state_changes_processed,
+    }
+}
+
 pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<StateMachineStore>) {
     fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
@@ -1438,6 +1555,17 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<St
 
     (log_store, Arc::new(sm_store))
 }
+
+openraft::declare_raft_types!(
+    pub V1TypeConfig:
+        D = V1StateMachineUpdateRequest,
+        R = Response,
+        NodeId = NodeId,
+        Node = BasicNode,
+        Entry = Entry<V1TypeConfig>,
+        SnapshotData = SnapshotData,
+        AsyncRuntime = openraft::TokioRuntime
+);
 
 #[cfg(test)]
 mod tests {

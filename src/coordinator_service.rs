@@ -180,11 +180,15 @@ impl CoordinatorServiceServer {
                 return Err(anyhow!(message));
             }
 
+            let filters = internal_api::utils::convert_map_prost_to_serde_json(
+                policy_request.filters.clone(),
+            )?;
+
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
                 .name(policy_request.name.clone())
                 .extractor(policy_request.extractor.clone())
-                .filters(policy_request.filters.clone())
+                .filters(filters)
                 .input_params(input_params)
                 .content_source(content_source)
                 .build(&extraction_graph.name, extractor.clone())
@@ -212,7 +216,10 @@ impl CoordinatorService for CoordinatorServiceServer {
             .into_inner()
             .content
             .ok_or(tonic::Status::aborted("content is missing"))?;
-        let content_meta: indexify_internal_api::ContentMetadata = content_meta.into();
+        let content_meta: indexify_internal_api::ContentMetadata =
+            content_meta.try_into().map_err(|e| {
+                tonic::Status::aborted(format!("unable to convert content metadata: {}", e))
+            })?;
         let content_list = vec![content_meta];
         let statuses = self
             .coordinator
@@ -232,8 +239,10 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<indexify_coordinator::UpdateLabelsRequest>,
     ) -> Result<tonic::Response<indexify_coordinator::UpdateLabelsResponse>, tonic::Status> {
         let request = request.into_inner();
+        let labels = internal_api::utils::convert_map_prost_to_serde_json(request.labels)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         self.coordinator
-            .update_labels(&request.namespace, &request.content_id, request.labels)
+            .update_labels(&request.namespace, &request.content_id, labels)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(
@@ -259,15 +268,27 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<ListContentRequest>,
     ) -> Result<tonic::Response<ListContentResponse>, tonic::Status> {
         let req = request.into_inner();
+
+        let labels_eq = internal_api::utils::convert_map_prost_to_serde_json(req.labels_eq)
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
         let content_list = self
             .coordinator
-            .list_content(&req.namespace, &req.source, &req.parent_id, &req.labels_eq)
+            .list_content(&req.namespace, &req.source, &req.parent_id, &labels_eq)
             .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?
-            .into_iter()
-            .map(|c| c.into())
-            .collect_vec();
-        Ok(tonic::Response::new(ListContentResponse { content_list }))
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        let mut proto_content_list = vec![];
+        for content in content_list {
+            let proto_content = content
+                .try_into()
+                .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
+            proto_content_list.push(proto_content);
+        }
+
+        Ok(tonic::Response::new(ListContentResponse {
+            content_list: proto_content_list,
+        }))
     }
 
     async fn list_active_contents(
@@ -311,12 +332,14 @@ impl CoordinatorService for CoordinatorServiceServer {
             .create_extraction_graph(graph.clone())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies = creation_result
-            .extraction_policies
-            .clone()
-            .into_iter()
-            .map(|p| (p.name.clone(), p.clone().into()))
-            .collect();
+        let mut policies = HashMap::new();
+        for policy in creation_result.extraction_policies {
+            let extraction_policy = policy
+                .clone()
+                .try_into()
+                .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
+            policies.insert(policy.name.clone(), extraction_policy);
+        }
         let extractors: HashMap<_, _> = creation_result
             .extractors
             .iter()
@@ -344,7 +367,11 @@ impl CoordinatorService for CoordinatorServiceServer {
             .get_extraction_policy(request.extraction_policy_id)
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(GetExtractionPolicyResponse {
-            policy: Some(extraction_policy.into()),
+            policy: Some(
+                extraction_policy
+                    .try_into()
+                    .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
+            ),
         }))
     }
 
@@ -358,7 +385,13 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_policies(&request.namespace)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let policies = extraction_policies.into_iter().map(|p| p.into()).collect();
+        let mut policies = vec![];
+        for policy in extraction_policies {
+            let extraction_policy = policy
+                .try_into()
+                .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
+            policies.push(extraction_policy);
+        }
         Ok(tonic::Response::new(ListExtractionPoliciesResponse {
             policies,
         }))
@@ -390,9 +423,17 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let namespaces = namespaces.into_iter().map(|n| n.into()).collect();
+        let mut proto_namespaces = vec![];
+        for namespace in namespaces {
+            let proto_namespace = namespace.try_into().map_err(|e| {
+                tonic::Status::aborted(format!("unable to convert namespace: {}", e))
+            })?;
+            proto_namespaces.push(proto_namespace);
+        }
         Ok(tonic::Response::new(
-            indexify_coordinator::ListNamespaceResponse { namespaces },
+            indexify_coordinator::ListNamespaceResponse {
+                namespaces: proto_namespaces,
+            },
         ))
     }
 
@@ -410,7 +451,11 @@ impl CoordinatorService for CoordinatorServiceServer {
 
         Ok(tonic::Response::new(
             indexify_coordinator::GetNamespaceResponse {
-                namespace: Some(namespace.into()),
+                namespace: Some(
+                    namespace
+                        .try_into()
+                        .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
+                ),
             },
         ))
     }
@@ -431,7 +476,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
     }
 
-    // TODO: edwin
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,
@@ -801,10 +845,21 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         let root_content: Option<indexify_coordinator::ContentMetadata> =
-            root_content.map(|c| c.into());
+            if let Some(metadata) = root_content {
+                Some(
+                    metadata
+                        .try_into()
+                        .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
+                )
+            } else {
+                None
+            };
 
         Ok(Response::new(GetIngestionInfoResponse {
-            task: Some(task.into()),
+            task: Some(
+                task.try_into()
+                    .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
+            ),
             root_content,
         }))
     }

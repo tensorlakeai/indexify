@@ -24,18 +24,22 @@ pub struct ExtractionGraph {
     pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
-impl From<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
-    fn from(value: indexify_coordinator::ExtractionGraph) -> Self {
-        Self {
+impl TryFrom<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ExtractionGraph) -> Result<Self> {
+        let mut extraction_policies = vec![];
+        for policy in value.extraction_policies {
+            let policy: ExtractionPolicy = policy.try_into()?;
+            extraction_policies.push(policy);
+        }
+
+        Ok(Self {
             id: value.namespace.clone(),
             namespace: value.namespace,
             name: value.name,
-            extraction_policies: value
-                .extraction_policies
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
+            extraction_policies,
+        })
     }
 }
 
@@ -45,23 +49,26 @@ pub struct ExtractionPolicy {
     pub extractor: String,
     pub name: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, String>>,
+    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
     pub graph_name: String,
 }
 
-impl From<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
-    fn from(value: indexify_coordinator::ExtractionPolicy) -> Self {
-        Self {
+impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ExtractionPolicy) -> Result<Self> {
+        let filters_eq = internal_api::utils::convert_map_prost_to_serde_json(value.filters)?;
+        Ok(Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
-            filters_eq: Some(value.filters),
+            filters_eq: Some(filters_eq),
             input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
             content_source: Some(value.content_source),
             graph_name: value.graph_name,
-        }
+        })
     }
 }
 
@@ -71,16 +78,23 @@ pub struct DataNamespace {
     pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
-impl From<indexify_coordinator::Namespace> for DataNamespace {
-    fn from(value: indexify_coordinator::Namespace) -> Self {
-        Self {
+impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
+        let extraction_graphs = {
+            let mut graphs = vec![];
+            for graph in value.extraction_graphs {
+                let graph: ExtractionGraph = graph.try_into()?;
+                graphs.push(graph);
+            }
+            graphs
+        };
+
+        Ok(Self {
             name: value.name,
-            extraction_graphs: value
-                .extraction_graphs
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
+            extraction_graphs,
+        })
     }
 }
 
@@ -147,7 +161,7 @@ pub struct ExtractionPolicyRequest {
     pub extractor: String,
     pub name: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, String>>,
+    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
 }
@@ -163,7 +177,7 @@ pub struct Text {
     pub id: Option<String>,
     pub text: String,
     #[serde(default)]
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -329,7 +343,7 @@ pub struct ListContentFilters {
     )]
     pub parent_id: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub labels_eq: Option<HashMap<String, String>>,
+    pub labels_eq: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -349,7 +363,7 @@ pub struct DocumentFragment {
     pub text: String,
     pub mime_type: String,
     pub confidence_score: f32,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub root_content_metadata: Option<ContentMetadata>,
     pub content_metadata: ContentMetadata,
 }
@@ -397,7 +411,7 @@ pub struct ListContentResponse {
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema, IntoParams)]
 pub struct UpdateLabelsRequest {
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema, Clone)]
@@ -408,7 +422,7 @@ pub struct ContentMetadata {
     pub namespace: String,
     pub name: String,
     pub mime_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub extraction_graph_names: Vec<String>,
     pub storage_url: String,
     pub created_at: i64,
@@ -417,23 +431,27 @@ pub struct ContentMetadata {
     pub hash: String,
 }
 
-impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
-    fn from(value: indexify_coordinator::ContentMetadata) -> Self {
-        Self {
+impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self> {
+        let labels = internal_api::utils::convert_map_prost_to_serde_json(value.labels)?;
+
+        Ok(Self {
             id: value.id,
             parent_id: value.parent_id,
             root_content_id: value.root_content_id,
             namespace: value.namespace,
             name: value.file_name,
             mime_type: value.mime,
-            labels: value.labels,
+            labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             source: value.source,
             size: value.size_bytes,
             hash: value.hash,
             extraction_graph_names: value.extraction_graph_names,
-        }
+        })
     }
 }
 
@@ -470,21 +488,27 @@ pub struct Task {
     pub index_tables: Vec<String>,
 }
 
-impl From<indexify_coordinator::Task> for Task {
-    fn from(value: indexify_coordinator::Task) -> Self {
-        Self {
+impl TryFrom<indexify_coordinator::Task> for Task {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::Task) -> Result<Self> {
+        let content_metadata = if let Some(metadata) = value.content_metadata {
+            metadata.try_into()?
+        } else {
+            ContentMetadata::default()
+        };
+
+        Ok(Self {
             id: value.id,
             extractor: value.extractor,
             extraction_policy_id: value.extraction_policy_id,
             output_index_table_mapping: value.output_index_mapping,
             namespace: value.namespace,
-            content_metadata: value
-                .content_metadata
-                .map_or_else(Default::default, Into::into), //  EGTODO: Is this correct?
+            content_metadata,
             input_params: serde_json::Value::String(value.input_params),
             outcome: value.outcome, //  EGTODO: Is it correct to just return i32 for value outcome?
             index_tables: value.index_tables,
-        }
+        })
     }
 }
 
@@ -540,7 +564,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub features: Vec<Feature>,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 impl From<internal_api::Content> for Content {
@@ -594,7 +618,7 @@ pub struct ContentFrame {
 pub struct FinishContent {
     pub content_type: String,
     pub features: Vec<Feature>,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -716,7 +740,7 @@ pub struct IngestRemoteFile {
     pub id: Option<String>,
     pub url: String,
     pub mime_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub extraction_graph_names: Vec<String>,
 }
 
