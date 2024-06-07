@@ -647,9 +647,7 @@ impl TryFrom<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     type Error = anyhow::Error;
 
     fn try_from(value: ExtractionPolicy) -> Result<Self> {
-        let filters = utils::convert_map_serde_to_prost_json(value.filters)
-            .map_err(|e| anyhow!("unable to convert to protobuff JSON value: {e:?}"))
-            .unwrap();
+        let filters = utils::convert_map_serde_to_prost_json(value.filters)?;
 
         Ok(Self {
             id: value.id,

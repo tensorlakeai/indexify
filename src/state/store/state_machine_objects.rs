@@ -2404,7 +2404,7 @@ impl IndexifyState {
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct V1Snapshot {
     pub executors: HashMap<ExecutorId, ExecutorMetadata>,
-    pub tasks: HashMap<TaskId, Task>,
+    pub tasks: HashMap<TaskId, v1::Task>,
     pub gc_tasks: HashMap<
         indexify_internal_api::GarbageCollectionTaskId,
         indexify_internal_api::GarbageCollectionTask,

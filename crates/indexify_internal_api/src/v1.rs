@@ -84,6 +84,29 @@ impl From<ContentMetadata> for super::ContentMetadata {
     }
 }
 
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+pub struct Task {
+    pub id: String,
+    pub extractor: String,
+    pub extraction_policy_id: String,
+    pub extraction_graph_name: String,
+    pub output_index_table_mapping: HashMap<String, String>,
+    pub namespace: String,
+    pub content_metadata: ContentMetadata,
+    pub input_params: serde_json::Value,
+    pub outcome: crate::TaskOutcome,
+    pub index_tables: Vec<String>,
+}
+
+impl From<Task> for super::Task {
+    fn from(task: Task) -> Self {
+        super::Task {
+            content_metadata: task.content_metadata.clone().into(),
+            ..task.into()
+        }
+    }
+}
+
 fn from_str_to_json(value: &str) -> serde_json::Value {
     serde_json::from_str(value).unwrap_or(serde_json::json!(value))
 }

@@ -80,18 +80,22 @@ impl DataManager {
         let req = indexify_coordinator::ListNamespaceRequest {};
         let response = self.coordinator_client.get().await?.list_ns(req).await?;
         let namespaces = response.into_inner().namespaces;
-        let data_namespaces = namespaces
+
+        let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|r| api::DataNamespace {
-                name: r.name,
-                extraction_graphs: r
+            .map(|r| {
+                let graphs: Result<Vec<api::ExtractionGraph>, anyhow::Error> = r
                     .extraction_graphs
                     .into_iter()
-                    .map(|g| g.try_into().unwrap())
-                    .collect(),
+                    .map(|g| g.try_into())
+                    .collect();
+                Ok(api::DataNamespace {
+                    name: r.name,
+                    extraction_graphs: graphs?,
+                })
             })
             .collect();
-        Ok(data_namespaces)
+        Ok(data_namespaces?)
     }
 
     #[tracing::instrument]

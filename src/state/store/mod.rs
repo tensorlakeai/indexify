@@ -22,6 +22,7 @@ use indexify_internal_api::{
     ExtractionPolicy,
     NamespaceName,
     StructuredDataSchema,
+    Task,
 };
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
@@ -491,7 +492,7 @@ impl StateMachineStore {
         &self,
         executor_id: &str,
         limit: Option<u64>,
-    ) -> Result<Vec<indexify_internal_api::Task>> {
+    ) -> Result<Vec<Task>> {
         self.data
             .indexify_state
             .get_tasks_for_executor(executor_id, limit, &self.db.read().unwrap())
@@ -1288,6 +1289,7 @@ fn apply_v1_snapshot(
     }
     for (task_id, task) in &snapshot.tasks {
         let cf = StateMachineColumns::Tasks.cf(db);
+        let task: Task = task.clone().into();
         put_cf(&txn, cf, task_id, &task)?;
     }
     for (gc_task_id, gc_task) in &snapshot.gc_tasks {
