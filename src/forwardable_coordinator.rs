@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use indexify_proto::indexify_coordinator;
 
-use crate::coordinator_client::CoordinatorClient;
+use crate::{coordinator_client::CoordinatorClient, state::store::ExecutorId};
 
 pub struct ForwardableCoordinator {
     coordinator_client: CoordinatorClient,
@@ -23,6 +25,35 @@ impl ForwardableCoordinator {
         let mut client = self.coordinator_client.get_coordinator(leader_addr).await?;
 
         client.register_ingestion_server(req).await?;
+
+        Ok(())
+    }
+
+    pub async fn executors_heartbeat(
+        &self,
+        leader_addr: &str,
+        executors: HashMap<ExecutorId, std::time::SystemTime>,
+    ) -> Result<(), anyhow::Error> {
+        let req = indexify_coordinator::ExecutorsHeartbeatRequest {
+            executors: executors
+                .into_iter()
+                .map(|(executor_id, last_heartbeat)| {
+                    let duration_since_epoch = last_heartbeat
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("Time went backwards");
+
+                    let last_heartbeat = ::prost_wkt_types::Timestamp {
+                        seconds: duration_since_epoch.as_secs() as i64,
+                        nanos: duration_since_epoch.subsec_nanos() as i32,
+                    };
+                    (executor_id.to_string(), last_heartbeat)
+                })
+                .collect(),
+        };
+
+        let mut client = self.coordinator_client.get_coordinator(leader_addr).await?;
+
+        client.executors_heartbeat(req).await?;
 
         Ok(())
     }

@@ -5,7 +5,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, MutexGuard},
     time::SystemTime,
 };
 
@@ -727,12 +727,23 @@ impl App {
         self.state_machine.get_namespace(namespace).await
     }
 
+    pub fn my_executors(&self) -> MutexGuard<HashMap<String, SystemTime>> {
+        self.state_machine
+            .data
+            .indexify_state
+            .my_executors
+            .lock()
+            .unwrap()
+    }
+
     pub async fn register_executor(
         &self,
         addr: &str,
         executor_id: &str,
         extractors: Vec<internal_api::ExtractorDescription>,
     ) -> Result<()> {
+        self.my_executors()
+            .insert(executor_id.to_string(), SystemTime::now());
         let state_change = StateChange::new(
             executor_id.to_string(),
             internal_api::ChangeType::ExecutorAdded,
