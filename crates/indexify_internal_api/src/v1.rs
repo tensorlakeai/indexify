@@ -46,7 +46,14 @@ impl From<ExtractionPolicy> for super::ExtractionPolicy {
                 .iter()
                 .map(|(k, v)| (k.clone(), from_str_to_json(v)))
                 .collect(),
-            ..policy.into()
+            id: policy.id,
+            graph_name: policy.graph_name,
+            name: policy.name,
+            namespace: policy.namespace,
+            extractor: policy.extractor,
+            input_params: policy.input_params,
+            output_table_mapping: policy.output_table_mapping,
+            content_source: policy.content_source,
         }
     }
 }
@@ -79,7 +86,21 @@ impl From<ContentMetadata> for super::ContentMetadata {
                 .iter()
                 .map(|(k, v)| (k.clone(), from_str_to_json(v)))
                 .collect(),
-            ..metadata.into()
+            id: metadata.id,
+            parent_id: metadata.parent_id,
+            root_content_id: metadata.root_content_id,
+            latest: metadata.latest,
+            namespace: metadata.namespace,
+            source: metadata.source,
+            extraction_policy_ids: metadata.extraction_policy_ids,
+            extraction_graph_names: metadata.extraction_graph_names,
+            name: metadata.name,
+            storage_url: metadata.storage_url,
+            created_at: metadata.created_at,
+            size_bytes: metadata.size_bytes,
+            tombstoned: metadata.tombstoned,
+            hash: metadata.hash,
+            content_type: metadata.content_type,
         }
     }
 }
@@ -102,7 +123,15 @@ impl From<Task> for super::Task {
     fn from(task: Task) -> Self {
         super::Task {
             content_metadata: task.content_metadata.clone().into(),
-            ..task.into()
+            id: task.id,
+            extractor: task.extractor,
+            extraction_policy_id: task.extraction_policy_id,
+            extraction_graph_name: task.extraction_graph_name,
+            output_index_table_mapping: task.output_index_table_mapping,
+            namespace: task.namespace,
+            input_params: task.input_params,
+            outcome: task.outcome,
+            index_tables: task.index_tables,
         }
     }
 }
