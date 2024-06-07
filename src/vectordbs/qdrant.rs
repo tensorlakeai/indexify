@@ -423,7 +423,8 @@ mod tests {
         server_config::QdrantConfig,
         vectordbs::{
             tests::{basic_search, insertion_idempotent, search_filters, store_metadata},
-            IndexDistance, VectorDBTS,
+            IndexDistance,
+            VectorDBTS,
         },
     };
 

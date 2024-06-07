@@ -35,13 +35,16 @@ use crate::server_config::LancedbConfig;
 fn from_filter_to_str(filters: Vec<Filter>) -> String {
     filters
         .into_iter()
-        .map(|f| match f.operator {
-            FilterOperator::Eq => format!("{} = {}", f.key, f.value),
-            FilterOperator::Neq => format!("{} != {}", f.key, f.value),
-            FilterOperator::Gt => format!("{} > {}", f.key, f.value),
-            FilterOperator::Lt => format!("{} < {}", f.key, f.value),
-            FilterOperator::GtEq => format!("{} >= {}", f.key, f.value),
-            FilterOperator::LtEq => format!("{} <= {}", f.key, f.value),
+        .map(|f| {
+            let value = from_filter_value_to_str(f.value);
+            match f.operator {
+                FilterOperator::Eq => format!("{} = {}", f.key, value),
+                FilterOperator::Neq => format!("{} != {}", f.key, value),
+                FilterOperator::Gt => format!("{} > {}", f.key, value),
+                FilterOperator::Lt => format!("{} < {}", f.key, value),
+                FilterOperator::GtEq => format!("{} >= {}", f.key, value),
+                FilterOperator::LtEq => format!("{} <= {}", f.key, value),
+            }
         })
         .collect::<Vec<_>>()
         .join(" AND ")
