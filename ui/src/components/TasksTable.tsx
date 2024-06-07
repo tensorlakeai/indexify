@@ -10,7 +10,6 @@ import { TaskStatus } from 'getindexify'
 import TaskCounts from './TaskCounts'
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import ReportIcon from '@mui/icons-material/Report'
 
 const TasksTable = ({
   namespace,
@@ -60,7 +59,6 @@ const TasksTable = ({
       field: 'outcome',
       headerName: 'Outcome',
       renderCell: (params) => {
-        let text = ''
         if (params.value === TaskStatus.Failure) {
           return (
             <Box
