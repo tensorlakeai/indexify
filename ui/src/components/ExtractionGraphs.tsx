@@ -1,4 +1,5 @@
 import {
+  IContentMetadata,
   IExtractionGraph,
   IExtractionPolicy,
   IExtractor,
@@ -6,31 +7,55 @@ import {
 } from 'getindexify'
 import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import React, { ReactElement } from 'react'
+import React, { ReactElement, useMemo } from 'react'
 import GavelIcon from '@mui/icons-material/Gavel'
 import InfoIcon from '@mui/icons-material/Info'
 import ExtractionPolicyItem from './ExtractionPolicyItem'
 import { IExtractionGraphCol, IExtractionGraphColumns } from '../types'
 import CopyText from './CopyText'
+import ContentTable from './tables/ContentTable'
+
+function groupContentByGraphs(
+  objects: IContentMetadata[]
+): Record<string, IContentMetadata[]> {
+  const groups: Record<string, IContentMetadata[]> = {}
+
+  objects.forEach((obj) => {
+    obj.extraction_graph_names.forEach((graphName) => {
+      if (!groups[graphName]) {
+        groups[graphName] = []
+      }
+      groups[graphName].push(obj)
+    })
+  })
+
+  return groups
+}
 
 const ExtractionGraphs = ({
   extractionGraphs,
   namespace,
   extractors,
   tasks,
+  content,
 }: {
   extractionGraphs: IExtractionGraph[]
   namespace: string
   extractors: IExtractor[]
   tasks: ITask[]
+  content: IContentMetadata[]
 }) => {
+  const groupedContent = useMemo(() => {
+    return groupContentByGraphs(content)
+  }, [content])
+
   const itemheight = 60
   const cols: IExtractionGraphColumns = {
     name: { displayName: 'Name', width: 350 },
     extractor: { displayName: 'Extractor', width: 225 },
     mimeTypes: { displayName: 'Input MimeTypes', width: 225 },
-    inputParams: { displayName: 'Input Parameters', width: 225 },
-    taskCount: { displayName: 'Tasks', width: 75 },
+    inputParams: { displayName: 'Input Parameters', width: 200 },
+    taskCount: { displayName: 'Tasks', width: 100 },
   }
 
   const renderHeader = () => {
@@ -69,7 +94,9 @@ const ExtractionGraphs = ({
         items.push(
           <ExtractionPolicyItem
             key={policy.name}
-            tasks={tasks}
+            tasks={tasks.filter(
+              (task) => task.extraction_policy_id === policy.id
+            )}
             extractionPolicy={policy}
             namespace={namespace}
             cols={cols}
@@ -116,6 +143,30 @@ const ExtractionGraphs = ({
                 <CopyText text={graph.name} />
               </Box>
               {renderGraphItems(graph.extraction_policies, '')}
+              <Stack
+                display={'flex'}
+                direction={'row'}
+                alignItems={'center'}
+                spacing={2}
+              >
+                <Typography variant="h4">
+                  Content
+                  <IconButton
+                    href="https://docs.getindexify.ai/concepts/#content"
+                    target="_blank"
+                  >
+                    <InfoIcon fontSize="small" />
+                  </IconButton>
+                </Typography>
+              </Stack>
+              {groupedContent[graph.name] ? (
+                <ContentTable
+                  content={groupedContent[graph.name]}
+                  extractionPolicies={graph.extraction_policies}
+                />
+              ) : (
+                <Alert severity="info">No content found</Alert>
+              )}
             </Box>
           )
         })}
