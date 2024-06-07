@@ -1,4 +1,4 @@
-import { IExtractedMetadata, ITask, TaskStatus } from 'getindexify'
+import { IExtractedMetadata } from 'getindexify'
 
 export const stringToColor = (str: string) => {
   let hash = 0
@@ -49,23 +49,4 @@ export const formatBytes = (bytes: number, decimals: number = 2): string => {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
 
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
-}
-
-export const countTasks = (
-  tasks: ITask[]
-): { unknown: number; success: number; failure: number } => {
-  let unknown = 0
-  let success = 0
-  let failure = 0
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i]
-    if (task.outcome === TaskStatus.Unknown) {
-      unknown += 1
-    } else if (task.outcome === TaskStatus.Failure) {
-      failure += 1
-    } else if (task.outcome === TaskStatus.Success) {
-      success += 1
-    }
-  }
-  return { unknown, failure, success }
 }

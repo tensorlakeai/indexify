@@ -1,11 +1,8 @@
-import { Box, Chip, Stack, Typography, useTheme } from '@mui/material'
+import { Box, Chip, Stack, Typography } from '@mui/material'
 import { IExtractionPolicy, IExtractor, IIndex, ITask } from 'getindexify'
 import { IExtractionGraphColumns } from '../types'
 import { Link } from 'react-router-dom'
-import { countTasks } from '../utils/helpers'
-import HourglassBottomIcon from '@mui/icons-material/HourglassBottom'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import CloseIcon from '@mui/icons-material/Close'
+import TaskCounts from './TaskCounts'
 
 const ExtractionPolicyItem = ({
   extractionPolicy,
@@ -27,8 +24,6 @@ const ExtractionPolicyItem = ({
   tasks: ITask[]
   index?: IIndex
 }) => {
-  const theme = useTheme()
-  const taskCounts = countTasks(tasks)
   const renderInputParams = () => {
     if (
       !extractionPolicy.input_params ||
@@ -132,32 +127,7 @@ const ExtractionPolicyItem = ({
           {renderInputParams()}
         </Box>
         <Box sx={{ minWidth: cols.taskCount.width }} gap={1} display="flex">
-          {/* pending */}
-          <Box
-            display="flex"
-            alignItems="center"
-            sx={{ color: theme.palette.common.black }}
-          >
-            <HourglassBottomIcon sx={{ width: 15, gap: 0.5 }} />{' '}
-            {taskCounts.unknown}
-          </Box>
-          {/* success */}
-          <Box
-            display="flex"
-            alignItems="center"
-            sx={{ color: theme.palette.success.main, gap: 0.5 }}
-          >
-            <CheckCircleIcon sx={{ width: 15 }} />
-            {taskCounts.success}
-          </Box>
-          {/* failure */}
-          <Box
-            display="flex"
-            alignItems="center"
-            sx={{ color: theme.palette.error.main, gap: 0.5 }}
-          >
-            <CloseIcon sx={{ width: 15 }} /> {taskCounts.failure}
-          </Box>
+          <TaskCounts tasks={tasks} />
         </Box>
       </Stack>
     </Box>

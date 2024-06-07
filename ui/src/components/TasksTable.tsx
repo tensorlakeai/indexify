@@ -7,6 +7,7 @@ import TaskIcon from '@mui/icons-material/Task'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import { TaskStatus } from 'getindexify'
+import TaskCounts from './TaskCounts'
 
 const TasksTable = ({
   namespace,
@@ -134,7 +135,8 @@ const TasksTable = ({
         spacing={2}
       >
         <TaskIcon />
-        <Typography variant="h3">Tasks</Typography>
+        <Typography variant="h3">Tasks</Typography>{' '}
+        <TaskCounts tasks={tasks} size="large" />
       </Stack>
       {renderContent()}
     </>
