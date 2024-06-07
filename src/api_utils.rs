@@ -232,7 +232,7 @@ where
 
 pub fn deserialize_labels_eq_filter<'de, D>(
     deserializer: D,
-) -> Result<Option<HashMap<String, String>>, D::Error>
+) -> Result<Option<HashMap<String, serde_json::Value>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -273,20 +273,17 @@ where
         validate_label_value(value.as_str())
             .map_err(|e| err_formatter("value invalid".to_string(), e.to_string()))?;
 
+        let value = serde_json::from_str(&value).unwrap_or(serde_json::json!(value));
         labels_eq.insert(key, value);
     }
 
-    for (key, value) in labels_eq.clone() {
+    for (key, _) in labels_eq.clone() {
         // if the first part is empty, then it's invalid
         if key.is_empty() {
             return Err(serde::de::Error::custom(
                 "invalid labels_eq filter - must be in the form 'key:value' or 'key:' or ''"
                     .to_string(),
             ));
-        }
-        // if the second part is empty, then it's an empty string value filter
-        if value.is_empty() {
-            continue;
         }
     }
 
@@ -309,7 +306,7 @@ mod test_deserialize_labels_eq_filter {
             parent_id: "".to_string(),
             labels_eq: Some({
                 let mut labels_eq = HashMap::new();
-                labels_eq.insert("key".to_string(), "value".to_string());
+                labels_eq.insert("key".to_string(), serde_json::json!("value"));
                 labels_eq
             }),
         });
@@ -329,7 +326,7 @@ mod test_deserialize_labels_eq_filter {
             parent_id: "".to_string(),
             labels_eq: Some({
                 let mut labels_eq = HashMap::new();
-                labels_eq.insert("key".to_string(), "".to_string());
+                labels_eq.insert("key".to_string(), serde_json::json!(""));
                 labels_eq
             }),
         });
@@ -352,7 +349,7 @@ mod test_deserialize_labels_eq_filter {
         assert!(query.is_err(), "query should be invalid: \"labels_eq=\"");
     }
 
-    /// 4. ?source=foo&labels_eq=key:value&labels_eq=key2:value2
+    /// 4. ?source=foo&labels_eq=key:value&labels_eq=key2:25
     #[test]
     fn test_multiple_key_value() {
         let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
@@ -360,13 +357,14 @@ mod test_deserialize_labels_eq_filter {
             parent_id: "".to_string(),
             labels_eq: Some({
                 let mut labels_eq = HashMap::new();
-                labels_eq.insert("key".to_string(), "value".to_string());
-                labels_eq.insert("key2".to_string(), "value2".to_string());
+                labels_eq.insert("key".to_string(), serde_json::json!("value"));
+                labels_eq.insert("key2".to_string(), serde_json::json!(25));
+
                 labels_eq
             }),
         });
 
-        let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:value2"
+        let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:25"
             .parse()
             .unwrap();
         let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
@@ -381,8 +379,8 @@ mod test_deserialize_labels_eq_filter {
             parent_id: "".to_string(),
             labels_eq: Some({
                 let mut labels_eq = HashMap::new();
-                labels_eq.insert("key".to_string(), "value".to_string());
-                labels_eq.insert("key2".to_string(), "".to_string());
+                labels_eq.insert("key".to_string(), serde_json::json!("value"));
+                labels_eq.insert("key2".to_string(), serde_json::json!(""));
                 labels_eq
             }),
         });

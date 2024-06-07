@@ -727,7 +727,6 @@ impl App {
         self.state_machine.get_namespace(namespace).await
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
@@ -1113,7 +1112,7 @@ impl App {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let contents = self
             .get_content_metadata_batch(vec![content_id.to_string()])
@@ -1718,9 +1717,9 @@ mod tests {
         let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
 
         eg.extraction_policies[0].filters = HashMap::from([
-            ("label1".to_string(), "value1".to_string()),
-            ("label2".to_string(), "value2".to_string()),
-            ("label3".to_string(), "value3".to_string()),
+            ("label1".to_string(), serde_json::json!("value1")),
+            ("label2".to_string(), serde_json::json!("value2")),
+            ("label3".to_string(), serde_json::json!("value3")),
         ]);
 
         node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
@@ -1736,9 +1735,9 @@ mod tests {
 
         //  Create some content
         let content_labels = vec![
-            ("label1".to_string(), "value1".to_string()),
-            ("label2".to_string(), "value2".to_string()),
-            ("label3".to_string(), "value3".to_string()),
+            ("label1".to_string(), serde_json::json!("value1")),
+            ("label2".to_string(), serde_json::json!("value2")),
+            ("label3".to_string(), serde_json::json!("value3")),
         ];
         let mut content_metadata = test_mock_content_metadata("test_content_id1", "", &eg.name);
         content_metadata.labels = content_labels.into_iter().collect();
@@ -1841,7 +1840,7 @@ mod tests {
         //  Create the extraction graph
         let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
         eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), "value1".to_string())]);
+            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
         let _structured_data_schema = StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),
@@ -1852,11 +1851,12 @@ mod tests {
 
         //  Create some content
         let mut content_metadata1 = test_mock_content_metadata("content_id_1", "", &eg.name);
-        content_metadata1.labels = HashMap::from([("label1".to_string(), "value1".to_string())]);
+        content_metadata1.labels =
+            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
 
         let mut content_metadata2 = test_mock_content_metadata("content_id_2", "", &eg.name);
         content_metadata2.labels =
-            HashMap::from([("label1".to_string(), "value-mismatch".to_string())]);
+            HashMap::from([("label1".to_string(), serde_json::json!("value-mismatch"))]);
         node.create_content_batch(vec![content_metadata1, content_metadata2])
             .await?;
 

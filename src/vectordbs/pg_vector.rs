@@ -191,8 +191,13 @@ impl VectorDb for PgVector {
         if !filters.is_empty() {
             query.push_str(" WHERE ");
             let filter_query = filters
-                .iter()
+                .into_iter()
                 .map(|filter| {
+                    let value = match filter.value {
+                        serde_json::Value::String(s) => s,
+                        _ => filter.value.to_string(),
+                    };
+
                     format!(
                         "metadata->>'{}' {} '{}'",
                         filter.key,
@@ -200,7 +205,7 @@ impl VectorDb for PgVector {
                             FilterOperator::Eq => "=",
                             FilterOperator::Neq => "<>",
                         },
-                        filter.value
+                        value
                     )
                 })
                 .collect::<Vec<String>>()

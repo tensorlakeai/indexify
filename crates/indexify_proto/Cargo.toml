@@ -9,5 +9,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 prost = { workspace = true }
+prost-wkt = {workspace = true }
+prost-wkt-types = {workspace=true}
 serde = { workspace = true }
 tonic = { workspace = true }

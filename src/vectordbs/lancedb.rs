@@ -6,9 +6,10 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use arrow_array::{
-    cast::as_string_array,
-    types::Float32Type,
+    cast::{as_boolean_array, as_string_array},
+    types::{self, Float32Type},
     Array,
+    BooleanArray,
     FixedSizeListArray,
     PrimitiveArray,
     RecordBatch,
@@ -34,12 +35,24 @@ use crate::server_config::LancedbConfig;
 fn from_filter_to_str(filters: Vec<Filter>) -> String {
     filters
         .into_iter()
-        .map(|f| match f.operator {
-            FilterOperator::Eq => format!("{} = '{}'", f.key, f.value),
-            FilterOperator::Neq => format!("{} != '{}'", f.key, f.value),
+        .map(|f| {
+            let value = from_filter_value_to_str(f.value);
+            match f.operator {
+                FilterOperator::Eq => format!("{} = {}", f.key, value),
+                FilterOperator::Neq => format!("{} != {}", f.key, value),
+            }
         })
         .collect::<Vec<_>>()
         .join(" AND ")
+}
+
+fn from_filter_value_to_str(value: serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => format!("'{s}'"),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => "".to_string(),
+    }
 }
 
 pub struct LanceDb {
@@ -83,16 +96,16 @@ async fn vector_chunk_from_batch(
             }
         } else {
             let column = batch.column_by_name(field_name).unwrap();
+            let rows = from_arrow_column_to_json_values(column)?;
+
             // if metadatas are not allocated yet, allocate them
             if metadatas.is_empty() {
                 metadatas = vec![HashMap::new(); column.len()];
             }
-            // FIXME SHould be a better way to enumerate with index
+
             let mut i = 0;
-            for row in as_string_array(batch.column_by_name(field_name).unwrap()) {
-                let row = row.ok_or(anyhow!("metadata is null"))?;
-                let value: serde_json::Value = serde_json::json!(row);
-                metadatas[i].insert(field_name.to_string(), value);
+            for row in rows {
+                metadatas[i].insert(field_name.to_string(), row);
                 i += 1;
             }
         }
@@ -149,11 +162,32 @@ async fn update_schema_with_missing_fields(
     let mut new_fields = Vec::new();
     let mut schema = tbl.schema().await?;
     // Find the fields that has to be added
-    for (key, _) in metadata.iter() {
+    for (key, value) in metadata.iter() {
         if schema.field_with_name(key).is_err() {
-            new_fields.push(Arc::new(Field::new(key, DataType::Utf8, true)));
+            match value {
+                serde_json::Value::Number(n) => {
+                    if n.is_f64() {
+                        new_fields.push(Field::new(key, DataType::Float64, true));
+                    } else {
+                        new_fields.push(Field::new(key, DataType::Int64, true));
+                    }
+                }
+                serde_json::Value::String(_) => {
+                    new_fields.push(Field::new(key, DataType::Utf8, true));
+                }
+                serde_json::Value::Bool(_) => {
+                    new_fields.push(Field::new(key, DataType::Boolean, true));
+                }
+                _ => {}
+            }
         }
     }
+
+    let new_fields = new_fields
+        .into_iter()
+        .map(|f| Arc::new(f))
+        .collect::<Vec<_>>();
+
     if !new_fields.is_empty() {
         let mut all_fields = schema.fields().to_vec();
         all_fields.extend(new_fields.clone());
@@ -279,13 +313,22 @@ impl VectorDb for LanceDb {
             {
                 continue;
             }
-            let values = chunks.iter().map(|c| {
-                c.metadata
-                    .get(field.name())
-                    .map(|v| serde_json::to_string(&v).unwrap())
-            });
-            let array = values.collect::<StringArray>();
-            arrays.push(Arc::new(array));
+
+            let all_values: Vec<Option<&serde_json::Value>> = chunks
+                .iter()
+                .map(|c| c.metadata.get(field.name()))
+                .collect();
+
+            for value in &all_values {
+                if let Some(value) = value {
+                    validate_value_with_column_type(value, field)?;
+                }
+            }
+
+            arrays.push(from_serde_json_to_arrow_array(
+                field.data_type(),
+                all_values,
+            )?);
         }
 
         let batches = RecordBatchIterator::new(
@@ -459,6 +502,127 @@ impl VectorDb for LanceDb {
     }
 }
 
+fn from_serde_json_to_arrow_array(
+    datatype: &DataType,
+    values: Vec<Option<&serde_json::Value>>,
+) -> Result<Arc<dyn Array>> {
+    let iterator = values.iter();
+    match datatype {
+        DataType::Float64 => {
+            let arr = iterator
+                .map(|v| match v {
+                    Some(serde_json::Value::Number(n)) => Some(n.as_f64()?),
+                    _ => None,
+                })
+                .collect::<PrimitiveArray<types::Float64Type>>();
+            Ok(Arc::new(arr))
+        }
+        DataType::Int64 => {
+            let arr = iterator
+                .map(|v| match v {
+                    Some(serde_json::Value::Number(n)) => Some(n.as_i64()?),
+                    _ => None,
+                })
+                .collect::<PrimitiveArray<types::Int64Type>>();
+            Ok(Arc::new(arr))
+        }
+        DataType::Utf8 => {
+            let arr = iterator
+                .map(|v| match v {
+                    Some(serde_json::Value::String(s)) => Some(s.to_string()),
+                    _ => None,
+                })
+                .collect::<StringArray>();
+            Ok(Arc::new(arr))
+        }
+        DataType::Boolean => {
+            let arr = iterator
+                .map(|v| match v {
+                    Some(serde_json::Value::Bool(b)) => Some(*b),
+                    _ => None,
+                })
+                .collect::<BooleanArray>();
+            Ok(Arc::new(arr))
+        }
+        _ => Err(anyhow!("unsupported metadata type for field")),
+    }
+}
+
+fn from_arrow_column_to_json_values(column: &Arc<dyn Array>) -> Result<Vec<serde_json::Value>> {
+    let mut values = vec![];
+
+    match column.data_type() {
+        DataType::Utf8 => {
+            for row in as_string_array(column).iter() {
+                let row = row.ok_or(anyhow!("metadata is null"))?;
+                values.push(row.into());
+            }
+        }
+        DataType::Int64 => {
+            let column = column
+                .as_any()
+                .downcast_ref::<PrimitiveArray<types::Int64Type>>()
+                .unwrap();
+            for row in column.values().iter() {
+                values.push(serde_json::json!(row));
+            }
+        }
+        DataType::Float64 => {
+            let column = column
+                .as_any()
+                .downcast_ref::<PrimitiveArray<types::Float64Type>>()
+                .unwrap();
+            for row in column.values().iter() {
+                values.push(serde_json::json!(row));
+            }
+        }
+        DataType::Boolean => {
+            for row in as_boolean_array(column).iter() {
+                let row = row.ok_or(anyhow!("metadata is null"))?;
+                values.push(serde_json::json!(row));
+            }
+        }
+        _ => {
+            // This should not happen as we don't have
+            // data type of this kind in our schema
+        }
+    }
+
+    Ok(values)
+}
+
+fn validate_value_with_column_type(
+    value: &serde_json::Value,
+    field: &Field,
+) -> Result<(), anyhow::Error> {
+    let field_name = field.name();
+    let datatype = field.data_type();
+    let err = Err(anyhow!(
+        "Type of value {value:?} mismatch for field {field_name} ({datatype:?})"
+    ));
+
+    match value {
+        serde_json::Value::Number(_) => match datatype {
+            DataType::Float64 => {}
+            DataType::Int64 => {}
+            _ => return err,
+        },
+        serde_json::Value::String(_) => {
+            if *field.data_type() != DataType::Utf8 {
+                return err;
+            }
+        }
+        serde_json::Value::Bool(_) => {
+            if *field.data_type() != DataType::Boolean {
+                return err;
+            }
+        }
+        _ => return err,
+    };
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -499,10 +663,7 @@ mod tests {
         basic_search(lance, "hello-index").await;
     }
 
-    // FIXME: This test is failing
-    // Come back to thtis
     #[tokio::test]
-    #[ignore]
     async fn test_store_metadata() {
         let _ = std::fs::remove_dir_all("/tmp/lance.db/");
         let lance: VectorDBTS = Arc::new(
@@ -575,7 +736,6 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    #[ignore]
     async fn test_search_filters() {
         let _ = std::fs::remove_dir_all("/tmp/lance.db/");
         let lance: VectorDBTS = Arc::new(

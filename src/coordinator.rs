@@ -65,7 +65,7 @@ impl Coordinator {
     ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
         let mut content_meta_list = Vec::new();
         for content in content_list {
-            let content: indexify_coordinator::ContentMetadata = content.into();
+            let content: indexify_coordinator::ContentMetadata = content.try_into()?;
             content_meta_list.push(content.clone());
         }
         Ok(content_meta_list)
@@ -74,8 +74,13 @@ impl Coordinator {
     pub fn external_content_metadata_to_internal(
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
-    ) -> Vec<internal_api::ContentMetadata> {
-        content_list.into_iter().map(|v| v.into()).collect()
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        let mut contents = vec![];
+        for content in content_list {
+            let content: internal_api::ContentMetadata = content.try_into()?;
+            contents.push(content.clone());
+        }
+        Ok(contents)
     }
 
     pub async fn list_content(
@@ -83,7 +88,7 @@ impl Coordinator {
         namespace: &str,
         source: &str,
         parent_id: &str,
-        labels_eq: &HashMap<String, String>,
+        labels_eq: &HashMap<String, serde_json::Value>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.shared_state
             .list_content(namespace, parent_id, |c| {
@@ -96,7 +101,7 @@ impl Coordinator {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         self.shared_state
             .update_labels(namespace, content_id, labels)
@@ -184,7 +189,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -208,7 +213,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -247,7 +252,6 @@ impl Coordinator {
         Ok(addresses)
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
@@ -318,7 +322,7 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        Ok(task.into())
+        Ok(task.try_into()?)
     }
 
     pub async fn get_task_and_root_content(
@@ -1716,14 +1720,14 @@ mod tests {
         let mut eg =
             create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
         eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), "value1".to_string())]);
+            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
         coordinator.create_extraction_graph(eg.clone()).await?;
 
         //  Create some content
-        let content_labels = vec![("label1".to_string(), "value1".to_string())];
+        let content_labels = vec![("label1".to_string(), serde_json::json!("value1"))];
         let mut content_metadata1 = test_mock_content_metadata("content_id_1", "", &eg.name);
         content_metadata1.labels = content_labels.into_iter().collect();
-        let content_labels = vec![("label1".to_string(), "doesn't match".to_string())];
+        let content_labels = vec![("label1".to_string(), serde_json::json!("doesn't match"))];
         let mut content_metadata2 = test_mock_content_metadata("content_id_2", "", &eg.name);
         content_metadata2.labels = content_labels.into_iter().collect();
         coordinator
