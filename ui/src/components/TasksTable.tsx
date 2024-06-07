@@ -1,13 +1,16 @@
 import React from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, ITask } from 'getindexify'
-import { Alert, Typography } from '@mui/material'
+import { Alert, Typography, useTheme } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import TaskIcon from '@mui/icons-material/Task'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import { TaskStatus } from 'getindexify'
 import TaskCounts from './TaskCounts'
+import HourglassBottomIcon from '@mui/icons-material/HourglassBottom'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ReportIcon from '@mui/icons-material/Report'
 
 const TasksTable = ({
   namespace,
@@ -22,6 +25,7 @@ const TasksTable = ({
   hideContentId?: boolean
   hideExtractionPolicy?: boolean
 }) => {
+  const theme = useTheme()
   let columns: GridColDef[] = [
     {
       field: 'id',
@@ -55,13 +59,40 @@ const TasksTable = ({
     {
       field: 'outcome',
       headerName: 'Outcome',
-      valueGetter: (params) => {
+      renderCell: (params) => {
+        let text = ''
         if (params.value === TaskStatus.Failure) {
-          return 'Failure'
+          return (
+            <Box
+              display="flex"
+              alignItems="center"
+              sx={{ color: theme.palette.error.main }}
+            >
+              <HourglassBottomIcon sx={{ width: 15 }} /> Failure
+            </Box>
+          )
         } else if (params.value === TaskStatus.Success) {
-          return 'Success'
+          return (
+            <Box
+              display="flex"
+              alignItems="center"
+              sx={{ color: theme.palette.success.main }}
+              gap={0.5}
+            >
+              <CheckCircleIcon sx={{ width: 15 }} /> Success
+            </Box>
+          )
         } else {
-          return 'Unknown'
+          return (
+            <Box
+              display="flex"
+              alignItems="center"
+              sx={{ color: theme.palette.common.black }}
+              gap={0.5}
+            >
+              <CheckCircleIcon sx={{ width: 15 }} /> Success
+            </Box>
+          )
         }
       },
       width: 100,
@@ -69,7 +100,8 @@ const TasksTable = ({
     {
       field: 'content_metadata.source',
       headerName: 'Source',
-      valueGetter: (params) => params.row.content_metadata.source,
+      valueGetter: (params) =>
+        params.row.content_metadata.source || 'Ingestion',
       width: 170,
     },
     {

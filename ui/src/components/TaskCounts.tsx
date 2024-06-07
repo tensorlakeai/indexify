@@ -1,4 +1,4 @@
-import { Box, useTheme } from '@mui/material'
+import { Box, useTheme, Tooltip } from '@mui/material'
 import { ITask, TaskStatus } from 'getindexify'
 import HourglassBottomIcon from '@mui/icons-material/HourglassBottom'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
@@ -35,29 +35,35 @@ const TaskCounts = ({
   const iconWidth = size === 'small' ? 15 : 25
   return (
     <Box display="flex" gap={1}>
-      <Box
-        display="flex"
-        alignItems="center"
-        sx={{ color: theme.palette.common.black }}
-      >
-        <HourglassBottomIcon sx={{ width: iconWidth, gap: 0.5 }} />{' '}
-        {taskCounts.unknown}
-      </Box>
-      <Box
-        display="flex"
-        alignItems="center"
-        sx={{ color: theme.palette.success.main, gap: 0.5 }}
-      >
-        <CheckCircleIcon sx={{ width: iconWidth }} />
-        {taskCounts.success}
-      </Box>
-      <Box
-        display="flex"
-        alignItems="center"
-        sx={{ color: theme.palette.error.main, gap: 0.5 }}
-      >
-        <ReportIcon sx={{ width: iconWidth }} /> {taskCounts.failure}
-      </Box>
+      <Tooltip title="Unknown">
+        <Box
+          display="flex"
+          alignItems="center"
+          sx={{ color: theme.palette.common.black }}
+        >
+          <HourglassBottomIcon sx={{ width: iconWidth, gap: 0.5 }} />{' '}
+          {taskCounts.unknown}
+        </Box>
+      </Tooltip>
+      <Tooltip title="Success">
+        <Box
+          display="flex"
+          alignItems="center"
+          sx={{ color: theme.palette.success.main, gap: 0.5 }}
+        >
+          <CheckCircleIcon sx={{ width: iconWidth }} />
+          {taskCounts.success}
+        </Box>
+      </Tooltip>
+      <Tooltip title="Failure">
+        <Box
+          display="flex"
+          alignItems="center"
+          sx={{ color: theme.palette.error.main, gap: 0.5 }}
+        >
+          <ReportIcon sx={{ width: iconWidth }} /> {taskCounts.failure}
+        </Box>
+      </Tooltip>
     </Box>
   )
 }
