@@ -40,6 +40,10 @@ fn from_filter_to_str(filters: Vec<Filter>) -> String {
             match f.operator {
                 FilterOperator::Eq => format!("{} = {}", f.key, value),
                 FilterOperator::Neq => format!("{} != {}", f.key, value),
+                FilterOperator::Gt => format!("{} > {}", f.key, value),
+                FilterOperator::Lt => format!("{} < {}", f.key, value),
+                FilterOperator::GtEq => format!("{} >= {}", f.key, value),
+                FilterOperator::LtEq => format!("{} <= {}", f.key, value),
             }
         })
         .collect::<Vec<_>>()

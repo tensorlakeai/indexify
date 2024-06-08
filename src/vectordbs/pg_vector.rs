@@ -204,6 +204,10 @@ impl VectorDb for PgVector {
                         match filter.operator {
                             FilterOperator::Eq => "=",
                             FilterOperator::Neq => "<>",
+                            FilterOperator::Gt => ">",
+                            FilterOperator::GtEq => ">=",
+                            FilterOperator::Lt => "<",
+                            FilterOperator::LtEq => "<=",
                         },
                         value
                     )
