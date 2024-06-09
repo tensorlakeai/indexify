@@ -10,7 +10,7 @@ The resources have been split into separate components:
   store.
 - [components/minio](kustomize/components/minio) - an ephemeral example of using
   S3 for blog storage.
-- [components/extractors](kustomize/components/extractors) - extractors are
+- [components/extractors](kustomize/components/extractor) - extractors are
   published as common containers, this component is used by all the extractors,
   such as [minilm-l6](kustomize/components/minilm-l6) to provide extraction.
 
