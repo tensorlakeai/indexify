@@ -673,12 +673,6 @@ pub struct IndexifyState {
 
     /// Next change id
     pub change_id: std::sync::Mutex<u64>,
-
-    /// Executors registered on this node.
-    pub my_executors: std::sync::Mutex<HashMap<ExecutorId, SystemTime>>,
-
-    /// All executors registered on the cluster.
-    pub all_executors: std::sync::Mutex<HashMap<ExecutorId, SystemTime>>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -1370,9 +1364,6 @@ impl IndexifyState {
                 // Remove from the executor load table
                 self.executor_running_task_count.remove(executor_id);
 
-                self.my_executors.lock().unwrap().remove(executor_id);
-                self.all_executors.lock().unwrap().remove(executor_id);
-
                 return Ok(request.new_state_changes.last().map(|sc| sc.id));
             }
             RequestPayload::CreateOrUpdateContent { entries } => {
@@ -1463,11 +1454,6 @@ impl IndexifyState {
                 };
                 // initialize executor load at 0
                 self.executor_running_task_count.insert(&executor_id, 0);
-
-                self.all_executors
-                    .lock()
-                    .unwrap()
-                    .insert(executor_id.clone(), SystemTime::now());
 
                 Ok(())
             }

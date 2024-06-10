@@ -31,7 +31,11 @@ use crate::{
     garbage_collector::GarbageCollector,
     metrics::Timer,
     scheduler::Scheduler,
-    state::{store::requests::StateChangeProcessed, RaftMetrics, SharedState},
+    state::{
+        store::{requests::StateChangeProcessed, ExecutorId},
+        RaftMetrics,
+        SharedState,
+    },
     task_allocator::TaskAllocator,
     utils,
 };
@@ -41,6 +45,11 @@ pub struct Coordinator {
     scheduler: Scheduler,
     garbage_collector: Arc<GarbageCollector>,
     forwardable_coordinator: ForwardableCoordinator,
+    /// Executors registered on this node.
+    pub my_executors: std::sync::Mutex<HashSet<ExecutorId>>,
+
+    /// All executors registered on the cluster.
+    pub all_executors: std::sync::Mutex<HashMap<ExecutorId, SystemTime>>,
 }
 
 impl Coordinator {
@@ -57,21 +66,17 @@ impl Coordinator {
             scheduler,
             garbage_collector,
             forwardable_coordinator,
+            my_executors: std::sync::Mutex::new(HashSet::new()),
+            all_executors: std::sync::Mutex::new(HashMap::new()),
         })
     }
 
-    fn my_executors(&self) -> std::sync::MutexGuard<HashMap<String, SystemTime>> {
-        self.shared_state.my_executors()
+    pub fn get_locked_my_executors(&self) -> std::sync::MutexGuard<HashSet<String>> {
+        self.my_executors.lock().unwrap()
     }
 
-    pub fn all_executors(&self) -> std::sync::MutexGuard<HashMap<String, SystemTime>> {
-        self.shared_state
-            .state_machine
-            .data
-            .indexify_state
-            .all_executors
-            .lock()
-            .unwrap()
+    pub fn get_locked_all_executors(&self) -> std::sync::MutexGuard<HashMap<String, SystemTime>> {
+        self.all_executors.lock().unwrap()
     }
 
     pub async fn run_executor_heartbeat(&self, mut shutdown: Receiver<()>) {
@@ -89,11 +94,8 @@ impl Coordinator {
                     // If this node becomes leader, reset last heartbeat values for
                     // all executors with current time.
                     let is_leader = *watcher.borrow_and_update();
-                    if is_leader {
-                        let now = SystemTime::now();
-                        for (_, value) in self.all_executors().iter_mut() {
-                            *value = now;
-                        }
+                    if !is_leader {
+                        self.get_locked_all_executors().clear();
                     }
                 }
             }
@@ -114,18 +116,39 @@ impl Coordinator {
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
             let leader_coord_addr = format!("http://{}", leader_coord_addr);
-            let my_executors = self.my_executors().clone();
+            let my_executors = self.get_locked_my_executors().clone();
             self.forwardable_coordinator
                 .executors_heartbeat(&leader_coord_addr, my_executors)
                 .await?;
             return Ok(());
         }
         let remove_executors: Vec<_> = {
-            let my_executors = self.my_executors();
-            let mut executors = self.all_executors();
+            let state_executors: HashSet<ExecutorId> = self
+                .shared_state
+                .get_executors()
+                .await?
+                .into_iter()
+                .map(|e| e.id)
+                .collect();
+            let my_executors = self.get_locked_my_executors();
+            let mut executors = self.get_locked_all_executors();
             let now = SystemTime::now();
-            for (executor_id, last_heartbeat) in my_executors.iter() {
-                executors.insert(executor_id.to_string(), *last_heartbeat);
+            for executor_id in state_executors.iter() {
+                if !executors.contains_key(executor_id) {
+                    executors.insert(executor_id.clone(), now);
+                }
+            }
+            for executor_id in my_executors.iter() {
+                executors.insert(executor_id.clone(), now);
+            }
+            let mut deleted_executors = Vec::new();
+            for executor_id in executors.keys() {
+                if !state_executors.contains(executor_id) {
+                    deleted_executors.push(executor_id.clone());
+                }
+            }
+            for executor_id in deleted_executors {
+                executors.remove(&executor_id);
             }
             executors
                 .iter()
@@ -269,8 +292,8 @@ impl Coordinator {
     }
 
     pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<indexify_coordinator::Task>> {
-        self.my_executors()
-            .insert(executor_id.to_string(), SystemTime::now());
+        self.get_locked_my_executors()
+            .insert(executor_id.to_string());
 
         let tasks = self
             .shared_state
@@ -309,6 +332,7 @@ impl Coordinator {
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
         info!("removing executor: {}", executor_id);
+        self.get_locked_my_executors().remove(executor_id);
         self.shared_state.remove_executor(executor_id).await?;
         Ok(())
     }

@@ -780,11 +780,8 @@ pub struct UpdateLabelsResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecutorsHeartbeatRequest {
-    #[prost(map = "string, message", tag = "1")]
-    pub executors: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost_wkt_types::Timestamp,
-    >,
+    #[prost(string, repeated, tag = "1")]
+    pub executors: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

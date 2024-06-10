@@ -7,6 +7,7 @@ use std::{
         Arc,
     },
     task::{Context, Poll},
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -214,14 +215,11 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<ExecutorsHeartbeatRequest>,
     ) -> Result<tonic::Response<ExecutorsHeartbeatResponse>, tonic::Status> {
         let request = request.into_inner();
-        let mut executors = self.coordinator.all_executors();
-        for (id, time) in request.executors {
-            let duration = std::time::Duration::new(time.seconds as u64, time.nanos as u32);
-            let time = std::time::UNIX_EPOCH + duration;
+        let mut executors = self.coordinator.get_locked_all_executors();
+        let now = SystemTime::now();
+        for id in request.executors {
             if let Some(last_time) = executors.get_mut(&id) {
-                if *last_time < time {
-                    *last_time = time;
-                }
+                *last_time = now;
             }
         }
         Ok(tonic::Response::new(ExecutorsHeartbeatResponse {}))

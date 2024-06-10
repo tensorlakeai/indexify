@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use indexify_proto::indexify_coordinator;
 
@@ -32,23 +32,10 @@ impl ForwardableCoordinator {
     pub async fn executors_heartbeat(
         &self,
         leader_addr: &str,
-        executors: HashMap<ExecutorId, std::time::SystemTime>,
+        executors: HashSet<ExecutorId>,
     ) -> Result<(), anyhow::Error> {
         let req = indexify_coordinator::ExecutorsHeartbeatRequest {
-            executors: executors
-                .into_iter()
-                .map(|(executor_id, last_heartbeat)| {
-                    let duration_since_epoch = last_heartbeat
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("Time went backwards");
-
-                    let last_heartbeat = ::prost_wkt_types::Timestamp {
-                        seconds: duration_since_epoch.as_secs() as i64,
-                        nanos: duration_since_epoch.subsec_nanos() as i32,
-                    };
-                    (executor_id.to_string(), last_heartbeat)
-                })
-                .collect(),
+            executors: executors.into_iter().collect(),
         };
 
         let mut client = self.coordinator_client.get_coordinator(leader_addr).await?;

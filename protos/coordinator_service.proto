@@ -541,7 +541,7 @@ message UpdateLabelsRequest {
 message UpdateLabelsResponse {}
 
 message ExecutorsHeartbeatRequest {
-    map<string, google.protobuf.Timestamp> executors = 1;
+    repeated string executors = 1;
 }
 
 message ExecutorsHeartbeatResponse {}
