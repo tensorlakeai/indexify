@@ -15,6 +15,8 @@ With Indexify, you can accomplish the following with your PDFs:
 PDF Extraction Pipelines are usually composed of three stages. You can use one or more of these stages depending on your use case - 
 
 1. **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdf-extractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
+If all you want is extract PDF, into text, images and tables. This is the only stage you need in an extraction graph. The following stages allows doing more transformations, or extraction from the derived information from a PDF document.
+
 2. **Content to Chunk Extraction Stage:** Break down the extracted content into manageable chunks using extractors like `text/chunking`. This stage helps organize your content into coherent and contextually relevant pieces, making it easier to process and understand.
 3. **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. 
 
