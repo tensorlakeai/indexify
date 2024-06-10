@@ -7,7 +7,7 @@ use std::{
         Arc,
     },
     task::{Context, Poll},
-    time::Duration,
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -25,6 +25,8 @@ use indexify_proto::indexify_coordinator::{
     CreateExtractionGraphResponse,
     CreateGcTasksRequest,
     CreateGcTasksResponse,
+    ExecutorsHeartbeatRequest,
+    ExecutorsHeartbeatResponse,
     GcTask,
     GcTaskAcknowledgement,
     GetAllSchemaRequest,
@@ -99,7 +101,7 @@ use tokio::{
         watch::{self, Receiver, Sender},
     },
     task::JoinHandle,
-    time::timeout,
+    time::{timeout, Duration},
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{body::BoxBody, Request, Response, Status, Streaming};
@@ -143,7 +145,7 @@ impl<'a> Extractor for MetadataMap<'a> {
 }
 
 // How often we expect the executor to send us heartbeats.
-const EXECUTOR_HEARTBEAT_PERIOD: Duration = Duration::new(5, 0);
+pub const EXECUTOR_HEARTBEAT_PERIOD: Duration = Duration::new(5, 0);
 
 impl CoordinatorServiceServer {
     fn create_extraction_policies_for_graph(
@@ -207,6 +209,21 @@ impl CoordinatorServiceServer {
 impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+
+    async fn executors_heartbeat(
+        &self,
+        request: tonic::Request<ExecutorsHeartbeatRequest>,
+    ) -> Result<tonic::Response<ExecutorsHeartbeatResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let mut executors = self.coordinator.get_locked_all_executors();
+        let now = SystemTime::now();
+        for id in request.executors {
+            if let Some(last_time) = executors.get_mut(&id) {
+                *last_time = now;
+            }
+        }
+        Ok(tonic::Response::new(ExecutorsHeartbeatResponse {}))
+    }
 
     async fn create_content(
         &self,
@@ -1270,14 +1287,22 @@ impl CoordinatorServer {
         if let Err(e) = start_server(self) {
             error!("unable to start metrics server: {}", e);
         }
+        let shutdown_rx_clone = shutdown_rx.clone();
         tokio::spawn(async move {
             let _ = run_scheduler(
-                shutdown_rx,
+                shutdown_rx_clone,
                 leader_change_watcher,
                 state_watcher_rx,
                 coordinator_clone,
             )
             .await;
+        });
+
+        let heartbeat_coordinator = self.coordinator.clone();
+        tokio::spawn(async move {
+            heartbeat_coordinator
+                .run_executor_heartbeat(shutdown_rx)
+                .await;
         });
 
         let layer = ServiceBuilder::new()

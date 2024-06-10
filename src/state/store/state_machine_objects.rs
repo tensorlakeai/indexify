@@ -1454,6 +1454,7 @@ impl IndexifyState {
                 };
                 // initialize executor load at 0
                 self.executor_running_task_count.insert(&executor_id, 0);
+
                 Ok(())
             }
             RequestPayload::CreateTasks { tasks } => {

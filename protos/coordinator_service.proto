@@ -1,5 +1,6 @@
 syntax = "proto3";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 package indexify_coordinator;
 
@@ -71,6 +72,8 @@ service CoordinatorService {
     rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
 
     rpc UpdateLabels(UpdateLabelsRequest) returns (UpdateLabelsResponse) {}
+
+    rpc ExecutorsHeartbeat(ExecutorsHeartbeatRequest) returns (ExecutorsHeartbeatResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -536,3 +539,9 @@ message UpdateLabelsRequest {
 }
 
 message UpdateLabelsResponse {}
+
+message ExecutorsHeartbeatRequest {
+    repeated string executors = 1;
+}
+
+message ExecutorsHeartbeatResponse {}
