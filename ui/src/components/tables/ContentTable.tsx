@@ -1,5 +1,9 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IContentMetadata, IExtractionPolicy } from 'getindexify'
+import {
+  IContentMetadata,
+  IExtractionGraph,
+  IExtractionPolicy,
+} from 'getindexify'
 import {
   Alert,
   Button,
@@ -17,6 +21,7 @@ import React, { useEffect, useState } from 'react'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
+import UploadButton from '../UploadButton'
 
 function getChildCountMap(
   contents: IContentMetadata[]
@@ -43,10 +48,10 @@ function getChildCountMap(
 }
 
 const ContentTable = ({
-  extractionPolicies,
+  extractionGraph,
   content,
 }: {
-  extractionPolicies: IExtractionPolicy[]
+  extractionGraph: IExtractionGraph
   content: IContentMetadata[]
 }) => {
   const childCountMap = getChildCountMap(content)
@@ -91,7 +96,7 @@ const ContentTable = ({
     // when we update searchFilter update content
     if (currentTab === 'search') {
       goToPage(0)
-      const searchPolicy = extractionPolicies.find(
+      const searchPolicy = extractionGraph.extraction_policies.find(
         (policy) => policy.name === searchFilter.policyName
       )
       setFilteredContent(
@@ -129,7 +134,7 @@ const ContentTable = ({
       ]
       setFilteredContent(newFilteredContent)
     }
-  }, [searchFilter, currentTab, content, extractionPolicies])
+  }, [searchFilter, currentTab, content, extractionGraph.extraction_policies])
 
   let columns: GridColDef[] = [
     {
@@ -303,7 +308,7 @@ const ContentTable = ({
               >
                 <MenuItem value="Any">Any</MenuItem>
                 {/* <MenuItem value="Ingested">Ingested</MenuItem> */}
-                {extractionPolicies.map((policy) => (
+                {extractionGraph.extraction_policies.map((policy) => (
                   <MenuItem key={policy.name} value={policy.name}>
                     {policy.name}
                   </MenuItem>

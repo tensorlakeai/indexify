@@ -14,6 +14,7 @@ import ExtractionPolicyItem from './ExtractionPolicyItem'
 import { IExtractionGraphCol, IExtractionGraphColumns } from '../types'
 import CopyText from './CopyText'
 import ContentTable from './tables/ContentTable'
+import UploadButton from './UploadButton'
 
 function groupContentByGraphs(
   objects: IContentMetadata[]
@@ -157,12 +158,13 @@ const ExtractionGraphs = ({
                   >
                     <InfoIcon fontSize="small" />
                   </IconButton>
+                  {/* <UploadButton extractionGraph={graph} /> */}
                 </Typography>
               </Stack>
               {groupedContent[graph.name] ? (
                 <ContentTable
                   content={groupedContent[graph.name]}
-                  extractionPolicies={graph.extraction_policies}
+                  extractionGraph={graph}
                 />
               ) : (
                 <Alert severity="info">No content found</Alert>
