@@ -27,6 +27,7 @@ use crate::{
 };
 
 // Web socket status codes start with 1000, 1000 and 1001 is success.
+const WS_NORMAL: u16 = 1000;
 const WS_PROTOCOL_ERROR: u16 = 1002;
 
 fn msg_type_str(msg: &IngestExtractedContent) -> &'static str {
@@ -314,6 +315,8 @@ impl IngestExtractedContentState {
         mut self,
         mut socket: WebSocket<IngestExtractedContentResponse, IngestExtractedContent>,
     ) {
+        let mut code = WS_NORMAL;
+        let mut reason = "".to_string();
         while let Some(msg) = socket.recv().await {
             match msg {
                 Ok(Message::Item(msg)) => {
@@ -349,12 +352,8 @@ impl IngestExtractedContentState {
                     };
                     if let Err(e) = res {
                         tracing::error!("Error handling message {:?} {:?}", msg_type, e);
-                        let _ = socket
-                            .send(Message::Close(Some(ws::CloseFrame {
-                                code: WS_PROTOCOL_ERROR,
-                                reason: e.to_string().into(),
-                            })))
-                            .await;
+                        code = WS_PROTOCOL_ERROR;
+                        reason = e.to_string();
                         break;
                     }
                 }
@@ -367,16 +366,18 @@ impl IngestExtractedContentState {
                 Ok(Message::Pong(_)) => {}
                 Err(err) => {
                     tracing::error!("error receiving message: {:?}", err);
-                    let _ = socket
-                        .send(Message::Close(Some(ws::CloseFrame {
-                            code: WS_PROTOCOL_ERROR,
-                            reason: "invalid message".into(),
-                        })))
-                        .await;
+                    code = WS_PROTOCOL_ERROR;
+                    reason = "invalid message".to_string();
                     break;
                 }
             }
         }
+        let _ = socket
+            .send(Message::Close(Some(ws::CloseFrame {
+                code,
+                reason: reason.into(),
+            })))
+            .await;
     }
 }
 
