@@ -62,7 +62,11 @@ use crate::{
         raft_metrics::{self, network::MetricsSnapshot},
     },
     server_config::ServerConfig,
-    state::{grpc_config::GrpcConfig, raft_client::RaftClient, store::new_storage},
+    state::{
+        grpc_config::GrpcConfig,
+        raft_client::RaftClient,
+        store::{new_storage, requests::TaskUpdateInfo},
+    },
     utils::timestamp_secs,
 };
 
@@ -597,6 +601,7 @@ impl App {
         &self,
         task: internal_api::Task,
         executor_id: Option<String>,
+        task_update_info: TaskUpdateInfo,
     ) -> Result<()> {
         let root_content_id = if let Some(root_id) = &task.content_metadata.root_content_id {
             self.state_machine
@@ -622,6 +627,7 @@ impl App {
                 task,
                 executor_id,
                 update_time: SystemTime::now(),
+                task_update_info,
             },
             new_state_changes,
             state_changes_processed: vec![],
@@ -1418,6 +1424,7 @@ mod tests {
                 TaskId,
             },
             App,
+            TaskUpdateInfo,
         },
         test_util::db_utils::{
             create_test_extraction_graph,
@@ -1593,7 +1600,12 @@ mod tests {
         };
         let executor_id = "executor_id";
         let node = cluster.get_raft_node(0)?;
-        node.update_task(task, Some(executor_id.into())).await?;
+        node.update_task(
+            task,
+            Some(executor_id.into()),
+            TaskUpdateInfo::FeaturesUpdated,
+        )
+        .await?;
 
         //  Read the task back and expect to find the outcome of the task set to Success
         let retrieved_task = node.task_with_id("task_id").await?;

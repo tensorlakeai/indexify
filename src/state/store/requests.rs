@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use internal_api::{StateChange, StateChangeId};
 use serde::{Deserialize, Serialize};
 
@@ -77,10 +77,35 @@ pub enum RequestPayload {
         task: internal_api::Task,
         executor_id: Option<String>,
         update_time: SystemTime,
+        #[serde(default = "default_task_update_info")]
+        task_update_info: TaskUpdateInfo,
     },
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum TaskUpdateInfo {
+    ChildCreated,    // task created a child without any changes to existing content
+    FeaturesUpdated, // existing content was updated (may have created children as well)
+}
+
+impl From<indexify_proto::indexify_coordinator::TaskUpdateInfo> for TaskUpdateInfo {
+    fn from(info: indexify_proto::indexify_coordinator::TaskUpdateInfo) -> Self {
+        match info {
+            indexify_proto::indexify_coordinator::TaskUpdateInfo::ChildCreated => {
+                TaskUpdateInfo::ChildCreated
+            }
+            indexify_proto::indexify_coordinator::TaskUpdateInfo::FeaturesUpdated => {
+                TaskUpdateInfo::FeaturesUpdated
+            }
+        }
+    }
+}
+
+fn default_task_update_info() -> TaskUpdateInfo {
+    TaskUpdateInfo::FeaturesUpdated
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

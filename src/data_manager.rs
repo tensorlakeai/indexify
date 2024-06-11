@@ -11,7 +11,12 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
+use indexify_proto::indexify_coordinator::{
+    self,
+    CreateContentStatus,
+    ListActiveContentsRequest,
+    TaskUpdateInfo,
+};
 use mime::Mime;
 use nanoid::nanoid;
 use sha2::{Digest, Sha256};
@@ -634,6 +639,7 @@ impl DataManager {
     pub async fn finish_extracted_content_write(
         &self,
         begin_ingest: BeginExtractedContentIngest,
+        task_update_info: TaskUpdateInfo,
     ) -> Result<()> {
         let outcome: indexify_coordinator::TaskOutcome = begin_ingest.task_outcome.into();
 
@@ -641,6 +647,7 @@ impl DataManager {
             executor_id: begin_ingest.executor_id,
             task_id: begin_ingest.task_id,
             outcome: outcome as i32,
+            task_update_info: task_update_info as i32,
         };
         let res = self.coordinator_client.get().await?.update_task(req).await;
         if let Err(err) = res {

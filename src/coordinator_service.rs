@@ -112,6 +112,7 @@ use crate::{
     api::IndexifyAPIError,
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
+    coordinator_service::indexify_coordinator::TaskUpdateInfo,
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
     state::{self, grpc_config::GrpcConfig},
@@ -742,9 +743,16 @@ impl CoordinatorService for CoordinatorServiceServer {
     ) -> Result<tonic::Response<UpdateTaskResponse>, tonic::Status> {
         let request = request.into_inner();
         let outcome: internal_api::TaskOutcome = request.outcome().into();
+        let task_update_info = TaskUpdateInfo::try_from(request.task_update_info)
+            .map_err(|_| tonic::Status::invalid_argument("Invalid task update info"))?;
         let _ = self
             .coordinator
-            .update_task(&request.task_id, &request.executor_id, outcome)
+            .update_task(
+                &request.task_id,
+                &request.executor_id,
+                outcome,
+                task_update_info.into(),
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(UpdateTaskResponse {}))

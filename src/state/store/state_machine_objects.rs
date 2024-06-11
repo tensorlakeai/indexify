@@ -30,7 +30,7 @@ use tokio::sync::broadcast;
 use tracing::{error, warn};
 
 use super::{
-    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest, TaskUpdateInfo},
     serializer::JsonEncode,
     ExecutorId,
     ExtractionGraphId,
@@ -800,13 +800,6 @@ impl IndexifyState {
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            self.update_content_extraction_policy_state(
-                db,
-                txn,
-                &task.content_metadata.id,
-                &task.extraction_policy_id,
-                SystemTime::UNIX_EPOCH,
-            )?;
         }
         Ok(())
     }
@@ -817,6 +810,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         tasks: Vec<&Task>,
         update_time: SystemTime,
+        task_update_info: TaskUpdateInfo,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
             let serialized_task = JsonEncoder::encode(task)?;
@@ -826,7 +820,7 @@ impl IndexifyState {
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            if task.terminal_state() {
+            if task.terminal_state() && task_update_info == TaskUpdateInfo::FeaturesUpdated {
                 self.update_content_extraction_policy_state(
                     db,
                     txn,
@@ -1302,8 +1296,9 @@ impl IndexifyState {
                 task,
                 executor_id,
                 update_time,
+                task_update_info,
             } => {
-                self.update_tasks(db, &txn, vec![task], *update_time)?;
+                self.update_tasks(db, &txn, vec![task], *update_time, *task_update_info)?;
 
                 if task.terminal_state() {
                     self.metrics
@@ -1527,6 +1522,7 @@ impl IndexifyState {
                 task,
                 executor_id,
                 update_time: _,
+                task_update_info: _,
             } => {
                 if task.terminal_state() {
                     self.unassigned_tasks.remove(&task.id);

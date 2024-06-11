@@ -15,7 +15,7 @@ pub mod db_utils {
     use serde_json::json;
     use tokio::time::{sleep, Duration};
 
-    use crate::coordinator::Coordinator;
+    use crate::{coordinator::Coordinator, state::store::requests::TaskUpdateInfo};
     pub const DEFAULT_TEST_NAMESPACE: &str = "test_namespace";
 
     pub const DEFAULT_TEST_EXTRACTOR: &str = "MockExtractor";
@@ -161,7 +161,11 @@ pub mod db_utils {
         task_clone.outcome = internal_api::TaskOutcome::Success;
         coordinator
             .shared_state
-            .update_task(task_clone, Some(executor_id.to_string()))
+            .update_task(
+                task_clone,
+                Some(executor_id.to_string()),
+                TaskUpdateInfo::FeaturesUpdated,
+            )
             .await
     }
 

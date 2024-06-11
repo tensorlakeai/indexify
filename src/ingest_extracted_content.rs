@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use axum::extract::ws;
 use axum_typed_websockets::{Message, WebSocket};
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self, TaskUpdateInfo};
 use sha2::{
     digest::{
         consts::{B0, B1},
@@ -67,6 +67,7 @@ struct ContentStateWriting {
     task: indexify_coordinator::Task,
     root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
     frame_state: FrameState,
+    task_update_info: TaskUpdateInfo,
 }
 
 impl ContentStateWriting {
@@ -84,6 +85,7 @@ impl ContentStateWriting {
             task,
             root_content_metadata: root_content,
             frame_state: FrameState::New,
+            task_update_info: TaskUpdateInfo::ChildCreated,
         })
     }
 
@@ -175,6 +177,9 @@ impl ContentStateWriting {
                     .data_manager
                     .get_extraction_policy(&self.task.extraction_policy_id)
                     .await?;
+                let mut applied_policies = HashMap::new();
+                applied_policies
+                    .insert(extraction_policy.id.clone(), frame_state.created_at as u64);
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
@@ -188,7 +193,7 @@ impl ContentStateWriting {
                     source: extraction_policy.name,
                     created_at: frame_state.created_at,
                     hash: content_hash,
-                    extraction_policy_ids: HashMap::new(),
+                    extraction_policy_ids: applied_policies,
                     extraction_graph_names: vec![extraction_policy.graph_name],
                 };
                 state
@@ -218,6 +223,9 @@ impl ContentStateWriting {
         state: &NamespaceEndpointState,
         payload: ExtractedFeatures,
     ) -> Result<()> {
+        // Since we are updating metadata or embedding, add the policy to content
+        // applied policies list.
+        self.task_update_info = TaskUpdateInfo::FeaturesUpdated;
         state
             .data_manager
             .write_existing_content_features(
@@ -300,7 +308,7 @@ impl IngestExtractedContentState {
             ContentState::Writing(s) => {
                 self.state
                     .data_manager
-                    .finish_extracted_content_write(s.ingest_metadata.clone())
+                    .finish_extracted_content_write(s.ingest_metadata.clone(), s.task_update_info)
                     .await?;
                 self.content_state = ContentState::Init;
                 Ok(())

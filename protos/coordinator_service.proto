@@ -98,10 +98,16 @@ enum TaskOutcome {
     SUCCESS = 2;
 }
 
+enum TaskUpdateInfo {
+    CHILD_CREATED = 0;
+    FEATURES_UPDATED = 1;
+}
+
 message UpdateTaskRequest {
     string executor_id = 1;
     string task_id = 2;
     TaskOutcome outcome = 3;
+    TaskUpdateInfo task_update_info = 4;
 }
 
 message ListStateChangesRequest {

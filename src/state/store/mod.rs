@@ -45,6 +45,7 @@ use openraft::{
 use requests::{
     CreateOrUpdateContentEntry,
     StateMachineUpdateRequest,
+    TaskUpdateInfo,
     V1RequestPayload,
     V1StateMachineUpdateRequest,
 };
@@ -1516,6 +1517,7 @@ fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest
                 task,
                 executor_id,
                 update_time,
+                task_update_info: TaskUpdateInfo::FeaturesUpdated,
             }
         }
         V1RequestPayload::MarkStateChangesProcessed { state_changes } => {

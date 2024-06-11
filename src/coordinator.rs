@@ -32,7 +32,10 @@ use crate::{
     metrics::Timer,
     scheduler::Scheduler,
     state::{
-        store::{requests::StateChangeProcessed, ExecutorId},
+        store::{
+            requests::{StateChangeProcessed, TaskUpdateInfo},
+            ExecutorId,
+        },
         RaftMetrics,
         SharedState,
     },
@@ -243,6 +246,7 @@ impl Coordinator {
         task_id: &str,
         executor_id: &str,
         outcome: internal_api::TaskOutcome,
+        task_update_info: TaskUpdateInfo,
     ) -> Result<()> {
         info!(
             "updating task: {}, executor_id: {}, outcome: {:?}",
@@ -251,7 +255,7 @@ impl Coordinator {
         let mut task = self.shared_state.task_with_id(task_id).await?;
         task.outcome = outcome;
         self.shared_state
-            .update_task(task, Some(executor_id.to_string()))
+            .update_task(task, Some(executor_id.to_string()), task_update_info)
             .await?;
         Ok(())
     }
@@ -759,7 +763,7 @@ mod tests {
         coordinator_client::CoordinatorClient,
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
-        state::App,
+        state::{store::requests::TaskUpdateInfo, App},
         test_util::db_utils::{
             complete_task,
             create_content_for_task,
@@ -932,7 +936,11 @@ mod tests {
         let mut task_clone = tasks[0].clone();
         task_clone.outcome = internal_api::TaskOutcome::Success;
         shared_state
-            .update_task(task_clone, Some(executor_id.to_string()))
+            .update_task(
+                task_clone,
+                Some(executor_id.to_string()),
+                TaskUpdateInfo::FeaturesUpdated,
+            )
             .await
             .unwrap();
         let tasks = shared_state
@@ -1394,6 +1402,7 @@ mod tests {
                     &task.id,
                     "test_executor_id",
                     internal_api::TaskOutcome::Success,
+                    TaskUpdateInfo::FeaturesUpdated,
                 )
                 .await?;
         }
