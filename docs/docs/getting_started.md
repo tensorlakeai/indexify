@@ -172,6 +172,10 @@ python3 ./setup.py
 Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
 
 ```python
+from indexify import IndexifyClient
+
+client = IndexifyClient()
+
 def query_database(question: str, index: str, top_k=3):
     retrieved_results = client.search_index(name=index, query=question, top_k=top_k) #(1)!
     context = "\n-".join([item["text"] for item in retrieved_results])
