@@ -14,14 +14,19 @@ import {
 } from 'react-router-dom'
 import theme from '../theme'
 import { Stack } from '@mui/system'
-import MenuItem from '@mui/material/MenuItem'
-import Menu from '@mui/material/Menu'
-import { Button } from '@mui/material'
 import { IndexifyClient } from 'getindexify'
-import DataObjectIcon from '@mui/icons-material/DataObject'
-import CircleIcon from '@mui/icons-material/Circle'
 import { getIndexifyServiceURL, stringToColor } from '../utils/helpers'
 import Footer from '../components/Footer'
+import NamespaceDropdown from '../components/Navigation/NamespaceDropdown'
+import NavigationBar from '../components/Navigation/NavigationBar'
+import NavigationDrawer from '../components/Navigation/NavigationDrawer'
+import {
+  Drawer,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+} from '@mui/material'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
@@ -51,38 +56,36 @@ const AppBar = styled(MuiAppBar, {
   }),
 }))
 
+const drawerWidth = 240
+
 export default function Dashboard() {
   const { namespace, namespaces } = useLoaderData() as {
     namespace: string
     namespaces: string[]
   }
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
-
-  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget)
-  }
-
-  const handleClose = () => {
-    setAnchorEl(null)
-  }
-
   return (
     <ThemeProvider theme={theme}>
-      <Box sx={{ display: 'flex' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <CssBaseline />
-        <AppBar position="absolute" sx={{ backgroundColor: 'white' }}>
-          <Toolbar
-            sx={{
-              pr: '24px', // keep right padding when drawer closed
-            }}
-          >
+        <NavigationBar namespace={namespace} namespaces={namespaces} />
+        <Drawer
+          variant="permanent"
+          sx={{
+            width: drawerWidth,
+            flexShrink: 0,
+            [`& .MuiDrawer-paper`]: {
+              width: drawerWidth,
+              boxSizing: 'border-box',
+            },
+          }}
+        >
+          <Toolbar>
             <Stack
               direction={'row'}
               display={'flex'}
               alignItems={'center'}
               justifyContent={'flex-start'}
               spacing={2}
-              flexGrow={1}
             >
               <img src="/ui/logo.svg" alt="logo" />
               <a
@@ -100,62 +103,25 @@ export default function Dashboard() {
                 </Typography>
               </a>
             </Stack>
-
-            <Button
-              size="large"
-              aria-label="account of current user"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
-              onClick={handleMenu}
-              startIcon={
-                <DataObjectIcon sx={{ color: stringToColor(namespace) }} />
-              }
-            >
-              {namespace}
-            </Button>
-
-            <Menu
-              id="menu-appbar"
-              anchorEl={anchorEl}
-              anchorOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              keepMounted
-              transformOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              open={Boolean(anchorEl)}
-              onClose={handleClose}
-            >
-              <Typography mx={2} my={1} variant="h4">
-                Namespaces ({namespaces.length})
-              </Typography>
-              {namespaces.map((name) => {
-                return (
-                  <a
-                    style={{ textDecoration: 'none' }}
-                    key={name}
-                    href={`/ui/${name}`}
-                  >
-                    <MenuItem onClick={handleClose}>
-                      <CircleIcon
-                        sx={{
-                          width: '15px',
-                          color: stringToColor(name),
-                          mr: 1,
-                        }}
-                      />
-                      {name}
-                    </MenuItem>
-                  </a>
-                )
-              })}
-            </Menu>
           </Toolbar>
-        </AppBar>
-
+          <Box sx={{ overflow: 'auto' }}>
+            <List>
+              <ListItemButton>
+                <ListItemText primary={'Extractors'} />
+              </ListItemButton>
+              <ListItemButton>
+                <ListItemText primary={'Extraction Graphs'} />
+              </ListItemButton>
+              <ListItemButton>
+                <ListItemText primary={'Indexes'} />
+              </ListItemButton>
+              <ListItemButton>
+                <ListItemText primary={'SQL Tables'} />
+              </ListItemButton>
+            </List>
+          </Box>
+        </Drawer>
+        {/* page content */}
         <Box
           component="main"
           sx={{
@@ -164,16 +130,15 @@ export default function Dashboard() {
                 ? theme.palette.grey[100]
                 : theme.palette.grey[900],
             flexGrow: 1,
-            height: '100vh',
             overflow: 'auto',
+            padding: 2,
+            marginLeft: `${drawerWidth}px`,
           }}
         >
-          <Toolbar />
-          <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Container maxWidth="lg">
             <div id="detail">
               <Outlet />
             </div>
-            <Footer />
           </Container>
         </Box>
       </Box>
