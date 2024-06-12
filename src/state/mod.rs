@@ -1093,7 +1093,7 @@ impl App {
         content_id: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
         self.state_machine
-            .list_tasks(namespace, extraction_policy, start_id, limit,content_id)
+            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
             .await
     }
 
