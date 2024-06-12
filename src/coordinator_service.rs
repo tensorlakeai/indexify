@@ -945,6 +945,11 @@ impl CoordinatorService for CoordinatorServiceServer {
         } else {
             Some(req.extraction_policy)
         };
+        let content_id = if req.content_id.is_empty() {
+            None
+        } else {
+            Some(req.content_id)
+        };
         let tasks = self
             .coordinator
             .list_tasks(
@@ -952,6 +957,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 extraction_policy,
                 Some(req.start_id),
                 Some(req.limit),
+                content_id,
             )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
