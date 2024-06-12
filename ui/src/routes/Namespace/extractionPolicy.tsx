@@ -43,13 +43,12 @@ const ExtractionPolicyPage = () => {
 
   const taskLoader = async (
     pageSize: number,
-    startTaskId?: string
+    startId?: string
   ): Promise<ITask[]> => {
     const tasks = await client.getTasks({
-      extraction_graph: extractionGraph.name,
       extractionPolicyId: policy.id,
       limit: pageSize + 1,
-      startTaskId,
+      startId,
     })
     return tasks
   }

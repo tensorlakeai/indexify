@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
-import { ExtractionGraph, IExtractionPolicy, ITask } from 'getindexify'
+import { DataGrid, GridColDef } from '@mui/x-data-grid'
+import { IExtractionPolicy, ITask } from 'getindexify'
 import { Alert, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import TaskIcon from '@mui/icons-material/Task'
@@ -21,6 +21,7 @@ const TasksTable = ({
   hideContentId?: boolean
   hideExtractionPolicy?: boolean
 }) => {
+  const [rowCountState, setRowCountState] = useState(0)
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<ITask[]>([])
   const [startIds, setStartIds] = useState<Record<number, string>>({})
@@ -42,6 +43,11 @@ const TasksTable = ({
         paginationModel.page ? startIds[paginationModel.page - 1] : undefined
       )
       setTasks(newTasks)
+
+      const newRowCount =
+        paginationModel.page * paginationModel.pageSize + newTasks.length
+      console.log('tasks count', newRowCount)
+      setRowCountState(newRowCount)
 
       // add to startids if needed
       if (newTasks.length && startIds[paginationModel.page] === undefined) {
@@ -153,7 +159,7 @@ const TasksTable = ({
           sx={{ backgroundColor: 'white' }}
           autoHeight
           rows={tasks.slice(0, paginationModel.pageSize)}
-          rowCount={100}
+          rowCount={rowCountState}
           columns={columns}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
