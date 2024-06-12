@@ -715,7 +715,7 @@ async fn update_labels(
 async fn list_content(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    filter: Query<super::api::ListContentFilters>,
+    filter: Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
     let content_list = state
         .data_manager

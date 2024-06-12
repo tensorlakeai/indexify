@@ -331,7 +331,7 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
-pub struct ListContentFilters {
+pub struct ListContent {
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default
