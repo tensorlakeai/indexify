@@ -2294,6 +2294,20 @@ impl IndexifyState {
             .pending_tasks_for_content
             .write()
             .unwrap();
+        let mut graphs = self
+            .extraction_graphs_by_ns
+            .eg_by_namespace
+            .write()
+            .unwrap();
+
+        for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
+            let eg = eg?;
+            let eg: ExtractionGraph = eg.1;
+            graphs
+                .entry(eg.namespace.clone())
+                .or_default()
+                .insert(eg.id.clone());
+        }
 
         for task in self.iter_cf::<Task>(db, StateMachineColumns::Tasks) {
             let (_, task) = task?;
