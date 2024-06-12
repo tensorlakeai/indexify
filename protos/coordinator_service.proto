@@ -122,8 +122,9 @@ message ListStateChangesResponse {
 message ListTasksRequest {
     string namespace = 1;
     string extraction_policy = 2;
-    string start_task_id = 3;
-    uint64 limit = 4;
+    string content_id = 3;
+    string start_id = 4;
+    uint64 limit = 5;
 }
 
 message ListTasksResponse {
@@ -307,6 +308,8 @@ message ListContentRequest {
     string source = 2;
     string parent_id = 3;
     map<string, google.protobuf.Value> labels_eq = 4;
+    uint64 limit = 5;
+    string start_id = 6;
 }
 
 message ListContentResponse {

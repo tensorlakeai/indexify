@@ -309,6 +309,8 @@ mod test_deserialize_labels_eq_filter {
                 labels_eq.insert("key".to_string(), serde_json::json!("value"));
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value"
@@ -329,6 +331,8 @@ mod test_deserialize_labels_eq_filter {
                 labels_eq.insert("key".to_string(), serde_json::json!(""));
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:"
@@ -362,6 +366,8 @@ mod test_deserialize_labels_eq_filter {
 
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:25"
@@ -383,6 +389,8 @@ mod test_deserialize_labels_eq_filter {
                 labels_eq.insert("key2".to_string(), serde_json::json!(""));
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:"

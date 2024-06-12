@@ -198,11 +198,17 @@ impl Coordinator {
         source: &str,
         parent_id: &str,
         labels_eq: &HashMap<String, serde_json::Value>,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.shared_state
-            .list_content(namespace, parent_id, |c| {
-                content_filter(c, source, labels_eq)
-            })
+            .list_content(
+                namespace,
+                parent_id,
+                |c| content_filter(c, source, labels_eq),
+                start_id,
+                limit,
+            )
             .await
     }
 

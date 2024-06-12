@@ -531,9 +531,11 @@ impl App {
         namespace: &str,
         parent_id: &str,
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine
-            .list_content(namespace, parent_id, predicate)
+            .list_content(namespace, parent_id, predicate, start_id, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -1657,9 +1659,13 @@ mod tests {
 
         //  Read the content back
         let read_content = node
-            .list_content(&content_metadata_vec.first().unwrap().namespace, "", |_| {
-                true
-            })
+            .list_content(
+                &content_metadata_vec.first().unwrap().namespace,
+                "",
+                |_| true,
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(read_content.len(), content_size);

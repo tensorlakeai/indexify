@@ -501,6 +501,7 @@ impl StateMachineStore {
         extraction_policy: Option<String>,
         start_id: Option<String>,
         limit: Option<u64>,
+        content_id: Option<String>,
     ) -> Result<Vec<Task>> {
         let db = self.db.read().unwrap();
         let cf = StateMachineColumns::Tasks.cf(&db);
@@ -518,6 +519,10 @@ impl StateMachineStore {
                     extraction_policy
                         .as_ref()
                         .map(|policy| &task.extraction_policy_id == policy)
+                        .unwrap_or(true) &&
+                    content_id
+                        .as_ref()
+                        .map(|id| &task.content_metadata.id.id == id)
                         .unwrap_or(true)
                 {
                     tasks.push(task);
@@ -614,12 +619,14 @@ impl StateMachineStore {
         namespace: &str,
         parent_id: &str,
         predicate: impl Fn(&ContentMetadata) -> bool,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<ContentMetadata>> {
         let db = self.db.read().unwrap();
         let txn = db.transaction();
         let iter = txn.iterator_cf(
             StateMachineColumns::ContentTable.cf(&db),
-            IteratorMode::Start,
+            IteratorMode::From(start_id.unwrap_or_default().as_bytes(), Direction::Forward),
         );
         let mut contents = Vec::new();
         for res in iter {
@@ -632,6 +639,11 @@ impl StateMachineStore {
                     predicate(&content)
                 {
                     contents.push(content);
+                    if let Some(limit) = limit {
+                        if contents.len() >= limit as usize {
+                            break;
+                        }
+                    }
                 }
             } else {
                 return Err(anyhow!("error reading db content"));
@@ -1651,7 +1663,9 @@ mod tests {
         assert_eq!(*key, namespace);
         assert_eq!(value.len(), 1);
 
-        let contents = new_node.list_content(&namespace, "", |_| true).await?;
+        let contents = new_node
+            .list_content(&namespace, "", |_| true, None, None)
+            .await?;
         assert_eq!(contents.len(), 1);
         let c = contents
             .first()

@@ -344,6 +344,10 @@ pub struct ListContentFilters {
     pub parent_id: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
     pub labels_eq: Option<HashMap<String, serde_json::Value>>,
+
+    pub limit: Option<u64>,
+
+    pub start_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -678,7 +682,8 @@ pub struct GetExtractedMetadataResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
     pub extraction_policy: Option<String>,
-    pub start_task_id: Option<String>,
+    pub content_id: Option<String>,
+    pub start_id: Option<String>,
     pub limit: Option<u64>,
 }
 
