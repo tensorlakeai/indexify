@@ -505,7 +505,10 @@ impl StateMachineStore {
         let db = self.db.read().unwrap();
         let cf = StateMachineColumns::Tasks.cf(&db);
         let tasks_itr = db
-            .prefix_iterator_cf(cf, start_id.unwrap_or_default().as_bytes())
+            .iterator_cf(
+                cf,
+                IteratorMode::From(start_id.unwrap_or_default().as_bytes(), Direction::Forward),
+            )
             .into_iter();
         let mut tasks = Vec::new();
         for kv in tasks_itr {
