@@ -929,7 +929,12 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let tasks = self
             .coordinator
-            .list_tasks(&req.namespace, extraction_policy)
+            .list_tasks(
+                &req.namespace,
+                extraction_policy,
+                Some(req.start_task_id),
+                Some(req.limit),
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(indexify_coordinator::ListTasksResponse {

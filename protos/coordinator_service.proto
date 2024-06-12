@@ -122,6 +122,8 @@ message ListStateChangesResponse {
 message ListTasksRequest {
     string namespace = 1;
     string extraction_policy = 2;
+    string start_task_id = 3;
+    uint64 limit = 4;
 }
 
 message ListTasksResponse {

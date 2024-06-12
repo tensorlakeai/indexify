@@ -495,6 +495,42 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!("Failed to list active contents: {}", e))
     }
 
+    pub async fn list_tasks(
+        &self,
+        namespace: &str,
+        extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
+    ) -> Result<Vec<Task>> {
+        let db = self.db.read().unwrap();
+        let cf = StateMachineColumns::Tasks.cf(&db);
+        let tasks_itr = db
+            .prefix_iterator_cf(cf, start_id.unwrap_or_default().as_bytes())
+            .into_iter();
+        let mut tasks = Vec::new();
+        for kv in tasks_itr {
+            if let Ok((_, value)) = kv {
+                let task = JsonEncoder::decode::<Task>(&value)?;
+                if task.namespace == namespace &&
+                    extraction_policy
+                        .as_ref()
+                        .map(|policy| &task.extraction_policy_id == policy)
+                        .unwrap_or(true)
+                {
+                    tasks.push(task);
+                    if let Some(limit) = limit {
+                        if tasks.len() >= limit as usize {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                return Err(anyhow!("error reading db tasks"));
+            }
+        }
+        Ok(tasks)
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,

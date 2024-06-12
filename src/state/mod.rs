@@ -1086,26 +1086,12 @@ impl App {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::Task>> {
-        let tasks: Vec<internal_api::Task> = self
-            .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        let filtered_tasks = tasks
-            .iter()
-            .filter(|task| task.namespace == namespace)
-            .filter(|task| {
-                extraction_policy
-                    .as_ref()
-                    .map(|eb| eb == &task.extraction_policy_id)
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        Ok(filtered_tasks)
+        self.state_machine
+            .list_tasks(namespace, extraction_policy, start_id, limit)
+            .await
     }
 
     pub async fn update_labels(

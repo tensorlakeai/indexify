@@ -63,6 +63,10 @@ pub struct ListTasksRequest {
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub extraction_policy: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub start_task_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "4")]
+    pub limit: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

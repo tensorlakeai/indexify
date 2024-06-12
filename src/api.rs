@@ -678,6 +678,8 @@ pub struct GetExtractedMetadataResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
     pub extraction_policy: Option<String>,
+    pub start_task_id: Option<String>,
+    pub limit: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

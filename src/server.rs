@@ -1239,6 +1239,8 @@ async fn list_tasks(
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
             extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
+            start_task_id: query.start_task_id.unwrap_or_default(),
+            limit: query.limit.unwrap_or(10),
         })
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?

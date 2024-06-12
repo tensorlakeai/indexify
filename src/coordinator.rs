@@ -318,10 +318,12 @@ impl Coordinator {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<indexify_coordinator::Task>> {
         let tasks = self
             .shared_state
-            .list_tasks(namespace, extraction_policy)
+            .list_tasks(namespace, extraction_policy, start_id, limit)
             .await?;
         let tasks = tasks
             .into_iter()
