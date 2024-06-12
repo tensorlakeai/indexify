@@ -1,6 +1,6 @@
-import React from 'react'
-import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IExtractionPolicy, ITask } from 'getindexify'
+import React, { useEffect, useState } from 'react'
+import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
+import { ExtractionGraph, IExtractionPolicy, ITask } from 'getindexify'
 import { Alert, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import TaskIcon from '@mui/icons-material/Task'
@@ -9,18 +9,56 @@ import { Link } from 'react-router-dom'
 import { TaskStatus } from 'getindexify'
 
 const TasksTable = ({
+  extractionPolicies,
   namespace,
-  policies,
-  tasks,
   hideContentId,
   hideExtractionPolicy,
+  loadData,
 }: {
+  extractionPolicies: IExtractionPolicy[]
   namespace: string
-  policies: IExtractionPolicy[]
-  tasks: ITask[]
+  loadData?: (pageSize: number, startId?: string) => Promise<ITask[]>
   hideContentId?: boolean
   hideExtractionPolicy?: boolean
 }) => {
+  const [loading, setLoading] = useState(false)
+  const [tasks, setTasks] = useState<ITask[]>([])
+  const [startIds, setStartIds] = useState<Record<number, string>>({})
+  const [paginationModel, setPaginationModel] = useState({
+    page: 0,
+    pageSize: 20,
+  })
+
+  useEffect(() => {
+    let active = true
+
+    ;(async () => {
+      setLoading(true)
+      if (!active || !loadData) return
+
+      // load tasks for a given page
+      const newTasks = await loadData(
+        paginationModel.pageSize,
+        paginationModel.page ? startIds[paginationModel.page - 1] : undefined
+      )
+      setTasks(newTasks)
+
+      // add to startids if needed
+      if (newTasks.length && startIds[paginationModel.page] === undefined) {
+        const lastTaskId = newTasks[newTasks.length - 1].id
+        setStartIds((prev) => ({
+          ...prev,
+          [paginationModel.page]: lastTaskId,
+        }))
+      }
+      setLoading(false)
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [paginationModel])
+
   let columns: GridColDef[] = [
     {
       field: 'id',
@@ -40,7 +78,9 @@ const TasksTable = ({
       field: 'extraction_policy_id',
       headerName: 'Extraction Policy',
       renderCell: (params) => {
-        const policy = policies.find((policy) => policy.id === params.value)
+        const policy = extractionPolicies.find(
+          (policy) => policy.id === params.value
+        )
         return policy ? (
           <Link
             to={`/${namespace}/extraction-policies/${policy?.graph_name}/${policy?.name}`}
@@ -112,14 +152,14 @@ const TasksTable = ({
         <DataGrid
           sx={{ backgroundColor: 'white' }}
           autoHeight
-          rows={tasks}
+          rows={tasks.slice(0, paginationModel.pageSize)}
+          rowCount={100}
           columns={columns}
-          initialState={{
-            pagination: {
-              paginationModel: { page: 0, pageSize: 20 },
-            },
-          }}
-          pageSizeOptions={[20, 50]}
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          paginationMode="server"
+          loading={loading}
+          pageSizeOptions={[20]}
         />
       </Box>
     )
