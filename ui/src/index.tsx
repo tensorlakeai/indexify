@@ -13,6 +13,12 @@ import ExtractionPolicyPage, {
 import ContentPage, {
   loader as ContentLoader,
 } from "./routes/Namespace/content";
+import ExtractorsPage, {
+  loader as ExtractorsLoader,
+} from "./routes/Namespace/extractors";
+import ExtractionGraphsPage, {
+  loader as ExtractionGraphLoader,
+} from "./routes/Namespace/extractionGraphs";
 import SearchIndexPage, {
   loader as SearchIndexLoader,
 } from "./routes/Namespace/searchIndex";
@@ -47,6 +53,18 @@ const router = createBrowserRouter(
           path: "/:namespace/content/:contentId",
           element: <ContentPage />,
           loader: ContentLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: "/:namespace/extractors",
+          element: <ExtractorsPage />,
+          loader: ExtractorsLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: "/:namespace/extraction-graphs",
+          element: <ExtractionGraphsPage />,
+          loader: ExtractionGraphLoader,
           errorElement: <ErrorPage />,
         },
       ],

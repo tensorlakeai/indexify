@@ -1,4 +1,4 @@
-import { AppBar, Stack, Toolbar, Typography } from '@mui/material'
+import { AppBar, Toolbar } from '@mui/material'
 import NamespaceDropdown from './NamespaceDropdown'
 
 interface Props {

@@ -11,22 +11,16 @@ import {
   Outlet,
   redirect,
   useLoaderData,
+  useLocation,
 } from 'react-router-dom'
 import theme from '../theme'
 import { Stack } from '@mui/system'
 import { IndexifyClient } from 'getindexify'
 import { getIndexifyServiceURL, stringToColor } from '../utils/helpers'
 import Footer from '../components/Footer'
-import NamespaceDropdown from '../components/Navigation/NamespaceDropdown'
 import NavigationBar from '../components/Navigation/NavigationBar'
-import NavigationDrawer from '../components/Navigation/NavigationDrawer'
-import {
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-} from '@mui/material'
+import { Drawer, List, ListItemButton, ListItemText } from '@mui/material'
+import { Link } from 'react-router-dom'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
@@ -43,19 +37,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
   return { namespaces, namespace: params.namespace }
 }
 
-interface AppBarProps extends MuiAppBarProps {
-  open?: boolean
-}
-
-const AppBar = styled(MuiAppBar, {
-  shouldForwardProp: (prop) => prop !== 'open',
-})<AppBarProps>(({ theme, open }) => ({
-  transition: theme.transitions.create(['width', 'margin'], {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen,
-  }),
-}))
-
 const drawerWidth = 240
 
 export default function Dashboard() {
@@ -63,11 +44,13 @@ export default function Dashboard() {
     namespace: string
     namespaces: string[]
   }
+  const location = useLocation()
+  console.log(location.pathname)
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <CssBaseline />
-        <NavigationBar namespace={namespace} namespaces={namespaces} />
+        {/* <NavigationBar namespace={namespace} namespaces={namespaces} /> */}
         <Drawer
           variant="permanent"
           sx={{
@@ -106,10 +89,20 @@ export default function Dashboard() {
           </Toolbar>
           <Box sx={{ overflow: 'auto' }}>
             <List>
-              <ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/extractors`}
+                component={Link}
+                selected={location.pathname === `/${namespace}/extractors`}
+              >
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
-              <ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/extraction-graphs`}
+                component={Link}
+                selected={
+                  location.pathname === `/${namespace}/extraction-graphs`
+                }
+              >
                 <ListItemText primary={'Extraction Graphs'} />
               </ListItemButton>
               <ListItemButton>
