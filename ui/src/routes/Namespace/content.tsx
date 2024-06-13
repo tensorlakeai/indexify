@@ -68,7 +68,6 @@ const ContentPage = () => {
   const {
     client,
     namespace,
-    tasks,
     contentId,
     contentMetadata,
     groupedExtractedMetadata,

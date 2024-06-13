@@ -27,12 +27,10 @@ const ContentTable = ({
     pageSize,
     parentId,
     startId,
-    contentId,
   }: {
     pageSize: number
     parentId?: string
     startId?: string
-    contentId?: string
   }) => Promise<IContentMetadataExtended[]>
 }) => {
   const [rowCountState, setRowCountState] = useState(0)
@@ -66,7 +64,6 @@ const ContentTable = ({
           currentTab !== 'ingested' && currentTab !== 'search'
             ? currentTab
             : undefined,
-        contentId: searchFilter.contentId,
       })
       setContent(newContent)
 
@@ -88,6 +85,7 @@ const ContentTable = ({
     return () => {
       active = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paginationModel])
 
   useEffect(() => {
@@ -110,6 +108,7 @@ const ContentTable = ({
         return newIds
       })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTab, searchFilter])
 
   const [graphTabIds, setGraphTabIds] = useState<string[]>([])
