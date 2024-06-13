@@ -1,6 +1,5 @@
 syntax = "proto3";
 import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
 
 package indexify_coordinator;
 
@@ -122,6 +121,9 @@ message ListStateChangesResponse {
 message ListTasksRequest {
     string namespace = 1;
     string extraction_policy = 2;
+    string content_id = 3;
+    string start_id = 4;
+    uint64 limit = 5;
 }
 
 message ListTasksResponse {
@@ -305,6 +307,8 @@ message ListContentRequest {
     string source = 2;
     string parent_id = 3;
     map<string, google.protobuf.Value> labels_eq = 4;
+    uint64 limit = 5;
+    string start_id = 6;
 }
 
 message ListContentResponse {

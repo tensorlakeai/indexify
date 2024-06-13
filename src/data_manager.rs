@@ -244,6 +244,8 @@ impl DataManager {
         source_filter: &str,
         parent_id_filter: &str,
         labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
+        start_id: String,
+        limit: u64,
     ) -> Result<Vec<api::ContentMetadata>> {
         let default_labels_eq = HashMap::new();
         let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
@@ -255,6 +257,8 @@ impl DataManager {
             source: source_filter.to_string(),
             parent_id: parent_id_filter.to_string(),
             labels_eq,
+            start_id,
+            limit,
         };
         let response = self
             .coordinator_client

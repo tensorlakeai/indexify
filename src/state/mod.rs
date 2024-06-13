@@ -531,9 +531,11 @@ impl App {
         namespace: &str,
         parent_id: &str,
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine
-            .list_content(namespace, parent_id, predicate)
+            .list_content(namespace, parent_id, predicate, start_id, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -1086,26 +1088,13 @@ impl App {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
+        content_id: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        let tasks: Vec<internal_api::Task> = self
-            .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        let filtered_tasks = tasks
-            .iter()
-            .filter(|task| task.namespace == namespace)
-            .filter(|task| {
-                extraction_policy
-                    .as_ref()
-                    .map(|eb| eb == &task.extraction_policy_id)
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        Ok(filtered_tasks)
+        self.state_machine
+            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
+            .await
     }
 
     pub async fn update_labels(
@@ -1671,9 +1660,13 @@ mod tests {
 
         //  Read the content back
         let read_content = node
-            .list_content(&content_metadata_vec.first().unwrap().namespace, "", |_| {
-                true
-            })
+            .list_content(
+                &content_metadata_vec.first().unwrap().namespace,
+                "",
+                |_| true,
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(read_content.len(), content_size);

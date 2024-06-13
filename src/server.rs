@@ -715,7 +715,7 @@ async fn update_labels(
 async fn list_content(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    filter: Query<super::api::ListContentFilters>,
+    filter: Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
     let content_list = state
         .data_manager
@@ -724,6 +724,8 @@ async fn list_content(
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),
+            filter.start_id.clone().unwrap_or_default(),
+            filter.limit.unwrap_or(10),
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -1239,6 +1241,9 @@ async fn list_tasks(
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
             extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
+            start_id: query.start_id.clone().unwrap_or_default(),
+            limit: query.limit.unwrap_or(10),
+            content_id: query.content_id.unwrap_or_default(),
         })
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?

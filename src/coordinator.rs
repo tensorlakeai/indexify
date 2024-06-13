@@ -198,11 +198,17 @@ impl Coordinator {
         source: &str,
         parent_id: &str,
         labels_eq: &HashMap<String, serde_json::Value>,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.shared_state
-            .list_content(namespace, parent_id, |c| {
-                content_filter(c, source, labels_eq)
-            })
+            .list_content(
+                namespace,
+                parent_id,
+                |c| content_filter(c, source, labels_eq),
+                start_id,
+                limit,
+            )
             .await
     }
 
@@ -318,10 +324,13 @@ impl Coordinator {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
+        content_id: Option<String>,
     ) -> Result<Vec<indexify_coordinator::Task>> {
         let tasks = self
             .shared_state
-            .list_tasks(namespace, extraction_policy)
+            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
             .await?;
         let tasks = tasks
             .into_iter()

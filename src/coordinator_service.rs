@@ -289,9 +289,27 @@ impl CoordinatorService for CoordinatorServiceServer {
         let labels_eq = internal_api::utils::convert_map_prost_to_serde_json(req.labels_eq)
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
+        let start_id = if req.start_id.is_empty() {
+            None
+        } else {
+            Some(req.start_id)
+        };
+        let limit = if req.limit == 0 {
+            None
+        } else {
+            Some(req.limit)
+        };
+
         let content_list = self
             .coordinator
-            .list_content(&req.namespace, &req.source, &req.parent_id, &labels_eq)
+            .list_content(
+                &req.namespace,
+                &req.source,
+                &req.parent_id,
+                &labels_eq,
+                start_id,
+                limit,
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
@@ -927,9 +945,20 @@ impl CoordinatorService for CoordinatorServiceServer {
         } else {
             Some(req.extraction_policy)
         };
+        let content_id = if req.content_id.is_empty() {
+            None
+        } else {
+            Some(req.content_id)
+        };
         let tasks = self
             .coordinator
-            .list_tasks(&req.namespace, extraction_policy)
+            .list_tasks(
+                &req.namespace,
+                extraction_policy,
+                Some(req.start_id),
+                Some(req.limit),
+                content_id,
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(indexify_coordinator::ListTasksResponse {

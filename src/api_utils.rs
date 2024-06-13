@@ -296,12 +296,12 @@ mod test_deserialize_labels_eq_filter {
     use hyper::Uri;
 
     use super::*;
-    use crate::api::ListContentFilters;
+    use crate::api::ListContent;
 
     /// 1. ?source=foo&labels_eq=key:value
     #[test]
     fn test_key_value() {
-        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
+        let expected_query: Query<ListContent> = Query(ListContent {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -309,19 +309,21 @@ mod test_deserialize_labels_eq_filter {
                 labels_eq.insert("key".to_string(), serde_json::json!("value"));
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value"
             .parse()
             .unwrap();
-        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContent> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
     /// 2. ?source=foo&labels_eq=key:
     #[test]
     fn test_key_empty_value() {
-        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
+        let expected_query: Query<ListContent> = Query(ListContent {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -329,12 +331,14 @@ mod test_deserialize_labels_eq_filter {
                 labels_eq.insert("key".to_string(), serde_json::json!(""));
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:"
             .parse()
             .unwrap();
-        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContent> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
@@ -345,14 +349,14 @@ mod test_deserialize_labels_eq_filter {
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq="
             .parse()
             .unwrap();
-        let query: Result<Query<ListContentFilters>, _> = Query::try_from_uri(&query_str);
+        let query: Result<Query<ListContent>, _> = Query::try_from_uri(&query_str);
         assert!(query.is_err(), "query should be invalid: \"labels_eq=\"");
     }
 
     /// 4. ?source=foo&labels_eq=key:value&labels_eq=key2:25
     #[test]
     fn test_multiple_key_value() {
-        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
+        let expected_query: Query<ListContent> = Query(ListContent {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -362,19 +366,21 @@ mod test_deserialize_labels_eq_filter {
 
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:25"
             .parse()
             .unwrap();
-        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContent> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
     /// 5. ?source=foo&labels_eq=key:value&labels_eq=key2:
     #[test]
     fn test_multiple_key_value_key_empty_value() {
-        let expected_query: Query<ListContentFilters> = Query(ListContentFilters {
+        let expected_query: Query<ListContent> = Query(ListContent {
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -383,12 +389,14 @@ mod test_deserialize_labels_eq_filter {
                 labels_eq.insert("key2".to_string(), serde_json::json!(""));
                 labels_eq
             }),
+            start_id: None,
+            limit: None,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:"
             .parse()
             .unwrap();
-        let query: Query<ListContentFilters> = Query::try_from_uri(&query_str).unwrap();
+        let query: Query<ListContent> = Query::try_from_uri(&query_str).unwrap();
         assert_eq!(query.0, expected_query.0);
     }
 
@@ -410,7 +418,7 @@ mod test_deserialize_labels_eq_filter {
         .collect();
 
         for query_str in invalid_query_params {
-            let query: Result<Query<ListContentFilters>, _> = Query::try_from_uri(&query_str);
+            let query: Result<Query<ListContent>, _> = Query::try_from_uri(&query_str);
             assert!(query.is_err(), "query should be invalid: {}", query_str);
         }
     }

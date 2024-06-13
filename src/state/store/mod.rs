@@ -495,6 +495,50 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!("Failed to list active contents: {}", e))
     }
 
+    pub async fn list_tasks(
+        &self,
+        namespace: &str,
+        extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
+        content_id: Option<String>,
+    ) -> Result<Vec<Task>> {
+        let db = self.db.read().unwrap();
+        let cf = StateMachineColumns::Tasks.cf(&db);
+        let tasks_itr = db
+            .iterator_cf(
+                cf,
+                IteratorMode::From(start_id.unwrap_or_default().as_bytes(), Direction::Forward),
+            )
+            .into_iter();
+        let mut tasks = Vec::new();
+        for kv in tasks_itr {
+            if let Ok((_, value)) = kv {
+                let task = JsonEncoder::decode::<Task>(&value)?;
+                if task.namespace == namespace &&
+                    extraction_policy
+                        .as_ref()
+                        .map(|policy| &task.extraction_policy_id == policy)
+                        .unwrap_or(true) &&
+                    content_id
+                        .as_ref()
+                        .map(|id| &task.content_metadata.id.id == id)
+                        .unwrap_or(true)
+                {
+                    tasks.push(task);
+                    if let Some(limit) = limit {
+                        if tasks.len() >= limit as usize {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                return Err(anyhow!("error reading db tasks"));
+            }
+        }
+        Ok(tasks)
+    }
+
     pub async fn get_tasks_for_executor(
         &self,
         executor_id: &str,
@@ -575,12 +619,14 @@ impl StateMachineStore {
         namespace: &str,
         parent_id: &str,
         predicate: impl Fn(&ContentMetadata) -> bool,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<ContentMetadata>> {
         let db = self.db.read().unwrap();
         let txn = db.transaction();
         let iter = txn.iterator_cf(
             StateMachineColumns::ContentTable.cf(&db),
-            IteratorMode::Start,
+            IteratorMode::From(start_id.unwrap_or_default().as_bytes(), Direction::Forward),
         );
         let mut contents = Vec::new();
         for res in iter {
@@ -593,6 +639,11 @@ impl StateMachineStore {
                     predicate(&content)
                 {
                     contents.push(content);
+                    if let Some(limit) = limit {
+                        if contents.len() >= limit as usize {
+                            break;
+                        }
+                    }
                 }
             } else {
                 return Err(anyhow!("error reading db content"));
@@ -1612,7 +1663,9 @@ mod tests {
         assert_eq!(*key, namespace);
         assert_eq!(value.len(), 1);
 
-        let contents = new_node.list_content(&namespace, "", |_| true).await?;
+        let contents = new_node
+            .list_content(&namespace, "", |_| true, None, None)
+            .await?;
         assert_eq!(contents.len(), 1);
         let c = contents
             .first()

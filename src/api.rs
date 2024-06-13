@@ -331,7 +331,7 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
-pub struct ListContentFilters {
+pub struct ListContent {
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default
@@ -344,6 +344,10 @@ pub struct ListContentFilters {
     pub parent_id: String,
     #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
     pub labels_eq: Option<HashMap<String, serde_json::Value>>,
+
+    pub limit: Option<u64>,
+
+    pub start_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -678,6 +682,9 @@ pub struct GetExtractedMetadataResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
     pub extraction_policy: Option<String>,
+    pub content_id: Option<String>,
+    pub start_id: Option<String>,
+    pub limit: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

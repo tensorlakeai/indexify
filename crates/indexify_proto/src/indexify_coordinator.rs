@@ -63,6 +63,12 @@ pub struct ListTasksRequest {
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub extraction_policy: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub content_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub start_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "5")]
+    pub limit: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -347,6 +353,10 @@ pub struct ListContentRequest {
         ::prost::alloc::string::String,
         ::prost_wkt_types::Value,
     >,
+    #[prost(uint64, tag = "5")]
+    pub limit: u64,
+    #[prost(string, tag = "6")]
+    pub start_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

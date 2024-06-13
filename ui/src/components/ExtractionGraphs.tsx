@@ -1,5 +1,5 @@
 import {
-  IExtractionGraph,
+  ExtractionGraph,
   IExtractionPolicy,
   IExtractor,
   ITask,
@@ -19,7 +19,7 @@ const ExtractionGraphs = ({
   extractors,
   tasks,
 }: {
-  extractionGraphs: IExtractionGraph[]
+  extractionGraphs: ExtractionGraph[]
   namespace: string
   extractors: IExtractor[]
   tasks: ITask[]
