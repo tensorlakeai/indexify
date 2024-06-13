@@ -3,10 +3,6 @@ import { IContentMetadata, IExtractionPolicy } from 'getindexify'
 import {
   Alert,
   Button,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
   Tab,
   Tabs,
   TextField,
@@ -20,53 +16,103 @@ import React, { useEffect, useState } from 'react'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
-
-function getChildCountMap(
-  contents: IContentMetadata[]
-): Record<string, number> {
-  // Initialize a record to hold the count of children for each parent
-  const childrenCountMap: Record<string, number> = {}
-  // iterate over content
-  contents.forEach((content) => {
-    if (content.parent_id) {
-      if (childrenCountMap[content.parent_id]) {
-        childrenCountMap[content.parent_id]++
-      } else {
-        childrenCountMap[content.parent_id] = 1
-      }
-    }
-  })
-
-  const result: Record<string, number> = {}
-  contents.forEach((content) => {
-    result[content.id] = childrenCountMap[content.id] || 0
-  })
-
-  return result
-}
+import { IContentMetadataExtended } from '../../types'
 
 const ContentTable = ({
   extractionPolicies,
-  content,
+  loadData,
 }: {
   extractionPolicies: IExtractionPolicy[]
-  content: IContentMetadata[]
+  loadData: ({
+    pageSize,
+    parentId,
+    startId,
+    contentId,
+  }: {
+    pageSize: number
+    parentId?: string
+    startId?: string
+    contentId?: string
+  }) => Promise<IContentMetadataExtended[]>
 }) => {
-  const childCountMap = getChildCountMap(content)
+  const [rowCountState, setRowCountState] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [content, setContent] = useState<IContentMetadataExtended[]>([])
+  const [startIds, setStartIds] = useState<Record<number, string>>({})
   const [paginationModel, setPaginationModel] = useState({
-    page: 1,
+    page: 0,
     pageSize: 5,
   })
-  const [graphTabIds, setGraphTabIds] = useState<string[]>([])
+  const [currentTab, setCurrentTab] = useState<string | undefined>(undefined)
   const [searchFilter, setSearchFilter] = useState<{
     contentId: string
     policyName: string
   }>({ contentId: '', policyName: 'Any' })
 
-  const [filteredContent, setFilteredContent] = useState(
-    content.filter((c) => c.source === '')
-  )
-  const [currentTab, setCurrentTab] = useState('ingested')
+  useEffect(() => {
+    let active = true
+
+    ;(async () => {
+      setLoading(true)
+      if (!active || !loadData) return
+
+      // load tasks for a given page
+      const newContent = await loadData({
+        pageSize: paginationModel.pageSize,
+        startId: paginationModel.page
+          ? startIds[paginationModel.page - 1]
+          : undefined,
+        parentId:
+          currentTab !== 'ingested' && currentTab !== 'search'
+            ? currentTab
+            : undefined,
+        contentId: searchFilter.contentId,
+      })
+      setContent(newContent)
+
+      const newRowCount =
+        paginationModel.page * paginationModel.pageSize + newContent.length
+      setRowCountState(newRowCount)
+
+      // add to startids if needed
+      if (newContent.length && startIds[paginationModel.page] === undefined) {
+        const lastId = newContent[newContent.length - 1].id
+        setStartIds((prev) => ({
+          ...prev,
+          [paginationModel.page]: lastId,
+        }))
+      }
+      setLoading(false)
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [paginationModel])
+
+  useEffect(() => {
+    goToPage(0)
+    if (currentTab === 'search') {
+      // const searchPolicy = extractionPolicies.find(
+      //   (policy) => policy.name === searchFilter.policyName
+      // )
+      //TODO search for policy
+    } else if (currentTab === undefined) {
+      // go back to root node of graph tab
+      setGraphTabIds([])
+    } else {
+      // current tab is now a content id
+      // remove tabs after id: selectedValue if possible
+      setGraphTabIds((currentIds) => {
+        const index = currentIds.indexOf(currentTab)
+        const newIds = [...currentIds]
+        newIds.splice(index + 1)
+        return newIds
+      })
+    }
+  }, [currentTab, searchFilter])
+
+  const [graphTabIds, setGraphTabIds] = useState<string[]>([])
 
   const onClickChildren = (selectedContent: IContentMetadata) => {
     // append id to graphTabIds - this adds a new tab
@@ -84,55 +130,6 @@ const ContentTable = ({
       page,
     }))
   }
-
-  useEffect(() => {
-    // when filtered content updates go to first page
-    goToPage(0)
-  }, [filteredContent])
-
-  useEffect(() => {
-    // when we update searchFilter update content
-    if (currentTab === 'search') {
-      goToPage(0)
-      const searchPolicy = extractionPolicies.find(
-        (policy) => policy.name === searchFilter.policyName
-      )
-      setFilteredContent(
-        content.filter((c) => {
-          // filter contentId
-          if (!c.id.startsWith(searchFilter.contentId)) return false
-          // filter policy
-          if (searchFilter.policyName === 'Ingested') {
-            // TODO: match mimetype and filter ingested source
-          } else if (searchPolicy && searchFilter.policyName !== 'Any') {
-            if (c.source !== searchPolicy?.name) {
-              return false
-            }
-          }
-          return true
-        })
-      )
-    } else if (currentTab === 'ingested') {
-      // go back to root node of graph tab
-      setGraphTabIds([])
-      setFilteredContent([...content.filter((c) => c.source === '')])
-    } else {
-      // current tab is now a content id
-      // remove tabs after id: selectedValue if possible
-
-      setGraphTabIds((currentIds) => {
-        const index = currentIds.indexOf(currentTab)
-        const newIds = [...currentIds]
-        newIds.splice(index + 1)
-        return newIds
-      })
-      // update filteredContent
-      const newFilteredContent = [
-        ...content.filter((c) => c.parent_id === currentTab),
-      ]
-      setFilteredContent(newFilteredContent)
-    }
-  }, [searchFilter, currentTab, content, extractionPolicies])
 
   let columns: GridColDef[] = [
     {
@@ -164,13 +161,11 @@ const ContentTable = ({
       },
     },
     {
-      field: 'childCount',
+      field: 'children',
       headerName: 'Children',
       width: 140,
-      valueGetter: (params) => childCountMap[params.row.id],
       renderCell: (params) => {
-        const clickable =
-          currentTab !== 'search' && childCountMap[params.row.id] !== 0
+        const clickable = currentTab !== 'search' && params.value !== 0
         return (
           <Button
             onClick={(e) => {
@@ -190,6 +185,9 @@ const ContentTable = ({
     },
     {
       field: 'source',
+      valueGetter: (params) => {
+        return params.value || 'ingestion'
+      },
       headerName: 'Source',
       width: 220,
     },
@@ -218,7 +216,7 @@ const ContentTable = ({
 
   columns = columns.filter((col) => {
     if (
-      currentTab === 'ingested' &&
+      currentTab === undefined &&
       (col.field === 'source' || col.field === 'parent_id')
     ) {
       return false
@@ -240,18 +238,16 @@ const ContentTable = ({
     return (
       <Box sx={{ width: '100%' }}>
         <DataGrid
-          initialState={{
-            sorting: {
-              sortModel: [{ field: 'created_at', sort: 'desc' }],
-            },
-          }}
           sx={{ backgroundColor: 'white' }}
           autoHeight
-          rows={filteredContent}
+          rows={content.slice(0, paginationModel.pageSize)}
+          rowCount={rowCountState}
           columns={columns}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
-          pageSizeOptions={[5, 10]}
+          paginationMode="server"
+          loading={loading}
+          pageSizeOptions={[5]}
         />
       </Box>
     )
@@ -278,11 +274,11 @@ const ContentTable = ({
       </Stack>
       <Box justifyContent={'space-between'} display={'flex'}>
         <Tabs
-          value={currentTab}
+          value={currentTab ?? 'ingested'}
           onChange={onChangeTab}
           aria-label="disabled tabs example"
         >
-          <Tab value={'search'} label="Search" />
+          {/* <Tab value={'search'} label="Search" /> */}
           <Tab value={'ingested'} label="Ingested" />
 
           {graphTabIds.map((id, i) => {
@@ -305,7 +301,7 @@ const ContentTable = ({
               sx={{ width: 'auto' }} // Adjust width as needed
               size="small"
             />
-            <FormControl sx={{ minWidth: 200 }} size="small">
+            {/* <FormControl sx={{ minWidth: 200 }} size="small">
               <InputLabel id="demo-select-small-label">
                 Extraction Policy
               </InputLabel>
@@ -322,14 +318,13 @@ const ContentTable = ({
                 }
               >
                 <MenuItem value="Any">Any</MenuItem>
-                {/* <MenuItem value="Ingested">Ingested</MenuItem> */}
                 {extractionPolicies.map((policy) => (
                   <MenuItem key={policy.name} value={policy.name}>
                     {policy.name}
                   </MenuItem>
                 ))}
               </Select>
-            </FormControl>
+            </FormControl> */}
           </Box>
         )}
       </Box>

@@ -46,15 +46,14 @@ const TasksTable = ({
 
       const newRowCount =
         paginationModel.page * paginationModel.pageSize + newTasks.length
-      console.log('tasks count', newRowCount)
       setRowCountState(newRowCount)
 
       // add to startids if needed
       if (newTasks.length && startIds[paginationModel.page] === undefined) {
-        const lastTaskId = newTasks[newTasks.length - 1].id
+        const lastId = newTasks[newTasks.length - 1].id
         setStartIds((prev) => ({
           ...prev,
-          [paginationModel.page]: lastTaskId,
+          [paginationModel.page]: lastId,
         }))
       }
       setLoading(false)
@@ -63,7 +62,7 @@ const TasksTable = ({
     return () => {
       active = false
     }
-  }, [paginationModel])
+  }, [paginationModel, loadData, startIds])
 
   let columns: GridColDef[] = [
     {
