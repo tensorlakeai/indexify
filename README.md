@@ -8,7 +8,7 @@
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 
-Indexify is an open-source engine for buidling fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. LLM Applications can query transformed content friendly to LLMs by semantic search and SQL queries. 
+Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. LLM Applications can query transformed content friendly to LLMs by semantic search and SQL queries. 
 
 Indexify keeps vectordbs, structured databases(postgres) updated by automatically invoking the pipelines as new data is ingested into the system from external data sources.  
 
