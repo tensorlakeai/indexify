@@ -35,7 +35,7 @@ services:
   {% for extractor in extractors %}
   {{ extractor.service_name }}:
     image: {{ extractor.docker_image }}
-    command: ["join", "--coordinator", "indexify:8950", "--ingestion-addr", "indexify:8900"]
+    command: ["join-server", "--coordinator-addr", "indexify:8950", "--ingestion-addr", "indexify:8900"]
     networks:
       server:
     volumes:
