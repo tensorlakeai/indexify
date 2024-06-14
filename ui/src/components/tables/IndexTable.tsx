@@ -35,7 +35,6 @@ const IndexTable = ({
           <>
             <Link
               to={`/${namespace}/indexes/${params.row.name}`}
-              target="_blank"
             >
               <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
                 Search Index
