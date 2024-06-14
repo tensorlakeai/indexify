@@ -184,10 +184,10 @@ const ContentPage = () => {
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs aria-label="breadcrumb">
-        <Link color="inherit" to={`/${namespace}`}>
-          {namespace}
+        <Typography color="text.primary">{namespace}</Typography>
+        <Link color="inherit" to={`/${namespace}/content`}>
+          <Typography color="text.primary">Content</Typography>
         </Link>
-        <Typography color="text.primary">Content</Typography>
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
       <Errors errors={errors} />

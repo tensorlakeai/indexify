@@ -56,10 +56,10 @@ const ExtractionPolicyPage = () => {
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs aria-label="breadcrumb">
-        <Link color="inherit" to={`/${namespace}`}>
-          {namespace}
+        <Typography color="text.primary">{namespace}</Typography>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
+          <Typography color="text.primary">Extraction Graphs</Typography>
         </Link>
-        <Typography color="text.primary">Extraction Policies</Typography>
         <Typography color="text.primary">{policy.graph_name}</Typography>
         <Typography color="text.primary">{policy.name}</Typography>
       </Breadcrumbs>

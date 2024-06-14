@@ -138,7 +138,6 @@ const ContentTable = ({
       renderCell: (params) => (
         <Link
           to={`/${params.row.namespace}/content/${params.row.id}`}
-          target="_blank"
         >
           <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
             View

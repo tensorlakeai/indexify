@@ -1,8 +1,7 @@
 import { Box } from '@mui/material'
-import { ExtractionGraph, IExtractor, IndexifyClient } from 'getindexify'
-import { LoaderFunctionArgs, redirect, useLoaderData } from 'react-router-dom'
+import { ExtractionGraph, IndexifyClient } from 'getindexify'
+import { LoaderFunctionArgs, useLoaderData } from 'react-router-dom'
 import { getIndexifyServiceURL } from '../../utils/helpers'
-import ExtractorsTable from '../../components/tables/ExtractorsTable'
 import ExtractionGraphs from '../../components/ExtractionGraphs'
 import { Extractor } from 'getindexify'
 

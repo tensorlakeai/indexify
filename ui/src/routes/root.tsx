@@ -4,7 +4,6 @@ import CssBaseline from '@mui/material/CssBaseline'
 import Box from '@mui/material/Box'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
-import Container from '@mui/material/Container'
 import {
   LoaderFunctionArgs,
   Outlet,
@@ -15,9 +14,8 @@ import {
 import theme from '../theme'
 import { Stack } from '@mui/system'
 import { IndexifyClient } from 'getindexify'
-import { getIndexifyServiceURL, stringToColor } from '../utils/helpers'
+import { getIndexifyServiceURL } from '../utils/helpers'
 import Footer from '../components/Footer'
-import NavigationBar from '../components/Navigation/NavigationBar'
 import {
   Divider,
   Drawer,
@@ -36,7 +34,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
     if (params.namespace !== 'default') {
-      return redirect(`/${namespaces[0] ?? 'default'}`)
+      return redirect(`/${namespaces[0] ?? 'default'}/extractors`)
     }
   }
   return { namespaces, namespace: params.namespace }
@@ -45,7 +43,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 const drawerWidth = 240
 
 export default function Dashboard() {
-  const { namespace, namespaces } = useLoaderData() as {
+  const { namespace } = useLoaderData() as {
     namespace: string
     namespaces: string[]
   }
@@ -110,14 +108,14 @@ export default function Dashboard() {
               <ListItemButton
                 to={`/${namespace}/extractors`}
                 component={Link}
-                selected={location.pathname === `/${namespace}/extractors`}
+                selected={location.pathname.startsWith(`/${namespace}/extractors`)}
               >
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
               <ListItemButton
                 to={`/${namespace}/content`}
                 component={Link}
-                selected={location.pathname === `/${namespace}/content`}
+                selected={location.pathname.startsWith(`/${namespace}/content`)}
               >
                 <ListItemText primary={'Content'} />
               </ListItemButton>
@@ -125,7 +123,7 @@ export default function Dashboard() {
                 to={`/${namespace}/extraction-graphs`}
                 component={Link}
                 selected={
-                  location.pathname === `/${namespace}/extraction-graphs`
+                  location.pathname.startsWith(`/${namespace}/extraction-graphs`)
                 }
               >
                 <ListItemText primary={'Extraction Graphs'} />
@@ -133,14 +131,14 @@ export default function Dashboard() {
               <ListItemButton
                 to={`/${namespace}/indexes`}
                 component={Link}
-                selected={location.pathname === `/${namespace}/indexes`}
+                selected={location.pathname.startsWith(`/${namespace}/indexes`)}
               >
                 <ListItemText primary={'Indexes'} />
               </ListItemButton>
               <ListItemButton
                 to={`/${namespace}/sql-tables`}
                 component={Link}
-                selected={location.pathname === `/${namespace}/sql-tables`}
+                selected={location.pathname.startsWith(`/${namespace}/sql-tables`)}
               >
                 <ListItemText primary={'SQL Tables'} />
               </ListItemButton>

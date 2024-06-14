@@ -12,7 +12,6 @@ const ExtractionPolicyItem = ({
   itemHeight,
   extractors,
   tasks,
-  index,
 }: {
   extractionPolicy: IExtractionPolicy;
   siblingCount: number;

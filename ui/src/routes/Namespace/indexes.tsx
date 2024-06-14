@@ -1,11 +1,10 @@
 import { Box } from '@mui/material'
 import {
   ExtractionGraph,
-  IExtractor,
   IIndex,
   IndexifyClient,
 } from 'getindexify'
-import { LoaderFunctionArgs, redirect, useLoaderData } from 'react-router-dom'
+import { LoaderFunctionArgs, useLoaderData } from 'react-router-dom'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 import IndexTable from '../../components/tables/IndexTable'
 
