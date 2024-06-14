@@ -45,7 +45,6 @@ export default function Dashboard() {
     namespaces: string[]
   }
   const location = useLocation()
-  console.log(location.pathname)
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -97,6 +96,13 @@ export default function Dashboard() {
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
               <ListItemButton
+                to={`/${namespace}/content`}
+                component={Link}
+                selected={location.pathname === `/${namespace}/content`}
+              >
+                <ListItemText primary={'Content'} />
+              </ListItemButton>
+              <ListItemButton
                 to={`/${namespace}/extraction-graphs`}
                 component={Link}
                 selected={
@@ -105,10 +111,18 @@ export default function Dashboard() {
               >
                 <ListItemText primary={'Extraction Graphs'} />
               </ListItemButton>
-              <ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/indexes`}
+                component={Link}
+                selected={location.pathname === `/${namespace}/indexes`}
+              >
                 <ListItemText primary={'Indexes'} />
               </ListItemButton>
-              <ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/sql-tables`}
+                component={Link}
+                selected={location.pathname === `/${namespace}/sql-tables`}
+              >
                 <ListItemText primary={'SQL Tables'} />
               </ListItemButton>
             </List>
@@ -129,9 +143,9 @@ export default function Dashboard() {
           }}
         >
           <Container maxWidth="lg">
-            <div id="detail">
+            <Box id="detail">
               <Outlet />
-            </div>
+            </Box>
           </Container>
         </Box>
       </Box>

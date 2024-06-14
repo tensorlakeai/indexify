@@ -1,83 +1,108 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import "./index.css";
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import './index.css'
 
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 
-import Root, { loader as RootLoader } from "./routes/root";
-import { ErrorPage } from "./error-page";
-import Namespace, { loader as NamespaceLoader } from "./routes/Namespace";
+import Root, { loader as RootLoader } from './routes/root'
+import { ErrorPage } from './error-page'
+import Namespace, { loader as NamespaceLoader } from './routes/Namespace'
 import ExtractionPolicyPage, {
   loader as ExtractionPolicyLoader,
-} from "./routes/Namespace/extractionPolicy";
+} from './routes/Namespace/extractionPolicy'
 import ContentPage, {
   loader as ContentLoader,
-} from "./routes/Namespace/content";
+} from './routes/Namespace/content'
 import ExtractorsPage, {
   loader as ExtractorsLoader,
-} from "./routes/Namespace/extractors";
+} from './routes/Namespace/extractors'
 import ExtractionGraphsPage, {
   loader as ExtractionGraphLoader,
-} from "./routes/Namespace/extractionGraphs";
+} from './routes/Namespace/extractionGraphs'
 import SearchIndexPage, {
   loader as SearchIndexLoader,
-} from "./routes/Namespace/searchIndex";
+} from './routes/Namespace/searchIndex'
+import IndexesPage, {
+  loader as IndexesLoader,
+} from './routes/Namespace/indexes'
+import SqlTablesPage, {
+  loader as SqlTablesLoader,
+} from './routes/Namespace/sqlTables'
+import ContentsPage, {
+  loader as ContentsLoader,
+}  from './routes/Namespace/content'
 
 const router = createBrowserRouter(
   [
     {
-      path: "/",
+      path: '/',
       element: <Root />,
       errorElement: <ErrorPage />,
       loader: RootLoader,
       children: [
         {
-          path: "/:namespace",
+          path: '/:namespace',
           element: <Namespace />,
           loader: NamespaceLoader,
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/extraction-policies/:graphname/:policyname",
+          path: '/:namespace/extraction-policies/:graphname/:policyname',
           element: <ExtractionPolicyPage />,
           loader: ExtractionPolicyLoader,
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/indexes/:indexName",
+          path: '/:namespace/indexes/:indexName',
           element: <SearchIndexPage />,
           loader: SearchIndexLoader,
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/content/:contentId",
+          path: '/:namespace/content',
+          element: <ContentsPage />,
+          loader: ContentsLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: '/:namespace/content/:contentId',
           element: <ContentPage />,
           loader: ContentLoader,
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/extractors",
+          path: '/:namespace/extractors',
           element: <ExtractorsPage />,
           loader: ExtractorsLoader,
           errorElement: <ErrorPage />,
         },
         {
-          path: "/:namespace/extraction-graphs",
+          path: '/:namespace/extraction-graphs',
           element: <ExtractionGraphsPage />,
           loader: ExtractionGraphLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: '/:namespace/indexes',
+          element: <IndexesPage />,
+          loader: IndexesLoader,
+          errorElement: <ErrorPage />,
+        },
+        {
+          path: '/:namespace/sql-tables',
+          element: <SqlTablesPage />,
+          loader: SqlTablesLoader,
           errorElement: <ErrorPage />,
         },
       ],
     },
   ],
-  { basename: "/ui" }
-);
+  { basename: '/ui' }
+)
 
-const root = ReactDOM.createRoot(
-  document.getElementById("root") as HTMLElement
-);
+const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement)
 root.render(
   <React.StrictMode>
     <RouterProvider router={router} />
   </React.StrictMode>
-);
+)
