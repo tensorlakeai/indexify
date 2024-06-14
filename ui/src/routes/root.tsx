@@ -1,8 +1,7 @@
 import * as React from 'react'
-import { styled, ThemeProvider } from '@mui/material/styles'
+import { ThemeProvider } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import Box from '@mui/material/Box'
-import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
 import Container from '@mui/material/Container'
@@ -19,7 +18,13 @@ import { IndexifyClient } from 'getindexify'
 import { getIndexifyServiceURL, stringToColor } from '../utils/helpers'
 import Footer from '../components/Footer'
 import NavigationBar from '../components/Navigation/NavigationBar'
-import { Drawer, List, ListItemButton, ListItemText } from '@mui/material'
+import {
+  Divider,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemText,
+} from '@mui/material'
 import { Link } from 'react-router-dom'
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -47,7 +52,17 @@ export default function Dashboard() {
   const location = useLocation()
   return (
     <ThemeProvider theme={theme}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
+          backgroundColor: (theme) =>
+            theme.palette.mode === 'light'
+              ? theme.palette.grey[100]
+              : theme.palette.grey[900],
+        }}
+      >
         <CssBaseline />
         {/* <NavigationBar namespace={namespace} namespaces={namespaces} /> */}
         <Drawer
@@ -86,7 +101,11 @@ export default function Dashboard() {
               </a>
             </Stack>
           </Toolbar>
-          <Box sx={{ overflow: 'auto' }}>
+          <Box
+            sx={{
+              overflow: 'auto',
+            }}
+          >
             <List>
               <ListItemButton
                 to={`/${namespace}/extractors`}
@@ -131,22 +150,20 @@ export default function Dashboard() {
         {/* page content */}
         <Box
           component="main"
+          display="flex"
+          flexDirection={'column'}
           sx={{
-            backgroundColor: (theme) =>
-              theme.palette.mode === 'light'
-                ? theme.palette.grey[100]
-                : theme.palette.grey[900],
-            flexGrow: 1,
+            minHeight: '100vh',
             overflow: 'auto',
             padding: 2,
             marginLeft: `${drawerWidth}px`,
           }}
         >
-          <Container maxWidth="lg">
-            <Box id="detail">
-              <Outlet />
-            </Box>
-          </Container>
+          <Box id="detail" p={2} flexGrow={1}>
+            <Outlet />
+          </Box>
+          <Divider />
+          <Footer />
         </Box>
       </Box>
     </ThemeProvider>

@@ -3,7 +3,7 @@ import Link from '@mui/material/Link'
 
 const Footer = () => {
   return (
-    <Box my={5}>
+    <Box py={5}>
       <Typography variant="body2" color="text.secondary" align="center">
         {'Copyright © '}
         <Link color="inherit" href="https://tensorlake.ai/">
