@@ -1,6 +1,6 @@
 import { Box } from '@mui/material'
 import { IExtractor, IndexifyClient } from 'getindexify'
-import { LoaderFunctionArgs, redirect, useLoaderData } from 'react-router-dom'
+import { LoaderFunctionArgs, useLoaderData } from 'react-router-dom'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 import ExtractorsTable from '../../components/tables/ExtractorsTable'
 
