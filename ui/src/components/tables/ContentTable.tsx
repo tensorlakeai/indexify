@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IContentMetadata, IExtractionPolicy } from 'getindexify'
+import { IContentMetadata, IExtractionPolicy, IndexifyClient } from 'getindexify'
 import {
   Alert,
   Button,
@@ -17,12 +17,13 @@ import moment from 'moment'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
 import { IContentMetadataExtended } from '../../types'
+import UploadButton from '../UploadButton'
 
 const ContentTable = ({
-  extractionPolicies,
   loadData,
+  client,
 }: {
-  extractionPolicies: IExtractionPolicy[]
+  client: IndexifyClient,
   loadData: ({
     pageSize,
     parentId,
@@ -136,9 +137,7 @@ const ContentTable = ({
       headerName: '',
       width: 100,
       renderCell: (params) => (
-        <Link
-          to={`/${params.row.namespace}/content/${params.row.id}`}
-        >
+        <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
           <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
             View
           </Button>
@@ -269,6 +268,7 @@ const ContentTable = ({
             <InfoIcon fontSize="small" />
           </IconButton>
         </Typography>
+        <UploadButton client={client} />
       </Stack>
       <Box justifyContent={'space-between'} display={'flex'}>
         <Tabs
