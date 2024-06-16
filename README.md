@@ -51,7 +51,7 @@ indexify-extractor download tensorlake/pdf-extractor
 indexify-extractor download tensorlake/yolo-extractor
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor download tensorlake/summarization
-indexify-extractor download tensorlake/asrdiarization
+indexify-extractor download tensorlake/whisper-asr
 indexify-extractor join-server
 ```
 
@@ -129,7 +129,10 @@ content_id = client.upload_file("audiosummary", "sample.mp3")
 #### Retrieve Summary
 ```python
 client.wait_for_extraction(content_id)
-print(client.get_extracted_content(content_id))
+print("transcription ----")
+print(client.get_extracted_content(content_id, "audiosummary", "transcription"))
+print("summary ----")
+print(client.get_extracted_content(content_id, "audiosummary", "summarizer"))
 ```
 
 #### Search Transcription Index
@@ -169,14 +172,14 @@ content_id = client.upload_file("imageknowledgebase", "sample.jpg")
 #### Retrieve Features of an Image
 ```python
 client.wait_for_extraction(content_id)
-client.get_extracted_content(content_id)
+client.get_extracted_content(content_id, "imageknowledgebase", "object_detection")
 ```
 
 > The Yolo extractor adds the objects detected in the image in the database. The table name is same as the extraction graph name
 
 #### Query using SQL
 ```python
-print(client.sql_query("select * from imageknowledgebase where object_name='skateboard';"))
+print(client.sql_query("select * from imageknowledgebase where object_name='person';"))
 ```
 
 ###  PDF Extraction and Retrieval
@@ -210,7 +213,7 @@ content_id = client.upload_file("pdfqa", "sample.pdf")
 #### Get Text, Image and Tables
 ```python
 client.wait_for_extraction(content_id)
-print(client.get_extracted_content(content_id))
+print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
 ```
 
 ### LLM Framework Integration 
