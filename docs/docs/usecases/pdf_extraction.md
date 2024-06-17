@@ -14,16 +14,16 @@ With Indexify, you can accomplish the following with your PDFs:
 
 PDF Extraction Pipelines are usually composed of three stages. You can use one or more of these stages depending on your use case - 
 
-1. **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdf-extractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
+1. **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdfextractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
 If all you want is to extract text, images, and tables from a PDF, this is the only stage you need in an extraction graph. The following stages allow for further transformations, or extraction of derived information from a PDF document.
 
 2. **Content to Chunk Extraction Stage:** Break down the extracted content into manageable chunks using extractors like `text/chunking`. This stage helps organize your content into coherent and contextually relevant pieces, making it easier to process and understand.
 3. **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. 
 
 ## Image Extraction
-If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdf-extractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understanding of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
+If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdfextractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understanding of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
 
-You can get extracted images from pdf-extractor with a simple python code like this:
+You can get extracted images from pdfextractor with a simple python code like this:
 ```python
 content_id = client.upload_file("extraction_graph_name", "file.pdf")
 ```
@@ -44,9 +44,9 @@ def get_image_content(client, content_id):
 ```
 
 ## Table Extraction
-Tables are automatically extracted by `tensorlake/pdf-extractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
+Tables are automatically extracted by `tensorlake/pdfextractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
 
-You can get extracted tables from pdf-extractor with a simple python code like this:
+You can get extracted tables from pdfextractor with a simple python code like this:
 ```python
 content_id = client.upload_file("extraction_graph_name", "file.pdf")
 ```
@@ -73,7 +73,7 @@ We offer a wide range of PDF extractors to suit specific use-cases. Whether you'
 | Extractors                                | Output Type        | Best For                            | Output Example                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 |-------------------------------------------|--------------------|-------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | tensorlake/layoutlm-document-qa-extractor | metadata           | Invoices Question Answering         | [Feature(feature_type='metadata', name='metadata', value={'query': 'What is the invoice total?', 'answer': '$93.00', 'page': 0, 'score': 0.9743825197219849}, comment=None)]                                                                                                                                                                                                                                                                                                   |
-| tensorlake/pdf-extractor                  | text, image, table | Scientific Papers with Tabular Info | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})]                                                                                                                                                                                                                                                                                                   |
+| tensorlake/pdfextractor                  | text, image, table | Scientific Papers with Tabular Info | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})]                                                                                                                                                                                                                                                                                                   |
 | tensorlake/ocrmypdf                       | text               | Photocopied/Scanned PDFs on CPU     | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', value={'page': 1}, comment=None)], labels={})]                                                                                                                                                                                                                                                                                                                |
 | tensorlake/easyocr                        | text               | Photocopied/Scanned PDFs on GPU     | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})]                                                                                                                                                                                                                                                                                                   |
 | tensorlake/marker                         | text, table        | Detailed structured & formatted PDF | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'language': 'English', 'filetype': 'pdf', 'toc': [], 'pages': 1, 'ocr_stats': {'ocr_pages': 0, 'ocr_failed': 0, 'ocr_success': 0}, 'block_stats': {'header_footer': 2, 'code': 0, 'table': 0, 'equations': {'successful_ocr': 0, 'unsuccessful_ocr': 0, 'equations': 0}}, 'postprocess_stats': {'edit': {}}}, comment=None)], labels={})] |
@@ -166,7 +166,7 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 
 - [Code for Creating Graphs](https://colab.research.google.com/drive/1xyS8oCJV1CHW5fmgeD3umSAPbGOqID-G?usp=sharing)
 - [Benchmarking Notebook](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing)
-- [Benchmarking Local Script](https://github.com/tensorlakeai/indexify/tree/main/docs/docs/usecases/benchmark)
+- [Benchmarking Local Script](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/benchmark)
 
 ### Test Environment
 
@@ -178,7 +178,7 @@ You can test it locally:
 
 1. Download a PDF Extractor:
    ```bash
-   indexify-extractor download tensorlake/pdf-extractor
+   indexify-extractor download tensorlake/pdfextractor
    indexify-extractor join-server
    ```
 
@@ -186,7 +186,7 @@ You can test it locally:
    ```python
    from indexify_extractor_sdk import load_extractor, Content
 
-   extractor, config_cls = load_extractor("indexify_extractors.pdf-extractor.pdf_extractor:PDFExtractor")
+   extractor, config_cls = load_extractor("indexify_extractors.pdfextractor.pdf_extractor:PDFExtractor")
    content = Content.from_file("/path/to/file.pdf")
 
    results =  extractor.extract(content)
@@ -206,7 +206,7 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
 
 2. Start a long-running PDF Extractor:
    ```bash
-   indexify-extractor download tensorlake/pdf-extractor
+   indexify-extractor download tensorlake/pdfextractor
    indexify-extractor join-server
    ```
 
@@ -218,8 +218,8 @@ We've made it incredibly easy to integrate Indexify into your workflow. Get read
    extraction_graph_spec = """
    name: 'pdfknowledgebase'
    extraction_policies:
-      - extractor: 'tensorlake/pdf-extractor'
-        name: 'my-pdf-extractor'
+      - extractor: 'tensorlake/pdfextractor'
+        name: 'my-pdfextractor'
    """
 
    extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
