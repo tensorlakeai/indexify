@@ -154,6 +154,23 @@ The choice of extractor depends on the specific requirements of the task at hand
 
 By considering these factors, you can select the most appropriate extractor for your specific use case, ensuring efficient and effective PDF text extraction.
 
+### Scoring Methodology
+
+The scoring was done by comparing the extracted text from each PDF with its reference text using the following steps:
+
+1. **Chunking**: Both the hypothesis (extracted text) and the reference text are divided into chunks of 500 characters, ensuring chunks have a minimum of 25 characters.
+2. **Overlap Score Calculation**: For each chunk of the hypothesis text, a fuzzy matching score with the best-matching reference chunk within a defined range is computed using the `rapidfuzz` library. This range is determined based on a length modifier and search distance.
+3. **Final Score**: The average of these chunk scores provides a final alignment score between 0 and 1, indicating how closely the extracted text matches the reference.
+
+### Links
+
+- [Code for Creating Graphs](https://colab.research.google.com/drive/1xyS8oCJV1CHW5fmgeD3umSAPbGOqID-G?usp=sharing)
+- [Benchmarking Script](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing)
+
+### Test Environment
+
+- Tests were conducted on an L4 GPU with 53 GB system RAM and 22.5 GB GPU RAM.
+
 ## Get Started with PDF Extraction
 
 You can test it locally:
@@ -242,4 +259,3 @@ We've curated a collection of inspiring examples to showcase the versatility of 
 - [Multi-state Terms Documents](../examples/Sixt.ipynb)
 - [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease.
 - [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions.
-
