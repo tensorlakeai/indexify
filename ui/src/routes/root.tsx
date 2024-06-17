@@ -1,111 +1,91 @@
-import * as React from "react";
-import { styled, ThemeProvider } from "@mui/material/styles";
-import CssBaseline from "@mui/material/CssBaseline";
-import Box from "@mui/material/Box";
-import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
-import Toolbar from "@mui/material/Toolbar";
-import Typography from "@mui/material/Typography";
-import Container from "@mui/material/Container";
-import Link from "@mui/material/Link";
+import * as React from 'react'
+import { ThemeProvider } from '@mui/material/styles'
+import CssBaseline from '@mui/material/CssBaseline'
+import Box from '@mui/material/Box'
+import Toolbar from '@mui/material/Toolbar'
+import Typography from '@mui/material/Typography'
 import {
   LoaderFunctionArgs,
   Outlet,
   redirect,
   useLoaderData,
-} from "react-router-dom";
-import theme from "../theme";
-import { Stack } from "@mui/system";
-import MenuItem from "@mui/material/MenuItem";
-import Menu from "@mui/material/Menu";
-import { Button } from "@mui/material";
-import { IndexifyClient } from "getindexify";
-import DataObjectIcon from "@mui/icons-material/DataObject";
-import CircleIcon from "@mui/icons-material/Circle";
-import { getIndexifyServiceURL, stringToColor } from "../utils/helpers";
+  useLocation,
+} from 'react-router-dom'
+import theme from '../theme'
+import { Stack } from '@mui/system'
+import { IndexifyClient } from 'getindexify'
+import { getIndexifyServiceURL } from '../utils/helpers'
+import Footer from '../components/Footer'
+import {
+  Divider,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemText,
+} from '@mui/material'
+import { Link } from 'react-router-dom'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
     await IndexifyClient.namespaces({
       serviceUrl: getIndexifyServiceURL(),
     })
-  ).map((repo) => repo.name);
+  ).map((repo) => repo.name)
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
-    if (params.namespace !== "default") {
-      return redirect(`/${namespaces[0] ?? "default"}`);
+    if (params.namespace !== 'default') {
+      return redirect(`/${namespaces[0] ?? 'default'}/extractors`)
     }
   }
-  return { namespaces, namespace: params.namespace };
+  return { namespaces, namespace: params.namespace }
 }
 
-function Copyright(props: any) {
-  return (
-    <Typography
-      variant="body2"
-      color="text.secondary"
-      align="center"
-      {...props}
-    >
-      {"Copyright © "}
-      <Link color="inherit" href="https://tensorlake.ai/">
-        Tensorlake
-      </Link>{" "}
-      {new Date().getFullYear()}
-      {"."}
-    </Typography>
-  );
-}
-
-interface AppBarProps extends MuiAppBarProps {
-  open?: boolean;
-}
-
-const AppBar = styled(MuiAppBar, {
-  shouldForwardProp: (prop) => prop !== "open",
-})<AppBarProps>(({ theme, open }) => ({
-  transition: theme.transitions.create(["width", "margin"], {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen,
-  }),
-}));
+const drawerWidth = 240
 
 export default function Dashboard() {
-  const { namespace, namespaces } = useLoaderData() as {
-    namespace: string;
-    namespaces: string[];
-  };
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
-
-  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleClose = () => {
-    setAnchorEl(null);
-  };
-
+  const { namespace } = useLoaderData() as {
+    namespace: string
+    namespaces: string[]
+  }
+  const location = useLocation()
   return (
     <ThemeProvider theme={theme}>
-      <Box sx={{ display: "flex" }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
+          backgroundColor: (theme) =>
+            theme.palette.mode === 'light'
+              ? theme.palette.grey[100]
+              : theme.palette.grey[900],
+        }}
+      >
         <CssBaseline />
-        <AppBar position="absolute" sx={{ backgroundColor: "white" }}>
-          <Toolbar
-            sx={{
-              pr: "24px", // keep right padding when drawer closed
-            }}
-          >
+        {/* <NavigationBar namespace={namespace} namespaces={namespaces} /> */}
+        <Drawer
+          variant="permanent"
+          sx={{
+            width: drawerWidth,
+            flexShrink: 0,
+            [`& .MuiDrawer-paper`]: {
+              width: drawerWidth,
+              boxSizing: 'border-box',
+            },
+          }}
+        >
+          <Toolbar>
             <Stack
-              direction={"row"}
-              display={"flex"}
-              alignItems={"center"}
-              justifyContent={"flex-start"}
+              direction={'row'}
+              display={'flex'}
+              alignItems={'center'}
+              justifyContent={'flex-start'}
               spacing={2}
-              flexGrow={1}
             >
               <img src="/ui/logo.svg" alt="logo" />
               <a
-                href={"/ui"}
-                style={{ textDecoration: "none", color: "white" }}
+                href={'/ui'}
+                style={{ textDecoration: 'none', color: 'white' }}
               >
                 <Typography
                   component="h1"
@@ -118,83 +98,72 @@ export default function Dashboard() {
                 </Typography>
               </a>
             </Stack>
-
-            <Button
-              size="large"
-              aria-label="account of current user"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
-              onClick={handleMenu}
-              startIcon={
-                <DataObjectIcon sx={{ color: stringToColor(namespace) }} />
-              }
-            >
-              {namespace}
-            </Button>
-
-            <Menu
-              id="menu-appbar"
-              anchorEl={anchorEl}
-              anchorOrigin={{
-                vertical: "top",
-                horizontal: "right",
-              }}
-              keepMounted
-              transformOrigin={{
-                vertical: "top",
-                horizontal: "right",
-              }}
-              open={Boolean(anchorEl)}
-              onClose={handleClose}
-            >
-              <Typography mx={2} my={1} variant="h4">
-                Namespaces ({namespaces.length})
-              </Typography>
-              {namespaces.map((name) => {
-                return (
-                  <a
-                    style={{ textDecoration: "none" }}
-                    key={name}
-                    href={`/ui/${name}`}
-                  >
-                    <MenuItem onClick={handleClose}>
-                      <CircleIcon
-                        sx={{
-                          width: "15px",
-                          color: stringToColor(name),
-                          mr: 1,
-                        }}
-                      />
-                      {name}
-                    </MenuItem>
-                  </a>
-                );
-              })}
-            </Menu>
           </Toolbar>
-        </AppBar>
-
+          <Box
+            sx={{
+              overflow: 'auto',
+            }}
+          >
+            <List>
+              <ListItemButton
+                to={`/${namespace}/extractors`}
+                component={Link}
+                selected={location.pathname.startsWith(`/${namespace}/extractors`)}
+              >
+                <ListItemText primary={'Extractors'} />
+              </ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/content`}
+                component={Link}
+                selected={location.pathname.startsWith(`/${namespace}/content`)}
+              >
+                <ListItemText primary={'Content'} />
+              </ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/extraction-graphs`}
+                component={Link}
+                selected={
+                  location.pathname.startsWith(`/${namespace}/extraction-graphs`)
+                }
+              >
+                <ListItemText primary={'Extraction Graphs'} />
+              </ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/indexes`}
+                component={Link}
+                selected={location.pathname.startsWith(`/${namespace}/indexes`)}
+              >
+                <ListItemText primary={'Indexes'} />
+              </ListItemButton>
+              <ListItemButton
+                to={`/${namespace}/sql-tables`}
+                component={Link}
+                selected={location.pathname.startsWith(`/${namespace}/sql-tables`)}
+              >
+                <ListItemText primary={'SQL Tables'} />
+              </ListItemButton>
+            </List>
+          </Box>
+        </Drawer>
+        {/* page content */}
         <Box
           component="main"
+          display="flex"
+          flexDirection={'column'}
           sx={{
-            backgroundColor: (theme) =>
-              theme.palette.mode === "light"
-                ? theme.palette.grey[100]
-                : theme.palette.grey[900],
-            flexGrow: 1,
-            height: "100vh",
-            overflow: "auto",
+            minHeight: '100vh',
+            overflow: 'auto',
+            padding: 2,
+            marginLeft: `${drawerWidth}px`,
           }}
         >
-          <Toolbar />
-          <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-            <div id="detail">
-              <Outlet />
-            </div>
-            <Copyright sx={{ pt: 4 }} />
-          </Container>
+          <Box id="detail" p={2} flexGrow={1}>
+            <Outlet />
+          </Box>
+          <Divider />
+          <Footer />
         </Box>
       </Box>
     </ThemeProvider>
-  );
+  )
 }

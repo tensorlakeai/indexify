@@ -3,6 +3,8 @@ use std::error::Error;
 use vergen::EmitBuilder;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let out_dir = std::path::Path::new("crates/indexify_proto/src/");
+
     EmitBuilder::builder()
         .all_build()
         .all_cargo()
@@ -12,7 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .emit()?;
 
     tonic_build::configure()
-        .out_dir("crates/indexify_proto/src/")
+        .out_dir(out_dir)
         .type_attribute(
             "CreateContentRequest",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -21,6 +23,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             "ContentMetadata",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .extern_path(".google.protobuf.Any", "::prost_wkt_types::Any")
+        .extern_path(".google.protobuf.Timestamp", "::prost_wkt_types::Timestamp")
+        .extern_path(".google.protobuf.Value", "::prost_wkt_types::Value")
         .compile(
             &["protos/coordinator_service.proto", "protos/raft.proto"],
             &["protos"],

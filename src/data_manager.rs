@@ -12,7 +12,6 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
-use itertools::Itertools;
 use mime::Mime;
 use nanoid::nanoid;
 use sha2::{Digest, Sha256};
@@ -81,14 +80,22 @@ impl DataManager {
         let req = indexify_coordinator::ListNamespaceRequest {};
         let response = self.coordinator_client.get().await?.list_ns(req).await?;
         let namespaces = response.into_inner().namespaces;
-        let data_namespaces = namespaces
+
+        let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|r| api::DataNamespace {
-                name: r.name,
-                extraction_graphs: r.extraction_graphs.into_iter().map(Into::into).collect(),
+            .map(|r| {
+                let graphs: Result<Vec<api::ExtractionGraph>, anyhow::Error> = r
+                    .extraction_graphs
+                    .into_iter()
+                    .map(|g| g.try_into())
+                    .collect();
+                Ok(api::DataNamespace {
+                    name: r.name,
+                    extraction_graphs: graphs?,
+                })
             })
             .collect();
-        Ok(data_namespaces)
+        Ok(data_namespaces?)
     }
 
     #[tracing::instrument]
@@ -119,7 +126,7 @@ impl DataManager {
             .await?
             .into_inner();
         let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
-        Ok(namespace.into())
+        Ok(namespace.try_into()?)
     }
 
     pub async fn get_extraction_policy(&self, id: &str) -> Result<api::ExtractionPolicy> {
@@ -136,7 +143,7 @@ impl DataManager {
         let policy = resp
             .policy
             .ok_or_else(|| anyhow!("extraction policy not found"))?;
-        Ok(policy.into())
+        Ok(policy.try_into()?)
     }
 
     pub async fn create_extraction_graph(
@@ -148,11 +155,14 @@ impl DataManager {
         for ep in req.extraction_policies {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
+
+            let filters = ep.filters_eq.clone().unwrap_or_default();
+            let filters = internal_api::utils::convert_map_serde_to_prost_json(filters)?;
             let req = indexify_coordinator::ExtractionPolicyRequest {
                 namespace: namespace.to_string(),
                 extractor: ep.extractor.clone(),
                 name: ep.name.clone(),
-                filters: ep.filters_eq.clone().unwrap_or_default(),
+                filters,
                 input_params: input_params_serialized,
                 content_source: ep.content_source.clone().unwrap_or_default(),
                 created_at: SystemTime::now()
@@ -233,13 +243,22 @@ impl DataManager {
         namespace: &str,
         source_filter: &str,
         parent_id_filter: &str,
-        labels_eq_filter: Option<&HashMap<String, String>>,
+        labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
+        start_id: String,
+        limit: u64,
     ) -> Result<Vec<api::ContentMetadata>> {
+        let default_labels_eq = HashMap::new();
+        let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
+            labels_eq_filter.unwrap_or(&default_labels_eq).clone(),
+        )?;
+
         let req = indexify_coordinator::ListContentRequest {
             namespace: namespace.to_string(),
             source: source_filter.to_string(),
             parent_id: parent_id_filter.to_string(),
-            labels_eq: labels_eq_filter.unwrap_or(&HashMap::new()).clone(),
+            labels_eq,
+            start_id,
+            limit,
         };
         let response = self
             .coordinator_client
@@ -247,12 +266,11 @@ impl DataManager {
             .await?
             .list_content(req)
             .await?;
-        let content_list = response
-            .into_inner()
-            .content_list
-            .into_iter()
-            .map(|c| c.into())
-            .collect_vec();
+        let mut content_list = vec![];
+        for content in response.into_inner().content_list {
+            let content: api::ContentMetadata = content.try_into()?;
+            content_list.push(content);
+        }
         Ok(content_list)
     }
 
@@ -340,16 +358,8 @@ impl DataManager {
             .into_iter()
             .next()
             .ok_or_else(|| anyhow!("content not found"))?;
-        let content_metadata_labels = content_metadata
-            .labels
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
-                )
-            })
-            .collect();
+        let content_metadata_labels =
+            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
         let new_metadata = DataManager::combine_metadata(metadata, &[], content_metadata_labels);
         for table in &gc_task.output_tables {
             self.vector_index_manager
@@ -390,7 +400,7 @@ impl DataManager {
         id: Option<String>,
         file: &str,
         mime: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
         extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
     ) -> Result<String> {
         if !(["https://", "http://", "s3://", "file://"]
@@ -404,6 +414,8 @@ impl DataManager {
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
         let id = id.unwrap_or(nanoid!(16));
+
+        let labels_converted = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
         let content_metadata = indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name: file.to_string(),
@@ -412,7 +424,7 @@ impl DataManager {
             created_at: current_ts_secs as i64,
             mime: mime.to_string(),
             namespace: namespace.to_string(),
-            labels,
+            labels: labels_converted,
             source: "".to_string(),
             size_bytes: 0,
             hash: "".to_string(),
@@ -453,7 +465,12 @@ impl DataManager {
             .get_content_metadata(req)
             .await?
             .into_inner();
-        Ok(response.content_list.into_iter().map(Into::into).collect())
+        let mut content_list = vec![];
+        for content in response.content_list {
+            let content: api::ContentMetadata = content.try_into()?;
+            content_list.push(content);
+        }
+        Ok(content_list)
     }
 
     pub async fn get_content_tree_metadata(
@@ -468,12 +485,11 @@ impl DataManager {
             .await?
             .get_content_tree_metadata(req)
             .await?;
-        let content_list: Vec<api::ContentMetadata> = response
-            .into_inner()
-            .content_list
-            .into_iter()
-            .map(|content| content.into())
-            .collect();
+        let mut content_list: Vec<api::ContentMetadata> = vec![];
+        for content in response.into_inner().content_list {
+            let content: api::ContentMetadata = content.try_into()?;
+            content_list.push(content);
+        }
         Ok(content_list)
     }
 
@@ -484,7 +500,7 @@ impl DataManager {
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
         name: &str,
         mime_type: Mime,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
         original_content_id: Option<&str>,
         extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<indexify_coordinator::ContentMetadata> {
@@ -508,12 +524,13 @@ impl DataManager {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
+        let prost_labels = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
         let req = indexify_coordinator::UpdateLabelsRequest {
             content_id: content_id.to_string(),
             namespace: namespace.to_string(),
-            labels,
+            labels: prost_labels,
         };
         self.coordinator_client
             .get()
@@ -564,7 +581,7 @@ impl DataManager {
         &self,
         namespace: &str,
         data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
         content_type: String,
         file_name: Option<&str>,
         source: &str,
@@ -597,6 +614,9 @@ impl DataManager {
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
         }
+
+        let labels = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
+
         Ok(indexify_coordinator::ContentMetadata {
             id: id.clone(),
             file_name,
@@ -705,16 +725,8 @@ impl DataManager {
             .metadata_index_manager
             .get_metadata_for_content(&content_metadata.namespace, &content_metadata.id)
             .await?;
-        let content_metadata_labels = content_metadata
-            .labels
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
-                )
-            })
-            .collect();
+        let content_metadata_labels =
+            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
         let new_metadata =
             Self::combine_metadata(existing_metadata, &features, content_metadata_labels);
         self.write_extracted_features(
@@ -835,16 +847,8 @@ impl DataManager {
             }
             return Ok(());
         }
-        let content_metadata_labels = content_metadata
-            .labels
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    serde_json::from_str(v).unwrap_or(serde_json::Value::String(v.clone())),
-                )
-            })
-            .collect();
+        let content_metadata_labels =
+            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
         let metadata = Self::combine_metadata(Vec::new(), &features, content_metadata_labels);
         self.write_extracted_features(
             extractor,

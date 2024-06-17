@@ -715,7 +715,7 @@ async fn update_labels(
 async fn list_content(
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    filter: Query<super::api::ListContentFilters>,
+    filter: Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
     let content_list = state
         .data_manager
@@ -724,6 +724,8 @@ async fn list_content(
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),
+            filter.start_id.clone().unwrap_or_default(),
+            filter.limit.unwrap_or(10),
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -927,7 +929,7 @@ async fn upload_file(
     Query(params): Query<UploadFileQueryParams>,
     mut files: Multipart,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
-    let mut labels = HashMap::new();
+    let mut labels: HashMap<String, serde_json::Value> = HashMap::new();
 
     let extraction_graph_names = params
         .extraction_graph_names
@@ -1017,14 +1019,16 @@ async fn upload_file(
                 .add(size_bytes, &[]);
             return Ok(Json(UploadFileResponse { content_id: id }));
         } else if let Some(name) = field.name() {
-            let name = name.to_string();
-            let value = field.text().await.map_err(|e| {
+            if name != "labels" {
+                continue;
+            }
+
+            labels = serde_json::from_str(&field.text().await.unwrap()).map_err(|e| {
                 IndexifyAPIError::new(
                     StatusCode::BAD_REQUEST,
                     &format!("failed to upload file: {}", e),
                 )
             })?;
-            labels.insert(name, value);
         }
     }
     Err(IndexifyAPIError::new(
@@ -1237,6 +1241,9 @@ async fn list_tasks(
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
             extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
+            start_id: query.start_id.clone().unwrap_or_default(),
+            limit: query.limit.unwrap_or(10),
+            content_id: query.content_id.unwrap_or_default(),
         })
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?

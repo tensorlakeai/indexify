@@ -34,7 +34,7 @@ pub struct ScoredText {
     pub text: String,
     pub content_id: String,
     pub mime_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub confidence_score: f32,
     pub root_content_metadata: Option<internal_api::ContentMetadata>,
     pub content_metadata: internal_api::ContentMetadata,
@@ -173,7 +173,7 @@ impl VectorIndexManager {
             let mut labels = HashMap::new();
             labels.extend(result.content_metadata.labels.clone());
             for (k, v) in result.metadata {
-                labels.insert(k, v.to_string());
+                labels.insert(k, v);
             }
             let search_result = ScoredText {
                 text,

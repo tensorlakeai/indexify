@@ -1,6 +1,6 @@
 [package]
 name = "indexify"
-version = "0.1.6"
+version = "0.1.12"
 edition = "2021"
 authors = ["Diptanu Gon Choudhury <diptanu@tensorlake.ai>"]
 build = "build.rs"
@@ -53,8 +53,10 @@ opensearch = { version = "2", default_features = false, features = [
 ] }
 opentelemetry = { version = "0.22", features = ["metrics"] }
 pgvector = { version = "0.3", features = ["sqlx"] }
-prost = { version = "0.12" }
+prost = { version = "0.12.6" }
 prost-types = { version = "0.12" }
+prost-wkt = "0.5.1"
+prost-wkt-types = {version = "0.5.1" }
 qdrant-client = { version = "1.9.0" }
 rand = { version = "0.8" }
 redis = { version = "0.24", features = [
@@ -162,6 +164,9 @@ openraft = { workspace = true }
 opensearch = { workspace = true }
 opentelemetry = { workspace = true }
 pgvector = { workspace = true }
+prost = { workspace = true }
+prost-wkt = { workspace = true }
+prost-wkt-types = { workspace = true }
 qdrant-client = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true }
@@ -234,6 +239,7 @@ vergen = { version = "8", features = [
     "si",
 ] }
 tonic-build = { version = "0.10.2", features = ["prost"] }
+prost-wkt-build = "0.5"
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"

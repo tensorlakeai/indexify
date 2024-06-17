@@ -8,7 +8,7 @@
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 
-Indexify is an open-source engine for buidling fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. LLM Applications can query transformed content friendly to LLMs by semantic search and SQL queries. 
+Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. LLM Applications can query transformed content friendly to LLMs by semantic search and SQL queries. 
 
 Indexify keeps vectordbs, structured databases(postgres) updated by automatically invoking the pipelines as new data is ingested into the system from external data sources.  
 
@@ -41,7 +41,7 @@ curl https://getindexify.ai | sh
 ```bash title="Terminal 2"
 virtualenv ve
 source ve/bin/activate
-pip install indexify indexify-extractor-sdk
+pip install indexify indexify-extractor-sdk requests
 ```
 
 #### Download some extractors
@@ -51,7 +51,7 @@ indexify-extractor download tensorlake/pdf-extractor
 indexify-extractor download tensorlake/yolo-extractor
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor download tensorlake/summarization
-indexify-extractor download tensorlake/asrdiarization
+indexify-extractor download tensorlake/whisper-asr
 indexify-extractor join-server
 ```
 
@@ -74,13 +74,16 @@ print("indexes", client.indexes())
 ```
 #### Add Texts
 ```python
-client.add_documents("sportsknowledgebase", ["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
+content_ids = client.add_documents("sportsknowledgebase", ["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
 ```
 
 #### Retrieve
 ```python
+client.wait_for_extraction(content_ids)
 context = client.search_index(name="sportsknowledgebase.minilml6.embedding", query="NBA commissioner", top_k=1)
 ```
+
+> The method wait_for_extraction blocks the client until Indexify runs the extraction on the ingested content. In production applications you will most likely won't block your application, and let extraction be asynchronous.
 
 
 ### Podcast Summarization and Embedding
@@ -90,22 +93,24 @@ More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_
 #### Create an Extraction Graph
 ```python
 from indexify import IndexifyClient, ExtractionGraph
+import requests
 client = IndexifyClient()
 
 extraction_graph_spec = """
 name: 'audiosummary'
 extraction_policies:
-   - extractor: 'tensorlake/asrdiarization'
-     name: 'asrextractor'
+   - extractor: 'tensorlake/whisper-asr'
+     name: 'transcription'
    - extractor: 'tensorlake/summarization'
      name: 'summarizer'
      input_params:
-        max_length: int = 400
-        min_length: int = 300
+        max_length: 400
+        min_length: 300
         chunk_method: str = 'recursive'
-     content_source: 'asrextractor'
+     content_source: 'transcription'
    - extractor: 'tensorlake/minilm-l6'
      name: 'minilml6'
+     content_source: 'summarizer'
 """
 
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
@@ -123,7 +128,11 @@ content_id = client.upload_file("audiosummary", "sample.mp3")
 
 #### Retrieve Summary
 ```python
-client.get_extracted_content(content_id)
+client.wait_for_extraction(content_id)
+print("transcription ----")
+print(client.get_extracted_content(content_id, "audiosummary", "transcription"))
+print("summary ----")
+print(client.get_extracted_content(content_id, "audiosummary", "summarizer"))
 ```
 
 #### Search Transcription Index
@@ -138,6 +147,8 @@ More details about Image understanding and retrieval - https://docs.getindexify.
 #### Create an Extraction Graph
 ```python
 from indexify import IndexifyClient, ExtractionGraph
+import requests
+
 client = IndexifyClient()
 
 extraction_graph_spec = """
@@ -160,12 +171,15 @@ content_id = client.upload_file("imageknowledgebase", "sample.jpg")
 
 #### Retrieve Features of an Image
 ```python
-client.get_extracted_content(content_id)
+client.wait_for_extraction(content_id)
+client.get_extracted_content(content_id, "imageknowledgebase", "object_detection")
 ```
+
+> The Yolo extractor adds the objects detected in the image in the database. The table name is same as the extraction graph name
 
 #### Query using SQL
 ```python
-result = client.sql_query("select * from ingestion where object_name='skateboard';")
+print(client.sql_query("select * from imageknowledgebase where object_name='person';"))
 ```
 
 ###  PDF Extraction and Retrieval
@@ -175,6 +189,7 @@ More information here - https://docs.getindexify.ai/usecases/pdf_extraction/
 #### Create an Extraction Graph
 ```python
 from indexify import IndexifyClient, ExtractionGraph
+import requests
 client = IndexifyClient()
 
 extraction_graph_spec = """
@@ -197,11 +212,12 @@ content_id = client.upload_file("pdfqa", "sample.pdf")
 
 #### Get Text, Image and Tables
 ```python
-client.get_extracted_content(content_id)
+client.wait_for_extraction(content_id)
+print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
 ```
 
 ### LLM Framework Integration 
-Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
+Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
 
 ### Try out other extractors
 We have a ton of other extractors, you can list them and try them out - 
@@ -217,7 +233,7 @@ Any extraction or transformation algorithm can be expressed as an Indexify Extra
 Extractors which produce structured data from content, such as bounding boxes and object type, or line items of invoices are stored in
 structured store. You can query extracted structured data using Indexify's SQL interface.
 
-We have an example [here](https://getindexify.ai/usecases/image_retrieval/)
+We have an example [here](https://docs.getindexify.ai/usecases/image_retrieval/)
 
 ## Contributions
 Please open an issue to discuss new features, or join our Discord group. Contributions are welcome, there are a bunch of open tasks we could use help with! 

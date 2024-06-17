@@ -5,7 +5,7 @@ use itertools::Itertools;
 pub fn content_filter(
     content: &indexify_internal_api::ContentMetadata,
     source: &str,
-    labels_eq: &HashMap<String, String>,
+    labels_eq: &HashMap<String, serde_json::Value>,
 ) -> bool {
     if !source.is_empty() && source != content.source.to_string() {
         return false;
@@ -21,7 +21,7 @@ pub fn list_content_filter<'a>(
     content_list: Vec<indexify_internal_api::ContentMetadata>,
     source: &'a str,
     parent_id: &'a str,
-    labels_eq: &'a HashMap<String, String>,
+    labels_eq: &'a HashMap<String, serde_json::Value>,
 ) -> Vec<indexify_internal_api::ContentMetadata> {
     content_list
         .into_iter()
@@ -69,7 +69,7 @@ mod test {
                 parent_id: Some(ContentMetadataId::new("parent1")),
                 labels: {
                     let mut labels = HashMap::new();
-                    labels.insert("key1".to_string(), "value1".to_string());
+                    labels.insert("key1".to_string(), serde_json::json!("value1"));
                     labels
                 },
                 ..Default::default()
@@ -87,8 +87,8 @@ mod test {
                 parent_id: Some(ContentMetadataId::new("parent2")),
                 labels: {
                     let mut labels = HashMap::new();
-                    labels.insert("key1".to_string(), "value1".to_string());
-                    labels.insert("key2".to_string(), "value2".to_string());
+                    labels.insert("key1".to_string(), serde_json::json!("value1"));
+                    labels.insert("key2".to_string(), serde_json::json!("value2"));
                     labels
                 },
                 ..Default::default()
@@ -137,7 +137,7 @@ mod test {
         // labels filter - exact match
         let labels_eq = {
             let mut labels = HashMap::new();
-            labels.insert("key1".to_string(), "value1".to_string());
+            labels.insert("key1".to_string(), serde_json::json!("value1"));
             labels
         };
         let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq);
@@ -147,8 +147,8 @@ mod test {
         // labels filter - exact match multiple labels
         let labels_eq = {
             let mut labels = HashMap::new();
-            labels.insert("key1".to_string(), "value1".to_string());
-            labels.insert("key2".to_string(), "value2".to_string());
+            labels.insert("key1".to_string(), serde_json::json!("value1"));
+            labels.insert("key2".to_string(), serde_json::json!("value2"));
             labels
         };
         let filtered_content = list_content_filter(content.clone(), "", "", &labels_eq);

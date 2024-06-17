@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use indexify_proto::indexify_coordinator;
 
-use crate::coordinator_client::CoordinatorClient;
+use crate::{coordinator_client::CoordinatorClient, state::store::ExecutorId};
 
 pub struct ForwardableCoordinator {
     coordinator_client: CoordinatorClient,
@@ -23,6 +25,22 @@ impl ForwardableCoordinator {
         let mut client = self.coordinator_client.get_coordinator(leader_addr).await?;
 
         client.register_ingestion_server(req).await?;
+
+        Ok(())
+    }
+
+    pub async fn executors_heartbeat(
+        &self,
+        leader_addr: &str,
+        executors: HashSet<ExecutorId>,
+    ) -> Result<(), anyhow::Error> {
+        let req = indexify_coordinator::ExecutorsHeartbeatRequest {
+            executors: executors.into_iter().collect(),
+        };
+
+        let mut client = self.coordinator_client.get_coordinator(leader_addr).await?;
+
+        client.executors_heartbeat(req).await?;
 
         Ok(())
     }

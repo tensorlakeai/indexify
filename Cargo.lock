@@ -2267,7 +2267,7 @@ dependencies = [
  "datafusion",
  "itertools 0.12.1",
  "object_store",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-types",
  "substrait",
 ]
@@ -2439,6 +2439,16 @@ name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
+
+[[package]]
+name = "erased-serde"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24e2389d65ab4fab27dc2a5de7b191e1f6617d1f1c8855c0dc569c94a4cbb18d"
+dependencies = [
+ "serde",
+ "typeid",
+]
 
 [[package]]
 name = "errno"
@@ -3340,7 +3350,7 @@ dependencies = [
 
 [[package]]
 name = "indexify"
-version = "0.1.6"
+version = "0.1.12"
 dependencies = [
  "anyerror",
  "anyhow",
@@ -3394,6 +3404,10 @@ dependencies = [
  "pgvector",
  "pin-project-lite",
  "prometheus",
+ "prost 0.12.6",
+ "prost-wkt",
+ "prost-wkt-build",
+ "prost-wkt-types",
  "qdrant-client",
  "rand",
  "redis",
@@ -3449,6 +3463,7 @@ dependencies = [
  "jsonschema",
  "mime",
  "nanoid",
+ "prost-wkt-types",
  "serde",
  "serde_json",
  "serde_with",
@@ -3461,7 +3476,9 @@ dependencies = [
 name = "indexify_proto"
 version = "0.1.0"
 dependencies = [
- "prost 0.12.4",
+ "prost 0.12.6",
+ "prost-wkt",
+ "prost-wkt-types",
  "serde",
  "tonic 0.11.0",
 ]
@@ -3508,6 +3525,12 @@ name = "integer-encoding"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
+
+[[package]]
+name = "inventory"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f958d3d68f4167080a18141e10381e7634563984a537f2a49a30fd8e53ac5767"
 
 [[package]]
 name = "io-lifetimes"
@@ -3677,7 +3700,7 @@ dependencies = [
  "object_store",
  "ordered-float 3.9.2",
  "pin-project",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-build",
  "rand",
  "roaring",
@@ -3733,7 +3756,7 @@ dependencies = [
  "moka 0.11.3",
  "object_store",
  "pin-project",
- "prost 0.12.4",
+ "prost 0.12.6",
  "rand",
  "roaring",
  "serde_json",
@@ -3763,7 +3786,7 @@ dependencies = [
  "futures",
  "lance-arrow",
  "lance-core",
- "prost 0.12.4",
+ "prost 0.12.6",
  "snafu",
  "tokio",
 ]
@@ -3805,7 +3828,7 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "object_store",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-build",
  "roaring",
  "snafu",
@@ -3846,7 +3869,7 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "object_store",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-build",
  "rand",
  "roaring",
@@ -3887,7 +3910,7 @@ dependencies = [
  "num_cpus",
  "object_store",
  "pin-project",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-build",
  "shellexpand",
  "snafu",
@@ -3944,7 +3967,7 @@ dependencies = [
  "lazy_static",
  "log",
  "object_store",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-build",
  "prost-types",
  "rand",
@@ -4838,7 +4861,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry-semantic-conventions 0.14.0",
  "opentelemetry_sdk 0.22.1",
- "prost 0.12.4",
+ "prost 0.12.6",
  "thiserror",
  "tokio",
  "tonic 0.11.0",
@@ -4878,7 +4901,7 @@ checksum = "3a8fddc9b68f5b80dae9d6f510b88e02396f006ad48cac349411fbecc80caae4"
 dependencies = [
  "opentelemetry 0.22.0",
  "opentelemetry_sdk 0.22.1",
- "prost 0.12.4",
+ "prost 0.12.6",
  "tonic 0.11.0",
 ]
 
@@ -5407,12 +5430,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.12.4"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f5d036824e4761737860779c906171497f6d55681139d8312388f8fe398922"
+checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
 dependencies = [
  "bytes",
- "prost-derive 0.12.4",
+ "prost-derive 0.12.6",
 ]
 
 [[package]]
@@ -5429,7 +5452,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "prettyplease",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-types",
  "regex",
  "syn 2.0.58",
@@ -5451,9 +5474,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.12.4"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19de2de2a00075bf566bee3bd4db014b11587e84184d3f7a791bc17f1a8e9e48"
+checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -5468,7 +5491,53 @@ version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3235c33eb02c1f1e212abdbe34c78b264b038fb58ca612664343271e36e55ffe"
 dependencies = [
- "prost 0.12.4",
+ "prost 0.12.6",
+]
+
+[[package]]
+name = "prost-wkt"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fb7ec2850c138ebaa7ab682503b5d08c3cb330343e9c94776612928b6ddb53f"
+dependencies = [
+ "chrono",
+ "inventory",
+ "prost 0.12.6",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "typetag",
+]
+
+[[package]]
+name = "prost-wkt-build"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "598b7365952c2ed4e32902de0533653aafbe5ae3da436e8e2335c7d375a1cef3"
+dependencies = [
+ "heck 0.5.0",
+ "prost 0.12.6",
+ "prost-build",
+ "prost-types",
+ "quote",
+]
+
+[[package]]
+name = "prost-wkt-types"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a8eadc2381640a49c1fbfb9f4a857794b4e5bf5a2cbc2d858cfdb74f64dcd22"
+dependencies = [
+ "chrono",
+ "prost 0.12.6",
+ "prost-build",
+ "prost-types",
+ "prost-wkt",
+ "prost-wkt-build",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -5516,7 +5585,7 @@ checksum = "3f99a77fdc9b1ef9ce9ab9edcdd3e56e6977475faf633598f1a37066c87be4b7"
 dependencies = [
  "anyhow",
  "futures-util",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-types",
  "reqwest 0.12.4",
  "serde",
@@ -6947,7 +7016,7 @@ dependencies = [
  "git2",
  "heck 0.4.1",
  "prettyplease",
- "prost 0.12.4",
+ "prost 0.12.6",
  "prost-build",
  "prost-types",
  "schemars",
@@ -7378,7 +7447,7 @@ dependencies = [
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
- "prost 0.12.4",
+ "prost 0.12.6",
  "rustls-native-certs 0.7.0",
  "rustls-pemfile 2.1.1",
  "rustls-pki-types",
@@ -7674,10 +7743,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "typeid"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "059d83cc991e7a42fc37bd50941885db0888e34209f8cfd9aab07ddec03bc9cf"
+
+[[package]]
 name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
+
+[[package]]
+name = "typetag"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "661d18414ec032a49ece2d56eee03636e43c4e8d577047ab334c0ba892e29aaf"
+dependencies = [
+ "erased-serde",
+ "inventory",
+ "once_cell",
+ "serde",
+ "typetag-impl",
+]
+
+[[package]]
+name = "typetag-impl"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac73887f47b9312552aa90ef477927ff014d63d1920ca8037c6c1951eab64bb1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.58",
+]
 
 [[package]]
 name = "typify"

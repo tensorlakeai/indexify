@@ -2,10 +2,11 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
     sync::Arc,
+    time::SystemTime,
     vec,
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
@@ -20,16 +21,21 @@ use internal_api::{
     StructuredDataSchema,
 };
 use tokio::sync::{broadcast, watch::Receiver};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{
     coordinator_client::CoordinatorClient,
     coordinator_filters::*,
+    coordinator_service::EXECUTOR_HEARTBEAT_PERIOD,
     forwardable_coordinator::ForwardableCoordinator,
     garbage_collector::GarbageCollector,
     metrics::Timer,
     scheduler::Scheduler,
-    state::{store::requests::StateChangeProcessed, RaftMetrics, SharedState},
+    state::{
+        store::{requests::StateChangeProcessed, ExecutorId},
+        RaftMetrics,
+        SharedState,
+    },
     task_allocator::TaskAllocator,
     utils,
 };
@@ -39,6 +45,11 @@ pub struct Coordinator {
     scheduler: Scheduler,
     garbage_collector: Arc<GarbageCollector>,
     forwardable_coordinator: ForwardableCoordinator,
+    /// Executors registered on this node.
+    pub my_executors: std::sync::Mutex<HashSet<ExecutorId>>,
+
+    /// All executors registered on the cluster.
+    pub all_executors: std::sync::Mutex<HashMap<ExecutorId, SystemTime>>,
 }
 
 impl Coordinator {
@@ -55,7 +66,105 @@ impl Coordinator {
             scheduler,
             garbage_collector,
             forwardable_coordinator,
+            my_executors: std::sync::Mutex::new(HashSet::new()),
+            all_executors: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub fn get_locked_my_executors(&self) -> std::sync::MutexGuard<HashSet<String>> {
+        self.my_executors.lock().unwrap()
+    }
+
+    pub fn get_locked_all_executors(&self) -> std::sync::MutexGuard<HashMap<String, SystemTime>> {
+        self.all_executors.lock().unwrap()
+    }
+
+    pub async fn run_executor_heartbeat(&self, mut shutdown: Receiver<()>) {
+        let mut watcher = self.get_leader_change_watcher();
+        let mut interval = tokio::time::interval(EXECUTOR_HEARTBEAT_PERIOD);
+        loop {
+            tokio::select! {
+                _ = shutdown.changed() => {
+                    break;
+                }
+                _ = interval.tick() => {
+                    let _ = self.executor_heartbeat().await;
+                }
+                _ = watcher.changed() => {
+                    // If this node becomes leader, reset last heartbeat values for
+                    // all executors with current time.
+                    let is_leader = *watcher.borrow_and_update();
+                    if !is_leader {
+                        self.get_locked_all_executors().clear();
+                    }
+                }
+            }
+        }
+    }
+
+    // If this node is follower, update the leader with the state of the executors
+    // registered on this node. If this node is leader, process list of
+    // all executors in the cluster and remove the stale executors.
+    async fn executor_heartbeat(&self) -> Result<()> {
+        if let Some(forward_to_leader) = self.shared_state.ensure_leader().await? {
+            let leader_node_id = forward_to_leader
+                .leader_id
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node id"))?;
+            let leader_coord_addr = self
+                .shared_state
+                .get_coordinator_addr(leader_node_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("could not get leader node coordinator address"))?;
+            let leader_coord_addr = format!("http://{}", leader_coord_addr);
+            let my_executors = self.get_locked_my_executors().clone();
+            self.forwardable_coordinator
+                .executors_heartbeat(&leader_coord_addr, my_executors)
+                .await?;
+            return Ok(());
+        }
+        let remove_executors: Vec<_> = {
+            let state_executors: HashSet<ExecutorId> = self
+                .shared_state
+                .get_executors()
+                .await?
+                .into_iter()
+                .map(|e| e.id)
+                .collect();
+            let my_executors = self.get_locked_my_executors();
+            let mut executors = self.get_locked_all_executors();
+            let now = SystemTime::now();
+            for executor_id in state_executors.iter() {
+                if !executors.contains_key(executor_id) {
+                    executors.insert(executor_id.clone(), now);
+                }
+            }
+            for executor_id in my_executors.iter() {
+                executors.insert(executor_id.clone(), now);
+            }
+            let mut deleted_executors = Vec::new();
+            for executor_id in executors.keys() {
+                if !state_executors.contains(executor_id) {
+                    deleted_executors.push(executor_id.clone());
+                }
+            }
+            for executor_id in deleted_executors {
+                executors.remove(&executor_id);
+            }
+            executors
+                .iter()
+                .filter_map(|(executor_id, last_heartbeat)| {
+                    match now.duration_since(*last_heartbeat) {
+                        Ok(d) if d > 3 * EXECUTOR_HEARTBEAT_PERIOD => Some(executor_id.clone()),
+                        _ => None,
+                    }
+                })
+                .collect()
+        };
+        for executor_id in remove_executors {
+            warn!("removing stale executor: {}", executor_id);
+            self.shared_state.remove_executor(&executor_id).await?;
+        }
+        Ok(())
     }
 
     //  START CONVERSION METHODS
@@ -65,7 +174,7 @@ impl Coordinator {
     ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
         let mut content_meta_list = Vec::new();
         for content in content_list {
-            let content: indexify_coordinator::ContentMetadata = content.into();
+            let content: indexify_coordinator::ContentMetadata = content.try_into()?;
             content_meta_list.push(content.clone());
         }
         Ok(content_meta_list)
@@ -74,8 +183,13 @@ impl Coordinator {
     pub fn external_content_metadata_to_internal(
         &self,
         content_list: Vec<indexify_coordinator::ContentMetadata>,
-    ) -> Vec<internal_api::ContentMetadata> {
-        content_list.into_iter().map(|v| v.into()).collect()
+    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        let mut contents = vec![];
+        for content in content_list {
+            let content: internal_api::ContentMetadata = content.try_into()?;
+            contents.push(content.clone());
+        }
+        Ok(contents)
     }
 
     pub async fn list_content(
@@ -83,12 +197,18 @@ impl Coordinator {
         namespace: &str,
         source: &str,
         parent_id: &str,
-        labels_eq: &HashMap<String, String>,
+        labels_eq: &HashMap<String, serde_json::Value>,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.shared_state
-            .list_content(namespace, parent_id, |c| {
-                content_filter(c, source, labels_eq)
-            })
+            .list_content(
+                namespace,
+                parent_id,
+                |c| content_filter(c, source, labels_eq),
+                start_id,
+                limit,
+            )
             .await
     }
 
@@ -96,7 +216,7 @@ impl Coordinator {
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         self.shared_state
             .update_labels(namespace, content_id, labels)
@@ -178,13 +298,16 @@ impl Coordinator {
     }
 
     pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<indexify_coordinator::Task>> {
+        self.get_locked_my_executors()
+            .insert(executor_id.to_string());
+
         let tasks = self
             .shared_state
             .tasks_for_executor(executor_id, Some(10))
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -201,20 +324,24 @@ impl Coordinator {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
+        content_id: Option<String>,
     ) -> Result<Vec<indexify_coordinator::Task>> {
         let tasks = self
             .shared_state
-            .list_tasks(namespace, extraction_policy)
+            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.into()) })
+            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
         info!("removing executor: {}", executor_id);
+        self.get_locked_my_executors().remove(executor_id);
         self.shared_state.remove_executor(executor_id).await?;
         Ok(())
     }
@@ -247,7 +374,6 @@ impl Coordinator {
         Ok(addresses)
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
@@ -318,7 +444,7 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        Ok(task.into())
+        Ok(task.try_into()?)
     }
 
     pub async fn get_task_and_root_content(
@@ -1716,14 +1842,14 @@ mod tests {
         let mut eg =
             create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
         eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), "value1".to_string())]);
+            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
         coordinator.create_extraction_graph(eg.clone()).await?;
 
         //  Create some content
-        let content_labels = vec![("label1".to_string(), "value1".to_string())];
+        let content_labels = vec![("label1".to_string(), serde_json::json!("value1"))];
         let mut content_metadata1 = test_mock_content_metadata("content_id_1", "", &eg.name);
         content_metadata1.labels = content_labels.into_iter().collect();
-        let content_labels = vec![("label1".to_string(), "doesn't match".to_string())];
+        let content_labels = vec![("label1".to_string(), serde_json::json!("doesn't match"))];
         let mut content_metadata2 = test_mock_content_metadata("content_id_2", "", &eg.name);
         content_metadata2.labels = content_labels.into_iter().collect();
         coordinator

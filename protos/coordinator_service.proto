@@ -1,5 +1,5 @@
 syntax = "proto3";
-
+import "google/protobuf/struct.proto";
 
 package indexify_coordinator;
 
@@ -71,6 +71,8 @@ service CoordinatorService {
     rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
 
     rpc UpdateLabels(UpdateLabelsRequest) returns (UpdateLabelsResponse) {}
+
+    rpc ExecutorsHeartbeat(ExecutorsHeartbeatRequest) returns (ExecutorsHeartbeatResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -119,6 +121,9 @@ message ListStateChangesResponse {
 message ListTasksRequest {
     string namespace = 1;
     string extraction_policy = 2;
+    string content_id = 3;
+    string start_id = 4;
+    uint64 limit = 5;
 }
 
 message ListTasksResponse {
@@ -301,7 +306,9 @@ message ListContentRequest {
     string namespace = 1;
     string source = 2;
     string parent_id = 3;
-    map<string, string> labels_eq = 4;
+    map<string, google.protobuf.Value> labels_eq = 4;
+    uint64 limit = 5;
+    string start_id = 6;
 }
 
 message ListContentResponse {
@@ -353,7 +360,7 @@ message ExtractionPolicy {
     string extractor = 2;
     string name = 3;
     string input_params = 4;
-    map<string, string> filters = 5;
+    map<string, google.protobuf.Value> filters = 5;
     string content_source = 6;
     string graph_name = 7;
     map<string, string> output_table_mapping = 8;
@@ -364,7 +371,7 @@ message ExtractionPolicyRequest {
     string extractor = 2;
     string name = 3;
     string input_params = 4;
-    map<string, string> filters = 5;
+    map<string, google.protobuf.Value> filters = 5;
     string content_source = 6;
     int64 created_at = 7;
 }
@@ -395,7 +402,7 @@ message ContentMetadata {
     string file_name = 2;
     string parent_id = 3;
     string mime = 4;
-    map<string, string> labels = 5;
+    map<string, google.protobuf.Value> labels = 5;
     string storage_url = 6;
     int64 created_at = 7;
     string namespace = 8;
@@ -532,7 +539,13 @@ message ListActiveContentsResponse {
 message UpdateLabelsRequest {
     string namespace = 1;
     string content_id = 2;
-    map<string, string> labels = 3;
+    map<string, google.protobuf.Value> labels = 3;
 }
 
 message UpdateLabelsResponse {}
+
+message ExecutorsHeartbeatRequest {
+    repeated string executors = 1;
+}
+
+message ExecutorsHeartbeatResponse {}

@@ -8,6 +8,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use indexify_internal_api::{self as internal_api, ServerTaskType};
 use internal_api::{
+    v1,
     ContentMetadata,
     ContentMetadataId,
     ExecutorMetadata,
@@ -1453,6 +1454,7 @@ impl IndexifyState {
                 };
                 // initialize executor load at 0
                 self.executor_running_task_count.insert(&executor_id, 0);
+
                 Ok(())
             }
             RequestPayload::CreateTasks { tasks } => {
@@ -2292,6 +2294,20 @@ impl IndexifyState {
             .pending_tasks_for_content
             .write()
             .unwrap();
+        let mut graphs = self
+            .extraction_graphs_by_ns
+            .eg_by_namespace
+            .write()
+            .unwrap();
+
+        for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
+            let eg = eg?;
+            let eg: ExtractionGraph = eg.1;
+            graphs
+                .entry(eg.namespace.clone())
+                .or_default()
+                .insert(eg.id.clone());
+        }
 
         for task in self.iter_cf::<Task>(db, StateMachineColumns::Tasks) {
             let (_, task) = task?;
@@ -2327,18 +2343,18 @@ impl IndexifyState {
             }
         }
 
-        let mut max_change_id = StateChangeId::new(0);
+        let mut max_change_id = None;
         for state_change in self.iter_cf::<StateChange>(db, StateMachineColumns::StateChanges) {
             let (_, state_change) = state_change?;
             if state_change.processed_at.is_none() {
                 unprocessed_state_changes_guard.insert(state_change.id);
             }
-            if state_change.id > max_change_id {
-                max_change_id = state_change.id;
-            }
+            max_change_id = std::cmp::max(max_change_id, Some(state_change.id));
         }
-        let val: u64 = max_change_id.into();
-        *self.change_id.lock().unwrap() = val + 1;
+        *self.change_id.lock().unwrap() = match max_change_id {
+            Some(val) => Into::<u64>::into(val) + 1,
+            None => 0,
+        };
 
         for content in self.iter_cf::<ContentMetadata>(db, StateMachineColumns::ContentTable) {
             let (_, content) = content?;
@@ -2403,21 +2419,21 @@ impl IndexifyState {
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct V1Snapshot {
     pub executors: HashMap<ExecutorId, ExecutorMetadata>,
-    pub tasks: HashMap<TaskId, Task>,
+    pub tasks: HashMap<TaskId, v1::Task>,
     pub gc_tasks: HashMap<
         indexify_internal_api::GarbageCollectionTaskId,
         indexify_internal_api::GarbageCollectionTask,
     >,
     pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
     pub state_changes: HashMap<StateChangeId, StateChange>,
-    pub content_table: HashMap<ContentMetadataId, ContentMetadata>,
-    pub extraction_policies: HashMap<ExtractionPolicyId, ExtractionPolicy>,
+    pub content_table: HashMap<ContentMetadataId, v1::ContentMetadata>,
+    pub extraction_policies: HashMap<ExtractionPolicyId, v1::ExtractionPolicy>,
     pub extractors: HashMap<ExtractorName, ExtractorDescription>,
     pub namespaces: HashSet<NamespaceName>,
     pub index_table: HashMap<String, Index>,
     pub structured_data_schemas: HashMap<String, StructuredDataSchema>,
     pub coordinator_address: HashMap<NodeId, String>,
-    pub extraction_graphs: HashMap<ExtractionGraphId, ExtractionGraph>,
+    pub extraction_graphs: HashMap<ExtractionGraphId, v1::ExtractionGraph>,
     pub metrics: Metrics,
 }
 

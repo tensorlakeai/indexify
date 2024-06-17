@@ -1,3 +1,6 @@
+pub mod utils;
+pub mod v1;
+
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
@@ -27,18 +30,21 @@ pub struct ExtractionGraph {
     pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
-impl From<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
-    fn from(value: ExtractionGraph) -> Self {
-        Self {
+impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ExtractionGraph) -> Result<Self> {
+        let extraction_policies: Result<_, _> = value
+            .extraction_policies
+            .into_iter()
+            .map(|policy| policy.try_into())
+            .collect();
+        Ok(Self {
             id: value.id,
             name: value.name,
             namespace: value.namespace,
-            extraction_policies: value
-                .extraction_policies
-                .into_iter()
-                .map(|p| p.into())
-                .collect(),
-        }
+            extraction_policies: extraction_policies?,
+        })
     }
 }
 
@@ -371,7 +377,7 @@ pub struct Content {
     #[serde_as(as = "BytesOrString")]
     pub bytes: Vec<u8>,
     pub features: Vec<Feature>,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 impl Content {
@@ -476,21 +482,23 @@ impl Display for Task {
     }
 }
 
-impl From<Task> for indexify_coordinator::Task {
-    fn from(value: Task) -> Self {
+impl TryFrom<Task> for indexify_coordinator::Task {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Task) -> Result<Self> {
         let outcome: indexify_coordinator::TaskOutcome = value.outcome.into();
-        indexify_coordinator::Task {
+        Ok(indexify_coordinator::Task {
             id: value.id,
             extractor: value.extractor,
             namespace: value.namespace,
-            content_metadata: Some(value.content_metadata.into()),
+            content_metadata: Some(value.content_metadata.try_into()?),
             input_params: value.input_params.to_string(),
             extraction_policy_id: value.extraction_policy_id,
             extraction_graph_name: value.extraction_graph_name,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
             index_tables: value.index_tables,
-        }
+        })
     }
 }
 
@@ -626,7 +634,7 @@ pub struct ExtractionPolicy {
     pub name: ExtractionPolicyName,
     pub namespace: String,
     pub extractor: String,
-    pub filters: HashMap<String, String>,
+    pub filters: HashMap<String, serde_json::Value>,
     pub input_params: serde_json::Value,
     // Extractor Output -> Table Name
     pub output_table_mapping: HashMap<String, String>,
@@ -635,13 +643,13 @@ pub struct ExtractionPolicy {
     pub content_source: ExtractionPolicyContentSource,
 }
 
-impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
-    fn from(value: ExtractionPolicy) -> Self {
-        let mut filters = HashMap::new();
-        for (k, v) in value.filters {
-            filters.insert(k, v);
-        }
-        Self {
+impl TryFrom<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ExtractionPolicy) -> Result<Self> {
+        let filters = utils::convert_map_serde_to_prost_json(value.filters)?;
+
+        Ok(Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
@@ -650,7 +658,7 @@ impl From<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
             content_source: value.content_source.into(),
             graph_name: value.graph_name,
             output_table_mapping: value.output_table_mapping,
-        }
+        })
     }
 }
 
@@ -879,7 +887,7 @@ pub struct ContentMetadata {
     pub namespace: NamespaceName,
     pub name: String,
     pub content_type: String,
-    pub labels: HashMap<String, String>,
+    pub labels: HashMap<String, serde_json::Value>,
     pub storage_url: String,
     pub created_at: i64,
     pub source: ContentSource,
@@ -916,9 +924,12 @@ impl ContentMetadata {
     }
 }
 
-impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
-    fn from(value: ContentMetadata) -> Self {
-        Self {
+impl TryFrom<ContentMetadata> for indexify_coordinator::ContentMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ContentMetadata) -> Result<Self> {
+        let labels = utils::convert_map_serde_to_prost_json(value.labels)?;
+        Ok(Self {
             id: value.id.id, //  don't expose the version on the task
             parent_id: value.parent_id.map(|id| id.id).unwrap_or_default(), /*  don't expose the
                               * version on the
@@ -926,7 +937,7 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             root_content_id: value.root_content_id.unwrap_or_default(),
             file_name: value.name,
             mime: value.content_type,
-            labels: value.labels,
+            labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             namespace: value.namespace,
@@ -935,12 +946,16 @@ impl From<ContentMetadata> for indexify_coordinator::ContentMetadata {
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
-        }
+        })
     }
 }
 
-impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
-    fn from(value: indexify_coordinator::ContentMetadata) -> Self {
+impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::ContentMetadata) -> Result<Self> {
+        let labels = utils::convert_map_prost_to_serde_json(value.labels)?;
+
         let root_content_id = if value.root_content_id.is_empty() {
             None
         } else {
@@ -951,7 +966,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
         } else {
             Some(ContentMetadataId::new(&value.parent_id))
         };
-        Self {
+        Ok(Self {
             id: ContentMetadataId {
                 id: value.id,
                 version: 1,
@@ -961,7 +976,7 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             latest: true,
             name: value.file_name,
             content_type: value.mime,
-            labels: value.labels,
+            labels,
             storage_url: value.storage_url,
             created_at: value.created_at,
             namespace: value.namespace,
@@ -971,12 +986,19 @@ impl From<indexify_coordinator::ContentMetadata> for ContentMetadata {
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
-        }
+        })
     }
 }
 
 impl Default for ContentMetadata {
     fn default() -> Self {
+        let test_labels = {
+            let mut labels = HashMap::new();
+            labels.insert("key1".to_string(), serde_json::json!("value1"));
+            labels.insert("key2".to_string(), serde_json::json!(25));
+            labels
+        };
+
         Self {
             id: ContentMetadataId::default(),
             parent_id: None,
@@ -985,12 +1007,7 @@ impl Default for ContentMetadata {
             namespace: "test_namespace".to_string(),
             name: "test_name".to_string(),
             content_type: "test_content_type".to_string(),
-            labels: {
-                let mut labels = HashMap::new();
-                labels.insert("key1".to_string(), "value1".to_string());
-                labels.insert("key2".to_string(), "value2".to_string());
-                labels
-            },
+            labels: test_labels,
             storage_url: "http://example.com/test_url".to_string(),
             created_at: 1234567890, // example timestamp
             source: ContentSource::Ingestion,
@@ -1057,16 +1074,19 @@ pub struct Namespace {
     pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
-impl From<Namespace> for indexify_coordinator::Namespace {
-    fn from(value: Namespace) -> Self {
-        indexify_coordinator::Namespace {
-            name: value.name,
-            extraction_graphs: value
-                .extraction_graphs
-                .into_iter()
-                .map(|g| g.into())
-                .collect(),
+impl TryFrom<Namespace> for indexify_coordinator::Namespace {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Namespace) -> Result<Self> {
+        let mut extraction_graphs = vec![];
+        for graph in value.extraction_graphs {
+            extraction_graphs.push(graph.try_into()?)
         }
+
+        Ok(indexify_coordinator::Namespace {
+            name: value.name,
+            extraction_graphs,
+        })
     }
 }
 

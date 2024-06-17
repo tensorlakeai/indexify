@@ -531,9 +531,11 @@ impl App {
         namespace: &str,
         parent_id: &str,
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
+        start_id: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine
-            .list_content(namespace, parent_id, predicate)
+            .list_content(namespace, parent_id, predicate, start_id, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -727,7 +729,6 @@ impl App {
         self.state_machine.get_namespace(namespace).await
     }
 
-    // TODO: edwin
     pub async fn register_executor(
         &self,
         addr: &str,
@@ -1087,33 +1088,20 @@ impl App {
         &self,
         namespace: &str,
         extraction_policy: Option<String>,
+        start_id: Option<String>,
+        limit: Option<u64>,
+        content_id: Option<String>,
     ) -> Result<Vec<internal_api::Task>> {
-        let tasks: Vec<internal_api::Task> = self
-            .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        let filtered_tasks = tasks
-            .iter()
-            .filter(|task| task.namespace == namespace)
-            .filter(|task| {
-                extraction_policy
-                    .as_ref()
-                    .map(|eb| eb == &task.extraction_policy_id)
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        Ok(filtered_tasks)
+        self.state_machine
+            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
+            .await
     }
 
     pub async fn update_labels(
         &self,
         namespace: &str,
         content_id: &str,
-        labels: HashMap<String, String>,
+        labels: HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let contents = self
             .get_content_metadata_batch(vec![content_id.to_string()])
@@ -1672,9 +1660,13 @@ mod tests {
 
         //  Read the content back
         let read_content = node
-            .list_content(&content_metadata_vec.first().unwrap().namespace, "", |_| {
-                true
-            })
+            .list_content(
+                &content_metadata_vec.first().unwrap().namespace,
+                "",
+                |_| true,
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(read_content.len(), content_size);
@@ -1718,9 +1710,9 @@ mod tests {
         let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
 
         eg.extraction_policies[0].filters = HashMap::from([
-            ("label1".to_string(), "value1".to_string()),
-            ("label2".to_string(), "value2".to_string()),
-            ("label3".to_string(), "value3".to_string()),
+            ("label1".to_string(), serde_json::json!("value1")),
+            ("label2".to_string(), serde_json::json!("value2")),
+            ("label3".to_string(), serde_json::json!("value3")),
         ]);
 
         node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
@@ -1736,9 +1728,9 @@ mod tests {
 
         //  Create some content
         let content_labels = vec![
-            ("label1".to_string(), "value1".to_string()),
-            ("label2".to_string(), "value2".to_string()),
-            ("label3".to_string(), "value3".to_string()),
+            ("label1".to_string(), serde_json::json!("value1")),
+            ("label2".to_string(), serde_json::json!("value2")),
+            ("label3".to_string(), serde_json::json!("value3")),
         ];
         let mut content_metadata = test_mock_content_metadata("test_content_id1", "", &eg.name);
         content_metadata.labels = content_labels.into_iter().collect();
@@ -1841,7 +1833,7 @@ mod tests {
         //  Create the extraction graph
         let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
         eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), "value1".to_string())]);
+            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
         let _structured_data_schema = StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),
@@ -1852,11 +1844,12 @@ mod tests {
 
         //  Create some content
         let mut content_metadata1 = test_mock_content_metadata("content_id_1", "", &eg.name);
-        content_metadata1.labels = HashMap::from([("label1".to_string(), "value1".to_string())]);
+        content_metadata1.labels =
+            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
 
         let mut content_metadata2 = test_mock_content_metadata("content_id_2", "", &eg.name);
         content_metadata2.labels =
-            HashMap::from([("label1".to_string(), "value-mismatch".to_string())]);
+            HashMap::from([("label1".to_string(), serde_json::json!("value-mismatch"))]);
         node.create_content_batch(vec![content_metadata1, content_metadata2])
             .await?;
 

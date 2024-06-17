@@ -36,8 +36,8 @@ services:
     image: tensorlake/minilm-l6
     command:
       [
-        "join",
-        "--coordinator",
+        "join-server",
+        "--coordinator-addr",
         "indexify:8950",
         "--ingestion-addr",
         "indexify:8900"
