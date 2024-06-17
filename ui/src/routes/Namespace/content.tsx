@@ -51,9 +51,7 @@ const ContentsPage = () => {
     <Box>
       <ContentTable
         loadData={contentLoader}
-        extractionPolicies={client.extractionGraphs
-          .map((graph) => graph.extraction_policies)
-          .flat()}
+        client={client}
       />
     </Box>
   )

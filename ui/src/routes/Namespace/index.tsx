@@ -87,9 +87,7 @@ const NamespacePage = () => {
       <SchemasTable schemas={schemas} />
       <ContentTable
         loadData={contentLoader}
-        extractionPolicies={client.extractionGraphs
-          .map((graph) => graph.extraction_policies)
-          .flat()}
+        client={client}
       />
       <ExtractorsTable extractors={extractors} />
     </Stack>
