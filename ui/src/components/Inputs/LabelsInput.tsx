@@ -1,31 +1,38 @@
-import { Box, TextField, IconButton, Typography } from '@mui/material'
-import { Add, Delete } from '@mui/icons-material'
-import { useState } from 'react'
+import { Box, TextField, IconButton, Typography } from '@mui/material';
+import { Add, Delete } from '@mui/icons-material';
+import { useState } from 'react';
 
 interface LabelsInputProps {
-  onChange: (labels: Record<string, string>) => void
+  onChange: (labels: Record<string, string>) => void;
 }
 
 const LabelsInput = ({ onChange }: LabelsInputProps) => {
-  const [labels, setLabels] = useState<Record<string, string>>({})
-  const [newKey, setNewKey] = useState('')
-  const [newValue, setNewValue] = useState('')
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
 
   const handleAddLabel = () => {
     if (newKey && newValue) {
-      const updatedLabels = { ...labels, [newKey]: newValue }
-      setLabels(updatedLabels)
-      onChange(updatedLabels)
-      setNewKey('')
-      setNewValue('')
+      const updatedLabels = { ...labels, [newKey]: newValue };
+      setLabels(updatedLabels);
+      onChange(updatedLabels);
+      setNewKey('');
+      setNewValue('');
     }
-  }
+  };
 
   const handleDeleteLabel = (key: string) => {
-    const { [key]: _, ...remainingLabels } = labels
-    setLabels(remainingLabels)
-    onChange(remainingLabels)
-  }
+    const { [key]: _, ...remainingLabels } = labels;
+    setLabels(remainingLabels);
+    onChange(remainingLabels);
+  };
+
+  const handleChange = (setValue: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const regex = /^[a-zA-Z0-9-_]*$/;
+    if (regex.test(e.target.value)) {
+      setValue(e.target.value);
+    }
+  };
 
   return (
     <Box>
@@ -36,13 +43,13 @@ const LabelsInput = ({ onChange }: LabelsInputProps) => {
         <TextField
           label="Key"
           value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
+          onChange={handleChange(setNewKey)}
           variant="outlined"
         />
         <TextField
           label="Value"
           value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
+          onChange={handleChange(setNewValue)}
           variant="outlined"
         />
         <IconButton color="primary" onClick={handleAddLabel}>
@@ -73,7 +80,7 @@ const LabelsInput = ({ onChange }: LabelsInputProps) => {
         </Box>
       ))}
     </Box>
-  )
-}
+  );
+};
 
-export default LabelsInput
+export default LabelsInput;
