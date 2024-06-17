@@ -1,4 +1,4 @@
-pdfextractor# Command Line Interface
+# Command Line Interface
 
 Indexify has two CLIs, `indexify-extractor` for running and testing the Extractors. And a CLI to run the server. If you want to learn about the CLI interface of the server, please read (Operating Indexify)[https://docs.getindexify.ai/configuration/]
 

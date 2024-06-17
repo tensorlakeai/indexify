@@ -1,4 +1,4 @@
-pdfextractorfrom indexify import IndexifyClient, ExtractionGraph
+from indexify import IndexifyClient, ExtractionGraph
 import requests
 client = IndexifyClient()
 

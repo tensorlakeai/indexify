@@ -1,4 +1,4 @@
-pdfextractor# PDF Extractors
+# PDF Extractors
 
 #### [PDFExtractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdf-extractor)
 Extract text, images and tables as strings, bytes and json respectively using this extractor.
