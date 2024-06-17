@@ -18,7 +18,7 @@ indexify-extractor list
 #### Download Extractors
 The extractors has to be downloaded before they can be used locally or in production. For ex, you can download the PDF extractor like this - 
 ```bash
-indexify-extractor download tensorlake/pdf-extractor
+indexify-extractor download tensorlake/pdfextractor
 ```
 
 #### Test Extractors Locally 
@@ -26,7 +26,7 @@ You can test extractors locally without running them with the server in a produc
 Let's say we want to test the PDF extractor 
 
 ```bash
-indexify-extractor run-local pdf-extractor.pdf_extractor:PDFExtractor --file /path/to/pdf
+indexify-extractor run-local pdfextractor.pdf_extractor:PDFExtractor --file /path/to/pdf
 ```
 
 ###### Options 

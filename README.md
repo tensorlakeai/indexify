@@ -47,7 +47,7 @@ pip install indexify indexify-extractor-sdk requests
 #### Download some extractors
 ```bash title="Terminal 2"
 indexify-extractor download tensorlake/minilm-l6
-indexify-extractor download tensorlake/pdf-extractor
+indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/yolo-extractor
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor download tensorlake/summarization
@@ -195,7 +195,7 @@ client = IndexifyClient()
 extraction_graph_spec = """
 name: 'pdfqa'
 extraction_policies:
-   - extractor: 'tensorlake/pdf-extractor'
+   - extractor: 'tensorlake/pdfextractor'
      name: 'docextractor'
 """
 
