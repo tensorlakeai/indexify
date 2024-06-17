@@ -81,6 +81,7 @@ const UploadButton = ({ client }: Props) => {
             Select a file to upload and choose an extraction graph.
           </Typography>
           <Select
+            disabled={loading}
             onFocus={updateExtractionGraphs}
             value={extractionGraphName}
             onChange={(e) => setExtractionGraphName(e.target.value)}
@@ -98,7 +99,12 @@ const UploadButton = ({ client }: Props) => {
             ))}
           </Select>
           <Box display="flex" alignItems={'center'} gap={2}>
-            <Button variant="contained" component="label" sx={{ mt: 2 }}>
+            <Button
+              disabled={loading}
+              variant="contained"
+              component="label"
+              sx={{ mt: 2 }}
+            >
               Choose File
               <input type="file" hidden onChange={handleFileChange} />
             </Button>
@@ -109,6 +115,7 @@ const UploadButton = ({ client }: Props) => {
             )}
           </Box>
           <LabelsInput
+            disabled={loading}
             onChange={(val) => {
               setLabels(val)
             }}
