@@ -165,7 +165,8 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 ### Links
 
 - [Code for Creating Graphs](https://colab.research.google.com/drive/1xyS8oCJV1CHW5fmgeD3umSAPbGOqID-G?usp=sharing)
-- [Benchmarking Script](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing)
+- [Benchmarking Notebook](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing)
+- [Benchmarking Local Script](https://github.com/tensorlakeai/indexify/tree/main/docs/docs/usecases/benchmark)
 
 ### Test Environment
 
