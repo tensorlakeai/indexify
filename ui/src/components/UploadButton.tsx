@@ -2,7 +2,6 @@ import UploadIcon from '@mui/icons-material/Upload'
 import {
   Box,
   Button,
-  IconButton,
   Modal,
   Typography,
   MenuItem,
@@ -57,7 +56,7 @@ const UploadButton = ({ client }: Props) => {
     if (file && extractionGraphName) {
       setLoading(true)
       await client.uploadFile(extractionGraphName, file, labels)
-      // window.location.reload()
+      window.location.reload()
     }
   }
 
