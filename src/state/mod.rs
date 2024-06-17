@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use indexify_proto::{
     indexify_coordinator::CreateContentStatus,
     indexify_raft::raft_api_server::RaftApiServer,
@@ -62,7 +62,11 @@ use crate::{
         raft_metrics::{self, network::MetricsSnapshot},
     },
     server_config::ServerConfig,
-    state::{grpc_config::GrpcConfig, raft_client::RaftClient, store::new_storage},
+    state::{
+        grpc_config::GrpcConfig,
+        raft_client::RaftClient,
+        store::{new_storage, FilterResponse},
+    },
     utils::timestamp_secs,
 };
 
@@ -528,14 +532,13 @@ impl App {
     /// Get all content from a namespace
     pub async fn list_content(
         &self,
-        namespace: &str,
-        parent_id: &str,
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        return_total: bool,
+    ) -> Result<FilterResponse<internal_api::ContentMetadata>> {
         self.state_machine
-            .list_content(namespace, parent_id, predicate, start_id, limit)
+            .list_content(predicate, start_id, limit, return_total)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -1084,16 +1087,18 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_tasks(
+    pub async fn list_tasks<F>(
         &self,
-        namespace: &str,
-        extraction_policy: Option<String>,
+        filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        content_id: Option<String>,
-    ) -> Result<Vec<internal_api::Task>> {
+        return_total: bool,
+    ) -> Result<FilterResponse<internal_api::Task>>
+    where
+        F: Fn(&internal_api::Task) -> bool,
+    {
         self.state_machine
-            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
+            .list_tasks(filter, start_id, limit, return_total)
             .await
     }
 
@@ -1661,14 +1666,14 @@ mod tests {
         //  Read the content back
         let read_content = node
             .list_content(
-                &content_metadata_vec.first().unwrap().namespace,
-                "",
-                |_| true,
+                |c| c.namespace == content_metadata_vec.first().unwrap().namespace,
                 None,
                 None,
+                false,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .items;
         assert_eq!(read_content.len(), content_size);
 
         //  Read back all the pieces of content

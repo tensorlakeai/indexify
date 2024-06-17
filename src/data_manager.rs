@@ -246,7 +246,8 @@ impl DataManager {
         labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
         start_id: String,
         limit: u64,
-    ) -> Result<Vec<api::ContentMetadata>> {
+        return_total: bool,
+    ) -> Result<api::ListContentResponse> {
         let default_labels_eq = HashMap::new();
         let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
             labels_eq_filter.unwrap_or(&default_labels_eq).clone(),
@@ -259,6 +260,7 @@ impl DataManager {
             labels_eq,
             start_id,
             limit,
+            return_total,
         };
         let response = self
             .coordinator_client
@@ -266,12 +268,7 @@ impl DataManager {
             .await?
             .list_content(req)
             .await?;
-        let mut content_list = vec![];
-        for content in response.into_inner().content_list {
-            let content: api::ContentMetadata = content.try_into()?;
-            content_list.push(content);
-        }
-        Ok(content_list)
+        Ok(response.into_inner().try_into()?)
     }
 
     pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
