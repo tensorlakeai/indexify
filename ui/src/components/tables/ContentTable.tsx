@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IContentMetadata, IExtractionPolicy, IndexifyClient } from 'getindexify'
+import { IContentMetadata, IndexifyClient } from 'getindexify'
 import {
   Alert,
   Button,
