@@ -18,7 +18,7 @@ with open("sample.jpg", 'wb') as file:
 content_id = client.upload_file("imageknowledgebase", "sample.jpg")
 
 client.wait_for_extraction(content_id)
-client.get_extracted_content(content_id)
+client.get_extracted_content(content_id, "imageknowledgebase", "object_detection")
 
-print(client.sql_query("select * from imageknowledgebase where object_name='skateboard';"))
+print(client.sql_query("select * from imageknowledgebase where object_name='person';"))
 
