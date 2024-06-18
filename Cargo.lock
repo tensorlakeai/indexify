@@ -3386,6 +3386,7 @@ dependencies = [
  "lance",
  "lancedb",
  "local-ip-address",
+ "lzma-sys",
  "mime",
  "mime_guess",
  "moka 0.12.5",
