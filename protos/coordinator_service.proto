@@ -124,10 +124,12 @@ message ListTasksRequest {
     string content_id = 3;
     string start_id = 4;
     uint64 limit = 5;
+    bool return_total = 6;
 }
 
 message ListTasksResponse {
     repeated Task tasks = 1;
+    uint64 total = 2;
 }
 
 message UpdateTaskResponse {
@@ -309,10 +311,12 @@ message ListContentRequest {
     map<string, google.protobuf.Value> labels_eq = 4;
     uint64 limit = 5;
     string start_id = 6;
+    bool return_total = 7;
 }
 
 message ListContentResponse {
     repeated ContentMetadata content_list = 1; 
+    uint64 total = 2;
 }
 
 message GetExtractionPolicyRequest {

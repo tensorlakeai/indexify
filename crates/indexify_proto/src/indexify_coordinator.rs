@@ -69,12 +69,16 @@ pub struct ListTasksRequest {
     pub start_id: ::prost::alloc::string::String,
     #[prost(uint64, tag = "5")]
     pub limit: u64,
+    #[prost(bool, tag = "6")]
+    pub return_total: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListTasksResponse {
     #[prost(message, repeated, tag = "1")]
     pub tasks: ::prost::alloc::vec::Vec<Task>,
+    #[prost(uint64, tag = "2")]
+    pub total: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -357,12 +361,16 @@ pub struct ListContentRequest {
     pub limit: u64,
     #[prost(string, tag = "6")]
     pub start_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "7")]
+    pub return_total: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListContentResponse {
     #[prost(message, repeated, tag = "1")]
     pub content_list: ::prost::alloc::vec::Vec<ContentMetadata>,
+    #[prost(uint64, tag = "2")]
+    pub total: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

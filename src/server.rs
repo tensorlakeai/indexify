@@ -717,7 +717,7 @@ async fn list_content(
     State(state): State<NamespaceEndpointState>,
     filter: Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
-    let content_list = state
+    let response = state
         .data_manager
         .list_content(
             &namespace,
@@ -726,10 +726,11 @@ async fn list_content(
             filter.labels_eq.as_ref(),
             filter.start_id.clone().unwrap_or_default(),
             filter.limit.unwrap_or(10),
+            filter.return_total,
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    Ok(Json(ListContentResponse { content_list }))
+    Ok(Json(response))
 }
 
 #[tracing::instrument]
@@ -1233,7 +1234,7 @@ async fn list_tasks(
     State(state): State<NamespaceEndpointState>,
     Query(query): Query<ListTasks>,
 ) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
-    let tasks = state
+    let resp = state
         .coordinator_client
         .get()
         .await
@@ -1244,17 +1245,12 @@ async fn list_tasks(
             start_id: query.start_id.clone().unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
+            return_total: query.return_total,
         })
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?
-        .into_inner()
-        .tasks;
-    let tasks = tasks
-        .into_iter()
-        .map(|t| t.try_into())
-        .filter_map(|t| t.ok())
-        .collect();
-    Ok(Json(ListTasksResponse { tasks }))
+        .into_inner();
+    Ok(Json(resp.try_into()?))
 }
 
 #[utoipa::path(

@@ -348,6 +348,9 @@ pub struct ListContent {
     pub limit: Option<u64>,
 
     pub start_id: Option<String>,
+
+    #[serde(default)]
+    pub return_total: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -411,6 +414,24 @@ impl IntoResponse for IndexifyAPIError {
 
 pub struct ListContentResponse {
     pub content_list: Vec<ContentMetadata>,
+    pub total: u64,
+}
+
+impl TryFrom<indexify_proto::indexify_coordinator::ListContentResponse> for ListContentResponse {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_proto::indexify_coordinator::ListContentResponse) -> Result<Self> {
+        let content_list = value
+            .content_list
+            .into_iter()
+            .map(|content| content.try_into())
+            .collect::<Result<Vec<ContentMetadata>>>()?;
+
+        Ok(Self {
+            content_list,
+            total: value.total,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema, IntoParams)]
@@ -685,11 +706,36 @@ pub struct ListTasks {
     pub content_id: Option<String>,
     pub start_id: Option<String>,
     pub limit: Option<u64>,
+    #[serde(default)]
+    pub return_total: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasksResponse {
     pub tasks: Vec<Task>,
+    pub total: u64,
+}
+
+impl TryFrom<indexify_proto::indexify_coordinator::ListTasksResponse> for ListTasksResponse {
+    type Error = IndexifyAPIError;
+
+    fn try_from(
+        value: indexify_proto::indexify_coordinator::ListTasksResponse,
+    ) -> Result<Self, Self::Error> {
+        let tasks = value
+            .tasks
+            .into_iter()
+            .map(|task| {
+                task.try_into()
+                    .map_err(|e| IndexifyAPIError::internal_error(e))
+            })
+            .collect::<Result<Vec<Task>, Self::Error>>()?;
+
+        Ok(Self {
+            tasks,
+            total: value.total,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

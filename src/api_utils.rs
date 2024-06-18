@@ -311,6 +311,7 @@ mod test_deserialize_labels_eq_filter {
             }),
             start_id: None,
             limit: None,
+            return_total: false,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value"
@@ -333,6 +334,7 @@ mod test_deserialize_labels_eq_filter {
             }),
             start_id: None,
             limit: None,
+            return_total: false,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:"
@@ -368,6 +370,7 @@ mod test_deserialize_labels_eq_filter {
             }),
             start_id: None,
             limit: None,
+            return_total: false,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:25"
@@ -391,6 +394,7 @@ mod test_deserialize_labels_eq_filter {
             }),
             start_id: None,
             limit: None,
+            return_total: false,
         });
 
         let query_str: Uri = "http://example.com/path?source=foo&labels_eq=key:value,key2:"

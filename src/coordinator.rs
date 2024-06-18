@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
     ContentMetadataId,
@@ -25,14 +25,13 @@ use tracing::{debug, info, warn};
 
 use crate::{
     coordinator_client::CoordinatorClient,
-    coordinator_filters::*,
     coordinator_service::EXECUTOR_HEARTBEAT_PERIOD,
     forwardable_coordinator::ForwardableCoordinator,
     garbage_collector::GarbageCollector,
     metrics::Timer,
     scheduler::Scheduler,
     state::{
-        store::{requests::StateChangeProcessed, ExecutorId},
+        store::{requests::StateChangeProcessed, ExecutorId, FilterResponse},
         RaftMetrics,
         SharedState,
     },
@@ -192,23 +191,18 @@ impl Coordinator {
         Ok(contents)
     }
 
-    pub async fn list_content(
+    pub async fn list_content<F>(
         &self,
-        namespace: &str,
-        source: &str,
-        parent_id: &str,
-        labels_eq: &HashMap<String, serde_json::Value>,
+        filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
+        return_total: bool,
+    ) -> Result<FilterResponse<internal_api::ContentMetadata>>
+    where
+        F: Fn(&internal_api::ContentMetadata) -> bool,
+    {
         self.shared_state
-            .list_content(
-                namespace,
-                parent_id,
-                |c| content_filter(c, source, labels_eq),
-                start_id,
-                limit,
-            )
+            .list_content(filter, start_id, limit, return_total)
             .await
     }
 
@@ -320,23 +314,21 @@ impl Coordinator {
         self.shared_state.list_state_changes().await
     }
 
-    pub async fn list_tasks(
+    pub async fn list_tasks<F>(
         &self,
-        namespace: &str,
-        extraction_policy: Option<String>,
+        filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        content_id: Option<String>,
-    ) -> Result<Vec<indexify_coordinator::Task>> {
-        let tasks = self
+        return_total: bool,
+    ) -> Result<indexify_coordinator::ListTasksResponse>
+    where
+        F: Fn(&internal_api::Task) -> bool,
+    {
+        let response = self
             .shared_state
-            .list_tasks(namespace, extraction_policy, start_id, limit, content_id)
+            .list_tasks(filter, start_id, limit, return_total)
             .await?;
-        let tasks = tasks
-            .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(tasks)
+        Ok(response.try_into()?)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {

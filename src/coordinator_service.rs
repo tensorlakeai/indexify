@@ -84,6 +84,7 @@ use internal_api::{
     ExtractionGraphBuilder,
     ExtractionPolicyBuilder,
     StateChangeId,
+    Task,
 };
 use itertools::Itertools;
 use opentelemetry::{
@@ -112,6 +113,7 @@ use crate::{
     api::IndexifyAPIError,
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
+    coordinator_filters::content_filter,
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
     state::{self, grpc_config::GrpcConfig},
@@ -300,30 +302,21 @@ impl CoordinatorService for CoordinatorServiceServer {
             Some(req.limit)
         };
 
-        let content_list = self
+        let filter = |c: &internal_api::ContentMetadata| {
+            c.namespace == req.namespace &&
+                (req.parent_id.is_empty() ||
+                    Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
+                content_filter(c, &req.source, &labels_eq)
+        };
+        let response = self
             .coordinator
-            .list_content(
-                &req.namespace,
-                &req.source,
-                &req.parent_id,
-                &labels_eq,
-                start_id,
-                limit,
-            )
+            .list_content(filter, start_id, limit, req.return_total)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
-        let mut proto_content_list = vec![];
-        for content in content_list {
-            let proto_content = content
-                .try_into()
-                .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
-            proto_content_list.push(proto_content);
-        }
-
-        Ok(tonic::Response::new(ListContentResponse {
-            content_list: proto_content_list,
-        }))
+        Ok(tonic::Response::new(response.try_into().map_err(|e| {
+            tonic::Status::aborted(format!("unable to convert content metadata: {}", e))
+        })?))
     }
 
     async fn list_active_contents(
@@ -940,30 +933,23 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
         let req = req.into_inner();
-        let extraction_policy = if req.extraction_policy.is_empty() {
-            None
-        } else {
-            Some(req.extraction_policy)
+        let filter = |task: &Task| {
+            task.namespace == req.namespace &&
+                (req.extraction_policy.is_empty() ||
+                    task.extraction_policy_id == req.extraction_policy) &&
+                (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id)
         };
-        let content_id = if req.content_id.is_empty() {
-            None
-        } else {
-            Some(req.content_id)
-        };
-        let tasks = self
+        let response = self
             .coordinator
             .list_tasks(
-                &req.namespace,
-                extraction_policy,
+                filter,
                 Some(req.start_id),
                 Some(req.limit),
-                content_id,
+                req.return_total,
             )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(indexify_coordinator::ListTasksResponse {
-            tasks,
-        }))
+        Ok(Response::new(response))
     }
 
     async fn get_schema(

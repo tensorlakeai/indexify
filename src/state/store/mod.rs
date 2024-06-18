@@ -171,6 +171,85 @@ pub struct StateMachineData {
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
 }
 
+pub struct FilterResponse<T> {
+    pub items: Vec<T>,
+    pub total: usize,
+}
+
+impl TryFrom<FilterResponse<ContentMetadata>>
+    for indexify_proto::indexify_coordinator::ListContentResponse
+{
+    type Error = anyhow::Error;
+
+    fn try_from(value: FilterResponse<ContentMetadata>) -> Result<Self> {
+        let content_list: Result<_, _> = value
+            .items
+            .into_iter()
+            .map(|content| content.try_into())
+            .collect();
+        Ok(Self {
+            content_list: content_list?,
+            total: value.total as u64,
+        })
+    }
+}
+
+impl TryFrom<FilterResponse<Task>> for indexify_proto::indexify_coordinator::ListTasksResponse {
+    type Error = anyhow::Error;
+
+    fn try_from(value: FilterResponse<Task>) -> Result<Self> {
+        let tasks: Result<_, _> = value
+            .items
+            .into_iter()
+            .map(|task| task.try_into())
+            .collect();
+        Ok(Self {
+            tasks: tasks?,
+            total: value.total as u64,
+        })
+    }
+}
+
+pub fn filter_cf<T, F>(
+    db: &OptimisticTransactionDB,
+    column: StateMachineColumns,
+    filter: F,
+    start: Option<&[u8]>,
+    limit: Option<usize>,
+    return_total: bool,
+) -> Result<FilterResponse<T>, anyhow::Error>
+where
+    T: DeserializeOwned,
+    F: Fn(&T) -> bool,
+{
+    let cf = column.cf(db);
+    let mode = match start {
+        Some(start) => IteratorMode::From(start, Direction::Forward),
+        None => IteratorMode::Start,
+    };
+    let iter = db.iterator_cf(cf, mode);
+    let mut items = Vec::new();
+    let mut total = 0;
+    let limit = limit.unwrap_or(usize::MAX);
+    for kv in iter {
+        if let Ok((_, value)) = kv {
+            let item = JsonEncoder::decode::<T>(&value)?;
+            if filter(&item) {
+                total += 1;
+                if items.len() < limit {
+                    items.push(item);
+                    if items.len() >= limit && !return_total {
+                        break;
+                    }
+                }
+            }
+        } else {
+            return Err(anyhow!("error reading db"));
+        }
+    }
+    Ok(FilterResponse { items, total })
+}
+
 /// This method fetches a key from a specific column family
 pub fn get_from_cf<T, K>(
     db: &OptimisticTransactionDB,
@@ -495,48 +574,24 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!("Failed to list active contents: {}", e))
     }
 
-    pub async fn list_tasks(
+    pub async fn list_tasks<F>(
         &self,
-        namespace: &str,
-        extraction_policy: Option<String>,
+        filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        content_id: Option<String>,
-    ) -> Result<Vec<Task>> {
-        let db = self.db.read().unwrap();
-        let cf = StateMachineColumns::Tasks.cf(&db);
-        let tasks_itr = db
-            .iterator_cf(
-                cf,
-                IteratorMode::From(start_id.unwrap_or_default().as_bytes(), Direction::Forward),
-            )
-            .into_iter();
-        let mut tasks = Vec::new();
-        for kv in tasks_itr {
-            if let Ok((_, value)) = kv {
-                let task = JsonEncoder::decode::<Task>(&value)?;
-                if task.namespace == namespace &&
-                    extraction_policy
-                        .as_ref()
-                        .map(|policy| &task.extraction_policy_id == policy)
-                        .unwrap_or(true) &&
-                    content_id
-                        .as_ref()
-                        .map(|id| &task.content_metadata.id.id == id)
-                        .unwrap_or(true)
-                {
-                    tasks.push(task);
-                    if let Some(limit) = limit {
-                        if tasks.len() >= limit as usize {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                return Err(anyhow!("error reading db tasks"));
-            }
-        }
-        Ok(tasks)
+        return_total: bool,
+    ) -> Result<FilterResponse<Task>>
+    where
+        F: Fn(&Task) -> bool,
+    {
+        filter_cf(
+            &self.db.read().unwrap(),
+            StateMachineColumns::Tasks,
+            filter,
+            start_id.as_deref().map(|s| s.as_bytes()),
+            limit.map(|l| l as usize),
+            return_total,
+        )
     }
 
     pub async fn get_tasks_for_executor(
@@ -616,40 +671,20 @@ impl StateMachineStore {
 
     pub fn list_content(
         &self,
-        namespace: &str,
-        parent_id: &str,
-        predicate: impl Fn(&ContentMetadata) -> bool,
+        filter: impl Fn(&ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-    ) -> Result<Vec<ContentMetadata>> {
-        let db = self.db.read().unwrap();
-        let txn = db.transaction();
-        let iter = txn.iterator_cf(
-            StateMachineColumns::ContentTable.cf(&db),
-            IteratorMode::From(start_id.unwrap_or_default().as_bytes(), Direction::Forward),
-        );
-        let mut contents = Vec::new();
-        for res in iter {
-            if let Ok((_, value)) = res {
-                let content = JsonEncoder::decode::<ContentMetadata>(&value)?;
-                if content.namespace == namespace &&
-                    (parent_id.is_empty() ||
-                        content.parent_id.as_ref().map(|id| id.id.as_str()) ==
-                            Some(parent_id)) &&
-                    predicate(&content)
-                {
-                    contents.push(content);
-                    if let Some(limit) = limit {
-                        if contents.len() >= limit as usize {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                return Err(anyhow!("error reading db content"));
-            }
-        }
-        Ok(contents)
+        return_total: bool,
+    ) -> Result<FilterResponse<ContentMetadata>> {
+        let s = start_id.as_deref().map(|s| s.as_bytes());
+        filter_cf(
+            &self.db.read().unwrap(),
+            StateMachineColumns::ContentTable,
+            filter,
+            s,
+            limit.map(|l| l as usize),
+            return_total,
+        )
     }
 
     pub async fn get_content_by_id_and_version(
@@ -1664,8 +1699,9 @@ mod tests {
         assert_eq!(value.len(), 1);
 
         let contents = new_node
-            .list_content(&namespace, "", |_| true, None, None)
-            .await?;
+            .list_content(|c| c.namespace == namespace, None, None, false)
+            .await?
+            .items;
         assert_eq!(contents.len(), 1);
         let c = contents
             .first()
