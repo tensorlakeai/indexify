@@ -5,7 +5,7 @@ client = IndexifyClient()
 extraction_graph_spec = """
 name: 'pdfqa'
 extraction_policies:
-   - extractor: 'tensorlake/pdf-extractor'
+   - extractor: 'tensorlake/pdfextractor'
      name: 'docextractor'
 """
 
