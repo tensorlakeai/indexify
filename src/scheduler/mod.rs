@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Ok, Result};
@@ -223,6 +224,7 @@ impl Scheduler {
             input_params: extraction_policy.input_params.clone(),
             outcome: internal_api::TaskOutcome::Unknown,
             index_tables: index_tables.to_vec(),
+            creation_time: SystemTime::now(),
         };
         info!("created task: {:?}", task);
         Ok(task)

@@ -384,7 +384,7 @@ impl IngestExtractedContentState {
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
+    use std::{sync::Arc, time::SystemTime};
 
     use anyhow::Result;
     use indexify_internal_api::{
@@ -448,7 +448,19 @@ mod tests {
         content_metadata: &ContentMetadata,
         extraction_policy: ExtractionPolicy,
     ) -> Task {
-        let mut task = Task::new(task_id, content_metadata, extraction_policy);
+        let mut task = Task {
+            id: task_id.to_string(),
+            extractor: "".to_string(),
+            extraction_policy_id: extraction_policy.id.to_string(),
+            extraction_graph_name: extraction_policy.graph_name.clone(),
+            output_index_table_mapping: HashMap::new(),
+            namespace: content_metadata.namespace.clone(),
+            content_metadata: content_metadata.clone(),
+            input_params: serde_json::Value::Null,
+            outcome: TaskOutcome::Unknown,
+            index_tables: Vec::new(),
+            creation_time: SystemTime::now(),
+        };
         task.output_index_table_mapping = vec![
             ("name1".to_string(), "test_index1".to_string()),
             ("name2".to_string(), "test_index2".to_string()),

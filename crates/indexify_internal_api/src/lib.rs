@@ -1,18 +1,18 @@
 pub mod utils;
 pub mod v1;
-
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
     str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
@@ -431,7 +431,11 @@ impl From<bool> for TaskOutcome {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Default)]
+fn default_creation_time() -> SystemTime {
+    UNIX_EPOCH
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
 #[schema(as = internal_api::Task)]
 pub struct Task {
     pub id: String,
@@ -445,30 +449,13 @@ pub struct Task {
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
     pub index_tables: Vec<String>, // list of index tables that this content may be present in
+    #[serde(default = "default_creation_time")]
+    pub creation_time: SystemTime,
 }
 
 impl Task {
     pub fn terminal_state(&self) -> bool {
         self.outcome != TaskOutcome::Unknown
-    }
-
-    pub fn new(
-        id: &str,
-        content_metadata: &ContentMetadata,
-        extraction_policy: ExtractionPolicy,
-    ) -> Self {
-        Self {
-            id: id.to_string(),
-            extractor: "".to_string(),
-            extraction_policy_id: extraction_policy.id.to_string(),
-            extraction_graph_name: extraction_policy.graph_name,
-            output_index_table_mapping: HashMap::new(),
-            namespace: content_metadata.namespace.clone(),
-            content_metadata: content_metadata.clone(),
-            input_params: serde_json::Value::Null,
-            outcome: TaskOutcome::Unknown,
-            index_tables: Vec::new(),
-        }
     }
 }
 
@@ -726,8 +713,6 @@ pub struct ContentMetadataId {
     pub id: String,
     pub version: u64,
 }
-
-use serde::{Deserializer, Serializer};
 
 impl Serialize for ContentMetadataId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

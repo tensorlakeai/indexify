@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -132,6 +132,7 @@ impl From<Task> for super::Task {
             input_params: task.input_params,
             outcome: task.outcome,
             index_tables: task.index_tables,
+            creation_time: SystemTime::UNIX_EPOCH,
         }
     }
 }

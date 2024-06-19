@@ -476,7 +476,7 @@ impl App {
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
         let mut tasks = vec![];
-        for task_id in self.state_machine.get_unassigned_tasks().await.iter() {
+        for (task_id, _) in self.state_machine.get_unassigned_tasks().await.iter() {
             let task = self
                 .state_machine
                 .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)?
@@ -1290,12 +1290,6 @@ impl App {
             .await
     }
 
-    pub async fn insert_executor_running_task_count(&mut self, executor_id: &str, task_count: u64) {
-        self.state_machine
-            .insert_executor_running_task_count(executor_id, task_count)
-            .await;
-    }
-
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
         let app_clone = Arc::clone(self);
         tokio::spawn(async move {
@@ -1394,7 +1388,11 @@ async fn watch_for_leader_change(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use std::{
+        collections::HashMap,
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
     use indexify_internal_api::{
         ContentMetadata,
@@ -1421,6 +1419,22 @@ mod tests {
         test_utils::RaftTestCluster,
     };
 
+    fn make_task(task_id: &str, content_metadata: &ContentMetadata) -> indexify_internal_api::Task {
+        indexify_internal_api::Task {
+            id: task_id.into(),
+            namespace: content_metadata.namespace.clone(),
+            extractor: "".to_string(),
+            extraction_policy_id: "".to_string(),
+            extraction_graph_name: "".to_string(),
+            content_metadata: content_metadata.clone(),
+            output_index_table_mapping: Default::default(),
+            outcome: TaskOutcome::Unknown,
+            input_params: Default::default(),
+            index_tables: Default::default(),
+            creation_time: SystemTime::now(),
+        }
+    }
+
     /// Test to determine that a task that was created can be read back
     #[tokio::test]
     #[tracing_test::traced_test]
@@ -1439,11 +1453,7 @@ mod tests {
 
         let state_change = node.unprocessed_state_change_events().await?;
         let state_change = state_change.first().unwrap();
-        let task = indexify_internal_api::Task {
-            id: "id".into(),
-            content_metadata: content.clone(),
-            ..Default::default()
-        };
+        let task = make_task("id", &content);
         node.create_tasks(vec![task.clone()], state_change.id)
             .await?;
         let retr_task = node.task_with_id(&task.id).await?;
@@ -1465,11 +1475,7 @@ mod tests {
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
-        let task = indexify_internal_api::Task {
-            id: "task_id".into(),
-            content_metadata: content.clone(),
-            ..Default::default()
-        };
+        let task = make_task("task_id", &content);
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateTasks {
                 tasks: vec![task.clone()],
@@ -1530,11 +1536,7 @@ mod tests {
             ..Default::default()
         };
         node.create_content_batch(vec![content.clone()]).await?;
-        let task = indexify_internal_api::Task {
-            id: "task_id".into(),
-            content_metadata: content.clone(),
-            ..Default::default()
-        };
+        let task = make_task("task_id", &content);
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateTasks {
                 tasks: vec![task.clone()],
@@ -1579,12 +1581,8 @@ mod tests {
         cluster.read_own_write(request, read_back, true).await?;
 
         //  Update the task and mark it as complete by calling the update_task method
-        let task = indexify_internal_api::Task {
-            id: "task_id".into(),
-            content_metadata: content.clone(),
-            outcome: TaskOutcome::Success,
-            ..Default::default()
-        };
+        let mut task = make_task("task_id", &content);
+        task.outcome = TaskOutcome::Success;
         let executor_id = "executor_id";
         let node = cluster.get_raft_node(0)?;
         node.update_task(task, Some(executor_id.into())).await?;

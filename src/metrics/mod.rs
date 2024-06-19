@@ -603,10 +603,15 @@ pub mod coordinator {
                 .with_callback({
                     let app = app.clone();
                     move |observer| {
-                        let counts = app.data.indexify_state.executor_running_task_count.inner();
-                        for (executor_id, count) in counts.iter() {
+                        let counts = app
+                            .data
+                            .indexify_state
+                            .unfinished_tasks_by_executor
+                            .read()
+                            .unwrap();
+                        for (executor_id, tasks) in counts.iter() {
                             observer.observe(
-                                *count,
+                                tasks.len() as u64,
                                 &[KeyValue::new("executor_id", executor_id.to_string())],
                             );
                         }
