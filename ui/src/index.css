@@ -19,3 +19,35 @@ code {
 a {
   color:inherit
 }
+
+.drawer-logo {
+  color: #1C2026;
+  margin-right: 10px;
+}
+
+.navbar-items {
+  margin: 0.5rem !important;
+  border-radius: 8px !important;
+}
+
+.selected-navbar-items {
+  border-radius: 8px;
+  background: var(--Gray-Gray02, #F7F9FC);
+  box-shadow: 0px 0px 3px -1px var(--Brand-BrandColor-02, #6FA8EA) inset;
+}
+
+.heading-icons {
+  border-radius: 8px;
+  border: 1px solid var(--Gray-Gray03, #E9EDF1);
+  background: var(--White, #FFF);
+}
+
+.heading-icon-container {
+  display: flex;
+  padding: 8px;
+  align-items: center;
+  gap: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--Gray-Gray03, #E9EDF1);
+  background: var(--White, #FFF);
+}

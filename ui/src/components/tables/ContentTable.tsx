@@ -10,14 +10,13 @@ import {
   IconButton,
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import ArticleIcon from '@mui/icons-material/Article'
-import InfoIcon from '@mui/icons-material/Info'
 import React, { useEffect, useState } from 'react'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
 import { IContentMetadataExtended } from '../../types'
 import UploadButton from '../UploadButton'
+import { InfoCircle, TableDocument } from 'iconsax-react'
 
 const ContentTable = ({
   loadData,
@@ -258,14 +257,16 @@ const ContentTable = ({
         alignItems={'center'}
         spacing={2}
       >
-        <ArticleIcon />
+        <div className='heading-icon-container'>
+          <TableDocument size="25" className="heading-icons" variant="Outline"/>
+        </div>
         <Typography variant="h3">
           Content
           <IconButton
             href="https://docs.docs.getindexify.ai/concepts/#content"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
         <UploadButton client={client} />

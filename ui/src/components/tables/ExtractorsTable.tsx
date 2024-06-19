@@ -2,9 +2,8 @@ import React from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { Alert, Chip, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import MemoryIcon from '@mui/icons-material/MemoryOutlined'
-import InfoIcon from '@mui/icons-material/Info'
 import { Extractor } from 'getindexify'
+import { Data, InfoCircle } from 'iconsax-react'
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const columns: GridColDef[] = [
@@ -125,14 +124,16 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         alignItems={'center'}
         spacing={2}
       >
-        <MemoryIcon />
+        <div className='heading-icon-container'>
+          <Data size="25" className="heading-icons" variant="Outline"/>
+        </div>
         <Typography variant="h3">
           Extractors
           <IconButton
             href="https://docs.getindexify.ai/concepts/#extractor"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
       </Stack>

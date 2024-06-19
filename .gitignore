@@ -28,3 +28,4 @@ rag/**/*
 *.mp3
 sqlite*
 *.trace
+indexify

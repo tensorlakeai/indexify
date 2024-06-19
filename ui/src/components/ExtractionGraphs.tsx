@@ -7,11 +7,10 @@ import {
 import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import React, { ReactElement } from 'react'
-import GavelIcon from '@mui/icons-material/Gavel'
-import InfoIcon from '@mui/icons-material/Info'
 import ExtractionPolicyItem from './ExtractionPolicyItem'
 import { IExtractionGraphCol, IExtractionGraphColumns } from '../types'
 import CopyText from './CopyText'
+import { Cpu, InfoCircle } from 'iconsax-react'
 
 const ExtractionGraphs = ({
   extractionGraphs,
@@ -131,14 +130,16 @@ const ExtractionGraphs = ({
         alignItems={'center'}
         spacing={2}
       >
-        <GavelIcon />
+        <div className='heading-icon-container'>
+          <Cpu size="25" className="heading-icons" variant="Outline"/>
+        </div>
         <Typography variant="h3">
           Extraction Graphs
           <IconButton
             href="https://docs.getindexify.ai/concepts/#extraction-graphs"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
       </Stack>
