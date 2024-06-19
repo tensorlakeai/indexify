@@ -27,7 +27,10 @@ with open("sample.mp3", 'wb') as file:
 content_id = client.upload_file("audiosummary", "sample.mp3")
 
 client.wait_for_extraction(content_id)
-client.get_extracted_content(content_id)
+print("transcription ----")
+print(client.get_extracted_content(content_id, "audiosummary", "transcription"))
+print("summary ----")
+print(client.get_extracted_content(content_id, "audiosummary", "summarizer"))
 
 
 context = client.search_index(name="audiosummary.minilml6.embedding", query="President of America", top_k=1)

@@ -3350,7 +3350,7 @@ dependencies = [
 
 [[package]]
 name = "indexify"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyerror",
  "anyhow",
@@ -3386,6 +3386,7 @@ dependencies = [
  "lance",
  "lancedb",
  "local-ip-address",
+ "lzma-sys",
  "mime",
  "mime_guess",
  "moka 0.12.5",

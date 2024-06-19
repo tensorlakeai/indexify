@@ -1,4 +1,4 @@
-# Indexify - Extraction and Retrieval from Videos, PDF and Audio for Interactive AI Applications
+# Indexify
 
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
@@ -84,6 +84,40 @@ context = client.search_index(name="sportsknowledgebase.minilml6.embedding", que
 ```
 
 > The method wait_for_extraction blocks the client until Indexify runs the extraction on the ingested content. In production applications you will most likely won't block your application, and let extraction be asynchronous.
+
+###  PDF Extraction and Retrieval
+This example shows how to create a pipeline that extracts from PDF documents.
+More information here - https://docs.getindexify.ai/usecases/pdf_extraction/
+
+#### Create an Extraction Graph
+```python
+from indexify import IndexifyClient, ExtractionGraph
+import requests
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'pdfqa'
+extraction_policies:
+   - extractor: 'tensorlake/pdfextractor'
+     name: 'docextractor'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+```
+
+#### Upload a Document
+```python
+with open("sample.pdf", 'wb') as file:
+  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/scientific-paper-example.pdf")).content)
+content_id = client.upload_file("pdfqa", "sample.pdf")
+```
+
+#### Get Text, Image and Tables
+```python
+client.wait_for_extraction(content_id)
+print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
+```
 
 
 ### Podcast Summarization and Embedding
@@ -180,40 +214,6 @@ client.get_extracted_content(content_id, "imageknowledgebase", "object_detection
 #### Query using SQL
 ```python
 print(client.sql_query("select * from imageknowledgebase where object_name='person';"))
-```
-
-###  PDF Extraction and Retrieval
-This example shows how to create a pipeline that extracts from PDF documents.
-More information here - https://docs.getindexify.ai/usecases/pdf_extraction/
-
-#### Create an Extraction Graph
-```python
-from indexify import IndexifyClient, ExtractionGraph
-import requests
-client = IndexifyClient()
-
-extraction_graph_spec = """
-name: 'pdfqa'
-extraction_policies:
-   - extractor: 'tensorlake/pdfextractor'
-     name: 'docextractor'
-"""
-
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)
-```
-
-#### Upload a Document
-```python
-with open("sample.pdf", 'wb') as file:
-  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/scientific-paper-example.pdf")).content)
-content_id = client.upload_file("pdfqa", "sample.pdf")
-```
-
-#### Get Text, Image and Tables
-```python
-client.wait_for_extraction(content_id)
-print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
 ```
 
 ### LLM Framework Integration 

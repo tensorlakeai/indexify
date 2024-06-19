@@ -1,6 +1,7 @@
 # PDF Extraction
 
-Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. PDF is a complex document type; we offer many different extractors suitable to various use cases.
+Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. 
+
 
 ## What Can You Achieve with Indexify?
 
@@ -66,9 +67,9 @@ def get_table_content(client, content_id):
     return None
 ```
 
-## Explore the PDF Extractor Landscape
+## Explore PDF Extractors
 
-We offer a wide range of PDF extractors to suit specific use-cases. Whether you're dealing with invoices, scientific papers, or scanned documents, we've got you covered. Here's a quick overview of our extractor lineup:
+Here's a quick overview of all the extractors:
 
 | Extractors                                | Output Type        | Best For                            | Output Example                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 |-------------------------------------------|--------------------|-------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -80,14 +81,16 @@ We offer a wide range of PDF extractors to suit specific use-cases. Whether you'
 
 ## Extractor Performance Analysis
 
-### PDF Documents and Corresponding Reference Files
+PDF is a complex data type, we recommend you try out all extractors on a representative sample of documents that you are extracting from, and decide which extractors to use in your pipeline. We present some code to benchmark the various extractors.
 
-1. [crowd.pdf](benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](benchmark/references/crowd.md)
-2. [multicolcnn.pdf](benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](benchmark/references/multicolcnn.md)
-3. [switch_trans.pdf](benchmark/pdfs/switch_trans.pdf) - Reference: [switch_trans.md](benchmark/references/switch_trans.md)
-4. [thinkdsp.pdf](benchmark/pdfs/thinkdsp.pdf) - Reference: [thinkdsp.md](benchmark/references/thinkdsp.md)
-5. [thinkos.pdf](benchmark/pdfs/thinkos.pdf) - Reference: [thinkos.md](benchmark/references/thinkos.md)
-6. [thinkpython.pdf](benchmark/pdfs/thinkpython.pdf) - Reference: [thinkpython.md](benchmark/references/thinkpython.md)
+### Category: Scientific Papers and Books
+
+1. [crowd.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/crowd.md) (10 pages)
+2. [multicolcnn.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/multicolcnn.md) (10 pages)
+3. [switch_trans.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/switch_trans.pdf) - Reference: [switch_trans.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/switch_trans.md) (40 pages)
+4. [thinkdsp.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkdsp.pdf) - Reference: [thinkdsp.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkdsp.md) (153 pages)
+5. [thinkos.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkos.pdf) - Reference: [thinkos.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkos.md) (99 pages)
+6. [thinkpython.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkpython.pdf) - Reference: [thinkpython.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkpython.md) (240 pages)
 
 ### Accuracy Comparison
 
@@ -123,17 +126,17 @@ We offer a wide range of PDF extractors to suit specific use-cases. Whether you'
 
 ### Detailed Analysis and Insights
 
-1. **Accuracy**: 
+**Accuracy**: 
    - Overall, the Marker extractor consistently provides high accuracy scores across all PDF documents.
    - The Unstructured IO extractor also performs well, often close to the accuracy of the Marker extractor.
    - The PDF Extractor delivers reliable accuracy, with scores that are generally competitive with the other extractors.
 
-2. **Time Efficiency**:
+**Time Efficiency**:
    - The Unstructured IO extractor is the fastest, taking the least time for all PDF documents.
    - The PDF Extractor is moderately fast, providing a good balance between speed and accuracy.
    - The Marker extractor, despite providing high accuracy, is significantly slower compared to the other two extractors.
 
-3. **Extractor Recommendations**:
+**Extractor Recommendations**:
    - **Marker Extractor**: Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction.
    - **PDF Extractor**: Use for a balanced approach where both accuracy and speed are important. Suitable for applications needing quick results without compromising much on accuracy.
    - **Unstructured IO Extractor**: Use when speed is the primary concern. Perfect for real-time applications or scenarios where quick extraction is essential.
@@ -167,6 +170,7 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 - [Code for Creating Graphs](https://colab.research.google.com/drive/1xyS8oCJV1CHW5fmgeD3umSAPbGOqID-G?usp=sharing)
 - [Benchmarking Notebook](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing)
 - [Benchmarking Local Script](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/benchmark)
+- [Extractor Performance Benchmarks](https://github.com/VikParuchuri/marker?tab=readme-ov-file#benchmarks) - Thanks to the Marker team for the code.
 
 ### Test Environment
 
@@ -241,7 +245,7 @@ With just a few lines of code, you can use data locked in PDFs in your applicati
 
 ## Explore More Examples
 
-We've curated a collection of inspiring examples to showcase the versatility of PDF extraction. Check out these notebooks:
+We've curated a collection of PDF extraction examples. Check out these notebooks:
 
 #### RAG based Question Answering
 - [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
