@@ -28,15 +28,16 @@ const ContentsPage = () => {
     parentId?: string
     startId?: string
     pageSize: number
-  }): Promise<IContentMetadataExtended[]> => {
-    const contentList = await client.getExtractedContent({
+  }): Promise<{ contentList: IContentMetadataExtended[]; total?: number }> => {
+    const { contentList, total } = await client.getExtractedContent({
       parentId,
       startId,
       limit: pageSize + 1,
+      returnTotal: startId === undefined,
     })
 
     //count children
-    return Promise.all(
+    const contentListExtended = await Promise.all(
       contentList.map(async (content) => {
         const tree = await client.getContentTree(content.id)
         return {
@@ -45,14 +46,13 @@ const ContentsPage = () => {
         }
       })
     )
+    return { contentList, total }
   }
 
   return (
     <Box>
-      <ContentTable
-        loadData={contentLoader}
-        client={client}
-      />
+      {/* update this here */}
+      <ContentTable loadData={contentLoader} client={client} />
     </Box>
   )
 }

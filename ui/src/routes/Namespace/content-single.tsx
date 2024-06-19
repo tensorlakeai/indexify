@@ -31,15 +31,15 @@ export async function loader({ params }: LoaderFunctionArgs) {
     namespace,
   })
   // get content from contentId
-  const tasks = await client
-    .getTasks({})
-    .then((tasks) => tasks.filter((t) => t.content_metadata.id === contentId))
-    .catch((e) => {
-      if (isAxiosError(e)) {
-        errors.push(`getTasks: ${e.message}`)
+  const { tasks } = await client
+    .getTasks({ returnTotal: false })
+    .then(({ tasks, total }) => {
+      return {
+        tasks: tasks.filter((t) => t.content_metadata.id === contentId),
+        total,
       }
-      return null
     })
+
   const contentMetadata = await client.getContentMetadata(contentId)
   const extractedMetadataList = await client
     .getStructuredMetadata(contentId)
@@ -173,10 +173,11 @@ const ContentPage = () => {
     pageSize: number,
     startId?: string
   ): Promise<ITask[]> => {
-    const tasks = await client.getTasks({
+    const { tasks } = await client.getTasks({
       contentId,
       limit: pageSize + 1,
       startId,
+      returnTotal: startId === undefined,
     })
     return tasks
   }

@@ -45,10 +45,11 @@ const ExtractionPolicyPage = () => {
     pageSize: number,
     startId?: string
   ): Promise<ITask[]> => {
-    const tasks = await client.getTasks({
+    const { tasks } = await client.getTasks({
       extractionPolicyId: policy.id,
       limit: pageSize + 1,
       startId,
+      returnTotal: startId === undefined,
     })
     return tasks
   }

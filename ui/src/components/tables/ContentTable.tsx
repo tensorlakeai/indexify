@@ -23,7 +23,7 @@ const ContentTable = ({
   loadData,
   client,
 }: {
-  client: IndexifyClient,
+  client: IndexifyClient
   loadData: ({
     pageSize,
     parentId,
@@ -32,11 +32,11 @@ const ContentTable = ({
     pageSize: number
     parentId?: string
     startId?: string
-  }) => Promise<IContentMetadataExtended[]>
+  }) => Promise<{ contentList: IContentMetadataExtended[]; total?: number }>
 }) => {
-  const [rowCountState, setRowCountState] = useState(0)
   const [loading, setLoading] = useState(false)
   const [content, setContent] = useState<IContentMetadataExtended[]>([])
+  const [total, setTotal] = useState<number>(0)
   const [startIds, setStartIds] = useState<Record<number, string>>({})
   const [paginationModel, setPaginationModel] = useState({
     page: 0,
@@ -56,7 +56,7 @@ const ContentTable = ({
       if (!active || !loadData) return
 
       // load tasks for a given page
-      const newContent = await loadData({
+      const { contentList: newContent, total } = await loadData({
         pageSize: paginationModel.pageSize,
         startId: paginationModel.page
           ? startIds[paginationModel.page - 1]
@@ -66,11 +66,10 @@ const ContentTable = ({
             ? currentTab
             : undefined,
       })
+      if (total) {
+        setTotal(total)
+      }
       setContent(newContent)
-
-      const newRowCount =
-        paginationModel.page * paginationModel.pageSize + newContent.length
-      setRowCountState(newRowCount)
 
       // add to startids if needed
       if (newContent.length && startIds[paginationModel.page] === undefined) {
@@ -238,7 +237,7 @@ const ContentTable = ({
           sx={{ backgroundColor: 'white' }}
           autoHeight
           rows={content.slice(0, paginationModel.pageSize)}
-          rowCount={rowCountState}
+          rowCount={total}
           columns={columns}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
