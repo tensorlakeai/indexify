@@ -1,12 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
 
-body {
+body, html {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Poppins', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -18,4 +14,36 @@ code {
 
 a {
   color:inherit
+}
+
+.drawer-logo {
+  color: #1C2026;
+  margin-right: 10px;
+}
+
+.navbar-items {
+  margin: 0.5rem !important;
+  border-radius: 8px !important;
+}
+
+.selected-navbar-items {
+  border-radius: 8px;
+  background: var(--Gray-Gray02, #F7F9FC);
+  box-shadow: 0px 0px 3px -1px var(--Brand-BrandColor-02, #6FA8EA) inset;
+}
+
+.heading-icons {
+  border-radius: 8px;
+  border: 1px solid var(--Gray-Gray03, #E9EDF1);
+  background: var(--White, #FFF);
+}
+
+.heading-icon-container {
+  display: flex;
+  padding: 8px;
+  align-items: center;
+  gap: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--Gray-Gray03, #E9EDF1);
+  background: var(--White, #FFF);
 }

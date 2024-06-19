@@ -2,9 +2,8 @@ import React from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { Alert, Chip, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import StorageIcon from '@mui/icons-material/Storage'
-import InfoIcon from '@mui/icons-material/Info'
 import { ISchema } from 'getindexify'
+import { Grid7, InfoCircle } from 'iconsax-react'
 
 const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
   const getRowId = (row: ISchema) => {
@@ -87,14 +86,16 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         alignItems={'center'}
         spacing={2}
       >
-        <StorageIcon />
-        <Typography variant="h3">
+        <div className='heading-icon-container'>
+          <Grid7 size="25" className="heading-icons" variant="Outline"/>
+        </div>
+        <Typography variant="h4">
           SQL Tables
           <IconButton
             href="https://docs.getindexify.ai/concepts/#vector-index-and-retreival-apis"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
       </Stack>

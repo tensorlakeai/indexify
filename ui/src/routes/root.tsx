@@ -24,6 +24,7 @@ import {
   ListItemText,
 } from '@mui/material'
 import { Link } from 'react-router-dom'
+import { Cpu, Data, Grid7, MobileProgramming, TableDocument } from 'iconsax-react'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
@@ -57,7 +58,7 @@ export default function Dashboard() {
           height: '100vh',
           backgroundColor: (theme) =>
             theme.palette.mode === 'light'
-              ? theme.palette.grey[100]
+              ? '#F7F9FC'
               : theme.palette.grey[900],
         }}
       >
@@ -109,14 +110,18 @@ export default function Dashboard() {
                 to={`/${namespace}/extractors`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/extractors`)}
+                className={location.pathname.startsWith(`/${namespace}/extractors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
+                <Data size="20" className="drawer-logo" variant='Outline' />
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
               <ListItemButton
                 to={`/${namespace}/content`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/content`)}
+                className={location.pathname.startsWith(`/${namespace}/content`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
+                <TableDocument size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Content'} />
               </ListItemButton>
               <ListItemButton
@@ -125,21 +130,27 @@ export default function Dashboard() {
                 selected={
                   location.pathname.startsWith(`/${namespace}/extraction-graphs`)
                 }
+                className={location.pathname.startsWith(`/${namespace}/extraction-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
+                <Cpu size="20" className="drawer-logo" variant='Outline' />
                 <ListItemText primary={'Extraction Graphs'} />
               </ListItemButton>
               <ListItemButton
                 to={`/${namespace}/indexes`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/indexes`)}
+                className={location.pathname.startsWith(`/${namespace}/indexes`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
+                <MobileProgramming size="20" className="drawer-logo" variant="Outline"/>
                 <ListItemText primary={'Indexes'} />
               </ListItemButton>
               <ListItemButton
                 to={`/${namespace}/sql-tables`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/sql-tables`)}
+                className={location.pathname.startsWith(`/${namespace}/sql-tables`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
+                <Grid7 size="20" className="drawer-logo" variant="Outline"/>
                 <ListItemText primary={'SQL Tables'} />
               </ListItemButton>
             </List>

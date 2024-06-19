@@ -2,11 +2,10 @@ import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, IIndex } from 'getindexify'
 import { Alert, Button, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import ManageSearchIcon from '@mui/icons-material/ManageSearch'
-import InfoIcon from '@mui/icons-material/Info'
 import React from 'react'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
+import { InfoCircle, MobileProgramming } from 'iconsax-react'
 
 const IndexTable = ({
   indexes,
@@ -124,14 +123,16 @@ const IndexTable = ({
         alignItems={'center'}
         spacing={2}
       >
-        <ManageSearchIcon />
-        <Typography variant="h3">
+        <div className='heading-icon-container'>
+          <MobileProgramming size="25" className="heading-icons" variant="Outline"/>
+        </div>
+        <Typography variant="h4">
           Indexes
           <IconButton
             href="https://docs.getindexify.ai/apis/retrieval/#vector-indexes"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
       </Stack>
