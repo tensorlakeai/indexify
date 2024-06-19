@@ -89,7 +89,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         <div className='heading-icon-container'>
           <Grid7 size="25" className="heading-icons" variant="Outline"/>
         </div>
-        <Typography variant="h3">
+        <Typography variant="h4">
           SQL Tables
           <IconButton
             href="https://docs.getindexify.ai/concepts/#vector-index-and-retreival-apis"

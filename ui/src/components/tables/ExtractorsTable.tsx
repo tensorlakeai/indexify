@@ -127,7 +127,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         <div className='heading-icon-container'>
           <Data size="25" className="heading-icons" variant="Outline"/>
         </div>
-        <Typography variant="h3">
+        <Typography variant="h4">
           Extractors
           <IconButton
             href="https://docs.getindexify.ai/concepts/#extractor"

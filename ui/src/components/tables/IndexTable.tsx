@@ -126,7 +126,7 @@ const IndexTable = ({
         <div className='heading-icon-container'>
           <MobileProgramming size="25" className="heading-icons" variant="Outline"/>
         </div>
-        <Typography variant="h3">
+        <Typography variant="h4">
           Indexes
           <IconButton
             href="https://docs.getindexify.ai/apis/retrieval/#vector-indexes"

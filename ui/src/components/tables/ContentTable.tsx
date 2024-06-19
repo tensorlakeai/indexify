@@ -260,7 +260,7 @@ const ContentTable = ({
         <div className='heading-icon-container'>
           <TableDocument size="25" className="heading-icons" variant="Outline"/>
         </div>
-        <Typography variant="h3">
+        <Typography variant="h4">
           Content
           <IconButton
             href="https://docs.docs.getindexify.ai/concepts/#content"
