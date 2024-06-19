@@ -58,7 +58,7 @@ export default function Dashboard() {
           height: '100vh',
           backgroundColor: (theme) =>
             theme.palette.mode === 'light'
-              ? theme.palette.grey[100]
+              ? '#F7F9FC'
               : theme.palette.grey[900],
         }}
       >
