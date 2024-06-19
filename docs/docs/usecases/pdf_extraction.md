@@ -66,9 +66,9 @@ def get_table_content(client, content_id):
     return None
 ```
 
-## Explore the PDF Extractor Landscape
+## Explore PDF Extractors
 
-We offer a wide range of PDF extractors to suit specific use-cases. Whether you're dealing with invoices, scientific papers, or scanned documents, we've got you covered. Here's a quick overview of our extractor lineup:
+Here's a quick overview of all the extractors:
 
 | Extractors                                | Output Type        | Best For                            | Output Example                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 |-------------------------------------------|--------------------|-------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
