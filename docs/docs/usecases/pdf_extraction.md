@@ -85,12 +85,12 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 
 ### Category: Scientific Papers and Books
 
-1. [crowd.pdf](benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](benchmark/references/crowd.md)
-2. [multicolcnn.pdf](benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](benchmark/references/multicolcnn.md)
-3. [switch_trans.pdf](benchmark/pdfs/switch_trans.pdf) - Reference: [switch_trans.md](benchmark/references/switch_trans.md)
-4. [thinkdsp.pdf](benchmark/pdfs/thinkdsp.pdf) - Reference: [thinkdsp.md](benchmark/references/thinkdsp.md)
-5. [thinkos.pdf](benchmark/pdfs/thinkos.pdf) - Reference: [thinkos.md](benchmark/references/thinkos.md)
-6. [thinkpython.pdf](benchmark/pdfs/thinkpython.pdf) - Reference: [thinkpython.md](benchmark/references/thinkpython.md)
+1. [crowd.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/crowd.md)
+2. [multicolcnn.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/multicolcnn.md)
+3. [switch_trans.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/switch_trans.pdf) - Reference: [switch_trans.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/switch_trans.md)
+4. [thinkdsp.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkdsp.pdf) - Reference: [thinkdsp.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkdsp.md)
+5. [thinkos.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkos.pdf) - Reference: [thinkos.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkos.md)
+6. [thinkpython.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkpython.pdf) - Reference: [thinkpython.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkpython.md)
 
 ### Accuracy Comparison
 
