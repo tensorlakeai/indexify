@@ -1,6 +1,7 @@
 # PDF Extraction
 
-Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. PDF is a complex document type; we offer many different extractors suitable to various use cases.
+Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. 
+
 
 ## What Can You Achieve with Indexify?
 
@@ -80,7 +81,9 @@ Here's a quick overview of all the extractors:
 
 ## Extractor Performance Analysis
 
-### PDF Documents and Corresponding Reference Files
+PDF is a complex data type, we recommend you try out all extractors on a representative sample of documents that you are extracting from, and decide which extractors to use in your pipeline. We present some code to benchmark the various extractors.
+
+### Category: Scientific Papers and Books
 
 1. [crowd.pdf](benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](benchmark/references/crowd.md)
 2. [multicolcnn.pdf](benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](benchmark/references/multicolcnn.md)
@@ -123,17 +126,17 @@ Here's a quick overview of all the extractors:
 
 ### Detailed Analysis and Insights
 
-1. **Accuracy**: 
+**Accuracy**: 
    - Overall, the Marker extractor consistently provides high accuracy scores across all PDF documents.
    - The Unstructured IO extractor also performs well, often close to the accuracy of the Marker extractor.
    - The PDF Extractor delivers reliable accuracy, with scores that are generally competitive with the other extractors.
 
-2. **Time Efficiency**:
+**Time Efficiency**:
    - The Unstructured IO extractor is the fastest, taking the least time for all PDF documents.
    - The PDF Extractor is moderately fast, providing a good balance between speed and accuracy.
    - The Marker extractor, despite providing high accuracy, is significantly slower compared to the other two extractors.
 
-3. **Extractor Recommendations**:
+**Extractor Recommendations**:
    - **Marker Extractor**: Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction.
    - **PDF Extractor**: Use for a balanced approach where both accuracy and speed are important. Suitable for applications needing quick results without compromising much on accuracy.
    - **Unstructured IO Extractor**: Use when speed is the primary concern. Perfect for real-time applications or scenarios where quick extraction is essential.
@@ -241,7 +244,7 @@ With just a few lines of code, you can use data locked in PDFs in your applicati
 
 ## Explore More Examples
 
-We've curated a collection of inspiring examples to showcase the versatility of PDF extraction. Check out these notebooks:
+We've curated a collection of PDF extraction examples. Check out these notebooks:
 
 #### RAG based Question Answering
 - [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
