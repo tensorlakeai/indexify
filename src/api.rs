@@ -184,7 +184,9 @@ pub struct Text {
 pub struct TextAddRequest {
     pub documents: Vec<Text>,
     pub sync: Option<bool>,
-    pub extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
+
+    // internal_api::ExtractionGraphName, can't use it here because ToSchema is not implemented
+    pub extraction_graph_names: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -579,7 +581,9 @@ impl From<internal_api::Feature> for Feature {
 pub struct ContentWithId {
     pub id: String,
     pub content: Content,
-    pub extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
+
+    // internal_api::ExtractionGraphName, can't use it here because ToSchema is not implemented
+    pub extraction_graph_names: Vec<String>,
 }
 
 #[serde_as]
