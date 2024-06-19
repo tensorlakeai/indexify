@@ -36,7 +36,7 @@ const ContentTable = ({
 }) => {
   const [loading, setLoading] = useState(false)
   const [content, setContent] = useState<IContentMetadataExtended[]>([])
-  const [total, setTotal] = useState<number>(0)
+  const [rowCount, setRowCount] = useState<number>(0)
   const [startIds, setStartIds] = useState<Record<number, string>>({})
   const [paginationModel, setPaginationModel] = useState({
     page: 0,
@@ -66,8 +66,8 @@ const ContentTable = ({
             ? currentTab
             : undefined,
       })
-      if (total) {
-        setTotal(total)
+      if (!rowCount && total) {
+        setRowCount(total)
       }
       setContent(newContent)
 
@@ -237,7 +237,7 @@ const ContentTable = ({
           sx={{ backgroundColor: 'white' }}
           autoHeight
           rows={content.slice(0, paginationModel.pageSize)}
-          rowCount={total}
+          rowCount={rowCount}
           columns={columns}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}

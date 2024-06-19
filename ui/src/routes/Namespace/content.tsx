@@ -46,7 +46,7 @@ const ContentsPage = () => {
         }
       })
     )
-    return { contentList, total }
+    return { contentList: contentListExtended, total }
   }
 
   return (
