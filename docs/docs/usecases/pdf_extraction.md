@@ -85,12 +85,12 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 
 ### Category: Scientific Papers and Books
 
-1. [crowd.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/crowd.md)
-2. [multicolcnn.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/multicolcnn.md)
-3. [switch_trans.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/switch_trans.pdf) - Reference: [switch_trans.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/switch_trans.md)
-4. [thinkdsp.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkdsp.pdf) - Reference: [thinkdsp.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkdsp.md)
-5. [thinkos.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkos.pdf) - Reference: [thinkos.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkos.md)
-6. [thinkpython.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkpython.pdf) - Reference: [thinkpython.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkpython.md)
+1. [crowd.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/crowd.pdf) - Reference: [crowd.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/crowd.md) (10 pages)
+2. [multicolcnn.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/multicolcnn.pdf) - Reference: [multicolcnn.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/multicolcnn.md) (10 pages)
+3. [switch_trans.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/switch_trans.pdf) - Reference: [switch_trans.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/switch_trans.md) (40 pages)
+4. [thinkdsp.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkdsp.pdf) - Reference: [thinkdsp.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkdsp.md) (153 pages)
+5. [thinkos.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkos.pdf) - Reference: [thinkos.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkos.md) (99 pages)
+6. [thinkpython.pdf](https://github.com/tensorlakeai/indexify-extractors/raw/main/pdf/benchmark/pdfs/thinkpython.pdf) - Reference: [thinkpython.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkpython.md) (240 pages)
 
 ### Accuracy Comparison
 
@@ -170,6 +170,7 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 - [Code for Creating Graphs](https://colab.research.google.com/drive/1xyS8oCJV1CHW5fmgeD3umSAPbGOqID-G?usp=sharing)
 - [Benchmarking Notebook](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing)
 - [Benchmarking Local Script](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/benchmark)
+- [Extractor Performance Benchmarks](https://github.com/VikParuchuri/marker?tab=readme-ov-file#benchmarks) - Thanks to the Marker team for the code.
 
 ### Test Environment
 
