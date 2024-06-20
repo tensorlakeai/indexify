@@ -217,22 +217,23 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 ### Detailed Analysis and Insights
 
 **Accuracy**: 
+
    - Marker extractor consistently provides high accuracy scores across all PDF documents.
-   - Unstructured IO extractor performs well, often close to the accuracy of the Marker extractor.
-   - EasyOCR shows competitive accuracy, particularly strong in "crowd.pdf" and "thinkpython.pdf".
-   - OCRmyPDF delivers reliable accuracy, leading in "crowd.pdf" and "thinkos.pdf".
+   - EasyOCR and OCRMyPDF shows competetive accuracy across all the documents. 
+   - Unstructured IO is fractionally better than EasyOCR in one of the books, and from OCRMyPDF on another.
 
 **Time Efficiency**:
+
    - Unstructured IO extractor is the fastest, taking the least time for all PDF documents.
    - EasyOCR shows extreme variability in processing times, being exceptionally fast for some documents and very slow for others.
    - Marker extractor, despite providing high accuracy, is significantly slower compared to the other extractors.
    - OCRmyPDF shows moderate time efficiency, balancing between speed and accuracy.
 
 **Extractor Recommendations**:
+
    - **Marker Extractor**: Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction.
-   - **Unstructured IO Extractor**: Use when speed is the primary concern. Perfect for real-time applications or scenarios where quick extraction is essential.
-   - **EasyOCR**: Suitable for applications needing variable but often high accuracy with extreme processing time differences.
-   - **OCRmyPDF**: Balanced approach where both accuracy and speed are important, especially for documents where OCR is needed.
+   - **EasyOCR**: When accuracy is import, but you need faster extraction time. EasyOCR also provides training recipes to fine tune the model on private documents. This will improve it's accuracy further.
+   - **Unstructured**: While unstructured doesn't show any significant advantages in accuracy, it is known to handle a lot of differnt variations of PDFs. 
 
 ### Additional Comparisons
 
