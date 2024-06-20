@@ -92,13 +92,14 @@ const IndexTable = ({
     }
     return (
       <>
-        <div
+        <Box
           style={{
             width: '100%',
+            marginTop: '1rem',
           }}
         >
           <DataGrid
-            sx={{ backgroundColor: 'white' }}
+            sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
             autoHeight
             getRowId={getRowId}
             rows={indexes}
@@ -109,8 +110,9 @@ const IndexTable = ({
               },
             }}
             pageSizeOptions={[5, 10]}
+            className='custom-data-grid'
           />
-        </div>
+        </Box>
       </>
     )
   }

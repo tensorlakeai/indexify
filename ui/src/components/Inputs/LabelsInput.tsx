@@ -94,7 +94,7 @@ const LabelsInput = ({ onChange, disabled }: LabelsInputProps) => {
             color="secondary"
             onClick={() => handleDeleteLabel(key)}
           >
-            <Delete />
+            <Delete color='action' />
           </IconButton>
         </Box>
       ))}

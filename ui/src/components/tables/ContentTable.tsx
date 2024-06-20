@@ -232,9 +232,9 @@ const ContentTable = ({
     }
 
     return (
-      <Box sx={{ width: '100%' }}>
+      <Box sx={{ width: '100%', marginTop: '1rem', }}>
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
           autoHeight
           rows={content.slice(0, paginationModel.pageSize)}
           rowCount={rowCountState}
@@ -244,6 +244,7 @@ const ContentTable = ({
           paginationMode="server"
           loading={loading}
           pageSizeOptions={[5]}
+          className='custom-data-grid'
         />
       </Box>
     )

@@ -24,7 +24,7 @@ import {
   ListItemText,
 } from '@mui/material'
 import { Link } from 'react-router-dom'
-import { Cpu, Data, Grid7, MobileProgramming, TableDocument } from 'iconsax-react'
+import { Cpu, Data, Grid7, MobileProgramming, SliderVertical1 } from 'iconsax-react'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
@@ -121,7 +121,7 @@ export default function Dashboard() {
                 selected={location.pathname.startsWith(`/${namespace}/content`)}
                 className={location.pathname.startsWith(`/${namespace}/content`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
-                <TableDocument size="20" className="drawer-logo" variant="Outline" />
+                <SliderVertical1 size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Content'} />
               </ListItemButton>
               <ListItemButton
