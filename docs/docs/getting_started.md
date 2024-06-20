@@ -210,11 +210,17 @@ When we run this file, we get the following output
 During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
 ```
 
-## Next Steps
+## Fault Tolerance and Reliability
+Indexify is built for mission-critical use-cases, emphasizing reliability and scalability. It supports running thousands of extractors in parallel across thousands of compute nodes for horizontal scalability. If an extractor crashes, Indexify automatically retries the extraction on another node, ensuring a reliable extraction process. Here’s how it works in practice.
+
+1. Open up a few more terminals and run the extractors.
+2. Run the extractors in each of them. `indexify-extractor join-server` 
+3. Upload 1000s of random texts, and watch Indexify load balance the work across all the extractor processes you have just started.
+4. Kill a process, and watch the extraction being retried on other running extractors.
 
 Now that you have learnt how to build a basic RAG application using Indexify, you can head over to learning more advanced topics
 
-- Learn how to extract text, tables and images from PDF documents.
-- See how you can reteive extracted data from Langchain or DSPy.
-- Deploying Indexify server and extractors on Kubernetes, when you are ready to take your app to production.
-- Observability and understanding performance of Retrieval and Extraction processes.
+- [Learn how to extract text, tables and images from PDF documents](usecases/pdf_extraction.md).
+- See how you can retrieve extracted data from [Langchain](integrations/langchain/python_langchain.md) or [DSPy](integrations/dspy/python_dspy.md).
+- Deploying [Indexify server and extractors on Kubernetes](operations/kubernetes.md), when you are ready to take your app to production.
+- [Observability](metrics.md) and understanding performance of Retrieval and Extraction processes.
