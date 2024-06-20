@@ -184,25 +184,25 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 
 ### Accuracy Comparison
 
-| PDF Document          | Marker Score | PDF Extractor Score | Unstructured IO Score |
-|-----------------------|--------------|---------------------|-----------------------|
-| crowd.pdf             | 0.5391       | 0.4730              | 0.5224                |
-| multicolcnn.pdf       | 0.5409       | 0.4613              | 0.5213                |
-| switch_trans.pdf      | 0.5191       | 0.3978              | 0.4730                |
-| thinkdsp.pdf          | 0.6810       | 0.6303              | 0.6625                |
-| thinkos.pdf           | 0.7368       | 0.6892              | 0.6855                |
-| thinkpython.pdf       | 0.6910       | 0.6760              | 0.6822                |
+| PDF Document          | Marker Score | Unstructured IO Score | EasyOCR Score        | OCRmyPDF Score       |
+|-----------------------|--------------|-----------------------|----------------------|----------------------|
+| crowd.pdf             | 0.5391       | 0.5224                | 0.5486               | 0.5792               |
+| multicolcnn.pdf       | 0.5409       | 0.5213                | 0.5333               | 0.5627               |
+| switch_trans.pdf      | 0.5191       | 0.4730                | 0.5198               | 0.5198               |
+| thinkdsp.pdf          | 0.6810       | 0.6625                | 0.6755               | 0.6740               |
+| thinkos.pdf           | 0.7368       | 0.6855                | 0.6781               | 0.7050               |
+| thinkpython.pdf       | 0.6910       | 0.6822                | 0.6875               | 0.6161               |
 
 ### Time Taken Comparison
 
-| PDF Document          | Marker Time (s) | PDF Extractor Time (s) | Unstructured IO Time (s) |
-|-----------------------|------------------|------------------------|--------------------------|
-| crowd.pdf             | 21.65            | 8.08                   | 2.44                     |
-| multicolcnn.pdf       | 17.91            | 5.19                   | 1.64                     |
-| switch_trans.pdf      | 45.90            | 16.84                  | 5.35                     |
-| thinkdsp.pdf          | 139.80           | 28.07                  | 29.10                    |
-| thinkos.pdf           | 84.04            | 6.57                   | 4.88                     |
-| thinkpython.pdf       | 217.60           | 22.20                  | 21.00                    |
+| PDF Document          | Marker Time (s) | Unstructured IO Time (s) | EasyOCR Time (s)     | OCRmyPDF Time (s)    |
+|-----------------------|------------------|--------------------------|----------------------|----------------------|
+| crowd.pdf             | 21.65            | 2.44                     | 14.18                | 5.44                 |
+| multicolcnn.pdf       | 17.91            | 1.64                     | 31.00                | 22.40                |
+| switch_trans.pdf      | 45.90            | 5.35                     | 0.14                 | 4.10                 |
+| thinkdsp.pdf          | 139.80           | 29.10                    | 17.37                | 20.59                |
+| thinkos.pdf           | 84.04            | 4.88                     | 0.13                 | 5.70                 |
+| thinkpython.pdf       | 217.60           | 21.00                    | 4.03                 | 13.96                |
 
 ### Visual Comparisons
 
@@ -217,19 +217,22 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 ### Detailed Analysis and Insights
 
 **Accuracy**: 
-   - Overall, the Marker extractor consistently provides high accuracy scores across all PDF documents.
-   - The Unstructured IO extractor also performs well, often close to the accuracy of the Marker extractor.
-   - The PDF Extractor delivers reliable accuracy, with scores that are generally competitive with the other extractors.
+   - Marker extractor consistently provides high accuracy scores across all PDF documents.
+   - Unstructured IO extractor performs well, often close to the accuracy of the Marker extractor.
+   - EasyOCR shows competitive accuracy, particularly strong in "crowd.pdf" and "thinkpython.pdf".
+   - OCRmyPDF delivers reliable accuracy, leading in "crowd.pdf" and "thinkos.pdf".
 
 **Time Efficiency**:
-   - The Unstructured IO extractor is the fastest, taking the least time for all PDF documents.
-   - The PDF Extractor is moderately fast, providing a good balance between speed and accuracy.
-   - The Marker extractor, despite providing high accuracy, is significantly slower compared to the other two extractors.
+   - Unstructured IO extractor is the fastest, taking the least time for all PDF documents.
+   - EasyOCR shows extreme variability in processing times, being exceptionally fast for some documents and very slow for others.
+   - Marker extractor, despite providing high accuracy, is significantly slower compared to the other extractors.
+   - OCRmyPDF shows moderate time efficiency, balancing between speed and accuracy.
 
 **Extractor Recommendations**:
    - **Marker Extractor**: Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction.
-   - **PDF Extractor**: Use for a balanced approach where both accuracy and speed are important. Suitable for applications needing quick results without compromising much on accuracy.
    - **Unstructured IO Extractor**: Use when speed is the primary concern. Perfect for real-time applications or scenarios where quick extraction is essential.
+   - **EasyOCR**: Suitable for applications needing variable but often high accuracy with extreme processing time differences.
+   - **OCRmyPDF**: Balanced approach where both accuracy and speed are important, especially for documents where OCR is needed.
 
 ### Additional Comparisons
 
