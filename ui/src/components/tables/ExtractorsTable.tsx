@@ -3,7 +3,7 @@ import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { Alert, Chip, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { Extractor } from 'getindexify'
-import { Data, InfoCircle } from 'iconsax-react'
+import { Data, InfoCircle } from 'iconsax-react';
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const columns: GridColDef[] = [
@@ -15,11 +15,11 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
     //   width: 300,
     //   renderCell: (params) => {
     //     return (
-    //       <Box sx={{ overflowX: "scroll" }}>
+    //       <Box sx={{ overflowX: "scroll" }}>s
     //         <Stack gap={1} direction="row">
     //           {(params.value ?? []).map((val: string) => {
     //             return (
-    //               <Chip
+    //               <Chips
     //                 key={val}
     //                 label={val}
     //                 sx={{ backgroundColor: "#4AA4F4", color: "white" }}
@@ -39,7 +39,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         return params.value?.properties
       },
       renderCell: (params) => {
-        if (!params.value) {
+        if (!params.value || Object.keys(params.value).length === 0) {
           return <Typography variant="body1">None</Typography>
         }
         return (
@@ -63,7 +63,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         return params.value ?? {}
       },
       renderCell: (params) => {
-        if (!params.value) {
+        if (!params.value || Object.keys(params.value).length === 0) {
           return <Typography variant="body1">None</Typography>
         }
         return (

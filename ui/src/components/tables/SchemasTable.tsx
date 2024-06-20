@@ -22,7 +22,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
       headerName: 'Columns',
       width: 500,
       renderCell: (params) => {
-        if (!params.value) {
+        if (!params.value || Object.keys(params.value).length === 0) {
           return <Typography variant="body1">None</Typography>
         }
         return (
