@@ -89,14 +89,18 @@ const theme = createTheme({
           }),
         outlined: {
           padding: "10px 24px",
-          borderRadius: "100px",
+          borderRadius: "8px",
           color: "primary",
-          border: "1px solid #79747E",
+          border: "1px solid #3296FE",
         },
         contained: {
-          padding: "10px 24px",
-          borderRadius: "100px",
-          border: "1px solid #060D3F",
+          padding: "10px 16px",
+          borderRadius: "8px",
+          border: "1px solid #3296FE",
+          backgroundColor: "#3296FE",
+          ":hover": {
+            backgroundColor: "#1080f4",
+          }
         },
         text: {
           padding: "10px 12px",
@@ -108,7 +112,7 @@ const theme = createTheme({
   typography: {
     fontFamily: "poppins",
     h1: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "48px",
       lineHeight: "normal",
       fontStyle: "normal",

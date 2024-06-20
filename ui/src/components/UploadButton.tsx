@@ -144,7 +144,7 @@ const UploadButton = ({ client }: Props) => {
           </Box>
         </Paper>
       </Modal>
-      <Button onClick={handleOpen} size="small" variant='contained' endIcon={<UploadIcon />}>
+      <Button onClick={handleOpen} size="small" variant="contained" color="primary" startIcon={<UploadIcon />}>
         Upload
       </Button>
     </>
