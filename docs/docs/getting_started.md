@@ -216,7 +216,7 @@ Indexify is built for mission-critical use-cases, emphasizing reliability and sc
 1. Open up a few more terminals and run the extractors.
 2. Run the extractors in each of them. `indexify-extractor join-server` 
 3. Upload 1000s of random texts, and watch Indexify load balance the work across all the extractor processes you have just started.
-4. Kill a process, and watch the extraction being retried on other running extractors.
+4. Kill one of the extractor process, and watch the extraction being retried on other running extractors.
 
 ## Next Steps
 
