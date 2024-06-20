@@ -2,7 +2,6 @@ import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, IIndex } from 'getindexify'
 import { Alert, Button, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import React from 'react'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
 import { InfoCircle, MobileProgramming } from 'iconsax-react'
@@ -26,24 +25,6 @@ const IndexTable = ({
 
   const columns: GridColDef[] = [
     {
-      field: 'searchIndex',
-      headerName: '',
-      width: 140,
-      renderCell: (params) => {
-        return (
-          <>
-            <Link
-              to={`/${namespace}/indexes/${params.row.name}`}
-            >
-              <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
-                Search Index
-              </Button>
-            </Link>
-          </>
-        )
-      },
-    },
-    {
       field: 'name',
       headerName: 'Name',
       width: 500,
@@ -58,7 +39,7 @@ const IndexTable = ({
     },
     {
       field: 'policy_name',
-      headerName: 'Policy Name',
+      headerName: 'Description',
       width: 300,
       renderCell: (params) => {
         const policy = getPolicyFromIndexname(params.row.name)
@@ -74,6 +55,24 @@ const IndexTable = ({
         )
       },
     },
+    {
+      field: 'searchIndex',
+      headerName: 'Action',
+      width: 140,
+      renderCell: (params) => {
+        return (
+          <>
+            <Link
+              to={`/${namespace}/indexes/${params.row.name}`}
+            >
+              <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
+                Search Index
+              </Button>
+            </Link>
+          </>
+        )
+      },
+    },
   ]
 
   const getRowId = (row: IIndex) => {
@@ -83,7 +82,7 @@ const IndexTable = ({
   const renderContent = () => {
     if (indexes.length === 0) {
       return (
-        <Box mt={1} mb={2}>
+        <Box mt={2} mb={2}>
           <Alert variant="outlined" severity="info">
             No Indexes Found
           </Alert>
