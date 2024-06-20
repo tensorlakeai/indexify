@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, ITask } from 'getindexify'
 import { Alert, Typography } from '@mui/material'

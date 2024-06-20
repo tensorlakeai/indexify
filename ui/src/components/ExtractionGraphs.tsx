@@ -6,7 +6,7 @@ import {
 } from 'getindexify'
 import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import React, { ReactElement } from 'react'
+import { ReactElement } from 'react'
 import ExtractionPolicyItem from './ExtractionPolicyItem'
 import { IExtractionGraphCol, IExtractionGraphColumns } from '../types'
 import CopyText from './CopyText'

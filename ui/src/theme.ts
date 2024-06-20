@@ -1,23 +1,5 @@
 import { createTheme } from "@mui/material/styles";
 
-// const roboto = Roboto({
-//   weight: ["300", "400", "500", "700"],
-//   subsets: ["latin"],
-//   display: "swap",
-// });
-
-// const rubik = Rubik({
-//   weight: ["600", "700"],
-//   subsets: ["latin"],
-//   display: "swap",
-// });
-
-// const outfit = Outfit({
-//   weight: ["400", "600", "700"],
-//   subsets: ["latin"],
-//   display: "swap",
-// });
-
 declare module "@mui/material/styles" {
   interface TypographyVariants {
     labelSmall: React.CSSProperties;

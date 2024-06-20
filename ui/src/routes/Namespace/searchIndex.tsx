@@ -10,7 +10,7 @@ import {
   CircularProgress,
 } from '@mui/material'
 import { IIndex, IndexifyClient, ISearchIndexResponse } from 'getindexify'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import SearchResultCard from '../../components/SearchResultCard'
 import { getIndexifyServiceURL } from '../../utils/helpers'

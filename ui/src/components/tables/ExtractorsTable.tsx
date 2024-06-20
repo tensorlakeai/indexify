@@ -1,4 +1,3 @@
-import React from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { Alert, Chip, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
