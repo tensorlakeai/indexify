@@ -63,3 +63,28 @@ a {
 .MuiToolbar-root.MuiToolbar-gutters.MuiToolbar-regular.MuiTablePagination-toolbar > p, div.MuiSelect-select.MuiTablePagination-select.MuiSelect-standard.MuiInputBase-input {
   font-size: small;
 }
+
+.MuiDataGrid-cell--withRenderer.MuiDataGrid-cell .custom-scroll{
+    -ms-overflow-style: none;
+}
+.MuiDataGrid-cell--withRenderer.MuiDataGrid-cell .custom-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+div.MuiDataGrid-main > div.MuiDataGrid-virtualScroller::-webkit-scrollbar {
+  display: none;
+}
+
+div.MuiDataGrid-footerContainer {
+  justify-content: left;
+
+  .MuiTablePagination-input {
+    padding: 2px;
+    border-radius: 5px;
+    border: 1px solid var(--Gray-Gray05, #D0D6DE);
+  }
+}
+
+div.MuiDataGrid-selectedRowCount{
+  display: none;
+}

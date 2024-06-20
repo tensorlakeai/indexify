@@ -44,7 +44,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
           return <Typography variant="body1">None</Typography>
         }
         return (
-          <Box sx={{ overflowX: 'scroll' }}>
+          <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
             <Stack gap={1} direction="row">
               {Object.keys(params.value).map((val: string) => {
                 return (
