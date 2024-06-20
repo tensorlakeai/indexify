@@ -79,6 +79,96 @@ Here's a quick overview of all the extractors:
 | tensorlake/easyocr                        | text               | Photocopied/Scanned PDFs on GPU     | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})]                                                                                                                                                                                                                                                                                                   |
 | tensorlake/marker                         | text, table        | Detailed structured & formatted PDF | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'language': 'English', 'filetype': 'pdf', 'toc': [], 'pages': 1, 'ocr_stats': {'ocr_pages': 0, 'ocr_failed': 0, 'ocr_success': 0}, 'block_stats': {'header_footer': 2, 'code': 0, 'table': 0, 'equations': {'successful_ocr': 0, 'unsuccessful_ocr': 0, 'equations': 0}}, 'postprocess_stats': {'edit': {}}}, comment=None)], labels={})] |
 
+## Get Started with PDF Extraction
+
+You can test it locally:
+
+1. Download a PDF Extractor:
+   ```bash
+   indexify-extractor download tensorlake/pdfextractor
+   indexify-extractor join-server
+   ```
+
+2. Load it in a notebook or in a Python script:
+   ```python
+   from indexify_extractor_sdk import load_extractor, Content
+
+   extractor, config_cls = load_extractor("indexify_extractors.pdfextractor.pdf_extractor:PDFExtractor")
+   content = Content.from_file("/path/to/file.pdf")
+
+   results =  extractor.extract(content)
+   print(results)
+   ```
+
+
+## Continuous PDF Extraction for Applications
+
+Here is an example of how you can create a pipeline that extracts text, tables and images from a PDF document.
+
+1. Start the Indexify Server:
+   ```bash
+   curl https://getindexify.ai | sh
+   ./indexify server -d
+   ```
+
+2. Start a long-running PDF Extractor:
+   ```bash
+   indexify-extractor download tensorlake/pdfextractor
+   indexify-extractor join-server
+   ```
+
+3. Create an Extraction Graph:
+   ```python
+   from indexify import IndexifyClient, ExtractionGraph
+   client = IndexifyClient()
+
+   extraction_graph_spec = """
+   name: 'pdfknowledgebase'
+   extraction_policies:
+      - extractor: 'tensorlake/pdfextractor'
+        name: 'pdf_to_text'
+   """
+
+   extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+   client.create_extraction_graph(extraction_graph)
+   ```
+
+4. Upload PDFs from your application:
+   ```python
+   content_id = client.upload_file("pdfknowledgebase", "/path/to/pdf.file")
+   ```
+
+5. Inspect the extracted content:
+   ```python
+   client.wait_for_extraction(content_id)
+   extracted_content = client.get_extracted_content(content_id=content_id, graph_name="pdfknowledgebase", policy_name="pdf_to_text")
+   print(extracted_content)
+   ```
+
+You can extend the graph to do any kind of downstream tasks(embedding, summarization, etc) once you have data out of PDF. 
+
+## Explore More Examples
+
+We've curated a collection of PDF extraction examples. Check out these notebooks:
+
+#### RAG based Question Answering
+- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
+- [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.ipynb)
+- [Scientific Journals](../examples/Scientific_Journals.ipynb)
+
+#### Schema based Extractions
+- [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
+- [SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
+
+#### LLM based Extractions
+- [Entity Recognition from PDF using Indexify and Gemini](https://colab.research.google.com/drive/1gHru2qjEhl4cmAOTQMj7unHnQACCh7We?usp=sharing)
+- [Invoices](../examples/Invoices.ipynb): Extract and analyze invoice data like a pro!
+
+#### Terms and Condition Documents
+- [Multi-state Terms Documents](../examples/Sixt.ipynb)
+- [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease.
+- [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions.
+
 ## Extractor Performance Analysis
 
 PDF is a complex data type, we recommend you try out all extractors on a representative sample of documents that you are extracting from, and decide which extractors to use in your pipeline. We present some code to benchmark the various extractors.
@@ -151,11 +241,6 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 
 ![](benchmark/combinedtime.png)
 
-### Conclusion
-
-The choice of extractor depends on the specific requirements of the task at hand. If high accuracy is crucial and time is less of an issue, the Marker extractor is the best choice. For a balance of accuracy and speed, the PDF Extractor is suitable. For scenarios where speed is critical, the Unstructured IO extractor is the optimal choice.
-
-By considering these factors, you can select the most appropriate extractor for your specific use case, ensuring efficient and effective PDF text extraction.
 
 ### Scoring Methodology
 
@@ -175,92 +260,3 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 ### Test Environment
 
 - Tests were conducted on an L4 GPU with 53 GB system RAM and 22.5 GB GPU RAM.
-
-## Get Started with PDF Extraction
-
-You can test it locally:
-
-1. Download a PDF Extractor:
-   ```bash
-   indexify-extractor download tensorlake/pdfextractor
-   indexify-extractor join-server
-   ```
-
-2. Load it in a notebook or in a Python script:
-   ```python
-   from indexify_extractor_sdk import load_extractor, Content
-
-   extractor, config_cls = load_extractor("indexify_extractors.pdfextractor.pdf_extractor:PDFExtractor")
-   content = Content.from_file("/path/to/file.pdf")
-
-   results =  extractor.extract(content)
-   print(results)
-   ```
-
-
-## Continuous PDF Extraction for Applications
-
-We've made it incredibly easy to integrate Indexify into your workflow. Get ready to supercharge your document processing capabilities!
-
-1. Start the Indexify Server:
-   ```bash
-   curl https://getindexify.ai | sh
-   ./indexify server -d
-   ```
-
-2. Start a long-running PDF Extractor:
-   ```bash
-   indexify-extractor download tensorlake/pdfextractor
-   indexify-extractor join-server
-   ```
-
-3. Create an Extraction Graph:
-   ```python
-   from indexify import IndexifyClient, ExtractionGraph
-   client = IndexifyClient()
-
-   extraction_graph_spec = """
-   name: 'pdfknowledgebase'
-   extraction_policies:
-      - extractor: 'tensorlake/pdfextractor'
-        name: 'my-pdfextractor'
-   """
-
-   extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-   client.create_extraction_graph(extraction_graph)
-   ```
-
-4. Upload PDFs from your application:
-   ```python
-   content_id = client.upload_file("pdfknowledgebase", "/path/to/pdf.file")
-   ```
-
-5. Inspect the extracted content:
-   ```python
-   extracted_content = client.get_extracted_content(content_id=content_id)
-   print(extracted_content)
-   ```
-
-With just a few lines of code, you can use data locked in PDFs in your applications. Example use-cases: automated data entry, intelligent document search, and effortless question answering. 
-
-## Explore More Examples
-
-We've curated a collection of PDF extraction examples. Check out these notebooks:
-
-#### RAG based Question Answering
-- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
-- [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.ipynb)
-- [Scientific Journals](../examples/Scientific_Journals.ipynb)
-
-#### Schema based Extractions
-- [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
-- [SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
-
-#### LLM based Extractions
-- [Entity Recognition from PDF using Indexify and Gemini](https://colab.research.google.com/drive/1gHru2qjEhl4cmAOTQMj7unHnQACCh7We?usp=sharing)
-- [Invoices](../examples/Invoices.ipynb): Extract and analyze invoice data like a pro!
-
-#### Terms and Condition Documents
-- [Multi-state Terms Documents](../examples/Sixt.ipynb)
-- [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease.
-- [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions.
