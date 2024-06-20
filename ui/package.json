@@ -29,6 +29,7 @@
     "react-pdf": "^7.7.1",
     "react-router-dom": "^6.22.0",
     "react-scripts": "5.0.1",
+    "react-virtuoso": "^4.7.11",
     "serve": "^14.2.1",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
