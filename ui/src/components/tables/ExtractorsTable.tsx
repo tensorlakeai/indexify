@@ -1,4 +1,5 @@
 import React from 'react'
+import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { Alert, Chip, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
@@ -86,7 +87,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const renderContent = () => {
     if (extractors.length === 0) {
       return (
-        <Box mt={1} mb={2}>
+        <Box mt={2} mb={2}>
           <Alert variant="outlined" severity="info">
             No Extractors Found
           </Alert>
@@ -97,10 +98,11 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
       <Box
         sx={{
           width: '100%',
+          marginTop: '1rem',
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
           autoHeight
           getRowId={getRowId}
           rows={extractors}
@@ -111,6 +113,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
             },
           }}
           pageSizeOptions={[5, 10]}
+          className='custom-data-grid'
         />
       </Box>
     )

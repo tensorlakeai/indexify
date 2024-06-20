@@ -46,3 +46,20 @@ a {
   border: 1px solid var(--Gray-Gray03, #E9EDF1);
   background: var(--White, #FFF);
 }
+
+.MuiDataGrid-columnHeaderTitle {
+  font-size: smaller;
+  text-transform: uppercase;
+}
+
+.MuiDataGrid-cellContent {
+  font-size: smaller;
+}
+
+.MuiDataGrid-columnHeaderTitle {
+  color: #757A82;
+}
+
+.MuiToolbar-root.MuiToolbar-gutters.MuiToolbar-regular.MuiTablePagination-toolbar > p, div.MuiSelect-select.MuiTablePagination-select.MuiSelect-standard.MuiInputBase-input {
+  font-size: small;
+}

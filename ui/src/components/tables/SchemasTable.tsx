@@ -59,10 +59,11 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
       <Box
         sx={{
           width: '100%',
+          marginTop: '1rem',
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
           autoHeight
           rows={filteredSchemas}
           columns={columns}
@@ -73,6 +74,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
             },
           }}
           pageSizeOptions={[5, 10]}
+          className='custom-data-grid'
         />
       </Box>
     )
