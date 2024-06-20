@@ -218,6 +218,8 @@ Indexify is built for mission-critical use-cases, emphasizing reliability and sc
 3. Upload 1000s of random texts, and watch Indexify load balance the work across all the extractor processes you have just started.
 4. Kill a process, and watch the extraction being retried on other running extractors.
 
+## Next Steps
+
 Now that you have learnt how to build a basic RAG application using Indexify, you can head over to learning more advanced topics
 
 - [Learn how to extract text, tables and images from PDF documents](usecases/pdf_extraction.md).
