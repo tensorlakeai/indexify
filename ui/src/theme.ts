@@ -56,7 +56,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-notchedOutline": {
-            borderColor: "gray",
+            borderColor: "#E9EDF1",
           },
         },
         select: {
@@ -68,9 +68,16 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiInputBase-root": { backgroundColor: "white" }, // For outlined, filled variants
-          "& .MuiOutlinedInput-notchedOutline": { borderColor: "gray" }, // Optional: Customize border color
+          "& .MuiOutlinedInput-notchedOutline": { borderColor: "#E9EDF1" }, // Optional: Customize border color
         },
       },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: {
+          "&. MuiOutlinedInput-root": { backgroundColor: "white" },
+        }
+      }
     },
     MuiButton: {
       styleOverrides: {
@@ -84,7 +91,7 @@ const theme = createTheme({
             fontFamily: "poppins",
             "&.Mui-disabled": {
               backgroundColor: "rgba(6, 13, 63, 0.1)",
-              borderColor: "#676767",
+              borderColor: "#E9EDF1",
             },
           }),
         outlined: {
