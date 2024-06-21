@@ -116,63 +116,46 @@ if __name__ == "__main__":
 2. We then read in our `.yaml` file which we defined above and create an Extraction Graph using the yaml definition. This is a python object which tells Indexify how to chain together different Extractors together
 3. Lastly, we create our new data pipeline with the help of our `Indexify` client.
 
-### Loading in Data
+We can then run this code to create our new extraction graph. Once an Extraction Graph is created, it's exposed as an API on the server and starts running extractions whenever data is ingested into the system.
 
-Now that we've written up a simple function to define our extraction graph, let's see how we can update `setup.py` so that we can load in data from wikipedia using our new data pipeline.
-
-=== "New Additions"
-
-    ```python
-    from langchain_community.document_loaders import WikipediaLoader
-
-    def load_data():
-        docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
-
-        for doc in docs:
-            client.add_documents("summarize_and_chunk", doc.page_content)
-
-    if __name__ == "__main__":
-        load_data()
-    ```
-
-=== "Full Code"
-
-    ```python hl_lines="2 12-16"
-    from indexify import IndexifyClient, ExtractionGraph
-    from langchain_community.document_loaders import WikipediaLoader
-
-    client = IndexifyClient()
-
-    def create_extraction_graph():
-        with open("graph.yaml", "r") as file:
-            extraction_graph_spec = file.read()
-            extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-            client.create_extraction_graph(extraction_graph)
-
-    def load_data():
-        docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
-
-        for doc in docs:
-            client.add_documents("summarize_and_chunk", doc.page_content)
-
-    if __name__ == "__main__":
-        create_extraction_graph()
-        load_data()
-    ```
-
-We can then run this code to create our new extraction graph and load in the data into our data pipeline. Once we use the add the documents, all we need to do is to let Indexify handle all of the batching and storage.
-
-```bash title="( Terminal 3) Create Data Pipeline using Extraction Graph and load data"
+```bash title="( Terminal 3) Create Extraction Graph"
 source venv/bin/activate
 python3 ./setup.py
+```
+### Loading in Data
+
+Now that we've written up a simple function to define our extraction graph, let's create a script to load in data from wikipedia into our new data pipeline.
+
+```python title="ingest.py"
+from indexify import IndexifyClient, ExtractionGraph
+from langchain_community.document_loaders import WikipediaLoader
+
+client = IndexifyClient()
+
+def load_data():
+    docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
+
+    for doc in docs:
+        client.add_documents("summarize_and_chunk", doc.page_content)
+
+if __name__ == "__main__":
+    load_data()
+```
+
+Now run this code to ingest data into Indexify. Indexify takes care of storing the data, and running the extraction policies in the graph reliably in parallel. 
+
+```bash title="( Terminal 3) Ingest Data"
+source venv/bin/activate
+python3 ./ingest.py
 ```
 
 ## Query Indexify
 
 Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
 
-```python
+```python title="query.py"
 from indexify import IndexifyClient
+from openai import OpenAI
 
 client = IndexifyClient()
 client_openai = OpenAI()
