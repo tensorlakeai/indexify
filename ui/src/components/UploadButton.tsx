@@ -18,6 +18,11 @@ interface Props {
   client: IndexifyClient;
 }
 
+const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
+    const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels));
+    await Promise.all(uploadPromises);
+  };
+
 const UploadButton = ({ client }: Props) => {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -48,11 +53,6 @@ const UploadButton = ({ client }: Props) => {
     boxShadow: 24,
     p: 4,
     borderRadius: "12px",
-  };
-
-  const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
-    const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels));
-    await Promise.all(uploadPromises);
   };
 
   const upload = async () => {
