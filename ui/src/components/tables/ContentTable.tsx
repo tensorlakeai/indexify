@@ -39,7 +39,7 @@ const ContentTable = ({
   const [startIds, setStartIds] = useState<Record<number, string>>({})
   const [paginationModel, setPaginationModel] = useState({
     page: 0,
-    pageSize: 5,
+    pageSize: 10,
   })
   const [currentTab, setCurrentTab] = useState<string | undefined>(undefined)
   const [searchFilter, setSearchFilter] = useState<{
