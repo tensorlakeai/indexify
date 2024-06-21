@@ -1,6 +1,7 @@
 use core::fmt;
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    cmp::Ordering,
+    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, RwLock},
     time::SystemTime,
 };
@@ -27,7 +28,7 @@ use opentelemetry::metrics::AsyncInstrument;
 use rocksdb::OptimisticTransactionDB;
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
-use tracing::{error, warn};
+use tracing::warn;
 
 use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
@@ -48,26 +49,29 @@ use crate::state::{store::get_from_cf, NodeId};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct UnassignedTasks {
-    unassigned_tasks: Arc<RwLock<HashSet<TaskId>>>,
+    unassigned_tasks: Arc<RwLock<HashMap<TaskId, SystemTime>>>,
 }
 
 impl UnassignedTasks {
-    pub fn insert(&self, task_id: &TaskId) {
+    pub fn insert(&self, task_id: &TaskId, creation_time: SystemTime) {
         let mut guard = self.unassigned_tasks.write().unwrap();
-        guard.insert(task_id.into());
+        guard.insert(task_id.into(), creation_time);
     }
 
-    pub fn remove(&self, task_id: &TaskId) {
+    pub fn remove(&self, task_id: &TaskId) -> Option<UnfinishedTask> {
         let mut guard = self.unassigned_tasks.write().unwrap();
-        guard.remove(task_id);
+        guard.remove(task_id).map(|creation_time| UnfinishedTask {
+            id: task_id.clone(),
+            creation_time,
+        })
     }
 
-    pub fn inner(&self) -> HashSet<TaskId> {
+    pub fn inner(&self) -> HashMap<TaskId, SystemTime> {
         let guard = self.unassigned_tasks.read().unwrap();
         guard.clone()
     }
 
-    pub fn set(&self, tasks: HashSet<TaskId>) {
+    pub fn set(&self, tasks: HashMap<TaskId, SystemTime>) {
         let mut guard = self.unassigned_tasks.write().unwrap();
         *guard = tasks;
     }
@@ -75,13 +79,6 @@ impl UnassignedTasks {
     pub fn count(&self) -> usize {
         let guard = self.unassigned_tasks.read().unwrap();
         guard.len()
-    }
-}
-
-impl From<HashSet<TaskId>> for UnassignedTasks {
-    fn from(tasks: HashSet<TaskId>) -> Self {
-        let unassigned_tasks = Arc::new(RwLock::new(tasks));
-        Self { unassigned_tasks }
     }
 }
 
@@ -623,6 +620,35 @@ struct TaskCount {
     notify: Option<broadcast::Sender<()>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct UnfinishedTask {
+    pub id: TaskId,
+    pub creation_time: SystemTime,
+}
+
+impl PartialEq for UnfinishedTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for UnfinishedTask {}
+
+impl PartialOrd for UnfinishedTask {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Sort unfinished tasks by creation time so we can process them in order
+impl Ord for UnfinishedTask {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.creation_time
+            .cmp(&other.creation_time)
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
 #[derive(thiserror::Error, Debug, Default)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -649,9 +675,8 @@ pub struct IndexifyState {
     /// Extractor name -> Task Ids
     pub unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
-    /// Number of tasks currently running on each executor
-    /// Executor id -> number of tasks running on executor
-    pub executor_running_task_count: ExecutorRunningTaskCount,
+    /// Pending tasks per executor, sorted by creation time
+    pub unfinished_tasks_by_executor: Arc<RwLock<HashMap<ExecutorId, BTreeSet<UnfinishedTask>>>>,
 
     /// Namespace -> Schemas
     pub schemas_by_namespace: SchemasByNamespace,
@@ -679,7 +704,7 @@ impl fmt::Display for IndexifyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, executor_running_task_count: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, unfinished_tasks_by_executor: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
             self.content_namespace_table,
@@ -687,7 +712,7 @@ impl fmt::Display for IndexifyState {
             self.extractor_executors_table,
             self.namespace_index_table,
             self.unfinished_tasks_by_extractor,
-            self.executor_running_task_count,
+            self.unfinished_tasks_by_executor,
             self.schemas_by_namespace,
             self.content_children_table,
         )
@@ -1342,8 +1367,8 @@ impl IndexifyState {
                 //  Get a handle on the executor before deleting it from the DB
                 let executor_meta = self.delete_executor(db, &txn, executor_id)?;
 
-                // Remove all tasks assigned to this executor and get a handle on the task ids
-                let task_ids = self.delete_task_assignments_for_executor(db, &txn, executor_id)?;
+                // Remove all tasks assigned to this executor
+                self.delete_task_assignments_for_executor(db, &txn, executor_id)?;
 
                 txn.commit()
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
@@ -1356,13 +1381,18 @@ impl IndexifyState {
                     }
                 }
 
-                //  Put the tasks of the deleted executor into the unassigned tasks list
-                for task_id in task_ids {
-                    self.unassigned_tasks.insert(&task_id);
-                }
+                let executor_tasks = self
+                    .unfinished_tasks_by_executor
+                    .write()
+                    .unwrap()
+                    .remove(executor_id);
 
-                // Remove from the executor load table
-                self.executor_running_task_count.remove(executor_id);
+                //  Put the tasks of the deleted executor into the unassigned tasks list
+                if let Some(executor_tasks) = executor_tasks {
+                    for task in executor_tasks {
+                        self.unassigned_tasks.insert(&task.id, task.creation_time);
+                    }
+                }
 
                 return Ok(request.new_state_changes.last().map(|sc| sc.id));
             }
@@ -1452,14 +1482,18 @@ impl IndexifyState {
                     addr: addr.clone(),
                     extractors: extractors.clone(),
                 };
-                // initialize executor load at 0
-                self.executor_running_task_count.insert(&executor_id, 0);
+                // initialize executor tasks
+                self.unfinished_tasks_by_executor
+                    .write()
+                    .unwrap()
+                    .entry(executor_id.clone())
+                    .or_insert(BTreeSet::new());
 
                 Ok(())
             }
             RequestPayload::CreateTasks { tasks } => {
                 for task in tasks {
-                    self.unassigned_tasks.insert(&task.id);
+                    self.unassigned_tasks.insert(&task.id, task.creation_time);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
                     self.pending_tasks_for_content.insert(
@@ -1472,10 +1506,15 @@ impl IndexifyState {
             }
             RequestPayload::AssignTask { assignments } => {
                 for (task_id, executor_id) in assignments {
-                    self.unassigned_tasks.remove(&task_id);
-
-                    self.executor_running_task_count
-                        .increment_running_task_count(&executor_id);
+                    let task = self.unassigned_tasks.remove(&task_id);
+                    if let Some(task) = task {
+                        self.unfinished_tasks_by_executor
+                            .write()
+                            .unwrap()
+                            .entry(executor_id.clone())
+                            .or_default()
+                            .insert(task);
+                    }
                 }
                 Ok(())
             }
@@ -1533,8 +1572,16 @@ impl IndexifyState {
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
                     if let Some(ref executor_id) = executor_id {
-                        self.executor_running_task_count
-                            .decrement_running_task_count(executor_id);
+                        self.unfinished_tasks_by_executor
+                            .write()
+                            .unwrap()
+                            .get_mut(executor_id)
+                            .map(|tasks| {
+                                tasks.remove(&UnfinishedTask {
+                                    id: task.id.clone(),
+                                    creation_time: task.creation_time,
+                                })
+                            });
                     }
                     let content_id = task.content_metadata.id;
                     self.pending_tasks_for_content.remove(
@@ -1578,29 +1625,25 @@ impl IndexifyState {
         limit: Option<u64>,
         db: &OptimisticTransactionDB,
     ) -> Result<Vec<Task>, StateMachineError> {
-        //  NOTE: Don't do deserialization within the transaction
+        let limit = limit.unwrap_or(u64::MAX);
+        let task_ids: Vec<_> = match self
+            .unfinished_tasks_by_executor
+            .read()
+            .unwrap()
+            .get(executor_id)
+        {
+            Some(task_ids) => task_ids
+                .iter()
+                .take(limit as usize)
+                .map(|task| task.id.clone())
+                .collect(),
+            None => return Ok(Vec::new()),
+        };
+
         let txn = db.transaction();
-        let task_ids_bytes = txn
-            .get_cf(StateMachineColumns::TaskAssignments.cf(db), executor_id)
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-
-        let task_ids: Vec<String> = task_ids_bytes
-            .map(|task_id_bytes| {
-                JsonEncoder::decode(&task_id_bytes)
-                    .map_err(StateMachineError::from)
-                    .unwrap_or_else(|e| {
-                        error!("Failed to deserialize task id: {}", e);
-                        Vec::new()
-                    })
-            })
-            .unwrap_or_else(Vec::new);
-
-        // FIXME Use MULTIGET
-        let limit = limit.unwrap_or(task_ids.len() as u64) as usize;
 
         let tasks: Result<Vec<Task>, StateMachineError> = task_ids
-            .into_iter()
-            .take(limit)
+            .iter()
             .map(|task_id| {
                 let task_bytes = txn
                     .get_cf(StateMachineColumns::Tasks.cf(db), task_id.as_bytes())
@@ -2113,7 +2156,7 @@ impl IndexifyState {
     //  END READER METHODS FOR ROCKSDB FORWARD INDEXES
 
     //  START READER METHODS FOR REVERSE INDEXES
-    pub fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
+    pub fn get_unassigned_tasks(&self) -> HashMap<TaskId, SystemTime> {
         self.unassigned_tasks.inner()
     }
 
@@ -2144,7 +2187,12 @@ impl IndexifyState {
     }
 
     pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
-        self.executor_running_task_count.inner()
+        self.unfinished_tasks_by_executor
+            .read()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.len() as u64))
+            .collect()
     }
 
     pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
@@ -2224,18 +2272,10 @@ impl IndexifyState {
     }
 
     pub fn executor_count(&self) -> usize {
-        self.executor_running_task_count.executor_count()
+        self.unfinished_tasks_by_executor.read().unwrap().len()
     }
 
     //  END READER METHODS FOR REVERSE INDEXES
-
-    //  START WRITER METHODS FOR REVERSE INDEXES
-    pub fn insert_executor_running_task_count(&self, executor_id: &str, tasks: u64) {
-        self.executor_running_task_count
-            .insert(&executor_id.to_string(), tasks);
-    }
-
-    //  END WRITER METHODS FOR REVERSE INDEXES
 
     //  Build the in-memory reverse indexes on startup or when restoring from
     // snapshot.
@@ -2274,11 +2314,7 @@ impl IndexifyState {
             .unfinished_tasks_by_extractor
             .write()
             .unwrap();
-        let mut executor_running_task_count = self
-            .executor_running_task_count
-            .executor_running_task_count
-            .write()
-            .unwrap();
+        let mut unfinished_tasks_by_executor = self.unfinished_tasks_by_executor.write().unwrap();
         let mut schemas_by_namespace = self
             .schemas_by_namespace
             .schemas_by_namespace
@@ -2312,7 +2348,7 @@ impl IndexifyState {
         for task in self.iter_cf::<Task>(db, StateMachineColumns::Tasks) {
             let (_, task) = task?;
             if !task.terminal_state() {
-                unassigned_tasks.insert(task.id.clone());
+                unassigned_tasks.insert(task.id.clone(), task.creation_time);
                 unfinished_tasks_by_extractor
                     .entry(task.extractor.clone())
                     .or_default()
@@ -2337,9 +2373,17 @@ impl IndexifyState {
             let executor_id = String::from_utf8(executor_key.to_vec()).map_err(|e| {
                 StateMachineError::DatabaseError(format!("Failed to decode executor key: {}", e))
             })?;
-            *executor_running_task_count.entry(executor_id).or_insert(0) += task_ids.len() as u64;
             for task_id in task_ids {
-                unassigned_tasks.remove(&task_id);
+                let creation_time = unassigned_tasks.remove(&task_id);
+                if let Some(creation_time) = creation_time {
+                    unfinished_tasks_by_executor
+                        .entry(executor_id.clone())
+                        .or_default()
+                        .insert(UnfinishedTask {
+                            id: task_id.clone(),
+                            creation_time,
+                        });
+                }
             }
         }
 

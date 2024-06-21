@@ -91,8 +91,8 @@ pub struct NamespaceEndpointState {
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
             , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
-            Content, Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse, internal_api::Task, internal_api::TaskOutcome,
-            internal_api::Content, internal_api::ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
+            Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
+            Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
         )
         ),
         tags(
@@ -782,7 +782,7 @@ async fn delete_content(
     path = "/namespaces/{namespace}/content/{content_id}",
     tag = "indexify",
     responses(
-        (status = 200, description = "Reads a specific content in the namespace", body = GetRawContentResponse),
+        (status = 200, description = "Reads a specific content in the namespace", body = GetContentMetadataResponse),
         (status = BAD_REQUEST, description = "Unable to read content")
     ),
 )]

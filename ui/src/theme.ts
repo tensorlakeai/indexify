@@ -99,7 +99,7 @@ const theme = createTheme({
             fontSize: "14px",
             textTransform: "none",
             letterSpacing: "0.1px",
-            fontFamily: "roboto",
+            fontFamily: "poppins",
             "&.Mui-disabled": {
               backgroundColor: "rgba(6, 13, 63, 0.1)",
               borderColor: "#676767",
@@ -124,7 +124,7 @@ const theme = createTheme({
   },
 
   typography: {
-    fontFamily: "roboto",
+    fontFamily: "poppins",
     h1: {
       fontFamily: "outfit",
       fontSize: "48px",
@@ -133,28 +133,28 @@ const theme = createTheme({
       fontWeight: "600",
     },
     h2: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "32px",
       lineHeight: "normal",
       fontStyle: "normal",
       fontWeight: "600",
     },
     h3: {
-      fontFamily: "roboto",
+      fontFamily: "poppins",
       fontSize: "24px",
       fontStyle: "normal",
       fontWeight: "700",
       lineHeight: "normal",
     },
     h4: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "20px",
       fontStyle: "normal",
       fontWeight: "500",
       lineHeight: "normal",
     },
     label: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "16px",
       fontStyle: "normal",
       fontWeight: "500",
@@ -162,7 +162,7 @@ const theme = createTheme({
       letterSpacing: 0.32,
     },
     labelSmall: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "13px",
       fontStyle: "normal",
       fontWeight: "600",
@@ -170,7 +170,7 @@ const theme = createTheme({
       letterSpacing: 0.32,
     },
     body1: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "16px",
       fontStyle: "normal",
       fontWeight: "400",
@@ -178,7 +178,7 @@ const theme = createTheme({
       letterSpacing: 0.32,
     },
     body2: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "16px",
       fontStyle: "normal",
       fontWeight: "400",

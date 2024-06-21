@@ -289,7 +289,11 @@ impl AllocationPlanner for LoadAwareDistributor {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc, time::Instant};
+    use std::{
+        collections::HashMap,
+        sync::Arc,
+        time::{Instant, SystemTime},
+    };
 
     use indexify_internal_api as internal_api;
     use internal_api::{ContentMetadata, ContentMetadataId};
@@ -320,6 +324,7 @@ mod tests {
             input_params: json!(null),
             outcome: internal_api::TaskOutcome::Unknown,
             index_tables: vec![],
+            creation_time: SystemTime::now(),
         }
     }
 

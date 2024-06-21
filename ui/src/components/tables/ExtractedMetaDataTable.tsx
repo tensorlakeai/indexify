@@ -65,6 +65,7 @@ const ExtractedMetadataTable = ({
     <Box
       sx={{
         width: "100%",
+        marginTop: '1rem',
       }}
     >
       <Typography variant="h4" pb={2}>
@@ -82,6 +83,7 @@ const ExtractedMetadataTable = ({
           },
         }}
         pageSizeOptions={[5, 10]}
+        className='custom-data-grid'
       />
     </Box>
   );

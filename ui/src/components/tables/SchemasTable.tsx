@@ -2,9 +2,8 @@ import React from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { Alert, Chip, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import StorageIcon from '@mui/icons-material/Storage'
-import InfoIcon from '@mui/icons-material/Info'
 import { ISchema } from 'getindexify'
+import { Grid7, InfoCircle } from 'iconsax-react'
 
 const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
   const getRowId = (row: ISchema) => {
@@ -23,7 +22,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
       headerName: 'Columns',
       width: 500,
       renderCell: (params) => {
-        if (!params.value) {
+        if (!params.value || Object.keys(params.value).length === 0) {
           return <Typography variant="body1">None</Typography>
         }
         return (
@@ -60,10 +59,11 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
       <Box
         sx={{
           width: '100%',
+          marginTop: '1rem',
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
           autoHeight
           rows={filteredSchemas}
           columns={columns}
@@ -74,6 +74,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
             },
           }}
           pageSizeOptions={[5, 10]}
+          className='custom-data-grid'
         />
       </Box>
     )
@@ -87,14 +88,16 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         alignItems={'center'}
         spacing={2}
       >
-        <StorageIcon />
-        <Typography variant="h3">
+        <div className='heading-icon-container'>
+          <Grid7 size="25" className="heading-icons" variant="Outline"/>
+        </div>
+        <Typography variant="h4">
           SQL Tables
           <IconButton
             href="https://docs.getindexify.ai/concepts/#vector-index-and-retreival-apis"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
       </Stack>

@@ -9,6 +9,7 @@ use std::{
     ops::RangeBounds,
     path::{Path, PathBuf},
     sync::Arc,
+    time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
@@ -773,7 +774,7 @@ impl StateMachineStore {
     //  END FORWARD INDEX READER METHOD INTERFACES
 
     //  START REVERSE INDEX READER METHOD INTERFACES
-    pub async fn get_unassigned_tasks(&self) -> HashSet<TaskId> {
+    pub async fn get_unassigned_tasks(&self) -> HashMap<TaskId, SystemTime> {
         self.data.indexify_state.get_unassigned_tasks()
     }
 
@@ -834,15 +835,6 @@ impl StateMachineStore {
     }
 
     //  END REVERSE INDEX READER METHOD INTERFACES
-
-    //  START REVERSE INDEX WRITER METHOD INTERFACES
-    pub async fn insert_executor_running_task_count(&self, executor_id: &str, task_count: u64) {
-        self.data
-            .indexify_state
-            .insert_executor_running_task_count(executor_id, task_count);
-    }
-
-    //  END REVERSE INDEX WRITER METHOD INTERFACES
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {

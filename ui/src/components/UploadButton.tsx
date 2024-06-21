@@ -123,7 +123,7 @@ const UploadButton = ({ client }: Props) => {
 
           <Box sx={{ mt: 2, position: 'relative' }}>
             <Button
-              variant="contained"
+              variant="outlined"
               onClick={upload}
               disabled={!file || !extractionGraphName || loading}
             >
@@ -144,7 +144,7 @@ const UploadButton = ({ client }: Props) => {
           </Box>
         </Paper>
       </Modal>
-      <Button onClick={handleOpen} size="small" endIcon={<UploadIcon />}>
+      <Button onClick={handleOpen} size="small" variant='contained' endIcon={<UploadIcon />}>
         Upload
       </Button>
     </>

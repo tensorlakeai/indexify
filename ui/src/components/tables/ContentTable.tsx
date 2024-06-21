@@ -10,14 +10,13 @@ import {
   IconButton,
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import ArticleIcon from '@mui/icons-material/Article'
-import InfoIcon from '@mui/icons-material/Info'
 import React, { useEffect, useState } from 'react'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
 import { IContentMetadataExtended } from '../../types'
 import UploadButton from '../UploadButton'
+import { InfoCircle, TableDocument } from 'iconsax-react'
 
 const ContentTable = ({
   loadData,
@@ -233,9 +232,9 @@ const ContentTable = ({
     }
 
     return (
-      <Box sx={{ width: '100%' }}>
+      <Box sx={{ width: '100%', marginTop: '1rem', }}>
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
           autoHeight
           rows={content.slice(0, paginationModel.pageSize)}
           rowCount={rowCountState}
@@ -245,6 +244,7 @@ const ContentTable = ({
           paginationMode="server"
           loading={loading}
           pageSizeOptions={[5]}
+          className='custom-data-grid'
         />
       </Box>
     )
@@ -258,14 +258,16 @@ const ContentTable = ({
         alignItems={'center'}
         spacing={2}
       >
-        <ArticleIcon />
-        <Typography variant="h3">
+        <div className='heading-icon-container'>
+          <TableDocument size="25" className="heading-icons" variant="Outline"/>
+        </div>
+        <Typography variant="h4">
           Content
           <IconButton
             href="https://docs.docs.getindexify.ai/concepts/#content"
             target="_blank"
           >
-            <InfoIcon fontSize="small" />
+            <InfoCircle size="20" variant="Outline"/>
           </IconButton>
         </Typography>
         <UploadButton client={client} />

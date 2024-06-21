@@ -52,7 +52,7 @@ By doing so, we immediately get the two following endpoints created.
 
 ??? info "Extractors"
 
-    Extractors help convert unstructured data into structured data we can query using a vector database or simple SQL. Examples of this could include converting PDF invoices to JSON, labelling objects in a video or even extracting text to embed from PDFs. You can read more about extractors [here](/apis/extractors)
+    Extractors help convert unstructured data into structured data or embeddings that we can query using a vector database or simple SQL. Examples of this could include converting PDF invoices to JSON, labelling objects in a video or even extracting text to embed from PDFs. You can read more about extractors [here](/apis/extractors)
 
 Next, we'll need to download two extractors - one for chunking our pages that we've downloaded from Wikipedia and another that will embed the text chunks that we've generated.
 
@@ -72,7 +72,10 @@ indexify-extractor join-server
 
 ### Defining Our Data Pipeline
 
-Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. What we want is a simple pipeline that will take in text documents, split it into individual chunks and then embed it.
+Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. What we want is a simple pipeline that will take in text documents, split it into individual chunks and then embed it. 
+
+??? info "Extraction Graphs"
+    Extraction Graphs are multi-stage data-pipelines that transforms or extracts information from any type of data. Data Pipelines in Indexify are called Extraction Graphs, because you can create branches in a single pipeline, so they look more like graphs than linear sequence of stages.
 
 We can do so using a simple `.yaml` file as seen below
 
@@ -116,65 +119,49 @@ if __name__ == "__main__":
 2. We then read in our `.yaml` file which we defined above and create an Extraction Graph using the yaml definition. This is a python object which tells Indexify how to chain together different Extractors together
 3. Lastly, we create our new data pipeline with the help of our `Indexify` client.
 
-### Loading in Data
+We can then run this code to create our new extraction graph. Once an Extraction Graph is created, it's exposed as an API on the server and starts running extractions whenever data is ingested into the system.
 
-Now that we've written up a simple function to define our extraction graph, let's see how we can update `setup.py` so that we can load in data from wikipedia using our new data pipeline.
-
-=== "New Additions"
-
-    ```python
-    from langchain_community.document_loaders import WikipediaLoader
-
-    def load_data():
-        docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
-
-        for doc in docs:
-            client.add_documents("summarize_and_chunk", doc.page_content)
-
-    if __name__ == "__main__":
-        load_data()
-    ```
-
-=== "Full Code"
-
-    ```python hl_lines="2 12-16"
-    from indexify import IndexifyClient, ExtractionGraph
-    from langchain_community.document_loaders import WikipediaLoader
-
-    client = IndexifyClient()
-
-    def create_extraction_graph():
-        with open("graph.yaml", "r") as file:
-            extraction_graph_spec = file.read()
-            extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-            client.create_extraction_graph(extraction_graph)
-
-    def load_data():
-        docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
-
-        for doc in docs:
-            client.add_documents("summarize_and_chunk", doc.page_content)
-
-    if __name__ == "__main__":
-        create_extraction_graph()
-        load_data()
-    ```
-
-We can then run this code to create our new extraction graph and load in the data into our data pipeline. Once we use the add the documents, all we need to do is to let Indexify handle all of the batching and storage.
-
-```bash title="( Terminal 3) Create Data Pipeline using Extraction Graph and load data"
+```bash title="( Terminal 3) Create Extraction Graph"
 source venv/bin/activate
 python3 ./setup.py
+```
+### Loading in Data
+
+Now that we've written up a simple function to define our extraction graph, let's create a script to load in data from wikipedia into our new data pipeline.
+
+```python title="ingest.py"
+from indexify import IndexifyClient, ExtractionGraph
+from langchain_community.document_loaders import WikipediaLoader
+
+client = IndexifyClient()
+
+def load_data():
+    docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
+
+    for doc in docs:
+        client.add_documents("summarize_and_chunk", doc.page_content)
+
+if __name__ == "__main__":
+    load_data()
+```
+
+Now run this code to ingest data into Indexify. Indexify takes care of storing the data, and running the extraction policies in the graph reliably in parallel. 
+
+```bash title="( Terminal 3) Ingest Data"
+source venv/bin/activate
+python3 ./ingest.py
 ```
 
 ## Query Indexify
 
 Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
 
-```python
+```python title="query.py"
 from indexify import IndexifyClient
+from openai import OpenAI
 
 client = IndexifyClient()
+client_openai = OpenAI()
 
 def query_database(question: str, index: str, top_k=3):
     retrieved_results = client.search_index(name=index, query=question, top_k=top_k) #(1)!
@@ -210,11 +197,19 @@ When we run this file, we get the following output
 During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
 ```
 
+## Fault Tolerance and Reliability
+Indexify is built for mission-critical use-cases, emphasizing reliability and scalability. It supports running thousands of extractors in parallel across thousands of compute nodes for horizontal scalability. If an extractor crashes, Indexify automatically retries the extraction on another node, ensuring a reliable extraction process. Here’s how it works in practice.
+
+1. Open up a few more terminals and run the extractors.
+2. Run the extractors in each of them. `indexify-extractor join-server` 
+3. Upload 1000s of random texts, and watch Indexify load balance the work across all the extractor processes you have just started.
+4. Kill one of the extractor process, and watch the extraction being retried on other running extractors.
+
 ## Next Steps
 
 Now that you have learnt how to build a basic RAG application using Indexify, you can head over to learning more advanced topics
 
-- Learn how to extract text, tables and images from PDF documents.
-- See how you can reteive extracted data from Langchain or DSPy.
-- Deploying Indexify server and extractors on Kubernetes, when you are ready to take your app to production.
-- Observability and understanding performance of Retrieval and Extraction processes.
+- [Learn how to extract text, tables and images from PDF documents](usecases/pdf_extraction.md).
+- See how you can retrieve extracted data from [Langchain](integrations/langchain/python_langchain.md) or [DSPy](integrations/dspy/python_dspy.md).
+- Deploying [Indexify server and extractors on Kubernetes](operations/kubernetes.md), when you are ready to take your app to production.
+- [Observability](metrics.md) and understanding performance of Retrieval and Extraction processes.
