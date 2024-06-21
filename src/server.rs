@@ -1234,6 +1234,7 @@ async fn list_tasks(
     State(state): State<NamespaceEndpointState>,
     Query(query): Query<ListTasks>,
 ) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
+    let outcome: indexify_coordinator::TaskOutcomeFilter = query.outcome.into();
     let resp = state
         .coordinator_client
         .get()
@@ -1246,6 +1247,7 @@ async fn list_tasks(
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
             return_total: query.return_total,
+            outcome: outcome as i32,
         })
         .await
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?

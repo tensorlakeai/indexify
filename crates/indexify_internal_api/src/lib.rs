@@ -502,6 +502,46 @@ impl TryFrom<Task> for indexify_coordinator::Task {
     }
 }
 
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+pub struct TaskOutcomeFilter(Option<TaskOutcome>);
+
+impl TaskOutcomeFilter {
+    pub fn matches(&self, outcome: TaskOutcome) -> bool {
+        match self.0 {
+            Some(filter) => filter == outcome,
+            None => true,
+        }
+    }
+}
+
+impl From<TaskOutcomeFilter> for indexify_coordinator::TaskOutcomeFilter {
+    fn from(value: TaskOutcomeFilter) -> Self {
+        match value.0 {
+            Some(TaskOutcome::Success) => indexify_coordinator::TaskOutcomeFilter::FilterSuccess,
+            Some(TaskOutcome::Failed) => indexify_coordinator::TaskOutcomeFilter::FilterFailed,
+            Some(TaskOutcome::Unknown) => indexify_coordinator::TaskOutcomeFilter::FilterUnknown,
+            None => indexify_coordinator::TaskOutcomeFilter::FilterNotSet,
+        }
+    }
+}
+
+impl From<indexify_coordinator::TaskOutcomeFilter> for TaskOutcomeFilter {
+    fn from(value: indexify_coordinator::TaskOutcomeFilter) -> Self {
+        match value {
+            indexify_coordinator::TaskOutcomeFilter::FilterSuccess => {
+                TaskOutcomeFilter(Some(TaskOutcome::Success))
+            }
+            indexify_coordinator::TaskOutcomeFilter::FilterFailed => {
+                TaskOutcomeFilter(Some(TaskOutcome::Failed))
+            }
+            indexify_coordinator::TaskOutcomeFilter::FilterUnknown => {
+                TaskOutcomeFilter(Some(TaskOutcome::Unknown))
+            }
+            indexify_coordinator::TaskOutcomeFilter::FilterNotSet => TaskOutcomeFilter(None),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Copy)]
 pub enum ServerTaskType {
     Delete = 0,

@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
 use futures::StreamExt;
 use hyper::StatusCode;
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_server::CoordinatorService,
@@ -69,6 +69,7 @@ use indexify_proto::indexify_coordinator::{
     RemoveIngestionServerRequest,
     RemoveIngestionServerResponse,
     TaskAssignments,
+    TaskOutcomeFilter,
     TombstoneContentRequest,
     TombstoneContentResponse,
     Uint64List,
@@ -933,11 +934,16 @@ impl CoordinatorService for CoordinatorServiceServer {
         req: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
         let req = req.into_inner();
+        let outcome: TaskOutcomeFilter = req.outcome.try_into().map_err(|e| {
+            tonic::Status::aborted(format!("unable to convert task outcome filter: {}", e))
+        })?;
+        let outcome: internal_api::TaskOutcomeFilter = outcome.into();
         let filter = |task: &Task| {
             task.namespace == req.namespace &&
                 (req.extraction_policy.is_empty() ||
                     task.extraction_policy_id == req.extraction_policy) &&
-                (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id)
+                (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
+                outcome.matches(task.outcome)
         };
         let response = self
             .coordinator
