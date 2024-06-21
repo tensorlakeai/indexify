@@ -58,8 +58,9 @@ pub trait BlobStoragePartWriter {
 
 type BlobStorageReaderTS = Arc<dyn BlobStorageReader + Sync + Send>;
 
+#[async_trait]
 pub trait BlobStorageReader {
-    fn get(&self, key: &str) -> BoxStream<Result<Bytes>>;
+    async fn get(&self, key: &str) -> Result<BoxStream<Result<Bytes>>>;
 }
 
 #[derive(Clone)]
@@ -227,7 +228,7 @@ impl ContentReader {
 
     pub async fn bytes(&self, key: &str) -> Result<Bytes> {
         let reader = self.get(key);
-        let mut stream = reader.get(key);
+        let mut stream = reader.get(key).await?;
         let mut bytes = BytesMut::new();
         while let Some(chunk) = stream.next().await {
             bytes.extend_from_slice(&chunk?);

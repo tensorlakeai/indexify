@@ -182,13 +182,18 @@ impl DiskFileReader {
     }
 }
 
+#[async_trait]
 impl BlobStorageReader for DiskFileReader {
-    fn get(&self, file_path: &str) -> BoxStream<Result<Bytes>> {
+    async fn get(&self, file_path: &str) -> Result<BoxStream<Result<Bytes>>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let file_path = file_path.trim_start_matches("file://").to_string();
+        let client = LocalFileSystem::new();
+        let get_result = client
+            .get(&file_path.clone().into())
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read file: {:?}, error: {}", file_path, e))?;
         tokio::spawn(async move {
-            let client = LocalFileSystem::new();
-            let mut stream = client.get(&file_path.into()).await.unwrap().into_stream();
+            let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
                 if let Ok(chunk) = chunk {
                     let _ = tx.send(Ok(chunk));
@@ -201,7 +206,7 @@ impl BlobStorageReader for DiskFileReader {
                 }
             }
         });
-        Box::pin(UnboundedReceiverStream::new(rx))
+        Ok(Box::pin(UnboundedReceiverStream::new(rx)))
     }
 }
 
