@@ -28,7 +28,7 @@ const ContentsPage = () => {
     parentId?: string
     startId?: string
     pageSize: number
-  }): Promise<{ contentList: IContentMetadataExtended[]; total?: number }> => {
+  }): Promise<IContentMetadataExtended[]> => {
     const { contentList, total } = await client.getExtractedContent({
       parentId,
       startId,
@@ -46,7 +46,7 @@ const ContentsPage = () => {
         }
       })
     )
-    return { contentList: contentListExtended, total }
+    return contentListExtended
   }
 
   return (

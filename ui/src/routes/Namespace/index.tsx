@@ -50,15 +50,15 @@ const NamespacePage = () => {
     parentId?: string
     startId?: string
     pageSize: number
-  }): Promise<{ contentList: IContentMetadataExtended[]; total?: number }> => {
-    const { contentList, total } = await client.getExtractedContent({
+  }): Promise<IContentMetadataExtended[]> => {
+    const {contentList} = await client.getExtractedContent({
       parentId,
       startId,
       limit: pageSize + 1,
     })
 
     //count children
-    const contentListExtended = await Promise.all(
+    return Promise.all(
       contentList.map(async (content) => {
         const tree = await client.getContentTree(content.id)
         return {
@@ -67,8 +67,6 @@ const NamespacePage = () => {
         }
       })
     )
-
-    return { contentList: contentListExtended, total }
   }
 
   return (
@@ -87,7 +85,10 @@ const NamespacePage = () => {
           .flat()}
       />
       <SchemasTable schemas={schemas} />
-      <ContentTable loadData={contentLoader} client={client} />
+      <ContentTable
+        loadData={contentLoader}
+        client={client}
+      />
       <ExtractorsTable extractors={extractors} />
     </Stack>
   )
