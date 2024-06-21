@@ -52,7 +52,7 @@ By doing so, we immediately get the two following endpoints created.
 
 ??? info "Extractors"
 
-    Extractors help convert unstructured data into structured data we can query using a vector database or simple SQL. Examples of this could include converting PDF invoices to JSON, labelling objects in a video or even extracting text to embed from PDFs. You can read more about extractors [here](/apis/extractors)
+    Extractors help convert unstructured data into structured data or embeddings that we can query using a vector database or simple SQL. Examples of this could include converting PDF invoices to JSON, labelling objects in a video or even extracting text to embed from PDFs. You can read more about extractors [here](/apis/extractors)
 
 Next, we'll need to download two extractors - one for chunking our pages that we've downloaded from Wikipedia and another that will embed the text chunks that we've generated.
 
@@ -72,7 +72,14 @@ indexify-extractor join-server
 
 ### Defining Our Data Pipeline
 
-Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. What we want is a simple pipeline that will take in text documents, split it into individual chunks and then embed it.
+Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. What we want is a simple pipeline that will take in text documents, split it into individual chunks and then embed it. 
+
+??? info "Extraction Graphs"
+    Extraction Graphs are multi-stage data-pipelines that transforms or extracts information from any type of data. Data Pipelines in Indexify are called Extraction Graphs, because you can create branches in a single pipeline, so they look more like graphs than linear sequence of stages.
+
+
+
+
 
 We can do so using a simple `.yaml` file as seen below
 
