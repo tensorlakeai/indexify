@@ -77,10 +77,6 @@ Now that we've set up our `Indexify` server and extractors, it's time to define 
 ??? info "Extraction Graphs"
     Extraction Graphs are multi-stage data-pipelines that transforms or extracts information from any type of data. Data Pipelines in Indexify are called Extraction Graphs, because you can create branches in a single pipeline, so they look more like graphs than linear sequence of stages.
 
-
-
-
-
 We can do so using a simple `.yaml` file as seen below
 
 ```yaml title="graph.yaml"
