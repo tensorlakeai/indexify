@@ -439,7 +439,11 @@ impl Server {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to start gc_tasks_stream: {}, address: {}, retrying...", e, coordinator_addr.clone());
+                        tracing::error!(
+                            "Failed to start gc_tasks_stream: {}, address: {}, retrying...",
+                            e,
+                            coordinator_addr.clone()
+                        );
                         attempt += 1;
                         tokio::time::sleep(Duration::from_secs(delay)).await;
 
