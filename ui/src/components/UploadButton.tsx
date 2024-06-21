@@ -1,4 +1,5 @@
-import UploadIcon from '@mui/icons-material/Upload'
+import { useState } from 'react';
+import UploadIcon from '@mui/icons-material/Upload';
 import {
   Box,
   Button,
@@ -8,43 +9,35 @@ import {
   Select,
   Paper,
   CircularProgress,
-} from '@mui/material'
-import { ExtractionGraph, IndexifyClient } from 'getindexify'
-import { useState } from 'react'
-import LabelsInput from './Inputs/LabelsInput'
-import FileDropZone from './Inputs/DropZone'
+} from '@mui/material';
+import { ExtractionGraph, IndexifyClient } from 'getindexify';
+import LabelsInput from './Inputs/LabelsInput';
+import FileDropZone from './Inputs/DropZone';
 
 interface Props {
-  client: IndexifyClient
+  client: IndexifyClient;
 }
 
 const UploadButton = ({ client }: Props) => {
-  const [open, setOpen] = useState(false)
-  const [file, setFile] = useState<Blob | null>(null)
-  const [labels, setLabels] = useState<Record<string, string>>({})
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [fileName, setFileName] = useState('')
-  const [extractionGraphName, setExtractionGraphName] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [fileName, setFileName] = useState('');
+  const [extractionGraphName, setExtractionGraphName] = useState('');
+  const [loading, setLoading] = useState(false);
   const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>(
     client.extractionGraphs
-  )
+  );
 
-  const handleFileSelect = (file: File) => {
-    console.log('Selected file:', file.name);
-    // Handle the file upload logic here
+  const handleFileSelect = (selectedFiles: File[]) => {
+    setFiles(selectedFiles);
+    if (selectedFiles.length > 0) {
+      setFileName(selectedFiles[0].name);
+    }
   };
 
-  const handleOpen = () => setOpen(true)
-  const handleClose = () => setOpen(false)
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setFile(event.target.files[0])
-      setFileName(event.target.files[0].name)
-    }
-  }
+  const handleOpen = () => setOpen(true);
+  const handleClose = () => setOpen(false);
 
   const modalStyle = {
     position: 'absolute' as 'absolute',
@@ -59,22 +52,22 @@ const UploadButton = ({ client }: Props) => {
     boxShadow: 24,
     p: 4,
     borderRadius: "12px",
-  }
+  };
 
   const upload = async () => {
-    if (file && extractionGraphName) {
-      setLoading(true)
-      await client.uploadFile(extractionGraphName, file, labels)
-      window.location.reload()
+    if (files.length > 0 && extractionGraphName) {
+      setLoading(true);
+      await client.uploadFile(extractionGraphName, files[0], labels);
+      window.location.reload();
     }
-  }
+  };
 
   const updateExtractionGraphs = async () => {
-    const graphs = await client.getExtractionGraphs()
-    setExtractionGraphs(graphs)
-  }
+    const graphs = await client.getExtractionGraphs();
+    setExtractionGraphs(graphs);
+  };
 
-  const isUploadButtonDisabled = (!file || !extractionGraphName || loading)
+  const isUploadButtonDisabled = files.length === 0 || !extractionGraphName || loading;
 
   return (
     <>
@@ -85,7 +78,7 @@ const UploadButton = ({ client }: Props) => {
         aria-describedby="modal-modal-description"
       >
         <Paper sx={modalStyle}>
-          <Typography id="modal-modal-title" variant="h6" component="h2" sx={{ fontWeight: 500}}>
+          <Typography id="modal-modal-title" variant="h6" component="h2" sx={{ fontWeight: 500 }}>
             Upload Content
           </Typography>
           <Typography id="modal-modal-description" sx={{ mt: 2, fontWeight: 500, color: "#4A4F56" }}>
@@ -115,14 +108,14 @@ const UploadButton = ({ client }: Props) => {
           <LabelsInput
             disabled={loading}
             onChange={(val) => {
-              setLabels(val)
+              setLabels(val);
             }}
           />
 
           <Box sx={{ mt: 2, position: 'relative' }} gap={2} display={'flex'} justifyContent={'flex-end'}>
             <Button
               variant="outlined"
-              onClick={upload}
+              onClick={handleClose}
               sx={{ color: '#3296FE', border: 1, borderColor: '#DFE5ED' }}
             >
               Cancel
@@ -132,7 +125,7 @@ const UploadButton = ({ client }: Props) => {
               onClick={upload}
               disabled={isUploadButtonDisabled}
               sx={{ padding: "12px", ...(isUploadButtonDisabled && {
-                  backgroundColor: '#E9EDF1', 
+                  backgroundColor: '#E9EDF1',
                   color: '#757A82'
                 }) }}
             >
@@ -157,7 +150,7 @@ const UploadButton = ({ client }: Props) => {
         Upload
       </Button>
     </>
-  )
-}
+  );
+};
 
-export default UploadButton
+export default UploadButton;
