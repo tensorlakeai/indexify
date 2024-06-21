@@ -91,19 +91,23 @@ impl S3FileReader {
 
 #[async_trait]
 impl BlobStorageReader for S3FileReader {
-    fn get(&self, _key: &str) -> BoxStream<Result<Bytes>> {
+    async fn get(&self, _key: &str) -> Result<BoxStream<Result<Bytes>>> {
         let client_clone = self.client.clone();
         let (tx, rx) = mpsc::unbounded_channel();
         let key = self.key.clone();
+        let get_result = client_clone
+            .get(&key.into())
+            .await
+            .map_err(|e| anyhow!("can't get s3 object {:?}: {:?}", self.key, e))?;
         tokio::spawn(async move {
-            let mut stream = client_clone.get(&key.into()).await.unwrap().into_stream();
+            let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
                 if let Ok(chunk) = chunk {
                     let _ = tx.send(Ok(chunk));
                 }
             }
         });
-        Box::pin(UnboundedReceiverStream::new(rx))
+        Ok(Box::pin(UnboundedReceiverStream::new(rx)))
     }
 }
 

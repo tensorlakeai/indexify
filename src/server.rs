@@ -898,7 +898,7 @@ async fn download_content(
             let storage_url = &content_metadata.storage_url.clone();
             let content_reader = state.content_reader.clone();
             let reader = content_reader.get(storage_url);
-            let mut content_stream = reader.get(storage_url);
+            let mut content_stream = reader.get(storage_url).await?;
             while let Some(buf)  = content_stream.next().await {
                 yield buf;
             }
