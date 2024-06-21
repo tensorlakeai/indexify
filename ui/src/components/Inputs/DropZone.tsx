@@ -4,13 +4,13 @@ import {
   List, 
   ListItem, 
   ListItemText,
-  Paper ,
+  Paper,
   Button,
-  Typography
+  Typography,
+  Divider
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import RemoveCircleIcon from '@mui/icons-material/RemoveCircle';
-import Divider from '@mui/material/Divider';
 import { styled } from '@mui/system';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 
@@ -20,7 +20,7 @@ interface FileItem {
 }
 
 interface FileDropZoneProps {
-  onFileSelect: (file: File) => void;
+  onFileSelect: (files: File[]) => void;
 }
 
 const FileInput = styled('input')({
@@ -44,17 +44,22 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFileSelect }) => {
       size: file.size
     }));
     setFiles([...files, ...newFiles]);
+    onFileSelect(Array.from(event.dataTransfer.files));
   };
 
-  const handleRemove = (index: number) => {
-    const updatedFiles = files.filter((_, i) => i !== index);
-    setFiles(updatedFiles);
-  };
+  const handleRemove = useCallback((index: number) => {
+    setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
+  }, []);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      onFileSelect(e.target.files[0]);
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files).map(file => ({
+        name: file.name,
+        size: file.size
+      }));
+      setFiles((prevFiles) => [...prevFiles, ...newFiles]);
+      onFileSelect(Array.from(e.target.files));
     }
   }, [onFileSelect]);
 
@@ -89,53 +94,54 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFileSelect }) => {
       >
         {files.length === 0 && (
             <>
-                <label htmlFor="file-input">
-            <Button
-            variant="outlined"
-            startIcon={<UploadFileIcon />}
-            sx={{ border: 1, borderColor: '#B0D1F7', color: '#3296FE' }}
-            >
-            Choose File
-            </Button>
-        </label>
-        <Typography variant="caption" gutterBottom sx={{ marginTop: 2 }}>
-            Drag and drop file here, or choose file
-        </Typography>
-        <FileInput
-            id="file-input"
-            type="file"
-            onChange={handleChange}
-        />
-        </>
+            <FileInput
+                id="file-input"
+                type="file"
+                multiple
+                onChange={handleChange}
+            />
+            <label htmlFor="file-input">
+                <Button
+                    variant="outlined"
+                    startIcon={<UploadFileIcon />}
+                    sx={{ border: 1, borderColor: '#DFE5ED', color: '#3296FE' }}
+                    component="span"
+                >
+                    Choose File
+                </Button>
+            </label>
+            <Typography variant="caption" gutterBottom sx={{ marginTop: 1, color: "#757A82" }}>
+                Drag and drop files here, or choose files
+            </Typography>
+            </>
         )}
         <List sx={{ width: "100%" }}>
           {files.map((file, index) => (
-            <>
-            <ListItem
-              key={index}
-              sx={{ borderBottom: '1px solid var(--Brand-BrandColor-05, #E5EFFB)', display: 'flex', justifyContent: 'space-between'}}
-            >
-              <div className="upload-modal-filename">
-                <div className="upload-modal-fileicon">
-                    <InsertDriveFileOutlinedIcon sx={{color: '#3296FE'}} />
+            <React.Fragment key={index}>
+              <ListItem
+                sx={{ borderBottom: '1px solid var(--Brand-BrandColor-05, #E5EFFB)', display: 'flex', justifyContent: 'space-between'}}
+              >
+                <div className="upload-modal-filename">
+                  <div className="upload-modal-fileicon">
+                      <InsertDriveFileOutlinedIcon sx={{color: '#3296FE'}} />
+                  </div>
+                  <ListItemText>
+                     <Typography component="span" sx={{fontWeight: 500}}>{truncateFilename(file.name)} </Typography> | {(file.size / 1024).toFixed(2)} kb
+                  </ListItemText>
                 </div>
-                <ListItemText>
-                   <Typography component="span" sx={{fontWeight: 500}}>{truncateFilename(file.name)} </Typography> | {(file.size / 1024).toFixed(2)} kb
-                </ListItemText>
-              </div>
-              <Button
-                variant="outlined"
-                startIcon={<RemoveCircleIcon />}
-                sx={{ border: 1, borderColor: '#DFE5ED', color: '#B91C1C', marginLeft: '8px' }}
-                onClick={() => handleRemove(index)}
-                size='small'
-                color='error'
+                <Button
+                  variant="outlined"
+                  startIcon={<RemoveCircleIcon />}
+                  sx={{ border: 1, borderColor: '#DFE5ED', color: '#B91C1C', marginLeft: '8px' }}
+                  onClick={() => handleRemove(index)}
+                  size='small'
+                  color='error'
                 >
-                Remove
+                  Remove
                 </Button>
-            </ListItem>
-            <Divider component="li" />
-            </>
+              </ListItem>
+              <Divider component="li" />
+            </React.Fragment>
           ))}
         </List>
       </Paper>
