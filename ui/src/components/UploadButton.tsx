@@ -22,7 +22,6 @@ const UploadButton = ({ client }: Props) => {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
-  const [fileName, setFileName] = useState('');
   const [extractionGraphName, setExtractionGraphName] = useState('');
   const [loading, setLoading] = useState(false);
   const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>(
@@ -31,9 +30,6 @@ const UploadButton = ({ client }: Props) => {
 
   const handleFileSelect = (selectedFiles: File[]) => {
     setFiles(selectedFiles);
-    if (selectedFiles.length > 0) {
-      setFileName(selectedFiles[0].name);
-    }
   };
 
   const handleOpen = () => setOpen(true);
