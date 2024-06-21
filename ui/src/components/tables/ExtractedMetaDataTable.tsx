@@ -1,6 +1,5 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Box } from "@mui/system";
-import React from "react";
 import { Stack, Typography } from "@mui/material";
 import { IExtractedMetadata } from "getindexify";
 

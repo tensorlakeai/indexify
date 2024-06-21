@@ -1,23 +1,5 @@
 import { createTheme } from "@mui/material/styles";
 
-// const roboto = Roboto({
-//   weight: ["300", "400", "500", "700"],
-//   subsets: ["latin"],
-//   display: "swap",
-// });
-
-// const rubik = Rubik({
-//   weight: ["600", "700"],
-//   subsets: ["latin"],
-//   display: "swap",
-// });
-
-// const outfit = Outfit({
-//   weight: ["400", "600", "700"],
-//   subsets: ["latin"],
-//   display: "swap",
-// });
-
 declare module "@mui/material/styles" {
   interface TypographyVariants {
     labelSmall: React.CSSProperties;
@@ -74,7 +56,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-notchedOutline": {
-            borderColor: "gray",
+            borderColor: "#E9EDF1",
           },
         },
         select: {
@@ -86,9 +68,16 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiInputBase-root": { backgroundColor: "white" }, // For outlined, filled variants
-          "& .MuiOutlinedInput-notchedOutline": { borderColor: "gray" }, // Optional: Customize border color
+          "& .MuiOutlinedInput-notchedOutline": { borderColor: "#E9EDF1" }, // Optional: Customize border color
         },
       },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: {
+          "&. MuiOutlinedInput-root": { backgroundColor: "white" },
+        }
+      }
     },
     MuiButton: {
       styleOverrides: {
@@ -102,19 +91,23 @@ const theme = createTheme({
             fontFamily: "poppins",
             "&.Mui-disabled": {
               backgroundColor: "rgba(6, 13, 63, 0.1)",
-              borderColor: "#676767",
+              borderColor: "#E9EDF1",
             },
           }),
         outlined: {
           padding: "10px 24px",
-          borderRadius: "100px",
+          borderRadius: "8px",
           color: "primary",
-          border: "1px solid #79747E",
+          border: "1px solid #3296FE",
         },
         contained: {
-          padding: "10px 24px",
-          borderRadius: "100px",
-          border: "1px solid #060D3F",
+          padding: "10px 16px",
+          borderRadius: "8px",
+          border: "1px solid #3296FE",
+          backgroundColor: "#3296FE",
+          ":hover": {
+            backgroundColor: "#1080f4",
+          }
         },
         text: {
           padding: "10px 12px",
@@ -126,7 +119,7 @@ const theme = createTheme({
   typography: {
     fontFamily: "poppins",
     h1: {
-      fontFamily: "outfit",
+      fontFamily: "poppins",
       fontSize: "48px",
       lineHeight: "normal",
       fontStyle: "normal",

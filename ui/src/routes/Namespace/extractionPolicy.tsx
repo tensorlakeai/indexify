@@ -6,7 +6,6 @@ import {
   IndexifyClient,
   ITask,
 } from 'getindexify'
-import React from 'react'
 import TasksTable from '../../components/TasksTable'
 import { Link } from 'react-router-dom'
 import { getIndexifyServiceURL } from '../../utils/helpers'

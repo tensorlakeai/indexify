@@ -1,4 +1,5 @@
-import UploadIcon from '@mui/icons-material/Upload'
+import { useState } from 'react';
+import UploadIcon from '@mui/icons-material/Upload';
 import {
   Box,
   Button,
@@ -8,35 +9,36 @@ import {
   Select,
   Paper,
   CircularProgress,
-} from '@mui/material'
-import { ExtractionGraph, IndexifyClient } from 'getindexify'
-import { useState } from 'react'
-import LabelsInput from './Inputs/LabelsInput'
+} from '@mui/material';
+import { ExtractionGraph, IndexifyClient } from 'getindexify';
+import LabelsInput from './Inputs/LabelsInput';
+import FileDropZone from './Inputs/DropZone';
 
 interface Props {
-  client: IndexifyClient
+  client: IndexifyClient;
 }
 
+const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
+    const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels));
+    await Promise.all(uploadPromises);
+  };
+
 const UploadButton = ({ client }: Props) => {
-  const [open, setOpen] = useState(false)
-  const [file, setFile] = useState<Blob | null>(null)
-  const [labels, setLabels] = useState<Record<string, string>>({})
-  const [fileName, setFileName] = useState('')
-  const [extractionGraphName, setExtractionGraphName] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [extractionGraphName, setExtractionGraphName] = useState('');
+  const [loading, setLoading] = useState(false);
   const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>(
     client.extractionGraphs
-  )
+  );
 
-  const handleOpen = () => setOpen(true)
-  const handleClose = () => setOpen(false)
+  const handleFileSelect = (selectedFiles: File[]) => {
+    setFiles(selectedFiles);
+  };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setFile(event.target.files[0])
-      setFileName(event.target.files[0].name)
-    }
-  }
+  const handleOpen = () => setOpen(true);
+  const handleClose = () => setOpen(false);
 
   const modalStyle = {
     position: 'absolute' as 'absolute',
@@ -50,20 +52,23 @@ const UploadButton = ({ client }: Props) => {
     overflow: 'scroll',
     boxShadow: 24,
     p: 4,
-  }
+    borderRadius: "12px",
+  };
 
   const upload = async () => {
-    if (file && extractionGraphName) {
-      setLoading(true)
-      await client.uploadFile(extractionGraphName, file, labels)
-      window.location.reload()
+    if (files.length > 0 && extractionGraphName) {
+      setLoading(true);
+      await uploadFiles(client, extractionGraphName, files, labels);
+      window.location.reload();
     }
-  }
+  };
 
   const updateExtractionGraphs = async () => {
-    const graphs = await client.getExtractionGraphs()
-    setExtractionGraphs(graphs)
-  }
+    const graphs = await client.getExtractionGraphs();
+    setExtractionGraphs(graphs);
+  };
+
+  const isUploadButtonDisabled = files.length === 0 || !extractionGraphName || loading;
 
   return (
     <>
@@ -74,10 +79,10 @@ const UploadButton = ({ client }: Props) => {
         aria-describedby="modal-modal-description"
       >
         <Paper sx={modalStyle}>
-          <Typography id="modal-modal-title" variant="h6" component="h2">
+          <Typography id="modal-modal-title" variant="h6" component="h2" sx={{ fontWeight: 500 }}>
             Upload Content
           </Typography>
-          <Typography id="modal-modal-description" sx={{ mt: 2 }}>
+          <Typography id="modal-modal-description" sx={{ mt: 2, fontWeight: 500, color: "#4A4F56" }}>
             Select a file to upload and choose an extraction graph.
           </Typography>
           <Select
@@ -87,7 +92,9 @@ const UploadButton = ({ client }: Props) => {
             onChange={(e) => setExtractionGraphName(e.target.value)}
             displayEmpty
             fullWidth
-            sx={{ mt: 2 }}
+            variant="outlined"
+            sx={{ mt: 2, color: '#757A82' }}
+            size="small"
           >
             <MenuItem value="" disabled>
               Select Extraction Graph
@@ -98,36 +105,32 @@ const UploadButton = ({ client }: Props) => {
               </MenuItem>
             ))}
           </Select>
-          <Box display="flex" alignItems={'center'} gap={2}>
-            <Button
-              disabled={loading}
-              variant="contained"
-              component="label"
-              sx={{ mt: 2 }}
-            >
-              Choose File
-              <input type="file" hidden onChange={handleFileChange} />
-            </Button>
-            {fileName && (
-              <Typography variant="body2" sx={{ mt: 1 }}>
-                Selected File: {fileName}
-              </Typography>
-            )}
-          </Box>
+          <FileDropZone onFileSelect={handleFileSelect} />
           <LabelsInput
             disabled={loading}
             onChange={(val) => {
-              setLabels(val)
+              setLabels(val);
             }}
           />
 
-          <Box sx={{ mt: 2, position: 'relative' }}>
+          <Box sx={{ mt: 2, position: 'relative' }} gap={2} display={'flex'} justifyContent={'flex-end'}>
             <Button
               variant="outlined"
-              onClick={upload}
-              disabled={!file || !extractionGraphName || loading}
+              onClick={handleClose}
+              sx={{ color: '#3296FE', border: 1, borderColor: '#DFE5ED' }}
             >
-              Upload
+              Cancel
+            </Button>
+            <Button
+              variant={isUploadButtonDisabled ? 'outlined' : 'contained'}
+              onClick={upload}
+              disabled={isUploadButtonDisabled}
+              sx={{ padding: "12px", ...(isUploadButtonDisabled && {
+                  backgroundColor: '#E9EDF1',
+                  color: '#757A82'
+                }) }}
+            >
+              Upload Content
             </Button>
             {loading && (
               <CircularProgress
@@ -144,11 +147,11 @@ const UploadButton = ({ client }: Props) => {
           </Box>
         </Paper>
       </Modal>
-      <Button onClick={handleOpen} size="small" variant='contained' endIcon={<UploadIcon />}>
+      <Button onClick={handleOpen} size="small" variant="contained" color="primary" startIcon={<UploadIcon />}>
         Upload
       </Button>
     </>
-  )
-}
+  );
+};
 
-export default UploadButton
+export default UploadButton;

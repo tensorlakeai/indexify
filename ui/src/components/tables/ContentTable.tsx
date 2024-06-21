@@ -39,7 +39,7 @@ const ContentTable = ({
   const [startIds, setStartIds] = useState<Record<number, string>>({})
   const [paginationModel, setPaginationModel] = useState({
     page: 0,
-    pageSize: 5,
+    pageSize: 10,
   })
   const [currentTab, setCurrentTab] = useState<string | undefined>(undefined)
   const [searchFilter, setSearchFilter] = useState<{
@@ -132,18 +132,6 @@ const ContentTable = ({
 
   let columns: GridColDef[] = [
     {
-      field: 'view',
-      headerName: '',
-      width: 100,
-      renderCell: (params) => (
-        <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
-          <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
-            View
-          </Button>
-        </Link>
-      ),
-    },
-    {
       field: 'id',
       headerName: 'ID',
       width: 200,
@@ -181,10 +169,10 @@ const ContentTable = ({
     },
     {
       field: 'source',
+      headerName: 'Source',
       valueGetter: (params) => {
         return params.value || 'ingestion'
       },
-      headerName: 'Source',
       width: 220,
     },
     {
@@ -207,6 +195,18 @@ const ContentTable = ({
       valueGetter: (params) => {
         return moment(params.value * 1000).format('MM/DD/YYYY h:mm A')
       },
+    },
+    {
+      field: 'view',
+      headerName: 'Actions',
+      width: 100,
+      renderCell: (params) => (
+        <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
+          <Button sx={{ py: 0.5, px: 2 }} variant="contained">
+            View
+          </Button>
+        </Link>
+      ),
     },
   ]
 
@@ -256,20 +256,23 @@ const ContentTable = ({
         display={'flex'}
         direction={'row'}
         alignItems={'center'}
+        justifyContent={'space-between'}
         spacing={2}
       >
-        <div className='heading-icon-container'>
-          <TableDocument size="25" className="heading-icons" variant="Outline"/>
+        <div className="content-table-header">
+          <div className="heading-icon-container">
+            <TableDocument size="25" className="heading-icons" variant="Outline"/>
+          </div>
+          <Typography variant="h4">
+            Content
+            <IconButton
+              href="https://docs.docs.getindexify.ai/concepts/#content"
+              target="_blank"
+            >
+              <InfoCircle size="20" variant="Outline"/>
+            </IconButton>
+          </Typography>
         </div>
-        <Typography variant="h4">
-          Content
-          <IconButton
-            href="https://docs.docs.getindexify.ai/concepts/#content"
-            target="_blank"
-          >
-            <InfoCircle size="20" variant="Outline"/>
-          </IconButton>
-        </Typography>
         <UploadButton client={client} />
       </Stack>
       <Box justifyContent={'space-between'} display={'flex'}>
