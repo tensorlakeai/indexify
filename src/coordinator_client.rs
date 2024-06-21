@@ -91,7 +91,10 @@ impl CoordinatorClient {
     async fn create_tls_channel(&self) -> Result<CoordinatorServiceClient> {
         let channel = if let Some(tls_config) = self.config.coordinator_client_tls.as_ref() {
             if tls_config.api {
-                tracing::info!("connecting via mTLS to coordinator service");
+                tracing::info!(
+                    "connecting via mTLS to coordinator service, address: {}",
+                    &self.addr
+                );
                 let cert = std::fs::read(tls_config.cert_file.clone())?;
                 let key = std::fs::read(tls_config.key_file.clone())?;
                 let ca_cert = tls_config
@@ -106,11 +109,17 @@ impl CoordinatorClient {
                     .domain_name("localhost");
                 Channel::from_shared(format!("https://{}", &self.addr))?.tls_config(tls_config)?
             } else {
-                tracing::info!("connecting without TLS to coordinator service");
+                tracing::info!(
+                    "connecting without TLS to coordinator service, address: {}",
+                    &self.addr
+                );
                 Channel::from_shared(format!("http://{}", &self.addr))?
             }
         } else {
-            tracing::info!("connecting without TLS to coordinator service");
+            tracing::info!(
+                "connecting without TLS to coordinator service, address: {}",
+                &self.addr
+            );
             Channel::from_shared(format!("http://{}", &self.addr))?
         };
         let channel = channel.connect().await?;
