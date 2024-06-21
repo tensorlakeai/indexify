@@ -27,6 +27,8 @@ pub struct ExtractionGraph {
     pub id: ExtractionGraphId,
     pub name: ExtractionGraphName,
     pub namespace: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
@@ -43,6 +45,7 @@ impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
             id: value.id,
             name: value.name,
             namespace: value.namespace,
+            description: value.description.unwrap_or_default(),
             extraction_policies: extraction_policies?,
         })
     }
@@ -77,6 +80,7 @@ impl ExtractionGraphBuilder {
             name,
             namespace,
             extraction_policies,
+            description: self.description,
         })
     }
 }
