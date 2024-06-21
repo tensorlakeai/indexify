@@ -366,6 +366,7 @@ impl Server {
         let mut attempt = 0;
         let delay = 2;
         let ingestion_server_id = ingestion_server_id.to_string();
+        let coordinator_addr = self.config.coordinator_addr.clone();
 
         tokio::spawn(async move {
             loop {
@@ -438,7 +439,7 @@ impl Server {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to start gc_tasks_stream: {}, retrying...", e);
+                        tracing::error!("Failed to start gc_tasks_stream: {}, address: {}, retrying...", e, coordinator_addr.clone());
                         attempt += 1;
                         tokio::time::sleep(Duration::from_secs(delay)).await;
 
