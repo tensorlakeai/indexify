@@ -30,18 +30,13 @@ content_id = client.upload_file("extraction_graph_name", "file.pdf")
 ```
 ```python
 def get_image_content(client, content_id):
-    extracted_content = client.get_extracted_content(content_id)
+   extracted_content = client.get_extracted_content(content_id, "extraction_graph_name", "policy_name")
     
-    for item in extracted_content:
-        child_id = item['id']
-        
-        structured_data = client.get_structured_data(child_id)
-        
-        for data in structured_data:
-            if 'metadata' in data and data['metadata'].get('type') == 'image':
-                return item['content']
-    
-    return None
+   for data in extracted_content:
+      if 'metadata' in data and data['metadata'].get('type') == 'image':
+         return item['content']
+   
+   return None
 ```
 
 ## Table Extraction
@@ -53,18 +48,13 @@ content_id = client.upload_file("extraction_graph_name", "file.pdf")
 ```
 ```python
 def get_table_content(client, content_id):
-    extracted_content = client.get_extracted_content(content_id)
-    
-    for item in extracted_content:
-        child_id = item['id']
-        
-        structured_data = client.get_structured_data(child_id)
-        
-        for data in structured_data:
-            if 'metadata' in data and data['metadata'].get('type') == 'table':
-                return item['content']
-    
-    return None
+   extracted_content = client.get_extracted_content(content_id, "extraction_graph_name", "policy_name")
+   
+   for data in extracted_content:
+      if 'metadata' in data and data['metadata'].get('type') == 'table':
+            return item['content']
+   
+   return None
 ```
 
 ## Explore PDF Extractors
