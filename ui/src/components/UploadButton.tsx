@@ -54,10 +54,15 @@ const UploadButton = ({ client }: Props) => {
     borderRadius: "12px",
   };
 
+  const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
+    const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels));
+    await Promise.all(uploadPromises);
+  };
+
   const upload = async () => {
     if (files.length > 0 && extractionGraphName) {
       setLoading(true);
-      await client.uploadFile(extractionGraphName, files[0], labels);
+      await uploadFiles(client, extractionGraphName, files, labels);
       window.location.reload();
     }
   };
