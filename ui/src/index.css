@@ -106,3 +106,21 @@ div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation1::-webk
 div.MuiSelect-select.MuiSelect-outlined {
   border: 1px solid var(#E9EDF1) !important;
 }
+
+div.upload-modal-filename{
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+div.upload-modal-fileicon{
+  border-radius: 6px;
+  background: var(--White, #FFF);
+  box-shadow: 0px 1px 2px 0px rgba(0, 0, 0, 0.25);
+  padding: 6px;
+  margin-right: 16px;
+}
+
+div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation0.upload-modal-paper {
+
+}

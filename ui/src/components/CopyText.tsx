@@ -16,13 +16,11 @@ const CopyText = ({
   };
   return (
     <Box>
-
-        <Tooltip title={showAlert ? "Copied!" : "Copy to clipboard"}>
-          <IconButton onClick={handleCopy}>
-            <ContentCopy sx={{ color, height:'20px' }} />
-          </IconButton>
-        </Tooltip>
-
+      <Tooltip title={showAlert ? "Copied!" : "Copy to clipboard"}>
+        <IconButton onClick={handleCopy}>
+          <ContentCopy sx={{ color, height:'20px' }} />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 };
