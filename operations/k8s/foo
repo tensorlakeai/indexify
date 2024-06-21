@@ -1,0 +1,7 @@
+Running with tracing filter info
+[2m2024-06-21T19:52:00.616216Z[0m [32m INFO[0m [2mindexify::cmd::server[0m[2m:[0m starting indexify server, version: git branch: main - sha:a67eea99b52a1ec33d69454cd5f12500f1b1692e
+[2m2024-06-21T19:52:00.616588Z[0m [32m INFO[0m [2mindexify::server[0m[2m:[0m starting indexify server with TLS disabled
+[2m2024-06-21T19:52:00.618630Z[0m [32m INFO[0m [2mindexify::caching::caches_extension[0m[2m:[0m no cache backend configured. Using NoOpCache
+[2m2024-06-21T19:52:00.620384Z[0m [32m INFO[0m [2mindexify::coordinator_client[0m[2m:[0m connecting without TLS to coordinator service
+[2m2024-06-21T19:52:00.620388Z[0m [32m INFO[0m [1mcreate_namespace[0m[1m{[0m[3mself[0m[2m=[0mDataManager [3mnamespace[0m[2m=[0mDataNamespace { name: "default", extraction_graphs: [] }[1m}[0m[2m:[0m [2mindexify::data_manager[0m[2m:[0m creating data namespace: default
+[2m2024-06-21T19:52:01.696400Z[0m [31mERROR[0m [2mindexify::server[0m[2m:[0m Failed to start gc_tasks_stream: status: Unavailable, message: "error trying to connect: tcp connect error: Connection refused (os error 111)", details: [], metadata: MetadataMap { headers: {} }, retrying...

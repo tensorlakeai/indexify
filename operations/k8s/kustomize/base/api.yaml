@@ -62,7 +62,7 @@ spec:
 
       containers:
         - name: indexify
-          image: tensorlake/indexify:stable
+          image: tensorlake/indexify:latest
 
           command: ['indexify']
           args:
