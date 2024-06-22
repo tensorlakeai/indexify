@@ -73,6 +73,10 @@ spec:
           env:
             - name: AWS_ENDPOINT_URL
               value: http://blob-store:9000
+            - name: AWS_ENDPOINT
+              value: http://blob-store:9000
+            - name: AWS_ALLOW_HTTP
+              value: "true"
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
