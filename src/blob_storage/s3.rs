@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{env, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -81,6 +81,14 @@ impl S3FileReader {
         if let Some(s3) = &config.blob_storage.s3 {
             builder = builder.with_region(&s3.region);
         }
+
+        // For supporting localstack/minio for testing
+        if let Ok(val) = env::var("AWS_ENDPOINT_URL") {
+            builder = builder.with_endpoint(val.clone());
+            if val.starts_with("http://") {
+                builder = builder.with_allow_http(true);
+            }
+        }
         let client = builder.with_bucket_name(bucket).build().unwrap();
         S3FileReader {
             client: Arc::new(client),
@@ -91,19 +99,23 @@ impl S3FileReader {
 
 #[async_trait]
 impl BlobStorageReader for S3FileReader {
-    fn get(&self, _key: &str) -> BoxStream<Result<Bytes>> {
+    async fn get(&self, _key: &str) -> Result<BoxStream<Result<Bytes>>> {
         let client_clone = self.client.clone();
         let (tx, rx) = mpsc::unbounded_channel();
         let key = self.key.clone();
+        let get_result = client_clone
+            .get(&key.into())
+            .await
+            .map_err(|e| anyhow!("can't get s3 object {:?}: {:?}", self.key, e))?;
         tokio::spawn(async move {
-            let mut stream = client_clone.get(&key.into()).await.unwrap().into_stream();
+            let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
                 if let Ok(chunk) = chunk {
                     let _ = tx.send(Ok(chunk));
                 }
             }
         });
-        Box::pin(UnboundedReceiverStream::new(rx))
+        Ok(Box::pin(UnboundedReceiverStream::new(rx)))
     }
 }
 

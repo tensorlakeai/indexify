@@ -65,7 +65,9 @@ Set up an extraction graph to process the PDF documents
 === "Python"
 
     ``` python
-    from indexify import ExtractionGraph
+    from indexify import ExtractionGraph, IndexifyClient
+
+    client = IndexifyClient()
 
     extraction_graph_spec = """
     name: 'pdfqa'
@@ -125,6 +127,9 @@ Add the PDF document to the "pdfqa" extraction graph:
 
     ```python
     import requests
+    from indexify import IndexifyClient
+
+    client = IndexifyClient()
 
     response = requests.get("https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf")
     with open("taxes.pdf", 'wb') as file:

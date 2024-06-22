@@ -1,6 +1,8 @@
 # Kubernetes
 
-## Components
+## Cluster Standup
+
+### Components
 
 The resources have been split into separate components:
 
@@ -21,11 +23,6 @@ The resources have been split into separate components:
 To run locally, you can apply the [local](kustomize/local) setup and then go
 through the getting started guide.
 
-```bash
-kubectl apply -k kustomize/local
-```
-
-## Cluster Standup
 
 ### Local
 
@@ -34,10 +31,14 @@ Kubernetes ([k3s][k3s]) entirely within docker on your local system.
 
 [k3s]: https://k3s.io
 
+
 ```bash
 k3d cluster create -p "8081:80@loadbalancer" indexify
 ```
 
+```bash
+kubectl apply -k kustomize/local
+```
 When using this setup, Indexify will be exposed via k3d's ingress which will be
 [http://localhost:8081](http://localhost:8081). You'll want to configure
 `IndexifyClient(service_url="http://localhost:8081")`.

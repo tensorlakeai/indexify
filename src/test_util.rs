@@ -80,6 +80,7 @@ pub mod db_utils {
             id,
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             name: graph_name.to_string(),
+            description: Some("test_description".to_string()),
             extraction_policies,
         }
     }
@@ -126,6 +127,7 @@ pub mod db_utils {
         ExtractionGraph {
             id,
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            description: Some("test_description".to_string()),
             name: graph_name.to_string(),
             extraction_policies,
         }

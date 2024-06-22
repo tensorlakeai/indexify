@@ -430,6 +430,8 @@ pub struct ExtractionGraph {
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "4")]
     pub extraction_policies: ::prost::alloc::vec::Vec<ExtractionPolicy>,
+    #[prost(string, tag = "5")]
+    pub description: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -485,6 +487,8 @@ pub struct CreateExtractionGraphRequest {
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub description: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
     pub policies: ::prost::alloc::vec::Vec<ExtractionPolicyRequest>,
 }

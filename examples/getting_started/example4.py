@@ -18,5 +18,5 @@ with open("sample.pdf", 'wb') as file:
 content_id = client.upload_file("pdfqa", "sample.pdf")
 
 client.wait_for_extraction(content_id)
-print(client.get_extracted_content(content_id))
+print(client.get_extracted_content(content_id, 'pdfqa', 'docextractor'))
 

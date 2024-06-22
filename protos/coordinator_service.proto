@@ -357,6 +357,7 @@ message ExtractionGraph {
     string namespace = 2;
     string name = 3;
     repeated ExtractionPolicy extraction_policies = 4;
+    string description = 5;
 }
 
 message ExtractionPolicy {
@@ -383,6 +384,7 @@ message ExtractionPolicyRequest {
 message CreateExtractionGraphRequest {
     string namespace = 1;
     string name = 2;
+    string description = 4;
     repeated ExtractionPolicyRequest policies = 3;
 }
 
