@@ -62,7 +62,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
+          sx={{ backgroundColor: 'white', boxShadow: '0px 0px 2px 0px #D0D6DE', }}
           autoHeight
           rows={filteredSchemas}
           columns={columns}

@@ -88,7 +88,7 @@ const ExtractionGraphs = ({
   const renderContent = () => {
     if (extractionGraphs.length === 0) {
       return (
-        <Box mt={1} mb={2}>
+        <Box mt={2} mb={2}>
           <Alert variant="outlined" severity="info">
             No Graphs Found
           </Alert>
@@ -105,6 +105,7 @@ const ExtractionGraphs = ({
           borderRadius: '5px',
           backgroundColor: 'white',
         }}
+        mt={2}
       >
         <div style={{ minWidth: 'max-content' }}>{renderHeader()}</div>
         {extractionGraphs.map((graph) => {

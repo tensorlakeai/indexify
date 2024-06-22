@@ -29,7 +29,7 @@ const SearchResultCard = ({
   namespace: string;
 }) => {
   return (
-    <Paper elevation={3} sx={{ padding: 2, marginBottom: 2 }}>
+    <Paper sx={{ padding: 2, marginBottom: 2, boxShadow: '0px 0px 2px 0px #D0D6DE', }}>
       <Typography variant="h4">
         Content ID:{" "}
         <Link to={`/${namespace}/content/${data.content_id}`} target="_blank">
@@ -46,14 +46,16 @@ const SearchResultCard = ({
         </>
       ) : null}
       <Divider sx={{ my: 1 }} />
-      <DisplayData label="Confidence Score" value={data.confidence_score} />
-      {Object.keys(data.labels).length !== 0 && (
-        <Box pt={1} display={"flex"} gap={1}>
-          {Object.keys(data.labels).map((val: string) => {
-            return <Chip key={val} label={`${val}:${data.labels[val]}`} />;
-          })}
-        </Box>
-      )}
+      <Box display={'flex'} flexDirection={'row'} alignItems={'center'} mt={2}>
+        <DisplayData label="Confidence Score" value={data.confidence_score} />
+        {Object.keys(data.labels).length !== 0 && (
+          <Box display={"flex"} gap={1} ml={1} alignItems={'center'}>
+            {Object.keys(data.labels).map((val: string) => {
+              return <Chip key={val} label={`${val}:${data.labels[val]}`} />;
+            })}
+          </Box>
+        )}
+      </Box>
     </Paper>
   );
 };

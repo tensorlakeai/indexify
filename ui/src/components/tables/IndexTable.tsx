@@ -65,7 +65,7 @@ const IndexTable = ({
             <Link
               to={`/${namespace}/indexes/${params.row.name}`}
             >
-              <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
+              <Button sx={{ py: 0.5, px: 2 }} variant="contained" color="primary">
                 Search Index
               </Button>
             </Link>
@@ -98,7 +98,7 @@ const IndexTable = ({
           }}
         >
           <DataGrid
-            sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
+            sx={{ backgroundColor: 'white', boxShadow: '0px 0px 2px 0px #D0D6DE', }}
             autoHeight
             getRowId={getRowId}
             rows={indexes}

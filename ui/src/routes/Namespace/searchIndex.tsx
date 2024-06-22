@@ -14,7 +14,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import SearchResultCard from '../../components/SearchResultCard'
 import { getIndexifyServiceURL } from '../../utils/helpers'
-import { AxiosError, isAxiosError } from 'axios'
+import { AxiosError, isAxiosError } from 'axios';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespace = params.namespace
@@ -72,7 +73,7 @@ const ExtractionPolicyPage = () => {
 
   return (
     <Stack direction="column" spacing={3}>
-      <Breadcrumbs aria-label="breadcrumb">
+      <Breadcrumbs aria-label="breadcrumb" separator={<NavigateNextIcon fontSize="small" />}>
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/indexes`}>
           <Typography color="text.primary">Indexes</Typography>

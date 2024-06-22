@@ -134,7 +134,7 @@ const ContentTable = ({
     {
       field: 'id',
       headerName: 'ID',
-      width: 200,
+      width: 300,
       renderCell: (params) => {
         return (
           <>

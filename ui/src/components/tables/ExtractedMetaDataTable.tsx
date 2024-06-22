@@ -71,7 +71,7 @@ const ExtractedMetadataTable = ({
         Metadata - {extractedMetadata[0].extractor_name}:
       </Typography>
       <DataGrid
-        sx={{ backgroundColor: "white" }}
+        sx={{ backgroundColor: "white", boxShadow: '0px 0px 2px 0px #D0D6DE', }}
         autoHeight
         getRowId={getRowId}
         rows={extractedMetadata.map((em) => em.metadata)}
