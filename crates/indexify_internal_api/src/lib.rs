@@ -80,7 +80,7 @@ impl ExtractionGraphBuilder {
             name,
             namespace,
             extraction_policies,
-            description: self.description,
+            description: self.description.clone().unwrap_or_default(),
         })
     }
 }

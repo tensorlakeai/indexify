@@ -487,6 +487,8 @@ pub struct CreateExtractionGraphRequest {
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub description: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
     pub policies: ::prost::alloc::vec::Vec<ExtractionPolicyRequest>,
 }

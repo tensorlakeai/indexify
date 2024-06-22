@@ -174,6 +174,7 @@ impl DataManager {
         let req = indexify_coordinator::CreateExtractionGraphRequest {
             namespace: namespace.to_string(),
             name: req.name,
+            description: req.description.unwrap_or_default(),
             policies: extraction_policies,
         };
         let response = self

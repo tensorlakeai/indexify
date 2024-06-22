@@ -1770,6 +1770,7 @@ mod tests {
             id: "id".into(),
             namespace: namespace.into(),
             name: "name".into(),
+            description: Some("description".into()),
             extraction_policies: vec![
                 indexify_internal_api::ExtractionPolicy {
                     id: "id1".into(),

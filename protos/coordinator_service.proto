@@ -384,6 +384,7 @@ message ExtractionPolicyRequest {
 message CreateExtractionGraphRequest {
     string namespace = 1;
     string name = 2;
+    string description = 4;
     repeated ExtractionPolicyRequest policies = 3;
 }
 
