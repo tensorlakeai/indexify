@@ -29,29 +29,20 @@ const SearchResultCard = ({
   namespace: string;
 }) => {
   return (
-    <Paper sx={{ padding: 2, marginBottom: 2, boxShadow: '0px 0px 2px 0px #D0D6DE', }}>
-      <Typography variant="h4">
+    <Paper sx={{ padding: 2, marginBottom: 2, boxShadow: '0px 0px 2px 0px #D0D6DE', display: 'flex', flexDirection: 'column'}}>
+      <Typography variant="caption">
         Content ID:{" "}
-        <Link to={`/${namespace}/content/${data.content_id}`} target="_blank">
-          {data.content_id}
-        </Link>
       </Typography>
-
-      {data.text ? (
-        <>
-          <Divider sx={{ my: 1 }} />
-          <Typography py={1} variant="body1">
-            {data.text}
-          </Typography>
-        </>
-      ) : null}
+      <Link to={`/${namespace}/content/${data.content_id}`} target="_blank">
+        {data.content_id}
+      </Link>
       <Divider sx={{ my: 1 }} />
       <Box display={'flex'} flexDirection={'row'} alignItems={'center'} mt={2}>
         <DisplayData label="Confidence Score" value={data.confidence_score} />
         {Object.keys(data.labels).length !== 0 && (
-          <Box display={"flex"} gap={1} ml={1} alignItems={'center'}>
+          <Box display={"flex"} gap={1} ml={4} alignItems={'center'}>
             {Object.keys(data.labels).map((val: string) => {
-              return <Chip key={val} label={`${val}:${data.labels[val]}`} />;
+              return <Chip key={val} label={`${val}:${data.labels[val]}`} sx={{ backgroundColor: '#E5EFFB', color: '#1C2026'}} />;
             })}
           </Box>
         )}
