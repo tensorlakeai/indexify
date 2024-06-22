@@ -21,6 +21,7 @@ pub struct ExtractionGraph {
     pub name: String,
     #[serde(default)]
     pub namespace: String,
+    pub description: Option<String>,
     pub extraction_policies: Vec<ExtractionPolicy>,
 }
 
@@ -34,10 +35,16 @@ impl TryFrom<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
             extraction_policies.push(policy);
         }
 
+        let description = if value.description.is_empty() {
+            None
+        } else {
+            Some(value.description)
+        };
         Ok(Self {
             id: value.namespace.clone(),
             namespace: value.namespace,
             name: value.name,
+            description,
             extraction_policies,
         })
     }
@@ -819,6 +826,7 @@ pub struct UploadFileResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractionGraphRequest {
     pub name: String,
+    pub description: Option<String>,
     pub extraction_policies: Vec<ExtractionPolicyRequest>,
 }
 

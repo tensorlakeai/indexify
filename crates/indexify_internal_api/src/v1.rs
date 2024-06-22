@@ -8,6 +8,7 @@ pub struct ExtractionGraph {
     pub name: super::ExtractionGraphName,
     pub namespace: String,
     pub extraction_policies: Vec<ExtractionPolicy>,
+    pub description: Option<String>,
 }
 
 impl From<ExtractionGraph> for super::ExtractionGraph {
@@ -16,6 +17,7 @@ impl From<ExtractionGraph> for super::ExtractionGraph {
             id: graph.id,
             name: graph.name,
             namespace: graph.namespace,
+            description: graph.description,
             extraction_policies: graph
                 .extraction_policies
                 .iter()
