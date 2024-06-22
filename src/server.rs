@@ -31,7 +31,7 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
+use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
@@ -903,7 +903,12 @@ async fn download_content(
             let storage_url = &content_metadata.storage_url.clone();
             let content_reader = state.content_reader.clone();
             let reader = content_reader.get(storage_url);
-            let mut content_stream = reader.get(storage_url).await?;
+            let maybe_content_stream = reader.get(storage_url).await;
+            if let Err(e) = maybe_content_stream {
+                error!("failed to get content stream: {}", e);
+                return;
+            }
+            let mut content_stream = maybe_content_stream.unwrap();
             while let Some(buf)  = content_stream.next().await {
                 yield buf;
             }
