@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{env, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -80,6 +80,14 @@ impl S3FileReader {
         let mut builder = AmazonS3Builder::from_env();
         if let Some(s3) = &config.blob_storage.s3 {
             builder = builder.with_region(&s3.region);
+        }
+
+        // For supporting localstack/minio for testing
+        if let Ok(val) = env::var("AWS_ENDPOINT_URL") {
+            builder = builder.with_endpoint(val.clone());
+            if val.starts_with("http://") {
+                builder = builder.with_allow_http(true);
+            }
         }
         let client = builder.with_bucket_name(bucket).build().unwrap();
         S3FileReader {
