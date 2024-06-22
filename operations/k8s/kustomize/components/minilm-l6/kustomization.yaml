@@ -28,6 +28,9 @@ patches:
       - op: add
         path: /spec/template/metadata/labels/app.kubernetes.io~1name
         value: minilm-l6
+      - op: add
+        path: /spec/template/spec/hostname
+        value: minilml6
   - target:
       version: v1
       kind: Service
@@ -35,7 +38,7 @@ patches:
     patch: |-
       - op: replace
         path: /metadata/name
-        value: minilm-l6
+        value: minilml6
       - op: add
         path: /metadata/labels/app.kubernetes.io~1name
         value: minilm-l6
