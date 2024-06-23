@@ -134,7 +134,7 @@ const ContentTable = ({
     {
       field: 'id',
       headerName: 'ID',
-      width: 200,
+    flex: 1,
       renderCell: (params) => {
         return (
           <>
@@ -147,7 +147,7 @@ const ContentTable = ({
     {
       field: 'children',
       headerName: 'Children',
-      width: 140,
+      flex: 1,
       renderCell: (params) => {
         const clickable = currentTab !== 'search' && params.value !== 0
         return (
@@ -170,28 +170,31 @@ const ContentTable = ({
     {
       field: 'source',
       headerName: 'Source',
+      flex: 1,
       valueGetter: (params) => {
         return params.value || 'ingestion'
       },
-      width: 220,
     },
     {
       field: 'parent_id',
+      flex: 1,
       headerName: 'Parent ID',
-      width: 170,
     },
     {
       field: 'labels',
       headerName: 'Labels',
-      width: 150,
+      flex: 1,
       valueGetter: (params) => {
-        return JSON.stringify(params.value)
+          if (Object.keys(params.value).length === 0 && params.value.constructor === Object) {
+              return "None";
+          }
+          return JSON.stringify(params.value);
       },
     },
     {
       field: 'created_at',
       headerName: 'Created At',
-      width: 200,
+      flex: 1,
       valueGetter: (params) => {
         return moment(params.value * 1000).format('MM/DD/YYYY h:mm A')
       },
@@ -199,7 +202,7 @@ const ContentTable = ({
     {
       field: 'view',
       headerName: 'Actions',
-      width: 100,
+      flex: 1,
       renderCell: (params) => (
         <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
           <Button sx={{ py: 0.5, px: 2 }} variant="contained">

@@ -6,7 +6,7 @@ import {
   IndexifyClient,
   ITask,
 } from 'getindexify'
-import React, { ReactElement, useEffect, useState } from 'react'
+import { ReactElement, useEffect, useState } from 'react'
 import TasksTable from '../../components/TasksTable'
 import { Link } from 'react-router-dom'
 import ExtractedMetadataTable from '../../components/tables/ExtractedMetaDataTable'
@@ -19,7 +19,8 @@ import {
   formatBytes,
 } from '../../utils/helpers'
 import moment from 'moment'
-import ReactJson from '@microlink/react-json-view'
+import ReactJson from '@microlink/react-json-view';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const errors: string[] = []
@@ -183,7 +184,7 @@ const ContentPage = () => {
 
   return (
     <Stack direction="column" spacing={3}>
-      <Breadcrumbs aria-label="breadcrumb">
+      <Breadcrumbs aria-label="breadcrumb" separator={<NavigateNextIcon fontSize="small" />}>
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/content`}>
           <Typography color="text.primary">Content</Typography>

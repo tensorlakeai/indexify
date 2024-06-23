@@ -6,8 +6,8 @@ import { Data, InfoCircle } from 'iconsax-react';
 
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const columns: GridColDef[] = [
-    { field: 'name', headerName: 'Name', width: 300 },
-    { field: 'description', headerName: 'Description', width: 300 },
+    { field: 'name', headerName: 'Name', flex: 1, },
+    { field: 'description', headerName: 'Description', flex: 1, },
     // {
     //   field: "input_mime_types",
     //   headerName: "Input MimeTypes",
@@ -33,20 +33,20 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
     {
       field: 'input_params',
       headerName: 'Input Parameters',
-      width: 300,
+      flex: 1,
       valueGetter: (params) => {
         return params.value?.properties
       },
       renderCell: (params) => {
         if (!params.value || Object.keys(params.value).length === 0) {
-          return <Typography variant="body1">None</Typography>
+          return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82'}} />
         }
         return (
           <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
             <Stack gap={1} direction="row">
               {Object.keys(params.value).map((val: string) => {
                 return (
-                  <Chip key={val} label={`${val}:${params.value[val].type}`} />
+                  <Chip key={val} label={`${val}:${params.value[val].type}`} sx={{ backgroundColor: '#E5EFFB', color: '#1C2026'}} />
                 )
               })}
             </Stack>
@@ -63,13 +63,13 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
       },
       renderCell: (params) => {
         if (!params.value || Object.keys(params.value).length === 0) {
-          return <Typography variant="body1">None</Typography>
+          return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82'}} />
         }
         return (
           <Box overflow="scroll">
             <Stack gap={1} direction="row" overflow="scroll">
               {Object.keys(params.value).map((val: string) => {
-                return <Chip key={val} label={val} />
+                return <Chip key={val} label={val} variant="outlined" sx={{ border: '1px solid #6FA8EA'}} />
               })}
             </Stack>
           </Box>
@@ -100,7 +100,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
+          sx={{ backgroundColor: 'white', boxShadow: '0px 0px 2px 0px #D0D6DE', }}
           autoHeight
           getRowId={getRowId}
           rows={extractors}

@@ -27,12 +27,12 @@ const IndexTable = ({
     {
       field: 'name',
       headerName: 'Name',
-      width: 500,
+      flex: 2,
       renderCell: (params) => {
         return (
           <>
             {params.value}
-            <CopyText text={params.value} />
+            <CopyText text={params.value} className="show-onHover" />
           </>
         )
       },
@@ -40,7 +40,7 @@ const IndexTable = ({
     {
       field: 'policy_name',
       headerName: 'Description',
-      width: 300,
+      flex: 1,
       renderCell: (params) => {
         const policy = getPolicyFromIndexname(params.row.name)
         if (!policy) {
@@ -58,14 +58,14 @@ const IndexTable = ({
     {
       field: 'searchIndex',
       headerName: 'Action',
-      width: 140,
+      flex: 1,
       renderCell: (params) => {
         return (
           <>
             <Link
               to={`/${namespace}/indexes/${params.row.name}`}
             >
-              <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
+              <Button sx={{ py: 0.5, px: 2 }} variant="contained" color="primary">
                 Search Index
               </Button>
             </Link>
@@ -98,7 +98,7 @@ const IndexTable = ({
           }}
         >
           <DataGrid
-            sx={{ backgroundColor: 'white', borderRadius: '0.5rem' }}
+            sx={{ backgroundColor: 'white', boxShadow: '0px 0px 2px 0px #D0D6DE' }}
             autoHeight
             getRowId={getRowId}
             rows={indexes}

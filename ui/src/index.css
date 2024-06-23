@@ -29,7 +29,7 @@ a {
 .selected-navbar-items {
   border-radius: 8px;
   background: var(--Gray-Gray02, #F7F9FC);
-  box-shadow: 0px 0px 3px -1px var(--Brand-BrandColor-02, #6FA8EA) inset;
+  box-shadow: 0px 0px 3px -1px #6FA8EA inset;
 }
 
 .heading-icons {
@@ -124,3 +124,25 @@ div.upload-modal-fileicon{
 div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation0.upload-modal-paper {
   padding-top: 10px;
 }
+
+.show-onHover {
+  display: none;
+}
+
+div.MuiDataGrid-row > div.MuiDataGrid-cell.MuiDataGrid-cell--textLeft.MuiDataGrid-withBorderColor[data-field="name"]:hover{
+  color: #0D6CCE;
+  text-decoration: underline;
+}
+
+div.MuiDataGrid-cell--withRenderer.MuiDataGrid-cell.MuiDataGrid-cell--textLeft[data-field="name"]:hover, [data-field="id"]:hover{
+  color: #0D6CCE;
+  text-decoration: underline;
+  .show-onHover {
+    display: block !important;
+  }
+}
+
+div.MuiDataGrid-row:hover {
+  background-color: #FAFCFF !important;
+}
+
