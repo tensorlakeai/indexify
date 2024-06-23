@@ -1,0 +1,47 @@
+dbURL: # db_url: postgres://postgres:indexify@vector-store/indexify
+indexConfig:
+  # index_store: PgVector
+  # pg_vector_config:
+  #   addr: postgres://postgres:indexify@vector-store/indexify
+  #   m: 16
+  #   efconstruction: 64
+  #   efsearch: 40
+metadataStorage:
+  # metadata_store: postgres
+  # conn_url: postgres://postgres:indexify@vector-store/indexify
+
+blobStore:
+  # allowHTTP: true
+  # endpoint: http://blob-store:9000
+  # credentialSecret: blob-store
+  config:
+    # backend: s3
+    # s3:
+    #   bucket: indexify
+    #   region: us-east-1
+
+api:
+  enabled: true
+
+  image: tensorlake/indexify:stable
+
+  ingress:
+    enabled: false
+
+coordinator:
+  enabled: true
+
+  image: tensorlake/indexify:stable
+
+extractors:
+  # - image: tensorlake/chunker:latest
+  #   name: chunker
+  #   replicas: 1
+
+extraObjects:
+
+minio:
+  enabled: false
+
+postgresql:
+  enabled: false

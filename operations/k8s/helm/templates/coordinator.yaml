@@ -1,0 +1,56 @@
+{{- with .Values.coordinator }}
+{{- if .enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coordinator
+spec:
+  ports:
+    - port: 8950
+  selector:
+    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+  labels:
+    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 8 }}
+
+    spec:
+      containers:
+        - name: indexify
+          image: {{ .image }}
+
+          command: ['indexify']
+          args:
+            - coordinator
+            - --config-path
+            - ./config/config.yaml
+
+          volumeMounts:
+            - mountPath: /indexify/config
+              name: config
+              readOnly: true
+            - mountPath: /data
+              name: data
+
+      volumes:
+        - name: config
+          configMap:
+            name: indexify
+        - name: data
+          emptyDir: {}
+
+{{- end }}
+{{- end }}

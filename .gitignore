@@ -30,3 +30,4 @@ sqlite*
 *.trace
 indexify
 venv
+charts/*.tgz

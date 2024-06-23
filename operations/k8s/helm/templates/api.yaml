@@ -1,0 +1,80 @@
+{{- with .Values.api }}
+{{- if .enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    {{- include "labels" (dict "name" "api" "component" "api" "global" $) | nindent 4 }}
+spec:
+  ports:
+    - port: 8900
+  selector:
+    {{- include "labels" (dict "name" "api" "component" "api" "global" $) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    {{- include "labels" (dict "name" "api" "component" "api" "global" $) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "labels" (dict "name" "api" "component" "api" "global" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "labels" (dict "name" "api" "component" "api" "global" $) | nindent 8 }}
+
+    spec:
+      containers:
+        - name: indexify
+          image: {{ .image }}
+
+          command: ['indexify']
+          args:
+            - server
+            - --config-path
+            - ./config/config.yaml
+
+          env:
+            {{- include "blobStore.env" $.Values | nindent 12 }}
+
+          volumeMounts:
+            - mountPath: /indexify/config
+              name: config
+              readOnly: true
+            - mountPath: /data
+              name: data
+
+      volumes:
+        - name: config
+          configMap:
+            name: indexify
+        - name: data
+          emptyDir: {}
+{{- if .ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress
+  labels:
+    app.kubernetes.io/component: api
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8900
+{{- end }}
+{{- end }}
+{{- end }}
