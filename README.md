@@ -8,21 +8,21 @@
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 
-Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. LLM Applications can query transformed content friendly to LLMs by semantic search and SQL queries. 
+Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction.  Indexify keeps vectordbs, structured databases(postgres) updated automatically when pipelines produce embedding or structured data.
 
-Indexify keeps vectordbs, structured databases(postgres) updated by automatically invoking the pipelines as new data is ingested into the system from external data sources.  
+Applications can query indexes and databases using semantic search and SQL queries. 
 
-## Why use Indexify
+## Differences with Batch/ETL Systems
+ETL-based ingestion systems process files in batches, suitable for offline use cases with infrequent data processing. In contrast, Indexify’s pipelines function as live APIs, instantly processing files or text upon ingestion like any online system. Indexify can efficiently schedules data processing tasks across thousands of machines, enabling real-time extraction for RAG applications or agents where up-to-date indexes are crucial.
 
-* Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
-* **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
-* Create **Extraction Graph** to describe **data transformation** and extraction of **embedding** and **structured extraction**.
+## More Cool Features!
+
 * **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
 * **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
-* Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
-* Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
+* Works with **any LLM Framework**. Built in support for **Langchain**, **DSPy**, etc.
+* Runs locally for **prototyping** without any external dependencies.
 * Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
-* We have even **Open Sourced Automation** to deploy to Kubernetes in production.
+* Automation to deploy to **Kubernetes** in production.
 
 
 ## Detailed Getting Started
