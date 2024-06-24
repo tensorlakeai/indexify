@@ -18,7 +18,8 @@ ETL-based ingestion systems process files in batches, suitable for offline use c
 ## More Cool Features!
 
 * **Incremental Extraction** when content is updated. Indexfiy processes only the chunks which have changed when documents, video or audio are updated.
-* **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
+* **Extractor SDK** allows plugging in any custom model or API in pipelines.
+* Many pre-built extractors for emebedding and handling **PDF**, **Image** and **Video**.
 * Works with **any LLM Framework**. Built in support for **Langchain**, **DSPy**, etc.
 * Runs locally for **prototyping** without any external dependencies.
 * Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
