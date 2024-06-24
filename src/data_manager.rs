@@ -10,7 +10,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
 use mime::Mime;
 use nanoid::nanoid;
@@ -242,6 +242,7 @@ impl DataManager {
     pub async fn list_content(
         &self,
         namespace: &str,
+        graph: &str,
         source_filter: &str,
         parent_id_filter: &str,
         labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
@@ -253,10 +254,10 @@ impl DataManager {
         let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
             labels_eq_filter.unwrap_or(&default_labels_eq).clone(),
         )?;
-
         let req = indexify_coordinator::ListContentRequest {
+            graph: graph.to_string(),
             namespace: namespace.to_string(),
-            source: source_filter.to_string(),
+            source: Some(source_filter.to_string().into()),
             parent_id: parent_id_filter.to_string(),
             labels_eq,
             start_id,

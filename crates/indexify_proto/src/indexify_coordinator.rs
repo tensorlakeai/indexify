@@ -347,11 +347,33 @@ pub struct GetNamespaceResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Empty {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ContentSource {
+    #[prost(oneof = "content_source::Value", tags = "1, 2, 3")]
+    pub value: ::core::option::Option<content_source::Value>,
+}
+/// Nested message and enum types in `ContentSource`.
+pub mod content_source {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Value {
+        #[prost(string, tag = "1")]
+        Policy(::prost::alloc::string::String),
+        #[prost(message, tag = "2")]
+        Ingestion(super::Empty),
+        #[prost(message, tag = "3")]
+        None(super::Empty),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListContentRequest {
     #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub source: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<ContentSource>,
     #[prost(string, tag = "3")]
     pub parent_id: ::prost::alloc::string::String,
     #[prost(map = "string, message", tag = "4")]
@@ -365,6 +387,8 @@ pub struct ListContentRequest {
     pub start_id: ::prost::alloc::string::String,
     #[prost(bool, tag = "7")]
     pub return_total: bool,
+    #[prost(string, tag = "8")]
+    pub graph: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

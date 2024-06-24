@@ -3474,6 +3474,7 @@ dependencies = [
  "serde_with",
  "smart-default",
  "strum",
+ "tonic 0.11.0",
  "utoipa",
 ]
 
