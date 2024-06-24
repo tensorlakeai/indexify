@@ -8,6 +8,8 @@ import {
   Button,
   Alert,
   CircularProgress,
+  Chip,
+  OutlinedInput,
 } from '@mui/material'
 import { IIndex, IndexifyClient, ISearchIndexResponse } from 'getindexify'
 import { useState } from 'react'
@@ -80,28 +82,28 @@ const ExtractionPolicyPage = () => {
         </Link>
         <Typography color="text.primary">{index.name}</Typography>
       </Breadcrumbs>
-      <Box display={'flex'} alignItems={'center'}>
-        <Typography variant="h2" component="h1">
-          Search Index - {index.name}
+      <Box display={'flex'} alignItems={'center'} justifyContent={'space-between'}>
+        <Typography variant="h6" gutterBottom>
+          Search Indexes of <Chip sx={{borderRadius: '50px', fontWeight: 400, color: '#4A4F56'}} label={index.name}/>
         </Typography>
-      </Box>
-      {/* Search */}
-      <Box>
-        <Stack direction={'row'} spacing={2}>
-          <TextField
-            label="Search Query"
+        <Stack direction={'row'} spacing={2} alignItems={'center'}>
+          <Typography variant="caption" gutterBottom>Search Query: </Typography>
+          <OutlinedInput
+            placeholder="Search Query"
             value={formData.query}
             onChange={(e) => {
               setFormData({ ...formData, query: e.currentTarget.value })
             }}
-            variant="outlined"
-            size="small"
+            notched={false}
+            sx={{ width: '200px',backgroundColor: "white", height: '2rem'}}
+            size="small" 
           />
-          <TextField
-            label="topK"
+          <Typography variant="caption" gutterBottom>topK: </Typography>
+          <OutlinedInput
+            placeholder="topK"
             type="number"
             size="small"
-            sx={{ width: '100px' }}
+            sx={{ width: '100px', backgroundColor: "white", height: '2rem' }}
             value={formData.topK}
             inputProps={{
               min: 1,
@@ -114,11 +116,13 @@ const ExtractionPolicyPage = () => {
               parsedValue = Math.max(Math.min(parsedValue, maxValue), minValue)
               setFormData({ ...formData, topK: parsedValue })
             }}
+            notched={false}
           />
           <Button
             disabled={loading || formData.query.length === 0}
             onClick={onClickSearch}
             variant="contained"
+            sx={{ height: '2rem' }}
           >
             Search
           </Button>
