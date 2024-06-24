@@ -126,9 +126,11 @@ const ExtractionPolicyItem = ({
           {renderInputParams()}
         </Box>
         <Box sx={{ minWidth: cols.taskCount?.width }}>
-          <Chip label={taskCounts.totalSuccess} />
-          <Chip label={taskCounts.totalFailed} />
-          <Chip label={taskCounts.totalUnknown} />
+          <Stack direction="row" spacing={1}>
+            <Chip label={taskCounts.totalSuccess} />
+            <Chip label={taskCounts.totalFailed} />
+            <Chip label={taskCounts.totalUnknown} />
+          </Stack>
         </Box>
       </Stack>
     </Box>
