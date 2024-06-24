@@ -11,24 +11,6 @@ spec:
   selector:
     app.kubernetes.io/component: api
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ingress
-  labels:
-    app.kubernetes.io/component: api
-spec:
-  rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: api
-                port:
-                  number: 8900
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -71,22 +53,24 @@ spec:
             - ./config/config.yaml
 
           env:
-            - name: AWS_ENDPOINT_URL
-              value: http://blob-store:9000
-            - name: AWS_ENDPOINT
-              value: http://blob-store:9000
-            - name: AWS_ALLOW_HTTP
-              value: "true"
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: blob-store
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: blob-store
-                  key: AWS_SECRET_ACCESS_KEY
+            # This is the env var required to work with something other than
+            # AWS' hosted S3. They're injected by components/minio to show how a
+            # all-local solution would work.
+            # - name: AWS_ENDPOINT
+            #   value: http://blob-store:9000
+            # - name: AWS_ALLOW_HTTP
+            #   value: "true"
+
+            # - name: AWS_ACCESS_KEY_ID
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: blob-store
+            #       key: AWS_ACCESS_KEY_ID
+            # - name: AWS_SECRET_ACCESS_KEY
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: blob-store
+            #       key: AWS_SECRET_ACCESS_KEY
 
           volumeMounts:
             - mountPath: /indexify/config
