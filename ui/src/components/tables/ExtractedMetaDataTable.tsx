@@ -15,11 +15,12 @@ function createWidthMapFromObjects(
 ): { [key: string]: number } {
   const widthMap: { [key: string]: number } = {};
   //iterate rows
-  dataArray.forEach((row) => {
+  dataArray.forEach(row => {
     Object.entries(row).forEach(([key, value]) => {
       // get suggested width
       const currentWidth =
-        Math.max(JSON.stringify(value).length, key.length) * averageCharWidth + padding;
+        Math.max(JSON.stringify(value).length, key.length) * averageCharWidth +
+        padding;
       // update width map to max
       if (!widthMap[key] || currentWidth > widthMap[key]) {
         widthMap[key] = currentWidth;
@@ -31,58 +32,58 @@ function createWidthMapFromObjects(
 }
 
 const ExtractedMetadataTable = ({
-  extractedMetadata,
+  extractedMetadata
 }: {
   extractedMetadata: IExtractedMetadata[];
 }) => {
   if (!extractedMetadata.length) return null;
   const widthMap = createWidthMapFromObjects(
-    extractedMetadata.map((em) => em.metadata)
+    extractedMetadata.map(em => em.metadata)
   );
-  const columns: GridColDef[] = Object.keys(extractedMetadata[0].metadata).map(
-    (key) => {
-      return {
-        field: key,
-        headerName: key,
-        width: widthMap[key],
-        renderCell: (params) => {
-          return (
-            <Box sx={{ overflowX: "scroll" }}>
-              <Stack gap={1} direction="row">
-                {typeof params.value === "string"
-                  ? params.value
-                  : JSON.stringify(params.value)}
-              </Stack>
-            </Box>
-          );
-        },
-      };
-    }
-  );
+  const columns: GridColDef[] = Object.keys(
+    extractedMetadata[0].metadata
+  ).map(key => {
+    return {
+      field: key,
+      headerName: key,
+      width: widthMap[key],
+      renderCell: params => {
+        return (
+          <Box sx={{ overflowX: "scroll" }}>
+            <Stack gap={1} direction="row">
+              {typeof params.value === "string"
+                ? params.value
+                : JSON.stringify(params.value)}
+            </Stack>
+          </Box>
+        );
+      }
+    };
+  });
 
   return (
     <Box
       sx={{
         width: "100%",
-        marginTop: '1rem',
+        marginTop: "1rem"
       }}
     >
       <Typography variant="h4" pb={2}>
         Metadata - {extractedMetadata[0].extractor_name}:
       </Typography>
       <DataGrid
-        sx={{ backgroundColor: "white", boxShadow: '0px 0px 2px 0px #D0D6DE', }}
+        sx={{ backgroundColor: "white", boxShadow: "0px 0px 2px 0px #D0D6DE" }}
         autoHeight
         getRowId={getRowId}
-        rows={extractedMetadata.map((em) => em.metadata)}
+        rows={extractedMetadata.map(em => em.metadata)}
         columns={columns}
         initialState={{
           pagination: {
-            paginationModel: { page: 0, pageSize: 5 },
-          },
+            paginationModel: { page: 0, pageSize: 5 }
+          }
         }}
         pageSizeOptions={[5, 10]}
-        className='custom-data-grid'
+        className="custom-data-grid"
       />
     </Box>
   );

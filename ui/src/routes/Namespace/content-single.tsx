@@ -1,26 +1,25 @@
 import { useLoaderData, LoaderFunctionArgs, redirect } from 'react-router-dom'
-import { Typography, Stack, Breadcrumbs, Box } from '@mui/material'
+import { Typography, Stack, Breadcrumbs } from '@mui/material'
 import {
   IContentMetadata,
   IExtractedMetadata,
   IndexifyClient,
   ITask,
 } from 'getindexify'
-import { ReactElement, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import TasksTable from '../../components/TasksTable'
 import { Link } from 'react-router-dom'
 import ExtractedMetadataTable from '../../components/tables/ExtractedMetaDataTable'
 import { isAxiosError } from 'axios'
 import Errors from '../../components/Errors'
-import PdfDisplay from '../../components/PdfViewer'
 import {
   getIndexifyServiceURL,
   groupMetadataByExtractor,
   formatBytes,
 } from '../../utils/helpers'
 import moment from 'moment'
-import ReactJson from '@microlink/react-json-view';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import DetailedContent from '../../components/DetailedContent'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const errors: string[] = []
@@ -83,17 +82,6 @@ const ContentPage = () => {
     errors: string[]
   }
 
-  const renderMetadataEntry = (label: string, value: ReactElement | string) => {
-    return (
-      <Box display="flex">
-        <Typography variant="label">{label}:</Typography>
-        <Typography sx={{ ml: 1 }} variant="body1">
-          {value}
-        </Typography>
-      </Box>
-    )
-  }
-
   const [textContent, setTextContent] = useState('')
 
   useEffect(() => {
@@ -110,65 +98,6 @@ const ContentPage = () => {
       })
     }
   }, [client, contentId, contentMetadata.mime_type])
-
-  const renderContent = () => {
-    if (contentMetadata.mime_type.startsWith('application/pdf')) {
-      return <PdfDisplay url={contentMetadata.content_url} />
-    } else if (contentMetadata.mime_type.startsWith('image')) {
-      return (
-        <img
-          alt="content"
-          src={contentMetadata.content_url}
-          width="100%"
-          style={{ maxWidth: '200px' }}
-          height="auto"
-        />
-      )
-    } else if (contentMetadata.mime_type.startsWith('audio')) {
-      return (
-        <audio controls>
-          <source
-            src={contentMetadata.content_url}
-            type={contentMetadata.mime_type}
-          />
-          Your browser does not support the audio element.
-        </audio>
-      )
-    } else if (contentMetadata.mime_type.startsWith('video')) {
-      return (
-        <video
-          src={contentMetadata.content_url}
-          controls
-          style={{ width: '100%', maxWidth: '400px', height: 'auto' }}
-        />
-      )
-    } else if (contentMetadata.mime_type.startsWith('text')) {
-      return (
-        <Box
-          sx={{
-            maxHeight: '500px',
-            overflow: 'scroll',
-          }}
-        >
-          <Typography variant="body2">{textContent}</Typography>
-        </Box>
-      )
-    } else if (contentMetadata.mime_type.startsWith('application/json')) {
-      return (
-        <Box
-          sx={{
-            maxHeight: '500px',
-            overflow: 'scroll',
-          }}
-        >
-          {textContent && (
-            <ReactJson name={null} src={JSON.parse(textContent)}></ReactJson>
-          )}
-        </Box>
-      )
-    }
-    return null
-  }
 
   const taskLoader = async (
     pageSize: number,
@@ -193,30 +122,18 @@ const ContentPage = () => {
       </Breadcrumbs>
       <Errors errors={errors} />
       <Typography variant="h2">{contentId}</Typography>
-      <Stack direction={'column'} gap={1}>
-        {renderMetadataEntry('Filename', contentMetadata.name)}
-        {contentMetadata.parent_id
-          ? renderMetadataEntry(
-              'ParentID',
-              <Link
-                to={`/${namespace}/content/${contentMetadata.parent_id}`}
-                target="_blank"
-              >
-                {contentMetadata.parent_id}
-              </Link>
-            )
-          : null}
-        {renderMetadataEntry(
-          'Created At',
-          moment(contentMetadata.created_at * 1000).format()
-        )}
-        {renderMetadataEntry('MimeType', contentMetadata.mime_type)}
-        {renderMetadataEntry('Source', contentMetadata.source)}
-        {renderMetadataEntry('Storage Url', contentMetadata.storage_url)}
-        {renderMetadataEntry('Size', formatBytes(contentMetadata.size))}
-      </Stack>
-      {/* display content */}
-      {renderContent()}
+      <DetailedContent
+        filename={contentMetadata.name}
+        source={contentMetadata.source}
+        size={formatBytes(contentMetadata.size)}
+        createdAt={moment(contentMetadata.created_at * 1000).format()}
+        storageURL={contentMetadata.storage_url}
+        parentID={contentMetadata.parent_id}
+        namespace={namespace}
+        mimeType={contentMetadata.mime_type}
+        contentUrl={contentMetadata.content_url}
+        textContent={textContent}
+      />
       {/* tasks */}
       {Object.keys(groupedExtractedMetadata).map((key) => {
         const extractedMetadata = groupedExtractedMetadata[key]

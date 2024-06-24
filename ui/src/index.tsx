@@ -1,35 +1,40 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import './index.css'
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
 
-import { createBrowserRouter, Navigate, RouterProvider, useParams } from 'react-router-dom'
+import {
+  createBrowserRouter,
+  Navigate,
+  RouterProvider,
+  useParams
+} from "react-router-dom";
 
-import Root, { loader as RootLoader } from './routes/root'
-import { ErrorPage } from './error-page'
+import Root, { loader as RootLoader } from "./routes/root";
+import { ErrorPage } from "./error-page";
 import ExtractionPolicyPage, {
-  loader as ExtractionPolicyLoader,
-} from './routes/Namespace/extractionPolicy'
+  loader as ExtractionPolicyLoader
+} from "./routes/Namespace/extractionPolicy";
 import ContentPage, {
-  loader as ContentLoader,
-} from './routes/Namespace/content-single'
+  loader as ContentLoader
+} from "./routes/Namespace/content-single";
 import ExtractorsPage, {
-  loader as ExtractorsLoader,
-} from './routes/Namespace/extractors'
+  loader as ExtractorsLoader
+} from "./routes/Namespace/extractors";
 import ExtractionGraphsPage, {
-  loader as ExtractionGraphLoader,
-} from './routes/Namespace/extractionGraphs'
+  loader as ExtractionGraphLoader
+} from "./routes/Namespace/extractionGraphs";
 import SearchIndexPage, {
-  loader as SearchIndexLoader,
-} from './routes/Namespace/searchIndex'
+  loader as SearchIndexLoader
+} from "./routes/Namespace/extractionPolicy";
 import IndexesPage, {
-  loader as IndexesLoader,
-} from './routes/Namespace/indexes'
+  loader as IndexesLoader
+} from "./routes/Namespace/indexes";
 import SqlTablesPage, {
-  loader as SqlTablesLoader,
-} from './routes/Namespace/sqlTables'
+  loader as SqlTablesLoader
+} from "./routes/Namespace/sqlTables";
 import ContentsPage, {
-  loader as ContentsLoader,
-}  from './routes/Namespace/content'
+  loader as ContentsLoader
+} from "./routes/Namespace/content";
 
 function RedirectToExtractors() {
   const { namespace } = useParams();
@@ -39,72 +44,74 @@ function RedirectToExtractors() {
 const router = createBrowserRouter(
   [
     {
-      path: '/',
+      path: "/",
       element: <Root />,
       errorElement: <ErrorPage />,
       loader: RootLoader,
       children: [
         {
-          path: '/:namespace',
-          element: <RedirectToExtractors />,
+          path: "/:namespace",
+          element: <RedirectToExtractors />
         },
         {
-          path: '/:namespace/extraction-policies/:graphname/:policyname',
+          path: "/:namespace/extraction-policies/:graphname/:policyname",
           element: <ExtractionPolicyPage />,
           loader: ExtractionPolicyLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/indexes/:indexName',
+          path: "/:namespace/indexes/:indexName",
           element: <SearchIndexPage />,
           loader: SearchIndexLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/content/:contentId',
+          path: "/:namespace/content/:contentId",
           element: <ContentPage />,
           loader: ContentLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/content',
+          path: "/:namespace/content",
           element: <ContentsPage />,
           loader: ContentsLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/extractors',
+          path: "/:namespace/extractors",
           element: <ExtractorsPage />,
           loader: ExtractorsLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/extraction-graphs',
+          path: "/:namespace/extraction-graphs",
           element: <ExtractionGraphsPage />,
           loader: ExtractionGraphLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/indexes',
+          path: "/:namespace/indexes",
           element: <IndexesPage />,
           loader: IndexesLoader,
-          errorElement: <ErrorPage />,
+          errorElement: <ErrorPage />
         },
         {
-          path: '/:namespace/sql-tables',
+          path: "/:namespace/sql-tables",
           element: <SqlTablesPage />,
           loader: SqlTablesLoader,
-          errorElement: <ErrorPage />,
-        },
-      ],
-    },
+          errorElement: <ErrorPage />
+        }
+      ]
+    }
   ],
-  { basename: '/ui' }
-)
+  { basename: "/ui" }
+);
 
-const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement)
+const root = ReactDOM.createRoot(
+  document.getElementById("root") as HTMLElement
+);
 root.render(
   <React.StrictMode>
     <RouterProvider router={router} />
   </React.StrictMode>
-)
+);

@@ -120,9 +120,9 @@ const ExtractionPolicyItem = ({
         <Box sx={{ minWidth: cols.inputParams.width }}>
           {renderInputParams()}
         </Box>
-        <Box sx={{ minWidth: cols.taskCount.width }}>
+        {/* <Box sx={{ minWidth: cols.taskCount?.width }}>
           {tasks.filter(task => task.extraction_policy_id === extractionPolicy.id).length}
-        </Box>
+        </Box> */}
       </Stack>
     </Box>
   );

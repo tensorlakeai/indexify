@@ -18,7 +18,7 @@ declare module "@mui/material/styles" {
 // Update the Typography's variant prop options
 declare module "@mui/material/Typography" {
   interface TypographyPropsVariantOverrides {
-    labelSmall: true
+    labelSmall: true;
     label: true;
     menuItem: true;
   }
@@ -32,50 +32,50 @@ const theme = createTheme({
   palette: {
     mode: "light",
     text: {
-      primary: "#060D3F",
+      primary: "#060D3F"
     },
     primary: {
-      main: "#060D3F",
-    },
+      main: "#060D3F"
+    }
   },
   components: {
     MuiContainer: {
       defaultProps: {
-        maxWidth: "lg",
-      },
+        maxWidth: "lg"
+      }
     },
     MuiChip: {
       styleOverrides: {
         root: {
           height: "32px",
-          borderRadius: "8px",
-        },
-      },
+          borderRadius: "8px"
+        }
+      }
     },
     MuiSelect: {
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-notchedOutline": {
-            borderColor: "#E9EDF1",
-          },
+            borderColor: "#E9EDF1"
+          }
         },
         select: {
-          backgroundColor: "white",
-        },
-      },
+          backgroundColor: "white"
+        }
+      }
     },
     MuiTextField: {
       styleOverrides: {
         root: {
           "& .MuiInputBase-root": { backgroundColor: "white" }, // For outlined, filled variants
-          "& .MuiOutlinedInput-notchedOutline": { borderColor: "#E9EDF1" }, // Optional: Customize border color
-        },
-      },
+          "& .MuiOutlinedInput-notchedOutline": { borderColor: "#E9EDF1" } // Optional: Customize border color
+        }
+      }
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          "&. MuiOutlinedInput-root": { backgroundColor: "white" },
+          "&. MuiOutlinedInput-root": { backgroundColor: "white" }
         }
       }
     },
@@ -91,14 +91,14 @@ const theme = createTheme({
             fontFamily: "poppins",
             "&.Mui-disabled": {
               backgroundColor: "rgba(6, 13, 63, 0.1)",
-              borderColor: "#E9EDF1",
-            },
+              borderColor: "#E9EDF1"
+            }
           }),
         outlined: {
           padding: "10px 24px",
           borderRadius: "8px",
           color: "primary",
-          border: "1px solid #3296FE",
+          border: "1px solid #3296FE"
         },
         contained: {
           padding: "10px 16px",
@@ -106,14 +106,14 @@ const theme = createTheme({
           border: "1px solid #3296FE",
           backgroundColor: "#3296FE",
           ":hover": {
-            backgroundColor: "#1080f4",
+            backgroundColor: "#1080f4"
           }
         },
         text: {
-          padding: "10px 12px",
-        },
-      },
-    },
+          padding: "10px 12px"
+        }
+      }
+    }
   },
 
   typography: {
@@ -123,28 +123,28 @@ const theme = createTheme({
       fontSize: "48px",
       lineHeight: "normal",
       fontStyle: "normal",
-      fontWeight: "600",
+      fontWeight: "600"
     },
     h2: {
       fontFamily: "poppins",
       fontSize: "32px",
       lineHeight: "normal",
       fontStyle: "normal",
-      fontWeight: "600",
+      fontWeight: "600"
     },
     h3: {
       fontFamily: "poppins",
       fontSize: "24px",
       fontStyle: "normal",
       fontWeight: "700",
-      lineHeight: "normal",
+      lineHeight: "normal"
     },
     h4: {
       fontFamily: "poppins",
       fontSize: "20px",
       fontStyle: "normal",
       fontWeight: "500",
-      lineHeight: "normal",
+      lineHeight: "normal"
     },
     label: {
       fontFamily: "poppins",
@@ -152,7 +152,7 @@ const theme = createTheme({
       fontStyle: "normal",
       fontWeight: "500",
       lineHeight: "22px",
-      letterSpacing: 0.32,
+      letterSpacing: 0.32
     },
     labelSmall: {
       fontFamily: "poppins",
@@ -160,7 +160,7 @@ const theme = createTheme({
       fontStyle: "normal",
       fontWeight: "600",
       lineHeight: "22px",
-      letterSpacing: 0.32,
+      letterSpacing: 0.32
     },
     body1: {
       fontFamily: "poppins",
@@ -168,16 +168,16 @@ const theme = createTheme({
       fontStyle: "normal",
       fontWeight: "400",
       lineHeight: "22px",
-      letterSpacing: 0.32,
+      letterSpacing: 0.32
     },
     body2: {
       fontFamily: "poppins",
       fontSize: "16px",
       fontStyle: "normal",
       fontWeight: "400",
-      lineHeight: "normal",
-    },
-  },
+      lineHeight: "normal"
+    }
+  }
 });
 
 export default theme;

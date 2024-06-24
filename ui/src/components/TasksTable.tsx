@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, ITask } from 'getindexify'
-import { Alert, Typography } from '@mui/material'
-import { Box, Stack } from '@mui/system'
-import TaskIcon from '@mui/icons-material/Task'
+import { Alert, Chip } from '@mui/material'
+import { Box } from '@mui/system'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import { TaskStatus } from 'getindexify'
@@ -68,12 +67,12 @@ const TasksTable = ({
     {
       field: 'id',
       headerName: 'Task ID',
-      width: 170,
+      flex: 1,
     },
     {
       field: 'content_metadata.id',
       headerName: 'Content ID',
-      width: 170,
+      flex: 1,
       valueGetter: (params) => params.row.content_metadata.id,
       renderCell: (params) => (
         <Link to={`/${namespace}/content/${params.value}`}>{params.value}</Link>
@@ -94,27 +93,27 @@ const TasksTable = ({
           </Link>
         ) : null
       },
-      width: 200,
+      flex: 1,
     },
     {
       field: 'outcome',
-      headerName: 'Outcome',
-      valueGetter: (params) => {
+      flex: 1,
+      headerName: 'Status',
+      renderCell: (params) => {
         if (params.value === TaskStatus.Failure) {
-          return 'Failure'
+          return <Chip label="Failure" sx={{ backgroundColor: "#FBE5E5"}} />
         } else if (params.value === TaskStatus.Success) {
-          return 'Success'
+          return <Chip label="Success" sx={{ backgroundColor: "#E5FBE6"}} />
         } else {
-          return 'Unknown'
+          return <Chip label="In Progress" sx={{ backgroundColor: "#E5EFFB"}} />
         }
-      },
-      width: 100,
+      }
     },
     {
       field: 'content_metadata.source',
       headerName: 'Source',
       valueGetter: (params) => params.row.content_metadata.source,
-      width: 170,
+      flex: 1,
     },
     {
       field: 'content_metadata.created_at',
@@ -125,7 +124,7 @@ const TasksTable = ({
         )
       },
       valueGetter: (params) => params.row.content_metadata.created_at,
-      width: 200,
+      flex: 1,
     },
   ]
 
@@ -155,7 +154,7 @@ const TasksTable = ({
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: "12px" }}
           autoHeight
           rows={tasks.slice(0, paginationModel.pageSize)}
           rowCount={rowCountState}
@@ -172,15 +171,6 @@ const TasksTable = ({
 
   return (
     <>
-      <Stack
-        display={'flex'}
-        direction={'row'}
-        alignItems={'center'}
-        spacing={2}
-      >
-        <TaskIcon />
-        <Typography variant="h3">Tasks</Typography>
-      </Stack>
       {renderContent()}
     </>
   )

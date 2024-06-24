@@ -29,7 +29,7 @@ const ExtractionGraphs = ({
     extractor: { displayName: 'Extractor', width: 225 },
     mimeTypes: { displayName: 'Input MimeTypes', width: 225 },
     inputParams: { displayName: 'Input Parameters', width: 225 },
-    taskCount: { displayName: 'Tasks', width: 75 },
+    // taskCount: { displayName: 'Tasks', width: 75 },
   }
 
   const renderHeader = () => {
@@ -131,7 +131,7 @@ const ExtractionGraphs = ({
         alignItems={'center'}
         spacing={2}
       >
-        <div className='heading-icon-container'>
+        <div className="heading-icon-container">
           <Cpu size="25" className="heading-icons" variant="Outline"/>
         </div>
         <Typography variant="h4">

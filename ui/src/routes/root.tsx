@@ -111,7 +111,7 @@ export default function Dashboard() {
                 selected={location.pathname.startsWith(`/${namespace}/extractors`)}
                 className={location.pathname.startsWith(`/${namespace}/extractors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
-                <Data size="20" className="drawer-logo" variant='Outline' />
+                <Data size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
               <ListItemButton
@@ -131,7 +131,7 @@ export default function Dashboard() {
                 }
                 className={location.pathname.startsWith(`/${namespace}/extraction-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
-                <Cpu size="20" className="drawer-logo" variant='Outline' />
+                <Cpu size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Extraction Graphs'} />
               </ListItemButton>
               <ListItemButton

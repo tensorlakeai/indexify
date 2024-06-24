@@ -4,10 +4,11 @@ import {
   Typography,
   Stack,
   Breadcrumbs,
-  TextField,
   Button,
   Alert,
   CircularProgress,
+  Chip,
+  OutlinedInput,
 } from '@mui/material'
 import { IIndex, IndexifyClient, ISearchIndexResponse } from 'getindexify'
 import { useState } from 'react'
@@ -72,7 +73,7 @@ const ExtractionPolicyPage = () => {
   }
 
   return (
-    <Stack direction="column" spacing={3}>
+    <Stack direction="column" spacing={2}>
       <Breadcrumbs aria-label="breadcrumb" separator={<NavigateNextIcon fontSize="small" />}>
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/indexes`}>
@@ -80,28 +81,28 @@ const ExtractionPolicyPage = () => {
         </Link>
         <Typography color="text.primary">{index.name}</Typography>
       </Breadcrumbs>
-      <Box display={'flex'} alignItems={'center'}>
-        <Typography variant="h2" component="h1">
-          Search Index - {index.name}
+      <Box display={'flex'} alignItems={'center'} justifyContent={'space-between'}>
+        <Typography variant="h6" gutterBottom>
+          Search Indexes of <Chip sx={{borderRadius: '50px', fontWeight: 400, color: '#4A4F56'}} label={index.name}/>
         </Typography>
-      </Box>
-      {/* Search */}
-      <Box>
-        <Stack direction={'row'} spacing={2}>
-          <TextField
-            label="Search Query"
+        <Stack direction={'row'} spacing={2} alignItems={'center'}>
+          <Typography variant="caption" gutterBottom>Search Query: </Typography>
+          <OutlinedInput
+            placeholder="Search Query"
             value={formData.query}
             onChange={(e) => {
               setFormData({ ...formData, query: e.currentTarget.value })
             }}
-            variant="outlined"
-            size="small"
+            notched={false}
+            sx={{ width: '200px',backgroundColor: "white", height: '2rem'}}
+            size="small" 
           />
-          <TextField
-            label="topK"
+          <Typography variant="caption" gutterBottom>topK: </Typography>
+          <OutlinedInput
+            placeholder="topK"
             type="number"
             size="small"
-            sx={{ width: '100px' }}
+            sx={{ width: '100px', backgroundColor: "white", height: '2rem' }}
             value={formData.topK}
             inputProps={{
               min: 1,
@@ -114,11 +115,13 @@ const ExtractionPolicyPage = () => {
               parsedValue = Math.max(Math.min(parsedValue, maxValue), minValue)
               setFormData({ ...formData, topK: parsedValue })
             }}
+            notched={false}
           />
           <Button
             disabled={loading || formData.query.length === 0}
             onClick={onClickSearch}
             variant="contained"
+            sx={{ height: '2rem' }}
           >
             Search
           </Button>
@@ -136,8 +139,8 @@ const ExtractionPolicyPage = () => {
       )}
       {searchResults !== null && (
         <Box>
-          <Typography pb={2} variant="h3">
-            Search Results ({searchResults.length})
+          <Typography pb={2} variant="subtitle1" sx={{ color: "#4A4F56" }}>
+            Search Results <Chip sx={{ borderRadius: '100px', fontWeight: 400, backgroundColor: '#E5EFFB', color: '#1C2026' }} label={searchResults.length}/> 
           </Typography>
           <Stack direction={'column'}>
             {searchResults.length === 0 ? (
