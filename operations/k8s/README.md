@@ -1,12 +1,50 @@
 # Kubernetes
 
-## Cluster Standup
+## Cluster Creation
 
-### Components
+You'll need a k8s cluster first. While there are a lot of different ways to get
+a cluster, if you're doing this locally, we recommend using [k3d][k3d].
 
-The resources have been split into separate components:
+[k3d]: https://k3d.io/v5.6.3/#releases
+
+Note: the local example includes a basic ingress -
+[components/ingress](kustomize/components/ingress). The ingress exposes the API
+server and is required to use Indexify. If you're doing a different setup,
+you'll want to make an ingress definition that is specific to your environment.
+
+### Local
+
+One way to create a cluster is using [k3d][k3d]. This will run a lightweight
+version of Kubernetes entirely within docker on your local system.
+
+```bash
+k3d cluster create -p "8081:80@loadbalancer" indexify
+```
+
+When using this setup, Indexify will be exposed via k3d's ingress which will be
+[http://localhost:8081](http://localhost:8081). You'll want to configure
+`IndexifyClient(service_url="http://localhost:8081")`.
+
+## Installation
+
+### Kustomize
+
+To run locally, you can apply the [local](kustomize/local) setup and then go
+through the getting started guide. To install, run:
+
+```bash
+kubectl apply -k kustomize/local
+```
+
+There are optional components that you can use as part of your Indexify
+installation. To make this possible, the optional pieces have been split out
+into separate components. The postgres and minio examples are not meant to be
+run in production. Make sure to create your own in a way that reflects your
+environment.
 
 - [base](kustomize/base) - this includes the API server and the coordinator.
+- [components/ingress](kustomize/components/ingress) - a basic ingress
+  definition used to get access to the API server as part of the local install.
 - [components/postgres](kustomize/components/postgres) - a simple, ephemeral
   example of using postgres for all database operations including the vector
   store.
@@ -20,25 +58,164 @@ The resources have been split into separate components:
 > the api at `/`. Make sure to change this if you'd like it at a different
 > location.
 
-To run locally, you can apply the [local](kustomize/local) setup and then go
-through the getting started guide.
+#### Customization
 
+To customize the installation so that it works in your environment, take a look
+at [local/kustomize.yaml](kustomize/local/kustomization.yaml). Each resource and
+component entry are optional and can be swapped out to use your own solution.
 
-### Local
+For example, if you would like to use S3 instead of minio but otherwise leave
+the example intact, you would write a `kustomization.yaml` file that looks like:
 
-One way to create a cluster is using k3d. This will run a lightweight version of
-Kubernetes ([k3s][k3s]) entirely within docker on your local system.
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
-[k3s]: https://k3s.io
+namespace: indexify
 
+resources:
+  - ../base
+  - ../components/ingress
+  - ../components/chunker
+  - ../components/minilm-l6
 
-```bash
-k3d cluster create -p "8081:80@loadbalancer" indexify
+components:
+  - ../components/postgres
+
+patches:
+  # base/api.yaml
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api
+        labels:
+          app.kubernetes.io/component: api
+      spec:
+        template:
+          spec:
+            containers:
+              - name: indexify
+                env:
+                  # Ideally, this config is coming from IAM in your cluster.
+                  - name: AWS_ACCESS_KEY_ID
+                    value: XXXX
+                  - name: AWS_SECRET_ACCESS_KEY
+                    value: XXXX
+  # components/extractor/extractor.yaml
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/component=extractor
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: extractor
+      spec:
+        template:
+          spec:
+            containers:
+              - name: extractor
+                env:
+                  # Ideally, this config is coming from IAM in your cluster.
+                  - name: AWS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: blob-store
+                        key: AWS_ACCESS_KEY_ID
+                  - name: AWS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: blob-store
+                        key: AWS_SECRET_ACCESS_KEY
+  # base/config.yaml
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: indexify
+      data:
+        s3.yml: |-
+          blob_storage:
+            backend: s3
+            s3:
+              bucket: XXX-my-bucket
+              region: us-east-1
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/part-of: indexify
 ```
 
-```bash
-kubectl apply -k kustomize/local
+These three patches will configure the installation for your environment.
+
+- `base/api.yaml` - Modifies the `indexify` container in `deploy/api` to include
+  the environment variables required for S3.
+- `components/extractor/extractor.yaml` - Uses the labelSelector
+  `app.kubernetes.io/component=extractor` to modify all extractors and add S3's
+  env.
+- `base/config.yaml` - Adds a key to the configmap used by the API server and
+  coordinator. The content of these keys is concatenated into a single
+  `config.yaml` file on startup as part of an `initContainer`.
+
+#### Extractors
+
+For each extractor you'd like to add, you'll want to create a new
+`kustomization.yaml`. These will be included in your parent installation the
+same way that the local example includes the chunker and minilm-l6 extractors.
+
+To add the PDF extractor, you'll want to create `pdf/kustomization.yaml`.
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+components:
+  - ../extractor
+
+images:
+  - name: tensorlake/extractor:latest
+    # Path to the extractor's docker image
+    newName: tensorlake/pdf-extractor
+    newTag: latest
+
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: extractor
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: pdf
+      - op: add
+        path: /spec/selector/matchLabels/app.kubernetes.io~1name
+        value: pdf
+  - target:
+      version: v1
+      kind: Service
+      name: extractor
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: pdf
 ```
-When using this setup, Indexify will be exposed via k3d's ingress which will be
-[http://localhost:8081](http://localhost:8081). You'll want to configure
-`IndexifyClient(service_url="http://localhost:8081")`.
+
+This new extractor can then be included in your own install
+`staging/kustomization.yaml`:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: indexify
+
+resources:
+  - ../base
+  - ../components/ingress
+  - ../components/chunker
+  - ../components/minilm-l6
+  - ../components/pdf
+```

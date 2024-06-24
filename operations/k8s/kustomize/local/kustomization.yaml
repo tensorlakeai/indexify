@@ -5,6 +5,7 @@ namespace: indexify
 
 resources:
   - ../base
+  - ../components/ingress
   - ../components/chunker
   - ../components/minilm-l6
 

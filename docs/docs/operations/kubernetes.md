@@ -39,6 +39,10 @@ patch][minio/api.yaml] for how this gets configured.
 [minio/api.yaml]:
   https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/minio/api.yaml
 
+The API server and coordinator will need an `AWS_ENDPOINT` env var pointing to
+where your S3 solution is hosted. Extractors need a slightly different env var -
+`AWS_ENDPOINT_URL`.
+
 #### GCP
 
 - You'll want to create a [HMAC key][gcp-hmac] to use as `AWS_ACCESS_KEY_ID` and
