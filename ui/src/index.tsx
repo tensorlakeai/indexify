@@ -11,14 +11,6 @@ import {
 
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
-import ExtractionPolicyPage from "./routes/Namespace/ExtractionPolicyPage";
-import IndividualContentPage from "./routes/Namespace/IndividualContentPage";
-import ExtractorsPage from "./routes/Namespace/ExtractorsPage";
-import ExtractionGraphsPage from "./routes/Namespace/ExtractionGraphsPage";
-import SearchIndexPage from "./routes/Namespace/SearchIndexPage";
-import IndexesPage from "./routes/Namespace/IndexesPage";
-import SqlTablesPage from "./routes/Namespace/SqlTablesPage";
-import ContentsPage from "./routes/Namespace/ContentsPage";
 import {
   ExtractionPolicyPageLoader,
   SearchIndexPageLoader,
@@ -29,6 +21,16 @@ import {
   IndexesPageLoader,
   SqlTablesPageLoader
 } from "./utils/loaders";
+import {
+  ExtractionPolicyPage,
+  SearchIndexPage,
+  IndividualContentPage,
+  ContentsPage,
+  ExtractorsPage,
+  ExtractionGraphsPage,
+  IndexesPage,
+  SqlTablesPage
+} from "./routes/Namespace";
 
 function RedirectToExtractors() {
   const { namespace } = useParams();
