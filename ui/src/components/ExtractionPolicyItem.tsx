@@ -1,4 +1,4 @@
-import { Box, Chip, Stack, Typography } from '@mui/material'
+import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material'
 import { IExtractionPolicy, IExtractor, IIndex, ITask } from 'getindexify'
 import { IExtractionGraphColumns, TaskCounts } from '../types'
 import { Link } from 'react-router-dom'
@@ -127,9 +127,21 @@ const ExtractionPolicyItem = ({
         </Box>
         <Box sx={{ minWidth: cols.taskCount?.width }}>
           <Stack direction="row" spacing={1}>
-            <Chip label={taskCounts.totalSuccess} />
-            <Chip label={taskCounts.totalFailed} />
-            <Chip label={taskCounts.totalUnknown} />
+            <Tooltip title="Uknown">
+              <Chip label={taskCounts.totalUnknown} />
+            </Tooltip>
+            <Tooltip title="Failed">
+              <Chip
+                sx={{ backgroundColor: '#FBE5E5' }}
+                label={taskCounts.totalFailed}
+              />
+            </Tooltip>
+            <Tooltip title="Success">
+              <Chip
+                sx={{ backgroundColor: '#E5FBE6' }}
+                label={taskCounts.totalSuccess}
+              />
+            </Tooltip>
           </Stack>
         </Box>
       </Stack>

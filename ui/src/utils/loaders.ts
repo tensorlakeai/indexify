@@ -1,7 +1,11 @@
 import { isAxiosError } from 'axios'
 import { IndexifyClient, IExtractedMetadata } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
-import { getIndexifyServiceURL, groupMetadataByExtractor } from './helpers'
+import {
+  getExtractionPolicyTaskCounts,
+  getIndexifyServiceURL,
+  groupMetadataByExtractor,
+} from './helpers'
 import { TaskCountsMap } from '../types'
 
 async function createClient(namespace: string | undefined) {
@@ -27,49 +31,26 @@ export async function ExtractionGraphsPageLoader({
 
   const counts = await Promise.all(
     client.extractionGraphs.map(async (graph) => {
-      const results = await Promise.all(
-        graph.extraction_policies.map(async (policy) => {
-          const [
-            { total: totalSuccess },
-            { total: totalFailed },
-            { total: totalUnknown },
-          ] = await Promise.all([
-            client.getTasks({
-              limit: 0,
-              extractionPolicyId: policy.id,
-              outcome: 'Success',
-            }),
-            client.getTasks({
-              limit: 0,
-              extractionPolicyId: policy.id,
-              outcome: 'Failed',
-            }),
-            client.getTasks({
-              limit: 0,
-              extractionPolicyId: policy.id,
-              outcome: 'Unknown',
-            }),
-          ])
-          return {
-            id: policy.id,
-            counts: {
-              totalSuccess: totalSuccess ?? 0,
-              totalFailed: totalFailed ?? 0,
-              totalUnknown: totalUnknown ?? 0,
-            },
-          }
-        })
+      return Promise.all(
+        graph.extraction_policies
+          .map(async (policy) => {
+            if (!policy.id) return null
+            return {
+              id: policy.id,
+              counts: await getExtractionPolicyTaskCounts(policy.id, client),
+            }
+          })
+          .filter((result) => result !== null)
       )
-      return results
     })
   )
   const countsArray = counts.flat()
-  const taskCountsMap:TaskCountsMap = new Map<
+  const taskCountsMap: TaskCountsMap = new Map<
     string,
     { totalSuccess: number; totalFailed: number; totalUnknown: number }
   >()
   countsArray.forEach((policyCounts) => {
-    if (policyCounts.id) {
+    if (policyCounts && policyCounts.id) {
       taskCountsMap.set(policyCounts.id, policyCounts.counts)
     }
   })
@@ -78,7 +59,7 @@ export async function ExtractionGraphsPageLoader({
     namespace: client.namespace,
     extractionGraphs: client.extractionGraphs,
     extractors,
-    taskCountsMap
+    taskCountsMap,
   }
 }
 
