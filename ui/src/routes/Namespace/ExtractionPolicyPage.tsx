@@ -1,4 +1,4 @@
-import { useLoaderData, LoaderFunctionArgs, redirect } from "react-router-dom";
+import { useLoaderData } from "react-router-dom";
 import { Box, Typography, Stack, Breadcrumbs } from "@mui/material";
 import {
   ExtractionGraph,
@@ -8,30 +8,7 @@ import {
 } from "getindexify";
 import TasksTable from "../../components/TasksTable";
 import { Link } from "react-router-dom";
-import { getIndexifyServiceURL } from "../../utils/helpers";
 import NavigateNextIcon from "@mui/icons-material/NavigateNext";
-
-export async function loader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace;
-  const policyname = params.policyname;
-  const graphname = params.graphname;
-  if (!namespace || !policyname) return redirect("/");
-
-  const client = await IndexifyClient.createClient({
-    serviceUrl: getIndexifyServiceURL(),
-    namespace
-  });
-  const extractionGraph = client.extractionGraphs.find(
-    graph => graph.name === graphname
-  );
-  const policy = client.extractionGraphs
-    .map(graph => graph.extraction_policies)
-    .flat()
-    .find(
-      policy => policy.name === policyname && policy.graph_name === graphname
-    );
-  return { policy, namespace, extractionGraph, client };
-}
 
 const ExtractionPolicyPage = () => {
   const { policy, namespace, extractionGraph, client } = useLoaderData() as {

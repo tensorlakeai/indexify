@@ -1,19 +1,8 @@
 import { Box } from "@mui/material";
 import { IndexifyClient } from "getindexify";
-import { LoaderFunctionArgs, useLoaderData } from "react-router-dom";
-import { getIndexifyServiceURL } from "../../utils/helpers";
+import { useLoaderData } from "react-router-dom";
 import ContentTable from "../../components/tables/ContentTable";
 import { IContentMetadataExtended } from "../../types";
-
-export async function loader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace;
-  const client = await IndexifyClient.createClient({
-    serviceUrl: getIndexifyServiceURL(),
-    namespace
-  });
-
-  return { client };
-}
 
 const ContentsPage = () => {
   const { client } = useLoaderData() as {

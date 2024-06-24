@@ -1,4 +1,4 @@
-import { useLoaderData, LoaderFunctionArgs, redirect } from 'react-router-dom'
+import { useLoaderData } from 'react-router-dom'
 import {
   Box,
   Typography,
@@ -14,29 +14,10 @@ import { IIndex, IndexifyClient, ISearchIndexResponse } from 'getindexify'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import SearchResultCard from '../../components/SearchResultCard'
-import { getIndexifyServiceURL } from '../../utils/helpers'
 import { AxiosError, isAxiosError } from 'axios';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 
-export async function loader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace
-  const indexName = params.indexName
-
-  const client = await IndexifyClient.createClient({
-    serviceUrl: getIndexifyServiceURL(),
-    namespace,
-  })
-  const indexes = (await client.indexes()).filter(
-    (index) => index.name === indexName
-  )
-  if (!indexes.length) {
-    return redirect('/')
-  }
-
-  return { index: indexes[0], namespace, client }
-}
-
-const ExtractionPolicyPage = () => {
+const SearchIndexPage = () => {
   const { index, namespace, client } = useLoaderData() as {
     index: IIndex
     namespace: string
@@ -165,4 +146,4 @@ const ExtractionPolicyPage = () => {
   )
 }
 
-export default ExtractionPolicyPage
+export default SearchIndexPage;

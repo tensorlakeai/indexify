@@ -1,4 +1,4 @@
-import { useLoaderData, LoaderFunctionArgs, redirect } from 'react-router-dom'
+import { useLoaderData } from 'react-router-dom'
 import { Typography, Stack, Breadcrumbs } from '@mui/material'
 import {
   IContentMetadata,
@@ -10,61 +10,15 @@ import { useEffect, useState } from 'react'
 import TasksTable from '../../components/TasksTable'
 import { Link } from 'react-router-dom'
 import ExtractedMetadataTable from '../../components/tables/ExtractedMetaDataTable'
-import { isAxiosError } from 'axios'
 import Errors from '../../components/Errors'
 import {
-  getIndexifyServiceURL,
-  groupMetadataByExtractor,
   formatBytes,
 } from '../../utils/helpers'
 import moment from 'moment'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import DetailedContent from '../../components/DetailedContent'
 
-export async function loader({ params }: LoaderFunctionArgs) {
-  const errors: string[] = []
-  const namespace = params.namespace
-  const contentId = params.contentId
-  if (!namespace || !contentId) return redirect('/')
-  const client = await IndexifyClient.createClient({
-    serviceUrl: getIndexifyServiceURL(),
-    namespace,
-  })
-  // get content from contentId
-  const tasks = await client
-    .getTasks({})
-    .then((tasks) => tasks.filter((t) => t.content_metadata.id === contentId))
-    .catch((e) => {
-      if (isAxiosError(e)) {
-        errors.push(`getTasks: ${e.message}`)
-      }
-      return null
-    })
-  const contentMetadata = await client.getContentMetadata(contentId)
-  const extractedMetadataList = await client
-    .getStructuredMetadata(contentId)
-    .catch((e) => {
-      if (isAxiosError(e)) {
-        errors.push(
-          `getExtractedMetadata: ${e.message} - ${
-            e.response?.data || 'unknown'
-          }`
-        )
-      }
-      return [] as IExtractedMetadata[]
-    })
-  return {
-    client,
-    namespace,
-    tasks,
-    contentId,
-    contentMetadata,
-    groupedExtractedMetadata: groupMetadataByExtractor(extractedMetadataList),
-    errors,
-  }
-}
-
-const ContentPage = () => {
+const IndividualContentPage = () => {
   const {
     client,
     namespace,
@@ -156,4 +110,4 @@ const ContentPage = () => {
   )
 }
 
-export default ContentPage
+export default IndividualContentPage;

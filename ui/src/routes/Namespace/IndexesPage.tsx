@@ -1,23 +1,10 @@
 import { Box } from '@mui/material'
 import {
   ExtractionGraph,
-  IIndex,
-  IndexifyClient,
+  IIndex
 } from 'getindexify'
-import { LoaderFunctionArgs, useLoaderData } from 'react-router-dom'
-import { getIndexifyServiceURL } from '../../utils/helpers'
+import { useLoaderData } from 'react-router-dom'
 import IndexTable from '../../components/tables/IndexTable'
-
-export async function loader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace
-  const client = await IndexifyClient.createClient({
-    serviceUrl: getIndexifyServiceURL(),
-    namespace,
-  })
-
-  const indexes = await client.indexes()
-  return { indexes, namespace, extractionGraphs: client.extractionGraphs }
-}
 
 const IndexesPage = () => {
   const { indexes, namespace, extractionGraphs } = useLoaderData() as {
@@ -38,4 +25,4 @@ const IndexesPage = () => {
   )
 }
 
-export default IndexesPage
+export default IndexesPage;

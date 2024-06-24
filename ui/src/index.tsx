@@ -11,30 +11,26 @@ import {
 
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
-import ExtractionPolicyPage, {
-  loader as ExtractionPolicyLoader
-} from "./routes/Namespace/extractionPolicy";
-import ContentPage, {
-  loader as ContentLoader
-} from "./routes/Namespace/content-single";
-import ExtractorsPage, {
-  loader as ExtractorsLoader
-} from "./routes/Namespace/extractors";
-import ExtractionGraphsPage, {
-  loader as ExtractionGraphLoader
-} from "./routes/Namespace/extractionGraphs";
-import SearchIndexPage, {
-  loader as SearchIndexLoader
-} from "./routes/Namespace/extractionPolicy";
-import IndexesPage, {
-  loader as IndexesLoader
-} from "./routes/Namespace/indexes";
-import SqlTablesPage, {
-  loader as SqlTablesLoader
-} from "./routes/Namespace/sqlTables";
-import ContentsPage, {
-  loader as ContentsLoader
-} from "./routes/Namespace/content";
+import {
+  ExtractionPolicyPageLoader,
+  SearchIndexPageLoader,
+  IndividualContentPageLoader,
+  ContentsPageLoader,
+  ExtractorsPageLoader,
+  ExtractionGraphsPageLoader,
+  IndexesPageLoader,
+  SqlTablesPageLoader
+} from "./utils/loaders";
+import {
+  ExtractionPolicyPage,
+  SearchIndexPage,
+  IndividualContentPage,
+  ContentsPage,
+  ExtractorsPage,
+  ExtractionGraphsPage,
+  IndexesPage,
+  SqlTablesPage
+} from "./routes/Namespace";
 
 function RedirectToExtractors() {
   const { namespace } = useParams();
@@ -56,49 +52,49 @@ const router = createBrowserRouter(
         {
           path: "/:namespace/extraction-policies/:graphname/:policyname",
           element: <ExtractionPolicyPage />,
-          loader: ExtractionPolicyLoader,
+          loader: ExtractionPolicyPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/indexes/:indexName",
           element: <SearchIndexPage />,
-          loader: SearchIndexLoader,
+          loader: SearchIndexPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/content/:contentId",
-          element: <ContentPage />,
-          loader: ContentLoader,
+          element: <IndividualContentPage />,
+          loader: IndividualContentPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/content",
           element: <ContentsPage />,
-          loader: ContentsLoader,
+          loader: ContentsPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/extractors",
           element: <ExtractorsPage />,
-          loader: ExtractorsLoader,
+          loader: ExtractorsPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/extraction-graphs",
           element: <ExtractionGraphsPage />,
-          loader: ExtractionGraphLoader,
+          loader: ExtractionGraphsPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/indexes",
           element: <IndexesPage />,
-          loader: IndexesLoader,
+          loader: IndexesPageLoader,
           errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/sql-tables",
           element: <SqlTablesPage />,
-          loader: SqlTablesLoader,
+          loader: SqlTablesPageLoader,
           errorElement: <ErrorPage />
         }
       ]
