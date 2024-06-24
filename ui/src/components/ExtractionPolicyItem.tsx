@@ -1,7 +1,7 @@
-import { Box, Chip, Stack, Typography } from "@mui/material";
-import { IExtractionPolicy, IExtractor, IIndex, ITask } from "getindexify";
-import { IExtractionGraphColumns } from "../types";
-import { Link } from "react-router-dom";
+import { Box, Chip, Stack, Typography } from '@mui/material'
+import { IExtractionPolicy, IExtractor, IIndex, ITask } from 'getindexify'
+import { IExtractionGraphColumns, TaskCounts } from '../types'
+import { Link } from 'react-router-dom'
 
 const ExtractionPolicyItem = ({
   extractionPolicy,
@@ -11,72 +11,77 @@ const ExtractionPolicyItem = ({
   depth,
   itemHeight,
   extractors,
-  tasks,
+  taskCounts,
 }: {
-  extractionPolicy: IExtractionPolicy;
-  siblingCount: number;
-  namespace: string;
-  cols: IExtractionGraphColumns;
-  depth: number;
-  itemHeight: number;
-  extractors: IExtractor[];
-  tasks: ITask[];
-  index?: IIndex;
+  extractionPolicy: IExtractionPolicy
+  siblingCount: number
+  namespace: string
+  cols: IExtractionGraphColumns
+  depth: number
+  itemHeight: number
+  extractors: IExtractor[]
+  taskCounts: TaskCounts
+  index?: IIndex
 }) => {
   const renderInputParams = () => {
     if (
       !extractionPolicy.input_params ||
       Object.keys(extractionPolicy.input_params).length === 0
     ) {
-      return <Chip label={`none`} />;
+      return <Chip label={`none`} />
     }
-    const params = extractionPolicy.input_params;
+    const params = extractionPolicy.input_params
     return (
-      <Box sx={{ overflowX: "scroll" }}>
+      <Box sx={{ overflowX: 'scroll' }}>
         <Stack gap={1} direction="row">
           {Object.keys(params).map((val: string) => {
-            return <Chip key={val} label={`${val}:${params[val]}`} />;
+            return <Chip key={val} label={`${val}:${params[val]}`} />
           })}
         </Stack>
       </Box>
-    );
-  };
+    )
+  }
 
   const renderMimeTypes = () => {
     const extractor = extractors.find(
       (extractor) => extractor.name === extractionPolicy.extractor
-    );
-    if (!extractor) return null;
+    )
+    if (!extractor) return null
 
     return (
-      <Box sx={{ overflowX: "scroll", maxWidth:`calc(${cols.mimeTypes.width}px - 10px)` }}>
+      <Box
+        sx={{
+          overflowX: 'scroll',
+          maxWidth: `calc(${cols.mimeTypes.width}px - 10px)`,
+        }}
+      >
         <Stack gap={1} direction="row">
           {(extractor.input_mime_types ?? []).map((val: string) => {
             return (
               <Chip
                 key={val}
                 label={val}
-                sx={{ backgroundColor: "#4AA4F4", color: "white" }}
+                sx={{ backgroundColor: '#4AA4F4', color: 'white' }}
               />
-            );
+            )
           })}
         </Stack>
       </Box>
-    );
-  };
+    )
+  }
 
   const LShapedLine = () => {
-    const verticalLength = 30 + siblingCount * itemHeight;
-    const horizontalLength = 20;
+    const verticalLength = 30 + siblingCount * itemHeight
+    const horizontalLength = 20
 
     return (
       <svg
         height={verticalLength + 10}
         width={horizontalLength + 5}
         style={{
-          marginLeft: "-35px",
+          marginLeft: '-35px',
           marginTop: `${12 - verticalLength}px`,
-          position: "absolute",
+          position: 'absolute',
         }}
       >
         {/* Vertical line */}
@@ -85,7 +90,7 @@ const ExtractionPolicyItem = ({
           y1="0"
           x2="5"
           y2={verticalLength}
-          style={{ stroke: "#8D8D8D", strokeWidth: 2 }}
+          style={{ stroke: '#8D8D8D', strokeWidth: 2 }}
         />
         {/* Horizontal line */}
         <line
@@ -93,15 +98,15 @@ const ExtractionPolicyItem = ({
           y1={verticalLength}
           x2={horizontalLength + 5}
           y2={verticalLength}
-          style={{ stroke: "#8D8D8D", strokeWidth: 2 }}
+          style={{ stroke: '#8D8D8D', strokeWidth: 2 }}
         />
       </svg>
-    );
-  };
+    )
+  }
 
   return (
-    <Box sx={{ py: 0.5, position: "relative", height: 40 }}>
-      <Stack direction={"row"} sx={{ display: "flex", alignItems: "center" }}>
+    <Box sx={{ py: 0.5, position: 'relative', height: 40 }}>
+      <Stack direction={'row'} sx={{ display: 'flex', alignItems: 'center' }}>
         <Typography
           sx={{ minWidth: cols.name.width, pl: depth * 4 }}
           variant="body1"
@@ -120,12 +125,14 @@ const ExtractionPolicyItem = ({
         <Box sx={{ minWidth: cols.inputParams.width }}>
           {renderInputParams()}
         </Box>
-        {/* <Box sx={{ minWidth: cols.taskCount?.width }}>
-          {tasks.filter(task => task.extraction_policy_id === extractionPolicy.id).length}
-        </Box> */}
+        <Box sx={{ minWidth: cols.taskCount?.width }}>
+          <Chip label={taskCounts.totalSuccess} />
+          <Chip label={taskCounts.totalFailed} />
+          <Chip label={taskCounts.totalUnknown} />
+        </Box>
       </Stack>
     </Box>
-  );
-};
+  )
+}
 
-export default ExtractionPolicyItem;
+export default ExtractionPolicyItem

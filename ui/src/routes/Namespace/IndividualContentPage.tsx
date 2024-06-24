@@ -11,11 +11,9 @@ import TasksTable from '../../components/TasksTable'
 import { Link } from 'react-router-dom'
 import ExtractedMetadataTable from '../../components/tables/ExtractedMetaDataTable'
 import Errors from '../../components/Errors'
-import {
-  formatBytes,
-} from '../../utils/helpers'
+import { formatBytes } from '../../utils/helpers'
 import moment from 'moment'
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import DetailedContent from '../../components/DetailedContent'
 
 const IndividualContentPage = () => {
@@ -57,17 +55,21 @@ const IndividualContentPage = () => {
     pageSize: number,
     startId?: string
   ): Promise<ITask[]> => {
-    const tasks = await client.getTasks({
+    const { tasks } = await client.getTasks({
       contentId,
       limit: pageSize + 1,
       startId,
+      returnTotal: false,
     })
     return tasks
   }
 
   return (
     <Stack direction="column" spacing={3}>
-      <Breadcrumbs aria-label="breadcrumb" separator={<NavigateNextIcon fontSize="small" />}>
+      <Breadcrumbs
+        aria-label="breadcrumb"
+        separator={<NavigateNextIcon fontSize="small" />}
+      >
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/content`}>
           <Typography color="text.primary">Content</Typography>
@@ -110,4 +112,4 @@ const IndividualContentPage = () => {
   )
 }
 
-export default IndividualContentPage;
+export default IndividualContentPage
