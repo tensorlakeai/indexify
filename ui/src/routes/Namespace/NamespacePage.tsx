@@ -1,35 +1,12 @@
 import { IndexifyClient, Extractor, IIndex, ISchema } from "getindexify";
-import { useLoaderData, LoaderFunctionArgs } from "react-router-dom";
+import { useLoaderData } from "react-router-dom";
 import { Stack } from "@mui/material";
 import ContentTable from "../../components/tables/ContentTable";
 import ExtractionGraphs from "../../components/ExtractionGraphs";
 import ExtractorsTable from "../../components/tables/ExtractorsTable";
-import { getIndexifyServiceURL } from "../../utils/helpers";
 import SchemasTable from "../../components/tables/SchemasTable";
 import IndexTable from "../../components/tables/IndexTable";
 import { IContentMetadataExtended } from "../../types";
-
-export async function loader({ params }: LoaderFunctionArgs) {
-  const { namespace } = params;
-  const client = await IndexifyClient.createClient({
-    serviceUrl: getIndexifyServiceURL(),
-    namespace
-  });
-  const [extractors, indexes, contentList, schemas] = await Promise.all([
-    client.extractors(),
-    client.indexes(),
-    client.getExtractedContent(),
-    client.getSchemas()
-  ]);
-  return {
-    client,
-    extractors,
-    indexes,
-    contentList,
-    schemas,
-    namespace
-  };
-}
 
 const NamespacePage = () => {
   const {
