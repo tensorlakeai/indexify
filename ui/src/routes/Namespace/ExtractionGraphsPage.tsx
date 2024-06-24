@@ -3,12 +3,14 @@ import { ExtractionGraph } from "getindexify";
 import { useLoaderData } from "react-router-dom";
 import ExtractionGraphs from "../../components/ExtractionGraphs";
 import { Extractor } from "getindexify";
+import { TaskCountsMap } from "../../types";
 
 const ExtractionGraphsPage = () => {
-  const { extractors, extractionGraphs, namespace } = useLoaderData() as {
+  const { extractors, extractionGraphs, namespace, taskCountsMap } = useLoaderData() as {
     extractionGraphs: ExtractionGraph[];
     namespace: string;
     extractors: Extractor[];
+    taskCountsMap: TaskCountsMap
   };
   return (
     <Box>
@@ -16,7 +18,7 @@ const ExtractionGraphsPage = () => {
         extractors={extractors}
         namespace={namespace}
         extractionGraphs={extractionGraphs}
-        tasks={[]}
+        taskCountsMap={taskCountsMap}
       />
     </Box>
   );
