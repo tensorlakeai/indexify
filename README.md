@@ -17,7 +17,7 @@ ETL-based ingestion systems process files in batches, suitable for offline use c
 
 ## More Cool Features!
 
-* **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
+* **Incremental Extraction** when content is updated. Indexfiy processes only the chunks which have changed when documents, video or audio are updated.
 * **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
 * Works with **any LLM Framework**. Built in support for **Langchain**, **DSPy**, etc.
 * Runs locally for **prototyping** without any external dependencies.
