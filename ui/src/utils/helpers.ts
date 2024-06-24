@@ -2,7 +2,7 @@ import { IExtractedMetadata } from "getindexify";
 
 export const stringToColor = (str: string) => {
   let hash = 0;
-  str.split("").forEach((char) => {
+  str.split("").forEach(char => {
     hash = char.charCodeAt(0) + ((hash << 5) - hash);
   });
   let color = "#";

@@ -5,7 +5,7 @@ import { useState } from "react";
 const CopyText = ({
   text,
   color,
-  className,
+  className
 }: {
   text: string;
   color?: string;
@@ -20,7 +20,7 @@ const CopyText = ({
     <Box className={className}>
       <Tooltip title={showAlert ? "Copied!" : "Copy to clipboard"}>
         <IconButton onClick={handleCopy}>
-          <ContentCopy sx={{ height:"20px" }} />
+          <ContentCopy sx={{ height: "20px" }} />
         </IconButton>
       </Tooltip>
     </Box>

@@ -6,7 +6,7 @@ import DataObjectIcon from "@mui/icons-material/DataObject";
 import MemoryIcon from "@mui/icons-material/Memory";
 
 export const MainListItems = ({
-  currentNamespace,
+  currentNamespace
 }: {
   currentNamespace: string;
 }) => {

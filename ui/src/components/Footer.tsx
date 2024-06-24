@@ -1,19 +1,19 @@
-import { Box, Typography } from '@mui/material'
-import Link from '@mui/material/Link'
+import { Box, Typography } from "@mui/material";
+import Link from "@mui/material/Link";
 
 const Footer = () => {
   return (
-    <Box py={2} textAlign={'center'}>
+    <Box py={2} textAlign={"center"}>
       <Typography variant="caption" color="CaptionText" align="center">
-        {'Copyright © '}
+        {"Copyright © "}
         <Link color="inherit" href="https://tensorlake.ai/">
           Tensorlake
-        </Link>{' '}
+        </Link>{" "}
         {new Date().getFullYear()}
-        {'.'}
+        {"."}
       </Typography>
     </Box>
-  )
-}
+  );
+};
 
-export default Footer
+export default Footer;
