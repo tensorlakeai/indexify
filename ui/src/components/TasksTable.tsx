@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, ITask } from 'getindexify'
-import { Alert, Chip, Typography } from '@mui/material'
-import { Box, Stack } from '@mui/system'
-import TaskIcon from '@mui/icons-material/Task'
+import { Alert, Chip } from '@mui/material'
+import { Box } from '@mui/system'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import { TaskStatus } from 'getindexify'
@@ -155,7 +154,7 @@ const TasksTable = ({
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white' }}
+          sx={{ backgroundColor: 'white', borderRadius: "12px" }}
           autoHeight
           rows={tasks.slice(0, paginationModel.pageSize)}
           rowCount={rowCountState}
