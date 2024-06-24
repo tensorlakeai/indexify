@@ -83,7 +83,7 @@ const LabelsInput = ({ onChange, disabled }: LabelsInputProps) => {
           alignItems="center"
           gap={1}
           key={key}
-          sx={{ mt: 2, paddingLeft: "12px", paddingRight:'12px', ...(key === lastKey && { paddingBottom: "12px" }) }}
+          sx={{ mt: 2, paddingLeft: "12px", paddingRight: "12px", ...(key === lastKey && { paddingBottom: "12px" }) }}
         >
           <OutlinedInput
             label="Key"

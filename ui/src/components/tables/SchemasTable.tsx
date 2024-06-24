@@ -73,7 +73,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
             },
           }}
           pageSizeOptions={[5, 10]}
-          className='custom-data-grid'
+          className="custom-data-grid"
         />
       </Box>
     )
@@ -87,7 +87,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
         alignItems={'center'}
         spacing={2}
       >
-        <div className='heading-icon-container'>
+        <div className="heading-icon-container">
           <Grid7 size="25" className="heading-icons" variant="Outline"/>
         </div>
         <Typography variant="h4">

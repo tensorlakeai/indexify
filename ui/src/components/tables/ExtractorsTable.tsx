@@ -111,7 +111,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
             },
           }}
           pageSizeOptions={[5, 10]}
-          className='custom-data-grid'
+          className="custom-data-grid"
         />
       </Box>
     )
@@ -125,7 +125,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
         alignItems={'center'}
         spacing={2}
       >
-        <div className='heading-icon-container'>
+        <div className="heading-icon-container">
           <Data size="25" className="heading-icons" variant="Outline"/>
         </div>
         <Typography variant="h4">

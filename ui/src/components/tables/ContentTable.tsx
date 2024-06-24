@@ -247,7 +247,7 @@ const ContentTable = ({
           paginationMode="server"
           loading={loading}
           pageSizeOptions={[5]}
-          className='custom-data-grid'
+          className="custom-data-grid"
         />
       </Box>
     )

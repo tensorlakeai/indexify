@@ -82,7 +82,7 @@ const ExtractedMetadataTable = ({
           },
         }}
         pageSizeOptions={[5, 10]}
-        className='custom-data-grid'
+        className="custom-data-grid"
       />
     </Box>
   );

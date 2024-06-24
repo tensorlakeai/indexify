@@ -131,7 +131,7 @@ const ExtractionGraphs = ({
         alignItems={'center'}
         spacing={2}
       >
-        <div className='heading-icon-container'>
+        <div className="heading-icon-container">
           <Cpu size="25" className="heading-icons" variant="Outline"/>
         </div>
         <Typography variant="h4">

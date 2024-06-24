@@ -109,7 +109,7 @@ const IndexTable = ({
               },
             }}
             pageSizeOptions={[5, 10]}
-            className='custom-data-grid'
+            className="custom-data-grid"
           />
         </Box>
       </>
@@ -124,7 +124,7 @@ const IndexTable = ({
         alignItems={'center'}
         spacing={2}
       >
-        <div className='heading-icon-container'>
+        <div className="heading-icon-container">
           <MobileProgramming size="25" className="heading-icons" variant="Outline"/>
         </div>
         <Typography variant="h4">

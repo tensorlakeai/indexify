@@ -134,8 +134,8 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFileSelect }) => {
                   startIcon={<RemoveCircleIcon />}
                   sx={{ border: 1, borderColor: '#DFE5ED', color: '#B91C1C', marginLeft: '8px' }}
                   onClick={() => handleRemove(index)}
-                  size='small'
-                  color='error'
+                  size="small"
+                  color="error"
                 >
                   Remove
                 </Button>
