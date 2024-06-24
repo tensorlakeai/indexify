@@ -29,7 +29,7 @@ const ExtractionGraphs = ({
     extractor: { displayName: 'Extractor', width: 225 },
     mimeTypes: { displayName: 'Input MimeTypes', width: 225 },
     inputParams: { displayName: 'Input Parameters', width: 225 },
-    taskCount: { displayName: 'Tasks', width: 75 },
+    // taskCount: { displayName: 'Tasks', width: 75 },
   }
 
   const renderHeader = () => {

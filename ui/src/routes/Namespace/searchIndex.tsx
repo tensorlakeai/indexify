@@ -4,7 +4,6 @@ import {
   Typography,
   Stack,
   Breadcrumbs,
-  TextField,
   Button,
   Alert,
   CircularProgress,
@@ -74,7 +73,7 @@ const ExtractionPolicyPage = () => {
   }
 
   return (
-    <Stack direction="column" spacing={3}>
+    <Stack direction="column" spacing={2}>
       <Breadcrumbs aria-label="breadcrumb" separator={<NavigateNextIcon fontSize="small" />}>
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/indexes`}>
@@ -140,8 +139,8 @@ const ExtractionPolicyPage = () => {
       )}
       {searchResults !== null && (
         <Box>
-          <Typography pb={2} variant="h3">
-            Search Results ({searchResults.length})
+          <Typography pb={2} variant="subtitle1" sx={{ color: "#4A4F56" }}>
+            Search Results <Chip sx={{ borderRadius: '100px', fontWeight: 400, backgroundColor: '#E5EFFB', color: '#1C2026' }} label={searchResults.length}/> 
           </Typography>
           <Stack direction={'column'}>
             {searchResults.length === 0 ? (

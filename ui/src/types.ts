@@ -10,7 +10,7 @@ export interface IExtractionGraphColumns {
   extractor: IExtractionGraphCol
   inputParams: IExtractionGraphCol
   mimeTypes: IExtractionGraphCol
-  taskCount: IExtractionGraphCol
+  taskCount?: IExtractionGraphCol
 }
 
 export interface IContentMetadataExtended extends IContentMetadata {
