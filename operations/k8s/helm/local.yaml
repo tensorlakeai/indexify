@@ -1,0 +1,82 @@
+dbURL: postgres://postgres:indexify@vector-store/indexify
+indexConfig:
+  index_store: PgVector
+  pg_vector_config:
+    addr: postgres://postgres:indexify@vector-store/indexify
+    m: 16
+    efconstruction: 64
+    efsearch: 40
+metadataStorage:
+  metadata_store: postgres
+  conn_url: postgres://postgres:indexify@vector-store/indexify
+
+blobStore:
+  allowHTTP: true
+  endpoint: http://blob-store:9000
+  credentialSecret: blob-creds
+  config:
+    backend: s3
+    s3:
+      bucket: indexify
+      region: us-east-1
+
+api:
+  ingress:
+    enabled: true
+
+  image: tensorlake/indexify:latest
+
+coordinator:
+  image: tensorlake/indexify:latest
+
+extractors:
+  - image: tensorlake/chunk-extractor:latest
+    name: chunker
+  - image: tensorlake/minilm-l6:latest
+    name: minilm-l6
+
+extraObjects:
+  - |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: blob-creds
+    type: Opaque
+    stringData:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+
+minio:
+  enabled: true
+
+  fullnameOverride: blob-store
+
+  persistence:
+    enabled: false
+
+  mode: standalone
+
+  rootUser: minioadmin
+  rootPassword: minioadmin
+
+  buckets:
+    - name: indexify
+
+  resources:
+    requests:
+      memory: 128Mi
+
+postgresql:
+  enabled: true
+
+  fullnameOverride: vector-store
+
+  auth:
+    enablePostgresUser: true
+    postgresPassword: indexify
+
+    database: indexify
+
+  image:
+    repository: thomasr/pgvector
+    tag: pg16

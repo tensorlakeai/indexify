@@ -22,8 +22,8 @@ k3d cluster create -p "8081:80@loadbalancer" indexify
 ```
 
 When using this setup, Indexify will be exposed via k3d's ingress which will be
-[http://localhost:8081](http://localhost:8081). You'll want to configure
-`IndexifyClient(service_url="http://localhost:8081")`.
+[http://localhost:8900](http://localhost:8900). You'll want to configure
+`IndexifyClient(service_url="http://localhost:8900")`.
 
 ## Installation
 
@@ -219,3 +219,36 @@ resources:
   - ../components/minilm-l6
   - ../components/pdf
 ```
+
+### Helm
+
+To run locally, you can install the chart using some
+[pre-configured values](helm/local.yaml) and then go through the getting started
+guide. To install, run:
+
+```bash
+helm install local helm -f helm/local.yaml -n indexify --create-namespace
+```
+
+Like the kustomize installation, there are some optional pieces that are managed
+via `values.yaml`.
+
+- Blob Store - We're using minio for local development via the [official
+  chart][minio]. `local.yaml` configures it to run without persistence. To use
+  S3, set `minio.enabled=false` and make sure IAM has added the correct
+  credentials for accessing S3. To use other blob stores that support S3's API,
+  look into setting `blobStore.endpoint` and `blobStore.credentialSecret`.
+
+- Database - We're using postgresql for local development via the [bitnami
+  chart][postgresql]. `local.yaml` configures it to run as a single primary.
+  Note that the bitnami postgres image does not come with PgVector, so we are
+  [repackaging it](helm/docker/pgvector.dockerfile) with the correct files. To
+  use your own database, look at setting `dbURL`, `indexConfig` and
+  `metadataStorage` to the correct values.
+
+- Extractors - You can add all the extractors you'd like via `extractors`. The
+  `local.yaml` example includes a couple, add the image that contains the
+  extractor you'd like and it will be installed as part of the chart.
+
+[minio]: https://github.com/minio/minio/tree/master/helm/minio
+[postgresql]: https://github.com/bitnami/charts/tree/main/bitnami/postgresql

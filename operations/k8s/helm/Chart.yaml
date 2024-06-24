@@ -1,0 +1,15 @@
+apiVersion: v2
+name: helm
+description: Indexify
+type: application
+version: 0.1.0
+
+dependencies:
+  - name: minio
+    repository: https://charts.min.io/
+    condition: minio.enabled
+    version: 5.2.0
+  - name: postgresql
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    version: 15.5.9
