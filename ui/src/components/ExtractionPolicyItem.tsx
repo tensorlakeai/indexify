@@ -1,5 +1,5 @@
 import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material'
-import { IExtractionPolicy, IExtractor, IIndex, ITask } from 'getindexify'
+import { IExtractionPolicy, IExtractor, IIndex } from 'getindexify'
 import { IExtractionGraphColumns, TaskCounts } from '../types'
 import { Link } from 'react-router-dom'
 

@@ -1,14 +1,13 @@
-import {
-  ExtractionGraph,
-  IExtractionPolicy,
-  IExtractor,
-  ITask,
-} from 'getindexify'
+import { ExtractionGraph, IExtractionPolicy, IExtractor } from 'getindexify'
 import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { ReactElement } from 'react'
 import ExtractionPolicyItem from './ExtractionPolicyItem'
-import { IExtractionGraphCol, IExtractionGraphColumns, TaskCountsMap } from '../types'
+import {
+  IExtractionGraphCol,
+  IExtractionGraphColumns,
+  TaskCountsMap,
+} from '../types'
 import CopyText from './CopyText'
 import { Cpu, InfoCircle } from 'iconsax-react'
 
@@ -132,7 +131,7 @@ const ExtractionGraphs = ({
         spacing={2}
       >
         <div className="heading-icon-container">
-          <Cpu size="25" className="heading-icons" variant="Outline"/>
+          <Cpu size="25" className="heading-icons" variant="Outline" />
         </div>
         <Typography variant="h4">
           Extraction Graphs
@@ -140,7 +139,7 @@ const ExtractionGraphs = ({
             href="https://docs.getindexify.ai/concepts/#extraction-graphs"
             target="_blank"
           >
-            <InfoCircle size="20" variant="Outline"/>
+            <InfoCircle size="20" variant="Outline" />
           </IconButton>
         </Typography>
       </Stack>
