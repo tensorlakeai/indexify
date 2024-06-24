@@ -13,7 +13,7 @@ Indexify is an open-source engine for building fast data pipelines for unstructu
 Applications can query indexes and databases using semantic search and SQL queries. 
 
 ## Differences with Batch/ETL Systems
-ETL-based ingestion systems process files in batches, suitable for offline use cases with infrequent data processing. In contrast, Indexify’s pipelines function as live APIs, instantly processing files or text upon ingestion like any online system. Indexify can efficiently schedules data processing tasks across thousands of machines, enabling real-time extraction for RAG applications or agents where up-to-date indexes are crucial.
+ETL-based ingestion systems process files in batches, suitable for offline use cases with infrequent data updates. In contrast, Indexify’s pipelines function as live APIs, instantly processing files or text upon ingestion like any online system. Indexify can efficiently schedules data processing tasks across thousands of machines, enabling real-time extraction for RAG applications or agents where up-to-date indexes are crucial.
 
 ## More Cool Features!
 
