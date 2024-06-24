@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use indexify_internal_api as internal_api;
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
@@ -719,6 +719,8 @@ pub struct ListTasks {
     pub limit: Option<u64>,
     #[serde(default)]
     pub return_total: bool,
+    #[serde(default)]
+    pub outcome: internal_api::TaskOutcomeFilter,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

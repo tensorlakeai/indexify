@@ -1,4 +1,5 @@
 syntax = "proto3";
+
 import "google/protobuf/struct.proto";
 
 package indexify_coordinator;
@@ -118,6 +119,13 @@ message ListStateChangesResponse {
     repeated StateChange changes = 1;
 }
 
+enum TaskOutcomeFilter {
+    FILTER_NOT_SET = 0;
+    FILTER_UNKNOWN = 1;
+    FILTER_SUCCESS = 2;
+    FILTER_FAILED = 3;
+}
+
 message ListTasksRequest {
     string namespace = 1;
     string extraction_policy = 2;
@@ -125,6 +133,7 @@ message ListTasksRequest {
     string start_id = 4;
     uint64 limit = 5;
     bool return_total = 6;
+    TaskOutcomeFilter outcome = 7;
 }
 
 message ListTasksResponse {
