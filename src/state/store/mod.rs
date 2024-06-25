@@ -626,7 +626,7 @@ impl StateMachineStore {
     pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
-    ) -> Result<Option<Vec<ExtractionPolicy>>> {
+    ) -> Result<Vec<ExtractionPolicy>> {
         self.data
             .indexify_state
             .get_extraction_policies_from_ids(extraction_policy_ids, &self.db.read().unwrap())

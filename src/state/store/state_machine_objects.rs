@@ -1835,7 +1835,7 @@ impl IndexifyState {
         &self,
         extraction_policy_ids: HashSet<String>,
         db: &OptimisticTransactionDB,
-    ) -> Result<Option<Vec<ExtractionPolicy>>, StateMachineError> {
+    ) -> Result<Vec<ExtractionPolicy>, StateMachineError> {
         let txn = db.transaction();
 
         let mut policies = Vec::new();
@@ -1858,12 +1858,7 @@ impl IndexifyState {
             }
             // If None, the policy is not found; we simply skip it.
         }
-
-        if policies.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(policies))
-        }
+        Ok(policies)
     }
 
     pub fn get_extraction_policy_by_names(
