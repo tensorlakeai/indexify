@@ -85,7 +85,15 @@ Now that we have our extraction graph set up, let's implement the entity extract
 
 ```python
 import json
+import os
+import requests
 from indexify import IndexifyClient
+
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
 
 def extract_entities_from_pdf(pdf_path):
     client = IndexifyClient()
@@ -109,7 +117,13 @@ def extract_entities_from_pdf(pdf_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = "/path/to/your/document.pdf"
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    pdf_path = "reference_document.pdf"
+    
+    # Download the PDF
+    download_pdf(pdf_url, pdf_path)
+    
+    # Extract entities
     extracted_entities = extract_entities_from_pdf(pdf_path)
     
     print("Extracted Entities:")
