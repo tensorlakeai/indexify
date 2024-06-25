@@ -1,0 +1,55 @@
+name: Generate Download Commands
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  commit-json:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install dependencies
+      run: |
+        npm install @octokit/core
+        npm install fs
+
+    - name: Generate release.json
+      run: node generate-curl-commands.js ${{ github.repository_owner }} ${{ github.event.repository.name }}
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: ${{ secrets.TARGET_REPO_PAT }}
+
+    - name: Checkout target repository
+      uses: actions/checkout@v3
+      with:
+        repository: tensorlake/hub
+        token: ${{ secrets.TARGET_REPO_PAT }}
+        path: target-repo
+
+    - name: Copy release.json to target repository
+      run: cp release.json target-repo/
+
+    - name: Commit and push JSON file to target repository
+      run: |
+        cd target-repo
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add release.json
+        git commit -m "Add release.json for ${{ github.event.release.tag_name }}"
+        git push origin HEAD:main
+      env:
+        GITHUB_TOKEN: ${{ secrets.TARGET_REPO_PAT }}
+
+
+
