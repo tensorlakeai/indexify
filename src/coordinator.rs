@@ -543,7 +543,7 @@ impl Coordinator {
                 .shared_state
                 .get_extraction_policies_from_ids(applied_extraction_policy_ids)
                 .await?;
-            for applied_extraction_policy in applied_extraction_policies.clone().unwrap() {
+            for applied_extraction_policy in applied_extraction_policies {
                 output_tables.insert(
                     content_metadata.id.clone(),
                     applied_extraction_policy
