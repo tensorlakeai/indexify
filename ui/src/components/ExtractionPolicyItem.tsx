@@ -127,8 +127,11 @@ const ExtractionPolicyItem = ({
         </Box>
         <Box sx={{ minWidth: cols.taskCount?.width }}>
           <Stack direction="row" spacing={1}>
-            <Tooltip title="Uknown">
-              <Chip label={taskCounts.totalUnknown} />
+            <Tooltip title="In Progress">
+              <Chip
+                sx={{ backgroundColor: '#E5EFFB' }}
+                label={taskCounts.totalUnknown}
+              />
             </Tooltip>
             <Tooltip title="Failed">
               <Chip

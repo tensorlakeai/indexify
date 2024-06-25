@@ -101,18 +101,21 @@ const TasksTable = ({
       headerName: 'Status',
       renderCell: (params) => {
         if (params.value === TaskStatus.Failure) {
-          return <Chip label="Failure" sx={{ backgroundColor: "#FBE5E5"}} />
+          return <Chip label="Failure" sx={{ backgroundColor: '#FBE5E5' }} />
         } else if (params.value === TaskStatus.Success) {
-          return <Chip label="Success" sx={{ backgroundColor: "#E5FBE6"}} />
+          return <Chip label="Success" sx={{ backgroundColor: '#E5FBE6' }} />
         } else {
-          return <Chip label="In Progress" sx={{ backgroundColor: "#E5EFFB"}} />
+          return (
+            <Chip label="In Progress" sx={{ backgroundColor: '#E5EFFB' }} />
+          )
         }
-      }
+      },
     },
     {
       field: 'content_metadata.source',
       headerName: 'Source',
-      valueGetter: (params) => params.row.content_metadata.source,
+      valueGetter: (params) =>
+        params.row.content_metadata.source || 'Ingestion',
       flex: 1,
     },
     {
@@ -154,7 +157,7 @@ const TasksTable = ({
         }}
       >
         <DataGrid
-          sx={{ backgroundColor: 'white', borderRadius: "12px" }}
+          sx={{ backgroundColor: 'white', borderRadius: '12px' }}
           autoHeight
           rows={tasks.slice(0, paginationModel.pageSize)}
           rowCount={rowCountState}
@@ -169,11 +172,7 @@ const TasksTable = ({
     )
   }
 
-  return (
-    <>
-      {renderContent()}
-    </>
-  )
+  return <>{renderContent()}</>
 }
 
 export default TasksTable
