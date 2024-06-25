@@ -4,6 +4,7 @@ import { styled } from "@mui/system";
 import { Link } from "react-router-dom";
 import PdfDisplay from "./PdfViewer";
 import ReactJson from "@microlink/react-json-view";
+import InfoBox from "./InfoBox";
 
 interface DetailedContentProps {
   filename: string;
@@ -47,6 +48,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
           style={{ maxWidth: "200px" }}
           height="auto"
         />
+        // <InfoBox text="Indexify Test" />
       );
     } else if (mimeType.startsWith("audio")) {
       return (
