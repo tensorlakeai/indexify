@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
@@ -341,6 +341,11 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
 pub struct ListContent {
+    #[serde(
+        deserialize_with = "api_utils::deserialize_none_to_empty_string",
+        default
+    )]
+    pub graph: String,
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default

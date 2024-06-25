@@ -858,6 +858,70 @@ pub enum ContentSource {
     ExtractionPolicyName(ExtractionPolicyName),
 }
 
+use indexify_coordinator::ContentSource as ProtoContentSource;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentSourceFilter(pub Option<ContentSource>);
+
+impl From<ContentSourceFilter> for ProtoContentSource {
+    fn from(value: ContentSourceFilter) -> Self {
+        match value.0 {
+            Some(ContentSource::Ingestion) => Self {
+                value: Some(indexify_coordinator::content_source::Value::Ingestion(
+                    indexify_coordinator::Empty {},
+                )),
+            },
+            Some(ContentSource::ExtractionPolicyName(name)) => Self {
+                value: Some(indexify_coordinator::content_source::Value::Policy(name)),
+            },
+            None => Self {
+                value: Some(indexify_coordinator::content_source::Value::None(
+                    indexify_coordinator::Empty {},
+                )),
+            },
+        }
+    }
+}
+
+impl TryFrom<ProtoContentSource> for ContentSourceFilter {
+    type Error = tonic::Status;
+
+    fn try_from(value: ProtoContentSource) -> Result<Self, Self::Error> {
+        match value.value {
+            Some(indexify_coordinator::content_source::Value::Ingestion(_)) => {
+                Ok(ContentSourceFilter(Some(ContentSource::Ingestion)))
+            }
+            Some(indexify_coordinator::content_source::Value::Policy(name)) => Ok(
+                ContentSourceFilter(Some(ContentSource::ExtractionPolicyName(name))),
+            ),
+            Some(indexify_coordinator::content_source::Value::None(_)) => {
+                Ok(ContentSourceFilter(None))
+            }
+            None => Err(tonic::Status::invalid_argument("Invalid ContentSource")),
+        }
+    }
+}
+
+impl TryFrom<Option<ProtoContentSource>> for ContentSourceFilter {
+    type Error = tonic::Status;
+
+    fn try_from(value: Option<ProtoContentSource>) -> Result<Self, Self::Error> {
+        match value {
+            Some(value) => Self::try_from(value),
+            None => Ok(ContentSourceFilter(None)),
+        }
+    }
+}
+
+impl ContentSourceFilter {
+    pub fn matches(&self, source: &ContentSource) -> bool {
+        match &self.0 {
+            Some(filter) => filter == source,
+            None => true,
+        }
+    }
+}
+
 impl Default for ContentSource {
     fn default() -> Self {
         ContentSource::ExtractionPolicyName(ExtractionPolicyName::default())

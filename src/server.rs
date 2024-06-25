@@ -726,6 +726,7 @@ async fn list_content(
         .data_manager
         .list_content(
             &namespace,
+            &filter.graph,
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),
