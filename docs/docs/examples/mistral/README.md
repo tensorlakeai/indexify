@@ -1,6 +1,10 @@
-# Indexify-Mistral Cookbooks
+Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. Indexify keeps vectordbs, structured databases(postgres) updated automatically when pipelines produce embedding or structured data.
 
-This folder contains cookbooks demonstrating how to leverage Indexify and Mistral's large language models for advanced document processing tasks. These guides provide step-by-step instructions for implementing pipelines for PDF analysis.
+Applications can query indexes and databases using semantic search and SQL queries.
+
+Project - [https://github.com/tensorlakeai/indexify](https://github.com/tensorlakeai/indexify)
+
+This folder contains cookbooks demonstrating how to leverage Indexify and Mistral's large language models for building production ready pipelines for document understanding.
 
 ## Contents
 
@@ -44,10 +48,3 @@ Before using these cookbooks, ensure you have:
 2. Review the cookbooks to understand the workflow and components.
 3. Follow the step-by-step instructions to implement the pipelines.
 4. Experiment with customizations to tailor the solutions to your specific needs.
-
-## Additional Resources
-
-- [Indexify Documentation](https://docs.getindexify.ai/)
-- [Mistral AI Website](https://mistral.ai/)
-
-We hope these cookbooks help you unlock the power of advanced document processing in your projects!
