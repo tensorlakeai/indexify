@@ -1,3 +1,5 @@
+# Indexify-Mistral Cookbooks
+
 Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. Indexify keeps vectordbs, structured databases(postgres) updated automatically when pipelines produce embedding or structured data.
 
 Applications can query indexes and databases using semantic search and SQL queries.
