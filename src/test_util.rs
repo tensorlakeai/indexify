@@ -72,7 +72,7 @@ pub mod db_utils {
                     "test_output".to_string(),
                     "test_table".to_string(),
                 )]),
-                content_source: internal_api::ExtractionPolicyContentSource::Ingestion,
+                content_source: internal_api::ContentSource::Ingestion,
             };
             extraction_policies.push(ep);
         }
@@ -114,9 +114,9 @@ pub mod db_utils {
                     "test_table".to_string(),
                 )]),
                 content_source: match parent {
-                    Parent::Root => internal_api::ExtractionPolicyContentSource::Ingestion,
+                    Parent::Root => internal_api::ContentSource::Ingestion,
                     Parent::Child(parent_index) => {
-                        internal_api::ExtractionPolicyContentSource::ExtractionPolicyName(
+                        internal_api::ContentSource::ExtractionPolicyName(
                             extraction_policy_names[*parent_index].to_string(),
                         )
                     }

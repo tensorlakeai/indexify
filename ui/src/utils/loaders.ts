@@ -6,7 +6,7 @@ import {
   getIndexifyServiceURL,
   groupMetadataByExtractor,
 } from './helpers'
-import { TaskCountsMap } from '../types'
+import { TaskCounts, TaskCountsMap } from '../types'
 
 async function createClient(namespace: string | undefined) {
   if (!namespace) throw new Error('Namespace is required')
@@ -79,7 +79,13 @@ export async function ExtractionPolicyPageLoader({
     .find(
       (policy) => policy.name === policyname && policy.graph_name === graphname
     )
-  return { policy, namespace, extractionGraph, client }
+  
+  let taskCounts:TaskCounts | undefined = undefined
+  if (policy?.id) {
+    taskCounts = await getExtractionPolicyTaskCounts(policy.id, client)
+  }
+    
+  return { policy, namespace, extractionGraph, client, taskCounts }
 }
 
 export async function ExtractorsPageLoader({ params }: LoaderFunctionArgs) {

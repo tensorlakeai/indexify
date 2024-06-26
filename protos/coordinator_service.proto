@@ -1,5 +1,4 @@
 syntax = "proto3";
-
 import "google/protobuf/struct.proto";
 
 package indexify_coordinator;
@@ -313,14 +312,26 @@ message GetNamespaceResponse {
     Namespace namespace = 1;
 }
 
+message Empty {
+}
+
+message ContentSource {
+    oneof value {
+        string policy = 1;
+        Empty ingestion = 2;
+        Empty none = 3;
+    }
+}
+
 message ListContentRequest {
     string namespace = 1;
-    string source = 2;
+    ContentSource source = 2;
     string parent_id = 3;
     map<string, google.protobuf.Value> labels_eq = 4;
     uint64 limit = 5;
     string start_id = 6;
     bool return_total = 7;
+    string graph = 8;
 }
 
 message ListContentResponse {

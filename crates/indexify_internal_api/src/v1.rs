@@ -37,7 +37,7 @@ pub struct ExtractionPolicy {
     pub filters: HashMap<String, String>,
     pub input_params: serde_json::Value,
     pub output_table_mapping: HashMap<String, String>,
-    pub content_source: super::ExtractionPolicyContentSource,
+    pub content_source: super::ContentSource,
 }
 
 impl From<ExtractionPolicy> for super::ExtractionPolicy {

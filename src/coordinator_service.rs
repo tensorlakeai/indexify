@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
 use futures::StreamExt;
 use hyper::StatusCode;
-use indexify_internal_api::{self as internal_api};
+use indexify_internal_api::{self as internal_api, ContentSourceFilter};
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_server::CoordinatorService,
@@ -169,9 +169,9 @@ impl CoordinatorServiceServer {
                 .map_err(|e| anyhow!(format!("unable to parse input_params: {}", e)))?;
             let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
             let content_source = if policy_request.content_source.eq("") {
-                internal_api::ExtractionPolicyContentSource::Ingestion
+                internal_api::ContentSource::Ingestion
             } else {
-                internal_api::ExtractionPolicyContentSource::ExtractionPolicyName(
+                internal_api::ContentSource::ExtractionPolicyName(
                     policy_request.content_source.clone(),
                 )
             };
@@ -302,12 +302,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         } else {
             Some(req.limit)
         };
+        let source_filter: ContentSourceFilter = req.source.try_into()?;
 
         let filter = |c: &internal_api::ContentMetadata| {
             c.namespace == req.namespace &&
+                (req.graph.is_empty() || c.extraction_graph_names.contains(&req.graph)) &&
                 (req.parent_id.is_empty() ||
                     Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
-                content_filter(c, &req.source, &labels_eq)
+                content_filter(c, &source_filter, &labels_eq)
         };
         let response = self
             .coordinator

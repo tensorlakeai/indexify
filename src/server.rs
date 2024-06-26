@@ -23,6 +23,7 @@ use indexify_proto::indexify_coordinator::{
     ListStateChangesRequest,
     ListTasksRequest,
 };
+use indexify_ui::Assets as UiAssets;
 use prometheus::Encoder;
 use rust_embed::RustEmbed;
 use tokio::{
@@ -54,10 +55,6 @@ use crate::{
 };
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
-
-#[derive(RustEmbed)]
-#[folder = "ui/build"]
-pub struct UiAssets;
 
 #[derive(Clone, Debug)]
 pub struct NamespaceEndpointState {
@@ -726,6 +723,7 @@ async fn list_content(
         .data_manager
         .list_content(
             &namespace,
+            &filter.graph,
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),

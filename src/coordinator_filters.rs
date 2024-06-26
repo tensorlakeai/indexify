@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
+use indexify_internal_api::ContentSourceFilter;
 use itertools::Itertools;
 
 pub fn content_filter(
     content: &indexify_internal_api::ContentMetadata,
-    source: &str,
+    source: &ContentSourceFilter,
     labels_eq: &HashMap<String, serde_json::Value>,
 ) -> bool {
-    if !source.is_empty() && source != content.source.to_string() {
+    if !source.matches(&content.source) {
         return false;
     }
     if !labels_eq.is_empty() && *labels_eq != content.labels {

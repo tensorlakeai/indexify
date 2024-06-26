@@ -21,3 +21,4 @@ smart-default = { workspace = true }
 strum = { workspace = true }
 utoipa = { workspace = true }
 prost-wkt-types = { workspace = true }
+tonic.workspace = true

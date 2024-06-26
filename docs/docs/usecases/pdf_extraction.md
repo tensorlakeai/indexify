@@ -1,28 +1,28 @@
 # PDF Extraction
 
-Indexify provides extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. 
+Indexify provides several extractors that extract text, images, and tables from PDF documents. Some extractors also convert PDFs to markdown documents. You can build complex pipelines that can extract and write tabular information from PDF documents in structured stores or extract embedding from texts in the documents. 
 
 
 ## What Can You Achieve with Indexify?
 
 With Indexify, you can accomplish the following with your PDFs:
 
-1. 🔍 **Data Extraction:** Easily extract specific information from PDFs, such as fields from tax documents, healthcare records, invoices, and receipts. Use Cases: Automate Manual Data Entry
-2. 📚 **Document Indexing:** Build searchable indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. Use Cases: RAG Applications, Assistants, etc.
-3. 🤖 **Document Q&A:** Get Answers to specific Questions from Documents without creating indexing. 
+1. 🔍 **Data Extraction:** Extract specific information from PDFs such as text, images and tables.
+2. 📚 **Document Indexing:** Build searchable indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. 
+3. 🤖 **Document Q&A:** Get Answers to specific Questions from Documents directly. 
 
 ## The Extraction Pipeline: A Three-Stage Process
 
 PDF Extraction Pipelines are usually composed of three stages. You can use one or more of these stages depending on your use case - 
 
-1. **Content Extraction Stage:** Start by extracting raw content from your PDFs using extractors like `pdf/pdfextractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
-If all you want is to extract text, images, and tables from a PDF, this is the only stage you need in an extraction graph. The following stages allow for further transformations, or extraction of derived information from a PDF document.
+1. **Content Extraction Stage:** Extract raw content from your PDFs using extractors like `pdf/pdfextractor` or `pdf/markdown`. These extractors will retrieve text, images, and tables from your documents.
+If all you want is to extract text, images, and tables from a PDF, this is the only stage you need in an extraction graph. 
 
-2. **Content to Chunk Extraction Stage:** Break down the extracted content into manageable chunks using extractors like `text/chunking`. This stage helps organize your content into coherent and contextually relevant pieces, making it easier to process and understand.
+2. **Text Chunking:** Chunk any extracted text using the `text/chunking` extractor. You can write custom chunkers by following [this guide](https://docs.getindexify.ai/apis/develop_extractors/).
 3. **Chunk to Embedding Extraction Stage:** Convert the chunks into vector embeddings using extractors like `embedding/minilm-l6` or `embedding/arctic`. 
 
 ## Image Extraction
-If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdfextractor` It automatically extracts images from documents and writes them into blob stores. Once images are extracted, you could create pipelines for many downstream image tasks - Embedding using CLIP for semantic search, visual understanding of images using GPT4V, Cog or Moondream, or object detection using YOLO.Indexify provides extractors for all these downstream tasks.
+If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdfextractor` It automatically extracts images from documents and writes them into blob stores. 
 
 You can get extracted images from pdfextractor with a simple python code like this:
 ```python

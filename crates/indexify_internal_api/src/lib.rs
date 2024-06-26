@@ -599,64 +599,6 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
 pub type ExtractionPolicyId = String;
 pub type ExtractionPolicyName = String;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ExtractionPolicyContentSource {
-    Ingestion,
-    ExtractionPolicyName(ExtractionPolicyName),
-}
-
-impl Display for ExtractionPolicyContentSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ExtractionPolicyContentSource::Ingestion => write!(f, ""),
-            ExtractionPolicyContentSource::ExtractionPolicyName(name) => {
-                write!(f, "{}", name)
-            }
-        }
-    }
-}
-
-impl From<&ExtractionPolicyContentSource> for ContentSource {
-    fn from(value: &ExtractionPolicyContentSource) -> Self {
-        match value {
-            ExtractionPolicyContentSource::Ingestion => ContentSource::Ingestion,
-            ExtractionPolicyContentSource::ExtractionPolicyName(name) => {
-                ContentSource::ExtractionPolicyName(name.to_string())
-            }
-        }
-    }
-}
-
-impl Default for ExtractionPolicyContentSource {
-    fn default() -> Self {
-        ExtractionPolicyContentSource::ExtractionPolicyName(ExtractionPolicyId::default())
-    }
-}
-
-impl From<ExtractionPolicyContentSource> for String {
-    fn from(source: ExtractionPolicyContentSource) -> Self {
-        String::from(&source)
-    }
-}
-
-impl From<&ExtractionPolicyContentSource> for String {
-    fn from(value: &ExtractionPolicyContentSource) -> Self {
-        match value {
-            ExtractionPolicyContentSource::Ingestion => "".to_string(),
-            ExtractionPolicyContentSource::ExtractionPolicyName(name) => name.clone(),
-        }
-    }
-}
-
-impl From<&str> for ExtractionPolicyContentSource {
-    fn from(value: &str) -> Self {
-        if value.is_empty() {
-            return ExtractionPolicyContentSource::Ingestion;
-        }
-        ExtractionPolicyContentSource::ExtractionPolicyName(value.to_string())
-    }
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionPolicy {
@@ -671,7 +613,7 @@ pub struct ExtractionPolicy {
     pub output_table_mapping: HashMap<String, String>,
     // The source of the content this policy will match against. Will either be the graph id or a
     // parent policy id
-    pub content_source: ExtractionPolicyContentSource,
+    pub content_source: ContentSource,
 }
 
 impl TryFrom<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
@@ -856,6 +798,70 @@ impl Default for ContentMetadataId {
 pub enum ContentSource {
     Ingestion,
     ExtractionPolicyName(ExtractionPolicyName),
+}
+
+use indexify_coordinator::ContentSource as ProtoContentSource;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentSourceFilter(pub Option<ContentSource>);
+
+impl From<ContentSourceFilter> for ProtoContentSource {
+    fn from(value: ContentSourceFilter) -> Self {
+        match value.0 {
+            Some(ContentSource::Ingestion) => Self {
+                value: Some(indexify_coordinator::content_source::Value::Ingestion(
+                    indexify_coordinator::Empty {},
+                )),
+            },
+            Some(ContentSource::ExtractionPolicyName(name)) => Self {
+                value: Some(indexify_coordinator::content_source::Value::Policy(name)),
+            },
+            None => Self {
+                value: Some(indexify_coordinator::content_source::Value::None(
+                    indexify_coordinator::Empty {},
+                )),
+            },
+        }
+    }
+}
+
+impl TryFrom<ProtoContentSource> for ContentSourceFilter {
+    type Error = tonic::Status;
+
+    fn try_from(value: ProtoContentSource) -> Result<Self, Self::Error> {
+        match value.value {
+            Some(indexify_coordinator::content_source::Value::Ingestion(_)) => {
+                Ok(ContentSourceFilter(Some(ContentSource::Ingestion)))
+            }
+            Some(indexify_coordinator::content_source::Value::Policy(name)) => Ok(
+                ContentSourceFilter(Some(ContentSource::ExtractionPolicyName(name))),
+            ),
+            Some(indexify_coordinator::content_source::Value::None(_)) => {
+                Ok(ContentSourceFilter(None))
+            }
+            None => Err(tonic::Status::invalid_argument("Invalid ContentSource")),
+        }
+    }
+}
+
+impl TryFrom<Option<ProtoContentSource>> for ContentSourceFilter {
+    type Error = tonic::Status;
+
+    fn try_from(value: Option<ProtoContentSource>) -> Result<Self, Self::Error> {
+        match value {
+            Some(value) => Self::try_from(value),
+            None => Ok(ContentSourceFilter(None)),
+        }
+    }
+}
+
+impl ContentSourceFilter {
+    pub fn matches(&self, source: &ContentSource) -> bool {
+        match &self.0 {
+            Some(filter) => filter == source,
+            None => true,
+        }
+    }
 }
 
 impl Default for ContentSource {

@@ -10,7 +10,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
 use mime::Mime;
 use nanoid::nanoid;
@@ -20,7 +20,7 @@ use tracing::{error, info};
 use crate::{
     api::{self, BeginExtractedContentIngest, ExtractionGraphRequest},
     blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
-    coordinator_client::CoordinatorClient,
+    coordinator_client::{CoordinatorClient, CoordinatorServiceClient},
     grpc_helper::GrpcHelper,
     metadata_storage::{
         query_engine::{run_query, StructuredDataRow},
@@ -75,10 +75,14 @@ impl DataManager {
         }
     }
 
+    pub async fn get_coordinator_client(&self) -> Result<CoordinatorServiceClient> {
+        self.coordinator_client.get().await
+    }
+
     #[tracing::instrument]
     pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
         let req = indexify_coordinator::ListNamespaceRequest {};
-        let response = self.coordinator_client.get().await?.list_ns(req).await?;
+        let response = self.get_coordinator_client().await?.list_ns(req).await?;
         let namespaces = response.into_inner().namespaces;
 
         let data_namespaces: Result<_, anyhow::Error> = namespaces
@@ -105,8 +109,7 @@ impl DataManager {
             name: namespace.name.clone(),
         };
         let _resp = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .create_ns(request)
             .await?;
@@ -119,8 +122,7 @@ impl DataManager {
             name: name.to_string(),
         };
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .get_ns(req)
             .await?
@@ -134,8 +136,7 @@ impl DataManager {
             extraction_policy_id: id.to_string(),
         };
         let resp = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .get_extraction_policy(req)
             .await?
@@ -178,8 +179,7 @@ impl DataManager {
             policies: extraction_policies,
         };
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .create_extraction_graph(req)
             .await?
@@ -210,8 +210,7 @@ impl DataManager {
         let req = indexify_coordinator::UpdateIndexesStateRequest {
             indexes: response.indexes.clone(),
         };
-        self.coordinator_client
-            .get()
+        self.get_coordinator_client()
             .await?
             .update_indexes_state(req)
             .await?;
@@ -231,8 +230,7 @@ impl DataManager {
             content_id: content_id.to_string(),
         };
         let _ = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .wait_content_extraction(req)
             .await?;
@@ -242,6 +240,7 @@ impl DataManager {
     pub async fn list_content(
         &self,
         namespace: &str,
+        graph: &str,
         source_filter: &str,
         parent_id_filter: &str,
         labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
@@ -253,10 +252,10 @@ impl DataManager {
         let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
             labels_eq_filter.unwrap_or(&default_labels_eq).clone(),
         )?;
-
         let req = indexify_coordinator::ListContentRequest {
+            graph: graph.to_string(),
             namespace: namespace.to_string(),
-            source: source_filter.to_string(),
+            source: Some(source_filter.to_string().into()),
             parent_id: parent_id_filter.to_string(),
             labels_eq,
             start_id,
@@ -264,8 +263,7 @@ impl DataManager {
             return_total,
         };
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .list_content(req)
             .await?;
@@ -277,8 +275,7 @@ impl DataManager {
             namespace: namespace.to_string(),
         };
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .list_active_contents(req)
             .await?;
@@ -312,8 +309,7 @@ impl DataManager {
             let req = indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
-            self.coordinator_client
-                .get()
+            self.get_coordinator_client()
                 .await?
                 .create_content(GrpcHelper::into_req(req))
                 .await
@@ -344,8 +340,7 @@ impl DataManager {
             .get_metadata_for_content(&gc_task.namespace, &gc_task.content_id)
             .await?;
         let content_metadata = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
                 content_list: vec![gc_task.content_id.clone()],
@@ -434,8 +429,7 @@ impl DataManager {
             indexify_coordinator::CreateContentRequest {
                 content: Some(content_metadata),
             };
-        self.coordinator_client
-            .get()
+        self.get_coordinator_client()
             .await?
             .create_content(GrpcHelper::into_req(req))
             .await
@@ -457,8 +451,7 @@ impl DataManager {
             content_list: content_ids,
         };
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .get_content_metadata(req)
             .await?
@@ -478,8 +471,7 @@ impl DataManager {
     ) -> Result<Vec<api::ContentMetadata>> {
         let req = indexify_coordinator::GetContentTreeMetadataRequest { content_id };
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .get_content_tree_metadata(req)
             .await?;
@@ -530,8 +522,7 @@ impl DataManager {
             namespace: namespace.to_string(),
             labels: prost_labels,
         };
-        self.coordinator_client
-            .get()
+        self.get_coordinator_client()
             .await?
             .update_labels(req)
             .await?;
@@ -545,8 +536,7 @@ impl DataManager {
         let req = indexify_coordinator::CreateContentRequest {
             content: Some(content_metadata),
         };
-        self.coordinator_client
-            .get()
+        self.get_coordinator_client()
             .await?
             .create_content(GrpcHelper::into_req(req))
             .await
@@ -644,7 +634,7 @@ impl DataManager {
             task_id: begin_ingest.task_id,
             outcome: outcome as i32,
         };
-        let res = self.coordinator_client.get().await?.update_task(req).await;
+        let res = self.get_coordinator_client().await?.update_task(req).await;
         if let Err(err) = res {
             error!("unable to update task: {}", err.to_string());
         }
@@ -823,8 +813,7 @@ impl DataManager {
             content: Some(content_metadata.clone()),
         };
         let res = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .create_content(GrpcHelper::into_req(req))
             .await
@@ -886,8 +875,7 @@ impl DataManager {
             namespace: namespace.to_string(),
         };
         let resp = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .list_indexes(req)
             .await?;
@@ -914,8 +902,7 @@ impl DataManager {
             name: index_name.to_string(),
         };
         let index = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .get_index(req)
             .await?
@@ -942,8 +929,7 @@ impl DataManager {
     pub async fn list_extractors(&self) -> Result<Vec<api::ExtractorDescription>> {
         let req = indexify_coordinator::ListExtractorsRequest {};
         let response = self
-            .coordinator_client
-            .get()
+            .get_coordinator_client()
             .await?
             .list_extractors(req)
             .await?
