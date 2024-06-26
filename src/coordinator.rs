@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_internal_api::{self as internal_api};
+use indexify_internal_api::{self as internal_api, ExtractionGraphLink};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
     ContentMetadataId,
@@ -68,6 +68,10 @@ impl Coordinator {
             my_executors: std::sync::Mutex::new(HashSet::new()),
             all_executors: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub async fn link_graphs(&self, link: ExtractionGraphLink) -> Result<()> {
+        self.shared_state.link_graphs(link).await
     }
 
     pub fn get_locked_my_executors(&self) -> std::sync::MutexGuard<HashSet<String>> {
@@ -751,7 +755,7 @@ impl Coordinator {
 mod tests {
     use std::{collections::HashMap, fs, sync::Arc, time::Duration, vec};
 
-    use indexify_internal_api as internal_api;
+    use indexify_internal_api::{self as internal_api, ExtractionGraphLink, ExtractionGraphNode};
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{ContentMetadataId, ContentSource, TaskOutcome};
 
@@ -1811,6 +1815,104 @@ mod tests {
             .shared_state
             .get_content_tree_metadata(&parent_content.id.id)?;
         assert_eq!(tree.len(), 7);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_link_graphs() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg_1 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_1",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_1.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let eg_2 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_2",
+            vec![
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_2.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let eg_3 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_3",
+            vec![
+                "test_extraction_policy_7",
+                "test_extraction_policy_8",
+                "test_extraction_policy_9",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_3.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let link = ExtractionGraphLink {
+            node: ExtractionGraphNode {
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+                graph_name: eg_1.name.clone(),
+                source: ContentSource::ExtractionPolicyName(
+                    eg_1.extraction_policies[1].name.clone(),
+                ),
+            },
+            graph_name: eg_2.name.clone(),
+        };
+        coordinator.link_graphs(link).await?;
+
+        let link = ExtractionGraphLink {
+            node: ExtractionGraphNode {
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+                graph_name: eg_1.name.clone(),
+                source: ContentSource::ExtractionPolicyName(
+                    eg_1.extraction_policies[2].name.clone(),
+                ),
+            },
+            graph_name: eg_3.name.clone(),
+        };
+        coordinator.link_graphs(link).await?;
+
+        let parent_content = test_mock_content_metadata("test_parent_id", "", &eg_1.name);
+        let create_res = coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+
+        let mut child_id = 1;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 10);
 
         Ok(())
     }

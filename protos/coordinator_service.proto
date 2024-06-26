@@ -73,6 +73,8 @@ service CoordinatorService {
     rpc UpdateLabels(UpdateLabelsRequest) returns (UpdateLabelsResponse) {}
 
     rpc ExecutorsHeartbeat(ExecutorsHeartbeatRequest) returns (ExecutorsHeartbeatResponse) {}
+
+    rpc LinkExtractionGraphs(LinkExtractionGraphsRequest) returns (LinkExtractionGraphsResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -575,3 +577,12 @@ message ExecutorsHeartbeatRequest {
 }
 
 message ExecutorsHeartbeatResponse {}
+
+message LinkExtractionGraphsRequest {
+    string namespace = 1;
+    string source_graph_name = 2;
+    string content_source = 3;
+    string linked_graph_name = 4;
+}
+
+message LinkExtractionGraphsResponse {}

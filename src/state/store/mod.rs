@@ -129,6 +129,7 @@ pub enum StateMachineColumns {
     CoordinatorAddress,                 //  NodeId -> Coordinator address
     ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
     RaftState,                          //  Raft state
+    ExtractionGraphLinks,               //  Namespace/Graph/Source -> Linked graph name
 }
 
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";

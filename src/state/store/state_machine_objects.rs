@@ -7,13 +7,15 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_internal_api::{self as internal_api, ServerTaskType};
+use indexify_internal_api::{self as internal_api, ExtractionGraphNode, ServerTaskType};
 use internal_api::{
     v1,
     ContentMetadata,
     ContentMetadataId,
+    ContentSource,
     ExecutorMetadata,
     ExtractionGraph,
+    ExtractionGraphLink,
     ExtractionPolicy,
     ExtractionPolicyName,
     ExtractorDescription,
@@ -698,6 +700,9 @@ pub struct IndexifyState {
 
     /// Next change id
     pub change_id: std::sync::Mutex<u64>,
+
+    /// Graph+ContentSource->Policy Id
+    pub graph_links: Arc<RwLock<HashMap<ExtractionGraphNode, HashSet<String>>>>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -720,6 +725,19 @@ impl fmt::Display for IndexifyState {
 }
 
 impl IndexifyState {
+    // Complete value of link is stored in db key since multiple graphs
+    // can be linked to the same node.
+    fn set_extraction_graph_link(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        link: &ExtractionGraphLink,
+    ) -> Result<(), StateMachineError> {
+        let key = JsonEncoder::encode(link)?;
+        txn.put_cf(&StateMachineColumns::ExtractionGraphLinks.cf(db), key, &[])
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
+    }
+
     fn set_extraction_graph(
         &self,
         db: &OptimisticTransactionDB,
@@ -728,13 +746,12 @@ impl IndexifyState {
         structured_data_schema: &StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
-        let _ = txn
-            .put_cf(
-                &StateMachineColumns::ExtractionGraphs.cf(db),
-                &extraction_graph.id,
-                serialized_eg,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()));
+        txn.put_cf(
+            &StateMachineColumns::ExtractionGraphs.cf(db),
+            &extraction_graph.id,
+            serialized_eg,
+        )
+        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         for ep in extraction_graph.extraction_policies.to_owned() {
             self.set_extraction_policy(db, txn, &ep)?;
         }
@@ -1257,6 +1274,17 @@ impl IndexifyState {
     ) {
         for ep in &extraction_graph.extraction_policies {
             self.extraction_policies_table.insert(&ep.namespace, &ep.id);
+            let key = ExtractionGraphNode {
+                namespace: ep.namespace.clone(),
+                graph_name: extraction_graph.name.clone(),
+                source: ep.content_source.clone(),
+            };
+            self.graph_links
+                .write()
+                .unwrap()
+                .entry(key)
+                .or_default()
+                .insert(ep.id.clone());
         }
         self.extraction_graphs_by_ns
             .insert(&extraction_graph.namespace, &extraction_graph.id);
@@ -1427,6 +1455,27 @@ impl IndexifyState {
                     self.set_index(db, &txn, index, &index.id)?;
                 }
             }
+            RequestPayload::CreateExtractionGraphLink {
+                extraction_graph_link,
+            } => {
+                self.set_extraction_graph_link(db, &txn, extraction_graph_link)?;
+                let linked_graph = self.get_extraction_graphs_by_name(
+                    &extraction_graph_link.node.namespace,
+                    &[extraction_graph_link.graph_name.clone()],
+                    db,
+                )?;
+                let mut graph_links = self.graph_links.write().unwrap();
+                if let Some(Some(linked_graph)) = linked_graph.first() {
+                    for policy in &linked_graph.extraction_policies {
+                        if policy.content_source == ContentSource::Ingestion {
+                            graph_links
+                                .entry(extraction_graph_link.node.clone())
+                                .or_default()
+                                .insert(policy.id.clone());
+                        }
+                    }
+                }
+            }
         };
 
         let unprocessed_changes = self.get_unprocessed_state_changes();
@@ -1561,6 +1610,10 @@ impl IndexifyState {
                 }
                 Ok(())
             }
+            RequestPayload::CreateExtractionGraphLink {
+                extraction_graph_link: _,
+            } => Ok(()),
+
             RequestPayload::CreateNamespace { name: _ } => Ok(()),
             RequestPayload::UpdateTask {
                 task,
@@ -2272,6 +2325,33 @@ impl IndexifyState {
 
     //  END READER METHODS FOR REVERSE INDEXES
 
+    // For each linked graph link it's top level policies to the graph node
+    fn rebuild_graph_links(
+        &self,
+        db: &OptimisticTransactionDB,
+        graph_links: &mut HashMap<ExtractionGraphNode, HashSet<String>>,
+    ) -> Result<(), StateMachineError> {
+        let cf_handle = StateMachineColumns::ExtractionGraphLinks.cf(db);
+        for v in db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start) {
+            let (key, _) = v.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let link: ExtractionGraphLink = JsonEncoder::decode(&key)?;
+
+            let linked_graphs =
+                self.get_extraction_graphs_by_name(&link.node.namespace, &[link.graph_name], db)?;
+            if let Some(Some(linked_graph)) = linked_graphs.first() {
+                for policy in &linked_graph.extraction_policies {
+                    if policy.content_source == ContentSource::Ingestion {
+                        graph_links
+                            .entry(link.node.clone())
+                            .or_default()
+                            .insert(policy.id.clone());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     //  Build the in-memory reverse indexes on startup or when restoring from
     // snapshot.
     pub fn rebuild_reverse_indexes(
@@ -2330,6 +2410,9 @@ impl IndexifyState {
             .eg_by_namespace
             .write()
             .unwrap();
+        let mut graph_links = self.graph_links.write().unwrap();
+
+        self.rebuild_graph_links(db, &mut *graph_links)?;
 
         for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
             let eg = eg?;
@@ -2338,6 +2421,16 @@ impl IndexifyState {
                 .entry(eg.namespace.clone())
                 .or_default()
                 .insert(eg.id.clone());
+            for policy in eg.extraction_policies {
+                graph_links
+                    .entry(ExtractionGraphNode {
+                        namespace: eg.namespace.clone(),
+                        graph_name: eg.name.clone(),
+                        source: policy.content_source.clone(),
+                    })
+                    .or_default()
+                    .insert(policy.id.clone());
+            }
         }
 
         for task in self.iter_cf::<Task>(db, StateMachineColumns::Tasks) {

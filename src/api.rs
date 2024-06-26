@@ -16,6 +16,13 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{api_utils, metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ExtractionGraphLink {
+    pub source_graph_name: String,
+    pub content_source: String,
+    pub linked_graph_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraph {
     pub id: String,
     pub name: String,
