@@ -48,7 +48,6 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
           style={{ maxWidth: "200px" }}
           height="auto"
         />
-        // <InfoBox text="Indexify Test" />
       );
     } else if (mimeType.startsWith("audio")) {
       return (
@@ -68,9 +67,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
     } else if (mimeType.startsWith("text")) {
       return (
         <Box sx={{ maxHeight: "500px", overflow: "auto" }}>
-          <Typography variant="body2">
-            {textContent}
-          </Typography>
+           <InfoBox text={textContent} />
         </Box>
       );
     } else if (mimeType.startsWith("application/json")) {

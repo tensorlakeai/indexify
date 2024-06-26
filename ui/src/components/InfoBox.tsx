@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 
 interface InfoBoxProps {
-    text: string;
+    text?: string;
 }
 
 const InfoBox: React.FC<InfoBoxProps> = ({text}) => {
