@@ -389,10 +389,10 @@ mod tests {
     use anyhow::Result;
     use indexify_internal_api::{
         ContentMetadata,
+        ContentSource,
         ExtractedEmbeddings,
         ExtractionGraph,
         ExtractionPolicy,
-        ExtractionPolicyContentSource,
         ExtractorDescription,
         StructuredDataSchema,
         Task,
@@ -808,7 +808,7 @@ mod tests {
             extractor: "extractor_name".to_string(),
             graph_name: "extraction_graph_id".to_string(),
             filters: HashMap::new(),
-            content_source: ExtractionPolicyContentSource::Ingestion,
+            content_source: ContentSource::Ingestion,
             output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
                 .into_iter()
                 .collect(),
@@ -938,7 +938,7 @@ mod tests {
             extractor: "extractor_name".to_string(),
             graph_name: "extraction_graph_id".to_string(),
             filters: HashMap::new(),
-            content_source: ExtractionPolicyContentSource::Ingestion,
+            content_source: ContentSource::Ingestion,
             output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
                 .into_iter()
                 .collect(),

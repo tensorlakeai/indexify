@@ -169,9 +169,9 @@ impl CoordinatorServiceServer {
                 .map_err(|e| anyhow!(format!("unable to parse input_params: {}", e)))?;
             let extractor = self.coordinator.get_extractor(&policy_request.extractor)?;
             let content_source = if policy_request.content_source.eq("") {
-                internal_api::ExtractionPolicyContentSource::Ingestion
+                internal_api::ContentSource::Ingestion
             } else {
-                internal_api::ExtractionPolicyContentSource::ExtractionPolicyName(
+                internal_api::ContentSource::ExtractionPolicyName(
                     policy_request.content_source.clone(),
                 )
             };
