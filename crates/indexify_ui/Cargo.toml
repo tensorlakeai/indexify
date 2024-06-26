@@ -1,0 +1,10 @@
+[package]
+name = "indexify_ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rust-embed.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
