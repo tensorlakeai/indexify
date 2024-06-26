@@ -175,13 +175,6 @@ While the example might look simple, there are some unique advantages of using I
 1. **Scalable and Highly Availability**: Indexify server can be deployed on a cloud and it can process 1000s of PDFs uploaded into it, and if any step in the pipeline fails it automatically retries on another machine.
 2. **Flexibility**: You can use any other [PDF extraction model](https://docs.getindexify.ai/usecases/pdf_extraction/) we used here doesn't work for the document you are using. 
 
-By combining Indexify and Mistral, you can create a robust entity extraction system that can be integrated into various applications, such as:
-
-- Content categorization and tagging
-- Information retrieval systems
-- Trend analysis in large document collections
-- Automated metadata generation for document management systems
-
 ## Next Steps
 - Learn more about Indexify on our docs - https://docs.getindexify.ai
 - Go over an example, which uses Mistral for building summarization at scale.
