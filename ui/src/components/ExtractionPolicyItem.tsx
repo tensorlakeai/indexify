@@ -32,7 +32,7 @@ const ExtractionPolicyItem = ({
     }
     const params = extractionPolicy.input_params
     return (
-      <Box sx={{ overflowX: 'scroll' }}>
+      <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
         <Stack gap={1} direction="row">
           {Object.keys(params).map((val: string) => {
             return <Chip key={val} label={`${val}:${params[val]}`} />
@@ -49,12 +49,7 @@ const ExtractionPolicyItem = ({
     if (!extractor) return null
 
     return (
-      <Box
-        sx={{
-          overflowX: 'scroll',
-          maxWidth: `calc(${cols.mimeTypes.width}px - 10px)`,
-        }}
-      >
+      <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
         <Stack gap={1} direction="row">
           {(extractor.input_mime_types ?? []).map((val: string) => {
             return (

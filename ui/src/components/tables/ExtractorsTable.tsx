@@ -66,8 +66,8 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
           return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82'}} />
         }
         return (
-          <Box overflow="scroll">
-            <Stack gap={1} direction="row" overflow="scroll">
+          <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
+            <Stack gap={1} direction="row">
               {Object.keys(params.value).map((val: string) => {
                 return <Chip key={val} label={val} variant="outlined" sx={{ border: '1px solid #6FA8EA'}} />
               })}
