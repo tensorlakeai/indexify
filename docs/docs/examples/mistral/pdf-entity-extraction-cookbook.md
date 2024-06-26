@@ -38,7 +38,11 @@ First, let's install Indexify using the official installation script:
 curl https://getindexify.ai | sh
 ```
 
-This starts a long running server that exposes ingestion and retrieval APIs to applications. 
+Start the Indexify server:
+```bash
+./indexify server -d
+```
+This starts a long running server that exposes ingestion and retrieval APIs to applications.
 
 ### Install Required Extractors
 
@@ -50,10 +54,9 @@ indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/mistral
 ```
 
-Once the extractors are download, you can strart them
-
+Once the extractors are downloaded, you can strart them in a new terminal:
 ```bash
-indexify-extractors join-server
+indexify-extractor join-server
 ```
 
 ## Creating the Extraction Graph
@@ -87,16 +90,16 @@ client.create_extraction_graph(extraction_graph)
 
 Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
 
-You can run this script to set up the pipeline
+You can run this script to set up the pipeline:
 ```bash
 python pdf_entity_extraction_pipeline.py
-```   
+```
 
 ## Implementing the Entity Extraction Pipeline
 
 Now that we have our extraction graph set up, we can upload files and retrieve the entities:
 
-Create a file `upload_and_retreive.py` 
+Create a file `upload_and_retreive.py`
 
 ```python
 import json
@@ -148,9 +151,9 @@ if __name__ == "__main__":
             print(f"- {entity}")
 ```
 
-
+You can run the Python script as many times, or use this in an application to continue generating summaries:
 ```bash
-python upload_and_retreive.py.py
+python upload_and_retreive.py
 ```
 
 ## Customization and Advanced Usage
@@ -171,10 +174,12 @@ You can also experiment with different Mistral models by changing the `model_nam
 
 ## Conclusion
 
-While the example might look simple, there are some unique advantages of using Indexify for this - 
+While the example might look simple, there are some unique advantages of using Indexify for this -
+
 1. **Scalable and Highly Availability**: Indexify server can be deployed on a cloud and it can process 1000s of PDFs uploaded into it, and if any step in the pipeline fails it automatically retries on another machine.
 2. **Flexibility**: You can use any other [PDF extraction model](https://docs.getindexify.ai/usecases/pdf_extraction/) we used here doesn't work for the document you are using. 
 
 ## Next Steps
+
 - Learn more about Indexify on our docs - https://docs.getindexify.ai
-- Go over an example, which uses Mistral for building summarization at scale.
+- Go over an example, which uses Mistral for [building summarization at scale](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/examples/mistral/pdf-summarization-cookbook.md)
