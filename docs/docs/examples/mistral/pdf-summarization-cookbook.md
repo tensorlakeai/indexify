@@ -1,6 +1,6 @@
 # PDF Summarization with Indexify and Mistral
 
-In this cookbook, we'll explore how to create a powerful PDF summarization pipeline using Indexify and Mistral's large language models. This solution combines the strengths of both platforms to provide efficient, accurate, and customizable summarization of PDF documents.
+In this cookbook, we'll explore how to create a PDF summarization pipeline using Indexify and Mistral's large language models. By the end of the document, you should have a pipeline capable of ingesting 1000s of PDF documents, and using Mistral for summarization. 
 
 ## Table of Contents
 
@@ -17,7 +17,10 @@ In this cookbook, we'll explore how to create a powerful PDF summarization pipel
 
 ## Introduction
 
-PDF summarization is a crucial task in many industries, from academic research to business intelligence. By leveraging Indexify's real-time structured data extraction capabilities and Mistral's advanced language models, we can create a robust and flexible summarization pipeline that can handle various types of PDF documents.
+The summarization pipeline is going to be composed of two steps -
+- PDF to Text extraction. We are going to use a pre-built extractor for this - `tensorlake/pdfextractor`.
+- We use Mistral for summarization.
+
 
 ## Prerequisites
 
@@ -37,7 +40,13 @@ First, let's install Indexify using the official installation script:
 ```bash
 curl https://getindexify.ai | sh
 ```
+This starts a long running server that exposes ingestion and retrieval APIs to applications.
 
+In case the server doesn't start, you can start the server -
+
+```bash
+./indexify server -d
+```
 ### Install Required Extractors
 
 Next, we'll install the necessary extractors:
@@ -47,12 +56,17 @@ pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/mistral
 ```
+Once the extractors are download, you can strart them
+
+```bash
+indexify-extractors join-server
+```
 
 ## Creating the Extraction Graph
 
 The extraction graph defines the flow of data through our summarization pipeline. We'll create a graph that first extracts text from PDFs, then sends that text to Mistral for summarization.
 
-Create a new Python file called `pdf_summarization.py` and add the following code:
+Create a new Python file called `pdf_summarization_graph.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -79,9 +93,14 @@ client.create_extraction_graph(extraction_graph)
 
 Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
 
+You can run this script to set up the pipeline
+```bash
+python pdf_entity_extraction_pipeline.py
+```
+
 ## Implementing the Summarization Pipeline
 
-Now that we have our extraction graph set up, let's implement the summarization pipeline:
+Now that we have our extraction graph set up, we can upload files and make the pipeline generate summaries:
 
 ```python
 import os
@@ -126,24 +145,11 @@ if __name__ == "__main__":
     print(summary)
 ```
 
-## Running the Summarization
+You can run the Python script as many times, or use this in an application to continue generating summaries -
 
-To run the summarization pipeline:
-
-1. Start the Indexify server:
-   ```bash
-   ./indexify server -d
-   ```
-
-2. In a new terminal, start the extractors:
-   ```bash
-   indexify-extractor join-server
-   ```
-
-3. Run your Python script:
-   ```bash
-   python pdf_summarization.py
-   ```
+```bash
+python pdf_summarization.py
+```
 
 ## Customization and Advanced Usage
 
@@ -162,11 +168,12 @@ You can customize the summarization process by modifying the `system_prompt` in 
 You can also experiment with different Mistral models by changing the `model_name` parameter.
 
 ## Conclusion
+While the example might look simple, there are some unique advantages of using Indexify for this -
 
-In this cookbook, we've created a powerful PDF summarization pipeline using Indexify and Mistral. This solution offers several advantages:
+- **Scalable and Highly Availability:** Indexify server can be deployed on a cloud and it can process 1000s of PDFs uploaded into it, and if any step in the pipeline fails it automatically retries on another machine.
+- **Flexibility:** You can use any other PDF extraction model we used here doesn't work for the document you are using.
+- 
+## Next Steps
 
-1. **Flexibility**: Easily customize the summarization approach by modifying the system prompt.
-2. **Scalability**: Handle multiple PDFs efficiently using Indexify's extraction graph.
-3. **Quality**: Leverage Mistral's advanced language models for high-quality summaries.
-
-By combining these technologies, you can create a robust document summarization system tailored to your specific needs.
+- Learn more about Indexify on our docs - https://docs.getindexify.ai
+- Learn how to use Indexify and Mistral for [entity extraction from PDF documents](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/examples/mistral/pdf-entity-extraction-cookbook.md) 
