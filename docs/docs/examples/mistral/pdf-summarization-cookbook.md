@@ -40,13 +40,13 @@ First, let's install Indexify using the official installation script:
 ```bash
 curl https://getindexify.ai | sh
 ```
-This starts a long running server that exposes ingestion and retrieval APIs to applications.
 
-In case the server doesn't start, you can start the server -
-
+Start the Indexify server:
 ```bash
 ./indexify server -d
 ```
+This starts a long running server that exposes ingestion and retrieval APIs to applications.
+
 ### Install Required Extractors
 
 Next, we'll install the necessary extractors:
@@ -56,10 +56,10 @@ pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/mistral
 ```
-Once the extractors are download, you can strart them
 
+Once the extractors are downloaded, you can strart them in a new terminal:
 ```bash
-indexify-extractors join-server
+indexify-extractor join-server
 ```
 
 ## Creating the Extraction Graph
@@ -93,14 +93,16 @@ client.create_extraction_graph(extraction_graph)
 
 Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
 
-You can run this script to set up the pipeline
+You can run this script to set up the pipeline:
 ```bash
-python pdf_entity_extraction_pipeline.py
+python pdf_summarization_graph.py
 ```
 
 ## Implementing the Summarization Pipeline
 
 Now that we have our extraction graph set up, we can upload files and make the pipeline generate summaries:
+
+Create a file `upload_and_retreive.py`
 
 ```python
 import os
@@ -145,10 +147,9 @@ if __name__ == "__main__":
     print(summary)
 ```
 
-You can run the Python script as many times, or use this in an application to continue generating summaries -
-
+You can run the Python script as many times, or use this in an application to continue generating summaries:
 ```bash
-python pdf_summarization.py
+python upload_and_retreive.py
 ```
 
 ## Customization and Advanced Usage
@@ -168,11 +169,12 @@ You can customize the summarization process by modifying the `system_prompt` in 
 You can also experiment with different Mistral models by changing the `model_name` parameter.
 
 ## Conclusion
+
 While the example might look simple, there are some unique advantages of using Indexify for this -
 
-- **Scalable and Highly Availability:** Indexify server can be deployed on a cloud and it can process 1000s of PDFs uploaded into it, and if any step in the pipeline fails it automatically retries on another machine.
-- **Flexibility:** You can use any other PDF extraction model we used here doesn't work for the document you are using.
-- 
+1. **Scalable and Highly Availability**: Indexify server can be deployed on a cloud and it can process 1000s of PDFs uploaded into it, and if any step in the pipeline fails it automatically retries on another machine.
+2. **Flexibility**: You can use any other [PDF extraction model](https://docs.getindexify.ai/usecases/pdf_extraction/) we used here doesn't work for the document you are using.
+
 ## Next Steps
 
 - Learn more about Indexify on our docs - https://docs.getindexify.ai
