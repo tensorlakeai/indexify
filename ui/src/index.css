@@ -75,6 +75,10 @@ div.MuiDataGrid-main > div.MuiDataGrid-virtualScroller::-webkit-scrollbar {
   display: none;
 }
 
+div.MuiBox-root.custom-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 div.MuiDataGrid-footerContainer {
   justify-content: left;
 

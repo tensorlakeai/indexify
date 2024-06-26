@@ -1,6 +1,6 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
 import { IExtractionPolicy, IIndex } from 'getindexify'
-import { Alert, Button, IconButton, Typography } from '@mui/material'
+import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { Link } from 'react-router-dom'
 import CopyText from '../CopyText'
@@ -31,7 +31,11 @@ const IndexTable = ({
       renderCell: (params) => {
         return (
           <>
-            {params.value}
+            <Link
+              to={`/${namespace}/indexes/${params.row.name}`}
+            >
+              {params.value}
+            </Link>
             <CopyText text={params.value} className="show-onHover" />
           </>
         )
@@ -39,7 +43,7 @@ const IndexTable = ({
     },
     {
       field: 'policy_name',
-      headerName: 'Description',
+      headerName: 'Policy Name',
       flex: 1,
       renderCell: (params) => {
         const policy = getPolicyFromIndexname(params.row.name)
@@ -52,24 +56,6 @@ const IndexTable = ({
           >
             {policy.name}
           </Link>
-        )
-      },
-    },
-    {
-      field: 'searchIndex',
-      headerName: 'Action',
-      flex: 1,
-      renderCell: (params) => {
-        return (
-          <>
-            <Link
-              to={`/${namespace}/indexes/${params.row.name}`}
-            >
-              <Button sx={{ py: 0.5, px: 2 }} variant="contained" color="primary">
-                Search Index
-              </Button>
-            </Link>
-          </>
         )
       },
     },

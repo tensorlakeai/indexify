@@ -4,6 +4,7 @@ import { styled } from "@mui/system";
 import { Link } from "react-router-dom";
 import PdfDisplay from "./PdfViewer";
 import ReactJson from "@microlink/react-json-view";
+import InfoBox from "./InfoBox";
 
 interface DetailedContentProps {
   filename: string;
@@ -66,9 +67,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
     } else if (mimeType.startsWith("text")) {
       return (
         <Box sx={{ maxHeight: "500px", overflow: "auto" }}>
-          <Typography variant="body2">
-            {textContent}
-          </Typography>
+           <InfoBox text={textContent} />
         </Box>
       );
     } else if (mimeType.startsWith("application/json")) {
