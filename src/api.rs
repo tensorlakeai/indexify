@@ -1,3 +1,6 @@
+mod filters;
+mod utils;
+
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
@@ -13,7 +16,7 @@ use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::{api_utils, metadata_storage, vectordbs};
+use crate::{metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraph {
@@ -55,7 +58,7 @@ pub struct ExtractionPolicy {
     pub id: String,
     pub extractor: String,
     pub name: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
+    #[serde(default, with = "filters", skip_serializing_if = "Option::is_none")]
     pub filters_eq: Option<HashMap<String, serde_json::Value>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
@@ -71,7 +74,10 @@ impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
-            filters_eq: Some(filters_eq),
+            filters_eq: match filters_eq.is_empty() {
+                true => None,
+                false => Some(filters_eq),
+            },
             input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
             content_source: Some(value.content_source),
             graph_name: value.graph_name,
@@ -167,7 +173,7 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 pub struct ExtractionPolicyRequest {
     pub extractor: String,
     pub name: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
+    #[serde(default, with = "filters", skip_serializing_if = "Option::is_none")]
     pub filters_eq: Option<HashMap<String, serde_json::Value>>,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
@@ -341,22 +347,13 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
 pub struct ListContent {
-    #[serde(
-        deserialize_with = "api_utils::deserialize_none_to_empty_string",
-        default
-    )]
+    #[serde(deserialize_with = "utils::deserialize_none_to_empty_string", default)]
     pub graph: String,
-    #[serde(
-        deserialize_with = "api_utils::deserialize_none_to_empty_string",
-        default
-    )]
+    #[serde(deserialize_with = "utils::deserialize_none_to_empty_string", default)]
     pub source: String,
-    #[serde(
-        deserialize_with = "api_utils::deserialize_none_to_empty_string",
-        default
-    )]
+    #[serde(deserialize_with = "utils::deserialize_none_to_empty_string", default)]
     pub parent_id: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
+    #[serde(default, with = "filters", skip_serializing_if = "Option::is_none")]
     pub labels_eq: Option<HashMap<String, serde_json::Value>>,
 
     pub limit: Option<u64>,

@@ -222,15 +222,7 @@ mod test_label_validation {
     }
 }
 
-pub fn deserialize_none_to_empty_string<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: Option<String> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(s.unwrap_or("".to_string()))
-}
-
-pub fn deserialize_labels_eq_filter<'de, D>(
+pub fn deserialize<'de, D>(
     deserializer: D,
 ) -> Result<Option<HashMap<String, serde_json::Value>>, D::Error>
 where
@@ -242,7 +234,10 @@ where
 
     // labels_eq is in the form labels_eq=key1:value1,key2:value2
     // split on comma
-    let labels = String::deserialize(deserializer)?;
+    let labels: String = match Option::deserialize(deserializer)? {
+        Some(labels) => labels,
+        None => return Ok(None),
+    };
     let labels: Vec<&str> = labels.split(',').collect();
 
     // if there's one label and it's an empty string (i.e. labels_eq=)
@@ -290,8 +285,36 @@ where
     Ok(Some(labels_eq))
 }
 
+pub fn serialize<S>(
+    item: &Option<HashMap<String, serde_json::Value>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match *item {
+        Some(ref value) => serializer.serialize_some(
+            &value
+                .iter()
+                .map(|(k, v)| match v {
+                    serde_json::Value::String(v) => Ok(format!("{}:{}", k, v)),
+                    serde_json::Value::Number(v) => Ok(format!("{}:{}", k, v)),
+                    serde_json::Value::Bool(v) => Ok(format!("{}:{}", k, v)),
+                    serde_json::Value::Null => Ok(format!("{}:", k)),
+                    _ => Err(serde::ser::Error::custom(format!(
+                        "unsupported filter value: {:?}",
+                        v
+                    ))),
+                })
+                .collect::<Result<Vec<String>, S::Error>>()?
+                .join(","),
+        ),
+        None => serializer.serialize_none(),
+    }
+}
+
 #[cfg(test)]
-mod test_deserialize_labels_eq_filter {
+mod deserialize {
     use axum::extract::Query;
     use hyper::Uri;
 

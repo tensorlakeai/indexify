@@ -21,7 +21,6 @@ pub mod state;
 pub mod task_allocator;
 
 mod api;
-mod api_utils;
 mod blob_storage;
 mod caching;
 mod cmd;
