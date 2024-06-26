@@ -433,7 +433,7 @@ impl App {
         }
         let mut matched_policies = Vec::new();
         for extraction_policy in all_extraction_policies {
-            if content_metadata.source.to_string() != extraction_policy.content_source.to_string() {
+            if content_metadata.source != extraction_policy.content_source {
                 continue;
             }
             if !extraction_policy.filters.iter().all(|(name, value)| {
