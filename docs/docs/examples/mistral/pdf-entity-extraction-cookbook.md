@@ -94,7 +94,7 @@ python pdf_entity_extraction_pipeline.py
 
 ## Implementing the Entity Extraction Pipeline
 
-Now that we have our extraction graph set up, all we can upload files and retrieve the entities:
+Now that we have our extraction graph set up, we can upload files and retrieve the entities:
 
 Create a file `upload_and_retreive.py` 
 
