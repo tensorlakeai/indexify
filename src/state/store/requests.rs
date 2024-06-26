@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api as internal_api;
-use internal_api::{StateChange, StateChangeId};
+use internal_api::{ExtractionGraphLink, StateChange, StateChangeId};
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
@@ -63,6 +63,9 @@ pub enum RequestPayload {
         extraction_graph: internal_api::ExtractionGraph,
         structured_data_schema: internal_api::StructuredDataSchema,
         indexes: Vec<internal_api::Index>,
+    },
+    CreateExtractionGraphLink {
+        extraction_graph_link: ExtractionGraphLink,
     },
     CreateOrUpdateContent {
         entries: Vec<CreateOrUpdateContentEntry>,
