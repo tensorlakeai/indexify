@@ -131,7 +131,7 @@ def summarize_pdf(pdf_path):
         policy_name="text_to_summary"
     )
     
-    return summary.data.decode('utf-8')
+    return summary[0]['content'].decode('utf-8')
 
 # Example usage
 if __name__ == "__main__":
