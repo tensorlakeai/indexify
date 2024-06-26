@@ -1,6 +1,6 @@
 # PDF Entity Extraction with Indexify and Mistral
 
-This cookbook demonstrates how to build a robust entity extraction pipeline for PDF documents using Indexify and Mistral's large language models. By combining these powerful tools, we can efficiently extract named entities from PDF files, providing valuable insights for various applications such as information retrieval, content analysis, and data mining.
+This cookbook demonstrates how to build a robust entity extraction pipeline for PDF documents using Indexify and Mistral's large language models. You will learn how to efficiently extract named entities from PDF files for various applications such as information retrieval, content analysis, and data mining.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This cookbook demonstrates how to build a robust entity extraction pipeline for 
 
 ## Introduction
 
-Entity extraction, also known as named entity recognition (NER), is a crucial task in natural language processing. It involves identifying and classifying named entities in text into predefined categories such as persons, organizations, locations, dates, and more. By applying this technique to PDF documents, we can automatically extract structured information from unstructured text, making it easier to analyze and utilize the content of these documents.
+Entity extraction, also known as named entity recognition (NER) involves identifying and classifying named entities in text into predefined categories such as persons, organizations, locations, dates, and more. By applying this technique to PDF documents, we can automatically extract structured information from unstructured text, making it easier to analyze and utilize the content of these documents.
 
 ## Prerequisites
 
@@ -38,9 +38,11 @@ First, let's install Indexify using the official installation script:
 curl https://getindexify.ai | sh
 ```
 
+This starts a long running server that exposes ingestion and retrieval APIs to applications. 
+
 ### Install Required Extractors
 
-Next, we'll install the necessary extractors:
+Next, we'll install the necessary extractors on another terminal:
 
 ```bash
 pip install indexify-extractor-sdk
@@ -48,11 +50,17 @@ indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/mistral
 ```
 
+Once the extractors are download, you can strart them
+
+```bash
+indexify-extractors join-server
+```
+
 ## Creating the Extraction Graph
 
 The extraction graph defines the flow of data through our entity extraction pipeline. We'll create a graph that first extracts text from PDFs, then sends that text to Mistral for entity extraction.
 
-Create a new Python file called `pdf_entity_extraction.py` and add the following code:
+Create a new Python file called `pdf_entity_extraction_pipeline.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -79,9 +87,16 @@ client.create_extraction_graph(extraction_graph)
 
 Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
 
+You can run this script to set up the pipeline
+```bash
+python pdf_entity_extraction_pipeline.py
+```   
+
 ## Implementing the Entity Extraction Pipeline
 
-Now that we have our extraction graph set up, let's implement the entity extraction pipeline:
+Now that we have our extraction graph set up, all we can upload files and retrieve the entities:
+
+Create a file `upload_and_retreive.py` 
 
 ```python
 import json
@@ -94,6 +109,7 @@ def download_pdf(url, save_path):
     with open(save_path, 'wb') as f:
         f.write(response.content)
     print(f"PDF downloaded and saved to {save_path}")
+
 
 def extract_entities_from_pdf(pdf_path):
     client = IndexifyClient()
@@ -117,13 +133,12 @@ def extract_entities_from_pdf(pdf_path):
 
 # Example usage
 if __name__ == "__main__":
+    pdf_path = "/path/to/your/document.pdf"
     pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
     pdf_path = "reference_document.pdf"
-    
+
     # Download the PDF
     download_pdf(pdf_url, pdf_path)
-    
-    # Extract entities
     extracted_entities = extract_entities_from_pdf(pdf_path)
     
     print("Extracted Entities:")
@@ -133,24 +148,10 @@ if __name__ == "__main__":
             print(f"- {entity}")
 ```
 
-## Running the Entity Extraction
 
-To run the entity extraction pipeline:
-
-1. Start the Indexify server:
-   ```bash
-   ./indexify server -d
-   ```
-
-2. In a new terminal, start the extractors:
-   ```bash
-   indexify-extractor join-server
-   ```
-
-3. Run your Python script:
-   ```bash
-   python pdf_entity_extraction.py
-   ```
+```bash
+python upload_and_retreive.py.py
+```
 
 ## Customization and Advanced Usage
 
@@ -170,18 +171,17 @@ You can also experiment with different Mistral models by changing the `model_nam
 
 ## Conclusion
 
-In this cookbook, we've created a powerful PDF entity extraction pipeline using Indexify and Mistral. This solution offers several advantages:
+While the example might look simple, there are some unique advantages of using Indexify for this - 
+1. **Scalable and Highly Availability**: Indexify server can be deployed on a cloud and it can process 1000s of PDFs uploaded into it, and if any step in the pipeline fails it automatically retries on another machine.
+2. **Flexibility**: You can use any other [PDF extraction model](https://docs.getindexify.ai/usecases/pdf_extraction/) we used here doesn't work for the document you are using. 
 
-1. **Flexibility**: Easily customize the entity extraction approach by modifying the system prompt.
-2. **Scalability**: Handle multiple PDFs efficiently using Indexify's extraction graph.
-3. **Quality**: Leverage Mistral's advanced language models for accurate entity recognition.
-4. **Structured Output**: Obtain entities in a structured JSON format, ready for further processing or analysis.
-
-By combining these technologies, you can create a robust entity extraction system that can be integrated into various applications, such as:
+By combining Indexify and Mistral, you can create a robust entity extraction system that can be integrated into various applications, such as:
 
 - Content categorization and tagging
 - Information retrieval systems
 - Trend analysis in large document collections
 - Automated metadata generation for document management systems
 
-This approach provides a solid foundation for extracting valuable insights from your PDF documents, enabling more efficient data processing and analysis workflows.
+## Next Steps
+- Learn more about Indexify on our docs - https://docs.getindexify.ai
+- Go over an example, which uses Mistral for building summarization at scale.
