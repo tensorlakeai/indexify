@@ -10,8 +10,8 @@ This folder contains cookbooks demonstrating how to leverage Indexify and Mistra
 
 ## Contents
 
-1. [PDF Entity Extraction Cookbook](pdf-entity-extraction-cookbook.md)
-2. [PDF Summarization Cookbook](pdf-summarization-cookbook.md)
+1. [PDF Entity Extraction Cookbook](pdf-entity-extraction-cookbook)
+2. [PDF Summarization Cookbook](pdf-summarization-cookbook)
 
 ## Overview
 

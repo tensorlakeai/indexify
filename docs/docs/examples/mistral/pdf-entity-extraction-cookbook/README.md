@@ -131,7 +131,7 @@ def extract_entities_from_pdf(pdf_path):
     )
     
     # Parse the JSON response
-    entities = json.loads(entities_content.data.decode('utf-8'))
+    entities = json.loads(entities_content[0]['content'].decode('utf-8'))
     return entities
 
 # Example usage
