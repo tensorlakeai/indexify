@@ -1,0 +1,12 @@
+name: 'topic_extraction'
+extraction_policies:
+- extractor: 'tensorlake/whisper-asr'
+  name: 'transcription'
+- extractor: 'tensorlake/summarization'
+  name: 'summarization'
+  content_source: 'transcription'
+- extractor: 'tensorlake/openai'
+  name: 'topics'
+  input_params:
+    system_prompt: "Summarize the topics and return them as json. Don't say anything else or explain anything."
+  content_source: 'transcription'

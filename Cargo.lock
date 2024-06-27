@@ -3386,6 +3386,7 @@ dependencies = [
  "hyper-util",
  "indexify_internal_api",
  "indexify_proto",
+ "indexify_ui",
  "itertools 0.12.1",
  "jsonschema",
  "lance",
@@ -3487,6 +3488,14 @@ dependencies = [
  "prost-wkt-types",
  "serde",
  "tonic 0.11.0",
+]
+
+[[package]]
+name = "indexify_ui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rust-embed",
 ]
 
 [[package]]

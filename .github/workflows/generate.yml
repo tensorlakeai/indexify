@@ -26,7 +26,7 @@ jobs:
         npm install fs
 
     - name: Generate release.json
-      run: node generate-curl-commands.js ${{ github.repository_owner }} ${{ github.event.repository.name }}
+      run: node ./scripts/generate-curl-commands.js ${{ github.repository_owner }} ${{ github.event.repository.name }}
       env:
         GITHUB_PERSONAL_ACCESS_TOKEN: ${{ secrets.TARGET_REPO_PAT }}
 

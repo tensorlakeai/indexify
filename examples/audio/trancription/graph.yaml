@@ -1,0 +1,4 @@
+name: 'audio_transcription'
+extraction_policies:
+- extractor: 'tensorlake/whisper-asr'
+  name: 'transcription'

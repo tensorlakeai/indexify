@@ -138,7 +138,9 @@ const ContentTable = ({
       renderCell: (params) => {
         return (
           <>
-            {params.value}
+            <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
+              {params.value}
+            </Link>
             <CopyText text={params.value} />
           </>
         )
@@ -198,18 +200,6 @@ const ContentTable = ({
       valueGetter: (params) => {
         return moment(params.value * 1000).format('MM/DD/YYYY h:mm A')
       },
-    },
-    {
-      field: 'view',
-      headerName: 'Actions',
-      flex: 1,
-      renderCell: (params) => (
-        <Link to={`/${params.row.namespace}/content/${params.row.id}`}>
-          <Button sx={{ py: 0.5, px: 2 }} variant="contained">
-            View
-          </Button>
-        </Link>
-      ),
     },
   ]
 

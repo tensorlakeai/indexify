@@ -23,8 +23,8 @@ use indexify_proto::indexify_coordinator::{
     ListStateChangesRequest,
     ListTasksRequest,
 };
+use indexify_ui::Assets as UiAssets;
 use prometheus::Encoder;
-use rust_embed::RustEmbed;
 use tokio::{
     signal,
     sync::{mpsc, watch},
@@ -54,10 +54,6 @@ use crate::{
 };
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
-
-#[derive(RustEmbed)]
-#[folder = "ui/build"]
-pub struct UiAssets;
 
 #[derive(Clone, Debug)]
 pub struct NamespaceEndpointState {
