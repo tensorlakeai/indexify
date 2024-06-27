@@ -11,7 +11,7 @@ fn main() -> Result<()> {
 
     if !Command::new("sh")
         .arg("-c")
-        .arg("cd ../../ui && npm run build")
+        .arg("cd ../../ui && npm install && npm run build")
         .status()?
         .success()
     {

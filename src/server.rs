@@ -25,7 +25,6 @@ use indexify_proto::indexify_coordinator::{
 };
 use indexify_ui::Assets as UiAssets;
 use prometheus::Encoder;
-use rust_embed::RustEmbed;
 use tokio::{
     signal,
     sync::{mpsc, watch},
