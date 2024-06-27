@@ -26,5 +26,5 @@ if __name__ == "__main__":
     content_id = upload("https://pub-4df2354662e34feca92dcebb4ebc8590.r2.dev/The%20Last%20Thing%20To%20Ever%20Happen%20In%20The%20Universe.mp3")
     retrieve(content_id)
     os.remove("audio.mp3")
-    results = client.search_indexes("transcription_indexing.embedding", "black hole", 3)
+    results = client.search_index("transcription_indexing.embedding.embedding", "black hole", 3)
     print(results)
