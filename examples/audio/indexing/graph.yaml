@@ -1,0 +1,7 @@
+name: 'transcription_indexing'
+extraction_policies:
+- extractor: 'tensorlake/whisper-asr'
+  name: 'transcription'
+- extractor: 'tensorlake/minilm-l6'
+  name: 'embedding'
+  content_source: 'transcription'
