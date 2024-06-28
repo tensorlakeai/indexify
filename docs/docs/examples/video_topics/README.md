@@ -113,7 +113,7 @@ python debate_summary_graph.py
 
 ## Implementing the Debate Summary Pipeline
 
-Now let's create a script to upload the video and retrieve the summaries. Create a file `debate_summary_pipeline.py`:
+Now let's create a script to upload the video and retrieve the summaries. Create a file `upload_and_retreive.py`:
 
 ```python
 import os
