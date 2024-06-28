@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
 use crate::{
-    api::{self, BeginExtractedContentIngest, ExtractionGraphRequest},
+    api::{self, BeginExtractedContentIngest, ExtractionGraphLink, ExtractionGraphRequest},
     blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
     coordinator_client::{CoordinatorClient, CoordinatorServiceClient},
     grpc_helper::GrpcHelper,
@@ -145,6 +145,24 @@ impl DataManager {
             .policy
             .ok_or_else(|| anyhow!("extraction policy not found"))?;
         Ok(policy.try_into()?)
+    }
+
+    pub async fn link_extraction_graphs(
+        &self,
+        namespace: &str,
+        req: ExtractionGraphLink,
+    ) -> Result<()> {
+        let req = indexify_coordinator::LinkExtractionGraphsRequest {
+            namespace: namespace.to_string(),
+            source_graph_name: req.source_graph_name,
+            linked_graph_name: req.linked_graph_name,
+            content_source: req.content_source,
+        };
+        self.get_coordinator_client()
+            .await?
+            .link_extraction_graphs(req)
+            .await?;
+        Ok(())
     }
 
     pub async fn create_extraction_graph(

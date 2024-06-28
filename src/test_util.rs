@@ -178,13 +178,10 @@ pub mod db_utils {
         task: &Task,
         id: &str,
     ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
-        let mut content = test_mock_content_metadata(
-            id,
-            task.content_metadata.get_root_id(),
-            &task.content_metadata.extraction_graph_names[0],
-        );
-        content.parent_id = Some(task.content_metadata.id.clone());
         let policy = coordinator.get_extraction_policy(task.extraction_policy_id.clone())?;
+        let mut content =
+            test_mock_content_metadata(id, task.content_metadata.get_root_id(), &policy.graph_name);
+        content.parent_id = Some(task.content_metadata.id.clone());
         content.source = ContentSource::ExtractionPolicyName(policy.name);
         Ok(content)
     }

@@ -85,6 +85,35 @@ impl ExtractionGraphBuilder {
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Hash)]
+pub struct ExtractionGraphNode {
+    pub namespace: String,
+    pub graph_name: String,
+    pub source: ContentSource,
+}
+
+/// Links a node in extraction graph to another graph.
+/// All top level policies in the linked graph will be applied to the
+/// specified node.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize)]
+pub struct ExtractionGraphLink {
+    pub node: ExtractionGraphNode,
+    pub graph_name: String,
+}
+
+impl From<indexify_coordinator::LinkExtractionGraphsRequest> for ExtractionGraphLink {
+    fn from(value: indexify_coordinator::LinkExtractionGraphsRequest) -> Self {
+        Self {
+            node: ExtractionGraphNode {
+                namespace: value.namespace,
+                graph_name: value.source_graph_name,
+                source: value.content_source.into(),
+            },
+            graph_name: value.linked_graph_name,
+        }
+    }
+}
+
 pub type IndexName = String;
 pub type IndexId = String;
 
@@ -794,7 +823,7 @@ impl Default for ContentMetadataId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ContentSource {
     Ingestion,
     ExtractionPolicyName(ExtractionPolicyName),
