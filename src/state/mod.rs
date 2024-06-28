@@ -571,7 +571,11 @@ impl App {
             &extraction_graph.id,
         )?;
         if existing_graph.is_some() {
-            return Ok(());
+            return Err(anyhow!(
+                "extraction graph {} already exists in namespace {}",
+                extraction_graph.name,
+                extraction_graph.namespace
+            ));
         }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionGraph {
