@@ -3,7 +3,7 @@ from indexify import IndexifyClient, ExtractionGraph
 client = IndexifyClient()
 
 extraction_graph_spec = """
-name: 'pdf_translator'
+name: 'pdf_translator_gpt4o'
 extraction_policies:
   - extractor: 'tensorlake/openai'
     name: 'pdf_to_french'
