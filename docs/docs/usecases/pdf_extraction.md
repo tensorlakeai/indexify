@@ -24,38 +24,38 @@ If all you want is to extract text, images, and tables from a PDF, this is the o
 ## Image Extraction
 If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdfextractor` It automatically extracts images from documents and writes them into blob stores. 
 
-You can get extracted images from pdfextractor with a simple python code like this:
+You can get extracted images from pdfextractor by simply specifying ["image"] in the graph like this:
 ```python
-content_id = client.upload_file("extraction_graph_name", "file.pdf")
+extraction_graph_spec = """
+name: 'image_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_image'
+    input_params:
+      output_types: ["image"]
+"""
 ```
-```python
-def get_image_content(client, content_id):
-   extracted_content = client.get_extracted_content(content_id, "extraction_graph_name", "policy_name")
-    
-   for data in extracted_content:
-      if 'metadata' in data and data['metadata'].get('type') == 'image':
-         return item['content']
-   
-   return None
-```
+Complete code:
+1. Define Graph by running [image_pipeline.py](https://docs.getindexify.ai/usecases/image/image_pipeline.py)
+2. Test Image extraction by running [upload_and_retreive.py](https://docs.getindexify.ai/usecases/image/upload_and_retreive.py)
 
 ## Table Extraction
 Tables are automatically extracted by `tensorlake/pdfextractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
 
-You can get extracted tables from pdfextractor with a simple python code like this:
+You can get extracted tables from pdfextractor by simply specifying ["table"] in the graph like this:
 ```python
-content_id = client.upload_file("extraction_graph_name", "file.pdf")
+extraction_graph_spec = """
+name: 'table_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_table'
+    input_params:
+      output_types: ["table"]
+"""
 ```
-```python
-def get_table_content(client, content_id):
-   extracted_content = client.get_extracted_content(content_id, "extraction_graph_name", "policy_name")
-   
-   for data in extracted_content:
-      if 'metadata' in data and data['metadata'].get('type') == 'table':
-            return item['content']
-   
-   return None
-```
+Complete code:
+1. Define Graph by running [table_pipeline.py](https://docs.getindexify.ai/usecases/table/table_pipeline.py)
+2. Test Table extraction by running [upload_and_retreive.py](https://docs.getindexify.ai/usecases/table/upload_and_retreive.py)
 
 ## Explore PDF Extractors
 
