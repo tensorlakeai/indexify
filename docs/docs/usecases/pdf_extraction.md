@@ -36,8 +36,8 @@ extraction_policies:
 """
 ```
 Complete code:
-1. Define Graph by running [image_pipeline.py](https://docs.getindexify.ai/usecases/image/image_pipeline.py)
-2. Test Image extraction by running [upload_and_retreive.py](https://docs.getindexify.ai/usecases/image/upload_and_retreive.py)
+1. Define Graph by running [image_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/image_pipeline.py)
+2. Test Image extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/upload_and_retreive.py)
 
 ## Table Extraction
 Tables are automatically extracted by `tensorlake/pdfextractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
@@ -54,8 +54,8 @@ extraction_policies:
 """
 ```
 Complete code:
-1. Define Graph by running [table_pipeline.py](https://docs.getindexify.ai/usecases/table/table_pipeline.py)
-2. Test Table extraction by running [upload_and_retreive.py](https://docs.getindexify.ai/usecases/table/upload_and_retreive.py)
+1. Define Graph by running [table_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/table_pipeline.py)
+2. Test Table extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/upload_and_retreive.py)
 
 ## Explore PDF Extractors
 
@@ -141,23 +141,10 @@ You can extend the graph to do any kind of downstream tasks(embedding, summariza
 
 We've curated a collection of PDF extraction examples. Check out these notebooks:
 
-#### RAG based Question Answering
-- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
-- [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.ipynb)
-- [Scientific Journals](../examples/Scientific_Journals.ipynb)
+- [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
+- [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
+- [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
 
-#### Schema based Extractions
-- [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
-- [SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
-
-#### LLM based Extractions
-- [Entity Recognition from PDF using Indexify and Gemini](https://colab.research.google.com/drive/1gHru2qjEhl4cmAOTQMj7unHnQACCh7We?usp=sharing)
-- [Invoices](../examples/Invoices.ipynb): Extract and analyze invoice data like a pro!
-
-#### Terms and Condition Documents
-- [Multi-state Terms Documents](../examples/Sixt.ipynb)
-- [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease.
-- [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions.
 
 ## Extractor Performance Analysis
 
