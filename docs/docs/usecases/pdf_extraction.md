@@ -36,8 +36,8 @@ extraction_policies:
 """
 ```
 Complete code:
-1. Define Graph by running [image_pipeline.py](https://docs.getindexify.ai/usecases/image/image_pipeline.py)
-2. Test Image extraction by running [upload_and_retreive.py](https://docs.getindexify.ai/usecases/image/upload_and_retreive.py)
+1. Define Graph by running [image_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/image_pipeline.py)
+2. Test Image extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/upload_and_retreive.py)
 
 ## Table Extraction
 Tables are automatically extracted by `tensorlake/pdfextractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
@@ -54,8 +54,8 @@ extraction_policies:
 """
 ```
 Complete code:
-1. Define Graph by running [table_pipeline.py](https://docs.getindexify.ai/usecases/table/table_pipeline.py)
-2. Test Table extraction by running [upload_and_retreive.py](https://docs.getindexify.ai/usecases/table/upload_and_retreive.py)
+1. Define Graph by running [table_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/table_pipeline.py)
+2. Test Table extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/upload_and_retreive.py)
 
 ## Explore PDF Extractors
 
