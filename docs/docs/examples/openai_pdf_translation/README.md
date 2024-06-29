@@ -1,6 +1,6 @@
-# PDF Translation with Indexify: Two Approaches
+# PDF Translation with Indexify and OpenAI
 
-This README demonstrates two robust approaches to building a PDF translation pipeline from English to French using Indexify. We'll explore using both OpenAI's GPT-4o and GPT-3.5-turbo models for translation. You will learn how to efficiently translate PDF documents for various applications such as multilingual document processing, content localization, and cross-language information retrieval.
+This demonstrates two robust approaches to building a PDF translation pipeline from English to French using Indexify. We'll explore using both OpenAI's GPT-4o and GPT-3.5-turbo models for translation. You will learn how to efficiently translate PDF documents for various applications such as multilingual document processing, content localization, and cross-language information retrieval.
 
 ## Table of Contents
 
