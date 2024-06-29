@@ -51,5 +51,3 @@ async function generateCurlCommands(owner, repo) {
 const [owner, repo] = process.argv.slice(2);
 
 generateCurlCommands(owner, repo);
-
-export { generateCurlCommands };

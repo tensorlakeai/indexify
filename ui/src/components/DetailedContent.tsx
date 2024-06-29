@@ -86,7 +86,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
       sx={{ boxShadow: "0px 0px 2px 0px #D0D6DE", borderRadius: "12px" }}
     >
       <Grid container spacing={2} paddingLeft={2} paddingRight={2}>
-        <Grid item xs={12} md={8} rowSpacing={4} spacing={2} marginTop={1}>
+        <Grid item xs={12} md={6} rowSpacing={4} spacing={2} marginTop={1}>
           <Stack
             direction="row"
             spacing={1}
@@ -184,7 +184,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             <Chip label={mimeType} sx={{ backgroundColor: "#E5EFFB" }} />
           </Stack>
         </Grid>
-        <Grid item xs={12} md={4} marginTop={1}>
+        <Grid item xs={12} md={6} marginTop={1}>
           {renderContent()}
         </Grid>
       </Grid>
