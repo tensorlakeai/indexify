@@ -21,7 +21,7 @@ structured_data = structured_extraction_function(data)
 db.save(embedding)
 db.save(structured_data)
 ```
-All of these lines in the above code snippet can and **will** [fail in production](https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/). If your application relies on your data framework being reliable and not losing data, you will inevitably lose data in production with LLM data frameworks designed for prototyping MVPs.
+All of these lines in the above code snippet **can and will** [fail in production](https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/). If your application relies on your data framework being reliable and not losing data, you will inevitably lose data in production with LLM data frameworks designed for prototyping MVPs.
 
 ##### The Indexify Approach
 Indexify provides a declarative configuration approach. You can translate the code above into a pipeline like this,
