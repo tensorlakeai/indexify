@@ -16,7 +16,7 @@ const InfoBox: React.FC<InfoBoxProps> = ({text}) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        maxWidth: '750px',
+        maxWidth: '500px',
         margin: '10px',
         boxShadow: "0px 1px 2px 0px #00000040 inset",
       }}

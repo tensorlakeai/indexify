@@ -83,3 +83,10 @@ export const getExtractionPolicyTaskCounts = async (
     totalUnknown: totalUnknown ?? 0,
   }
 }
+
+type KeyValueObject = { [key: string]: string };
+
+export const splitLabels = (data: KeyValueObject): string[] => {
+  return Object.entries(data).map(([key, value]) => `${key}: ${value}`);
+}
+
