@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Box, Stack, Chip, IconButton } from '@mui/material';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ArrowCircleLeftRoundedIcon from '@mui/icons-material/ArrowCircleLeftRounded';
+import ArrowCircleRightRoundedIcon from '@mui/icons-material/ArrowCircleRightRounded';
 
 export const ScrollableChips = ({ inputParams }: { inputParams: any }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -33,23 +33,21 @@ export const ScrollableChips = ({ inputParams }: { inputParams: any }) => {
     return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82' }} />;
   }
 
-    const chipCount = Object.keys(inputParams).length;
-
   return (
-    <Box sx={{ position: 'relative', width: '100%' }}>
+    <Box sx={{ position: 'relative', width: '100%' }} pl={showLeftArrow ? 2 : 0} pr={showRightArrow ? 2 : 0}>
       {showLeftArrow && (
         <IconButton
           onClick={() => scroll(-100)}
           sx={{
             position: 'absolute',
-            left: -20, // Adjust this value as needed
+            left: -20,
             top: '50%',
             transform: 'translateY(-50%)',
             zIndex: 1,
             '&:hover': { backgroundColor: '#3296fe4d' },
           }}
         >
-          <ChevronLeftIcon fontSize={'small'} />
+          <ArrowCircleLeftRoundedIcon fontSize={'small'} />
         </IconButton>
       )}
       <Box
@@ -58,7 +56,8 @@ export const ScrollableChips = ({ inputParams }: { inputParams: any }) => {
           overflowX: 'auto',
           scrollbarWidth: 'none',
           '&::-webkit-scrollbar': { display: 'none' },
-          px: chipCount > 1 ? 3 : 0
+          pl: showLeftArrow ? 3 : 0,
+          pr: showRightArrow ? 3 : 0,
         }}
         onScroll={checkScroll}
       >
@@ -77,14 +76,14 @@ export const ScrollableChips = ({ inputParams }: { inputParams: any }) => {
           onClick={() => scroll(100)}
           sx={{
             position: 'absolute',
-            right: -20, // Adjust this value as needed
+            right: -20,
             top: '50%',
             transform: 'translateY(-50%)',
             zIndex: 1,
             '&:hover': { backgroundColor: '#3296fe4d' },
           }}
         >
-          <ChevronRightIcon fontSize={'small'} />
+          <ArrowCircleRightRoundedIcon fontSize={'small'} />
         </IconButton>
       )}
     </Box>
