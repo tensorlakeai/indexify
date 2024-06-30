@@ -23,6 +23,7 @@ import {
   ListItemText,
 } from '@mui/material'
 import { Link } from 'react-router-dom'
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Cpu, Data, Grid7, MobileProgramming, SliderVertical1 } from 'iconsax-react'
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -114,7 +115,7 @@ export default function Dashboard() {
                 <Data size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
-              <ListItemButton
+              {/* <ListItemButton
                 to={`/${namespace}/content`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/content`)}
@@ -122,7 +123,7 @@ export default function Dashboard() {
               >
                 <SliderVertical1 size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Content'} />
-              </ListItemButton>
+              </ListItemButton> */}
               <ListItemButton
                 to={`/${namespace}/extraction-graphs`}
                 component={Link}

@@ -15,6 +15,7 @@ import {
   ExtractionPolicyPageLoader,
   SearchIndexPageLoader,
   IndividualContentPageLoader,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ContentsPageLoader,
   ExtractorsPageLoader,
   ExtractionGraphsPageLoader,
@@ -25,6 +26,7 @@ import {
   ExtractionPolicyPage,
   SearchIndexPage,
   IndividualContentPage,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ContentsPage,
   ExtractorsPage,
   ExtractionGraphsPage,
@@ -67,12 +69,12 @@ const router = createBrowserRouter(
           loader: IndividualContentPageLoader,
           errorElement: <ErrorPage />
         },
-        {
-          path: "/:namespace/content",
-          element: <ContentsPage />,
-          loader: ContentsPageLoader,
-          errorElement: <ErrorPage />
-        },
+        // {
+        //   path: "/:namespace/content",
+        //   element: <ContentsPage />,
+        //   loader: ContentsPageLoader,
+        //   errorElement: <ErrorPage />
+        // },
         {
           path: "/:namespace/extractors",
           element: <ExtractorsPage />,
