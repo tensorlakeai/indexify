@@ -86,4 +86,4 @@ install: build-release ## Build the application and install it to the system
 	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(APPLICATION_NAME)
 
 package-ui:
-	cd ui && npm ci && npm run build
+	cd ui && npm install && npm run build
