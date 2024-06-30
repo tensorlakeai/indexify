@@ -64,7 +64,13 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
           style={{ width: "100%", maxWidth: "400px", height: "auto" }}
         />
       );
-    } else if (mimeType.startsWith("text")) {
+    } else if (mimeType.startsWith("text/html")) {
+      return (
+        <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
+           <code lang="html">{textContent}</code>
+        </Box>
+      );
+    } else if (mimeType.startsWith("text/plain") && !mimeType.startsWith("text/html")) {
       return (
         <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
            <InfoBox text={textContent} />
