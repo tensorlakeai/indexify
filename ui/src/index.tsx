@@ -32,7 +32,6 @@ import {
   IndexesPage,
   SqlTablesPage
 } from "./routes/Namespace";
-import IndividualExtractorsPage from "./routes/Namespace/IndividualExtractorsPage";
 
 function RedirectToExtractors() {
   const { namespace } = useParams();
