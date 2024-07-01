@@ -244,7 +244,7 @@ if __name__ == "__main__":
     print(
         query_database(
             "What accomplishments did Kevin durant achieve during his career?",
-            "summarize_and_chunk.wikiembedding.embedding",
+            "wiki_extraction_pipeline.wikiembedding.embedding",
             4,
         )
     )
