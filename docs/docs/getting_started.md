@@ -241,6 +241,9 @@ def query_database(question: str, index: str, top_k=3):
 
 
 if __name__ == "__main__":
+    index_name = "wiki_extraction_pipeline.wikiembedding.embedding"
+    indexes = client.indexes()
+    print(f"Vector indexes present: {indexes}, querying index: {index_name}")
     print(
         query_database(
             "What accomplishments did Kevin durant achieve during his career?",
