@@ -2,8 +2,8 @@
 
 In this tutorial, we'll show you how to create an online ingestion pipeline for Wikipedia pages, that performs - 
 
-1. Structured Extraction from the page
-2. Chunks, Extract Named Entities and Indexes the pages.
+1. Structured Extraction(NER in this example) from the page using LLMs
+2. Chunks, extract embeddings and write them into vector databases(LanceDB in this example).
 
 You will also learn how to - 
 
