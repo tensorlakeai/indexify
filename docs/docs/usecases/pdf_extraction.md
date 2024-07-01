@@ -144,6 +144,7 @@ We've curated a collection of PDF extraction examples. Check out these notebooks
 - [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
 - [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
 - [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
+- [PDF Chunk Extraction](https://docs.getindexify.ai/examples/chunking)
 
 
 ## Extractor Performance Analysis
