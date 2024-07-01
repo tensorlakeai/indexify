@@ -1,8 +1,9 @@
 # Getting Started
 
 In this tutorial, we'll show you how to create an online ingestion pipeline for Wikipedia pages, that performs - 
-- Structured Extraction from the page
-- Chunks and Indexes the pages. 
+
+1. Structured Extraction from the page
+2. Chunks and Indexes the pages. 
 
 You'll need three different terminals open to complete this tutorial
 
@@ -171,13 +172,50 @@ python3 ./ingest.py
 
 ## Query Indexify
 
-Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
+You can query Indexify to - 
 
-```python title="query.py"
+1. List ingested content by extraction graph. You can also list content per extraction policy.
+2. Get extracted data from any of the extraction policies of an Extraction Graph.
+3. Perform semantic search on vector indexes populated by embedding extractors.
+4. Run SQL Queries on structured data(not in this tutorial).
+
+Create a file `query.py` and add code to query Indexify -
+
+#### Entities
+We can get the list of entities extracted by the policy `entity-extractor` for every ingested page as -
+```python  title="query.py"
 from indexify import IndexifyClient
-from openai import OpenAI
 
 client = IndexifyClient()
+
+ingested_content_list = client.list_content("wiki_extraction_pipeline") #(1)!
+content_id = ingested_content_list[0].id
+client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "entity-extractor") #(2)!
+```
+
+1. Get a list of ingested content into the extraction graph.
+2. Get the entities extracted by the `entity-extractor` extraction policy.
+
+#### Chunks
+Similarly, we can get the list of chunks created for one of the pages - 
+```python   title="query.py"
+chunks = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "chunker") #(1)!
+```
+1. Get the entities extracted by the `chunker` extraction policy.
+
+### Querying Vector Index 
+
+Finally, lets perform semantic search on the embeddings created by the `wikiembedding` extraction policy.
+
+```python title="query.py"
+from openai import OpenAI
+
 client_openai = OpenAI()
 
 def query_database(question: str, index: str, top_k=3):
