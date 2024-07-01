@@ -8,7 +8,7 @@ def download_pdf(url, save_path):
         f.write(response.content)
     print(f"PDF downloaded and saved to {save_path}")
 
-def chunk_pdf(pdf_path):
+def retreive_chunks(pdf_path):
     client = IndexifyClient()
     
     # Upload the PDF file
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     download_pdf(pdf_url, pdf_path)
     
     # Chunk the PDF
-    chunks = chunk_pdf(pdf_path)
+    chunks = retreive_chunks(pdf_path)
     print(f"Number of chunks generated: {len(chunks)}")
     print("\nFirst chunk:")
     print(chunks[0][:500] + "...")  # Print first 500 characters of the first chunk

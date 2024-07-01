@@ -37,14 +37,10 @@ Before we begin, ensure you have the following:
 
 ### Install Indexify
 
-First, let's install Indexify using the official installation script:
+First, let's install Indexify using the official installation script & start the server:
 
 ```bash
 curl https://getindexify.ai | sh
-```
-
-Start the Indexify server:
-```bash
 ./indexify server -d
 ```
 This starts a long-running server that exposes ingestion and retrieval APIs to applications.
@@ -98,7 +94,7 @@ You can run this script to set up the pipeline:
 python pdf_chunking_graph.py
 ```
 
-## Implementing the Chunking Pipeline
+## Ingestion and Retreival from the Pipeline
 
 Now that we have our extraction graph set up, we can upload files and make the pipeline generate chunks. Create a file `upload_and_retreive.py`:
 
@@ -113,7 +109,7 @@ def download_pdf(url, save_path):
         f.write(response.content)
     print(f"PDF downloaded and saved to {save_path}")
 
-def chunk_pdf(pdf_path):
+def retreive_chunks(pdf_path):
     client = IndexifyClient()
     
     # Upload the PDF file
@@ -140,7 +136,7 @@ if __name__ == "__main__":
     download_pdf(pdf_url, pdf_path)
     
     # Chunk the PDF
-    chunks = chunk_pdf(pdf_path)
+    chunks = retreive_chunks(pdf_path)
     print(f"Number of chunks generated: {len(chunks)}")
     print("\nFirst chunk:")
     print(chunks[0][:500] + "...")  # Print first 500 characters of the first chunk

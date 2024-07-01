@@ -34,7 +34,11 @@ Both methods have their advantages, and the choice between them depends on your 
 
 Before we begin, ensure you have the following:
 
-- Python 3.9 or later
+- Create a virtual env with Python 3.9 or later
+  ```shell
+  python3.9 -m venv ve
+  source ve/bin/activate
+  ```
 - `pip` (Python package manager)
 - An OpenAI API key
 - Basic familiarity with Python and command-line interfaces

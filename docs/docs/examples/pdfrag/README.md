@@ -28,7 +28,11 @@ The RAG pipeline will be composed of several steps:
 
 Before we begin, ensure you have the following:
 
-- Python 3.9 or later
+- Create a virtual env with Python 3.9 or later
+  ```shell
+  python3.9 -m venv ve
+  source ve/bin/activate
+  ```
 - `pip` (Python package manager)
 - An OpenAI API key
 - Basic familiarity with Python and command-line interfaces
@@ -37,14 +41,10 @@ Before we begin, ensure you have the following:
 
 ### Install Indexify
 
-First, let's install Indexify using the official installation script:
+First, let's install Indexify using the official installation script & start the server:
 
 ```bash
 curl https://getindexify.ai | sh
-```
-
-Start the Indexify server:
-```bash
 ./indexify server -d
 ```
 
@@ -99,7 +99,7 @@ Run this script to set up the pipeline:
 python rag_extraction_graph.py
 ```
 
-## Implementing the RAG Pipeline
+## Ingestion and RAG from the Pipeline
 
 Create a file `upload_and_retreive.py`:
 
