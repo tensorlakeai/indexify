@@ -4,6 +4,7 @@ In this tutorial, we'll show you how to create an online ingestion pipeline for 
 
 1. Structured Extraction from the page
 2. Chunks and Indexes the pages. 
+3. Uses GTP-4 or Mistral to answer questions using indexed information(RAG).
 
 You'll need three different terminals open to complete this tutorial
 
