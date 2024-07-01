@@ -63,7 +63,6 @@ export default function Dashboard() {
         }}
       >
         <CssBaseline />
-        {/* <NavigationBar namespace={namespace} namespaces={namespaces} /> */}
         <Drawer
           variant="permanent"
           sx={{
@@ -115,7 +114,7 @@ export default function Dashboard() {
                 <Data size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
-              {/* <ListItemButton
+              <ListItemButton
                 to={`/${namespace}/content`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/content`)}
@@ -123,7 +122,7 @@ export default function Dashboard() {
               >
                 <SliderVertical1 size="20" className="drawer-logo" variant="Outline" />
                 <ListItemText primary={'Content'} />
-              </ListItemButton> */}
+              </ListItemButton>
               <ListItemButton
                 to={`/${namespace}/extraction-graphs`}
                 component={Link}
