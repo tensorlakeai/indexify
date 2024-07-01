@@ -196,7 +196,7 @@ client = IndexifyClient()
 
 ingested_content_list = client.list_content("wiki_extraction_pipeline") #(1)!
 content_id = ingested_content_list[0].id
-client.get_extracted_content(
+entities = client.get_extracted_content(
     content_id, 
     "wiki_extraction_pipeline", 
     "entity-extractor") #(2)!
@@ -213,6 +213,7 @@ chunks = client.get_extracted_content(
     "wiki_extraction_pipeline", 
     "chunker") #(1)!
 ```
+
 1. Get the entities extracted by the `chunker` extraction policy.
 
 ### Querying Vector Index 

@@ -1,10 +1,10 @@
 from indexify import IndexifyClient, ExtractionGraph
 
-client = IndexifyClient() #(1)!
+client = IndexifyClient() 
 
 def create_extraction_graph():
-    extraction_graph = ExtractionGraph.from_yaml_file("graph.yaml") #(2)!
-    client.create_extraction_graph(extraction_graph) #(3)!
+    extraction_graph = ExtractionGraph.from_yaml_file("graph.yaml") 
+    client.create_extraction_graph(extraction_graph) 
 
 if __name__ == "__main__":
     create_extraction_graph()
