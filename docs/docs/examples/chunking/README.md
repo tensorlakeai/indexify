@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
 You can run the Python script to process a PDF and generate chunks:
 ```bash
-python upload_and_chunk.py
+python upload_and_retreive.py
 ```
 
 ## Customization and Advanced Usage
@@ -170,7 +170,7 @@ You can customize the chunking process by modifying the `input_params` in the ex
   input_params:
     text_splitter: 'char'
     chunk_size: 1000
-    chunk_overlap: 200
+    overlap: 200
   ```
 
 You can also experiment with different parameters to find the best balance between chunk size and coherence for your specific use case.
