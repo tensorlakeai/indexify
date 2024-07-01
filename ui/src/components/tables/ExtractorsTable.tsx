@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Chip, IconButton, Typography, Paper, Grid, ButtonBase } from '@mui/material';
+import { Alert, Chip, IconButton, Typography, Paper, Grid } from '@mui/material';
 import { Box, Stack } from '@mui/system';
 import { Extractor } from 'getindexify';
 import { Data, InfoCircle } from 'iconsax-react';
@@ -9,7 +9,7 @@ import { TruncatedDescription } from '../Inputs/TruncatedDescription';
 const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
   const renderInputParams = (inputParams: any) => {
     if (!inputParams || Object.keys(inputParams).length === 0) {
-      return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82' }} />;
+      return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82', width: '5rem' }} />;
     }
     return (
       <ScrollableChips inputParams={inputParams} />
@@ -18,7 +18,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
 
   const renderOutputs = (outputs: any) => {
     if (!outputs || Object.keys(outputs).length === 0) {
-      return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82' }} />;
+      return <Chip label="None" sx={{ backgroundColor: '#E9EDF1', color: '#757A82', width: '5rem' }} size='small'  />;
     }
     return (
       <Box sx={{ overflowX: 'auto' }}>
@@ -45,7 +45,7 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
       <Box sx={{ width: '100%', marginTop: '1rem' }}>
         <Grid container spacing={2}>
           {extractors.map((extractor) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={extractor.name}>
+            <Grid item xs={12} sm={12} md={12} lg={12} key={extractor.name}>
               <Paper
                 sx={{
                   p: 2,
@@ -59,9 +59,9 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
               >
                 <Grid container spacing={2} alignItems="center" mb={1}>
                   <Grid item>
-                    <ButtonBase sx={{ width: 16, height: 16 }}>
+                    <div className="heading-icon-container">
                       <Data size="16" variant="Outline"  />
-                    </ButtonBase>
+                    </div>
                   </Grid>
                   <Grid item xs>
                     <Typography gutterBottom variant="subtitle2" component="span">
@@ -69,19 +69,24 @@ const ExtractorsTable = ({ extractors }: { extractors: Extractor[] }) => {
                     </Typography>
                   </Grid>
                 </Grid>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Description: 
-                </Typography>
-                <TruncatedDescription description={extractor.description} />
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Input Parameters:
-                </Typography>
-                {renderInputParams(extractor.input_params?.properties)}
-                <Box sx={{ flexGrow: 1 }} />
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ mt: 2 }}>
-                  Outputs:
-                </Typography>
-                {renderOutputs(extractor.outputs)}
+                <Box sx={{ display: 'flex', alignItems: { xs: 'left', lg: 'flex-start' }, flexDirection: { xs: 'column', lg: 'row' }, mt: 1 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Description: 
+                  </Typography>
+                  <TruncatedDescription description={extractor.description} />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', lg: 'center' }, flexDirection: { xs: 'column', lg: 'row' }, mt: 1 }}>
+                  <Typography variant="subtitle2" color="text.secondary" marginRight={2}>
+                    Inputs&nbsp;Parameters:
+                  </Typography>
+                  {renderInputParams(extractor.input_params?.properties)}
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', lg: 'center' }, flexDirection: { xs: 'column', lg: 'row' }, mt: 1 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom marginRight={2}>
+                    Outputs:
+                  </Typography>
+                  {renderOutputs(extractor.outputs)}
+                </Box>
               </Paper>
             </Grid>
           ))}

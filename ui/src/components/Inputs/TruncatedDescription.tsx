@@ -21,7 +21,7 @@ export const TruncatedDescription = ({ description }: { description: string }) =
     <Tooltip title={isOverflowing ? description : ''} arrow>
       <Typography
         ref={textRef}
-        variant="caption"
+        variant="subtitle2"
         paragraph
         sx={{
           display: '-webkit-box',
@@ -29,8 +29,8 @@ export const TruncatedDescription = ({ description }: { description: string }) =
           WebkitBoxOrient: 'vertical',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          height: '2.5em', // Adjust this value based on your font size and line height
-          lineHeight: '1.25em', // Adjust as needed
+          marginBottom: 0,
+          marginLeft: { xs: 0, lg: 1 },
         }}
       >
         {description}
