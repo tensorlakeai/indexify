@@ -3,8 +3,13 @@
 In this tutorial, we'll show you how to create an online ingestion pipeline for Wikipedia pages, that performs - 
 
 1. Structured Extraction from the page
-2. Chunks and Indexes the pages. 
-3. Uses GTP-4 or Mistral to answer questions using indexed information(RAG).
+2. Chunks, Extract Named Entities and Indexes the pages.
+
+You will also learn how to - 
+
+1. Use GPT-4 or Mistral LLMs to answer questions using indexed information(RAG).
+2. Retrieve the Named Entities extracted. 
+3. Use the User Interface to visually debug your pipelines, and inspect the chunks to understand how pages are being broken down.
 
 You'll need three different terminals open to complete this tutorial
 
