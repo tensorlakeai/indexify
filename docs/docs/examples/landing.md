@@ -8,8 +8,9 @@ Check out this inspiring example to showcase the power of PDF based extraction:
 - [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
 - [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
 - [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
-- [PDF Chunk Extraction](https://docs.getindexify.ai/examples/chunking)
+- [PDF Chunk Extraction (Uses LangChain)](https://docs.getindexify.ai/examples/chunking)
 - [RAG on PDF (Uses OpenAI)](https://docs.getindexify.ai/examples/pdfrag)
+- [Schema Based PDF Extraction (Uses OpenAI)](https://docs.getindexify.ai/examples/schema)
 
 ## **Audio Extraction**
 Check out this inspiring example to showcase the power of audio based extraction:
