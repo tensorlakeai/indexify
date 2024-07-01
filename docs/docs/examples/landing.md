@@ -3,29 +3,18 @@
 Here are some of examples of use-cases you could accomplish with Indexify
 
 ## **PDF Extraction**
+Check out this inspiring example to showcase the power of PDF based extraction:
 
-#### RAG based Question Answering
-- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](./efficient_rag.ipynb)
-- [Question Answering from PDF using Indexify and OpenAI](./pdfqa.ipynb)
-- [Scientific Journals](./Scientific_Journals.ipynb)
-
-#### Schema based Extractions
-- [Schema based HOA Documents](./HOA_Invoice_Data_Extraction.ipynb)
-- [SEC 10-K docs](./SEC_10_K_docs.ipynb)
-
-#### LLM based Extractions
-- [Entity Recognition from PDF using Indexify and Gemini](https://colab.research.google.com/drive/1gHru2qjEhl4cmAOTQMj7unHnQACCh7We?usp=sharing)
-- [Invoices](./Invoices.ipynb): Extract and analyze invoice data like a pro!
-
-#### Terms and Condition Documents
-- [Multi-state Terms Documents](./Sixt.ipynb)
-- [Terms and Condition Documents of Car Rental](./Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease.
-- [Terms and Conditions Documents of Health Care Benefits](./Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions.
+- [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
+- [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
+- [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
+- [PDF Chunk Extraction](https://docs.getindexify.ai/examples/chunking)
+- [RAG on PDF (Uses OpenAI)](https://docs.getindexify.ai/examples/pdfrag)
 
 ## **Audio Extraction**
 Check out this inspiring example to showcase the power of audio based extraction:
 
-- [ASR Diarization Colab Notebook](https://colab.research.google.com/drive/1aW6DdAkxTQWZcCe1fS0QCVZ6GeQFji2S?usp=sharing): Experience the state-of-the-art ASR + diarization + speculative decoding capabilities.
+- [ASR Diarization Colab Notebook](https://colab.research.google.com/drive/1aW6DdAkxTQWZcCe1fS0QCVZ6GeQFji2S?usp=sharing)
 - [RAG using Audio as a Context](./audio_rag.ipynb)
 - [Transcribing Audio with Indexify](./audio_transcription.ipynb)
 
