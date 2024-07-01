@@ -20,8 +20,7 @@ import {
   ExtractorsPageLoader,
   ExtractionGraphsPageLoader,
   IndexesPageLoader,
-  SqlTablesPageLoader,
-  IndividualExtractionGraphsPageLoader
+  SqlTablesPageLoader
 } from "./utils/loaders";
 import {
   ExtractionPolicyPage,
