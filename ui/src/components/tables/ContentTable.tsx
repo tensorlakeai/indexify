@@ -3,6 +3,7 @@ import { IContentMetadata, IndexifyClient } from 'getindexify'
 import {
   Alert,
   Button,
+  Chip,
   Tab,
   Tabs,
   TextField,
@@ -17,6 +18,7 @@ import CopyText from '../CopyText'
 import { IContentMetadataExtended } from '../../types'
 import UploadButton from '../UploadButton'
 import { InfoCircle, TableDocument } from 'iconsax-react'
+import { splitLabels } from '../../utils/helpers';
 
 const ContentTable = ({
   loadData,
@@ -178,19 +180,22 @@ const ContentTable = ({
       },
     },
     {
-      field: 'parent_id',
+      field: 'mime_type',
       flex: 1,
-      headerName: 'Parent ID',
+      headerName: 'Mime Type',
+      renderCell: (params) => {
+        return <Chip label={params.value || 'None'} sx={{ backgroundColor: "#E5EFFB" }} />
+      }
     },
     {
       field: 'labels',
       headerName: 'Labels',
       flex: 1,
-      valueGetter: (params) => {
+      renderCell: (params) => {
           if (Object.keys(params.value).length === 0 && params.value.constructor === Object) {
-              return "None";
+              return <Typography variant="caption">None</Typography>;
           }
-          return JSON.stringify(params.value);
+          return <Typography variant="caption">{splitLabels(params.value)}</Typography>;
       },
     },
     {

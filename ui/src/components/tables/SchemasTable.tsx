@@ -25,12 +25,12 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
           return <Typography variant="body1">None</Typography>
         }
         return (
-          <Box sx={{ overflowX: 'scroll' }}>
+          <Box sx={{ overflowX: 'auto' }} className="custom-scroll">
             <Stack gap={1} direction="row">
               {Object.keys(params.value).map((val) => (
                 <Chip
                   key={val}
-                  sx={{ backgroundColor: '#060D3F', color: 'white' }}
+                  sx={{ backgroundColor: '#3296FE', color: '#FFFFFF' }}
                   label={`${val}: ${params.value[val].type}`}
                 />
               ))}

@@ -6,6 +6,9 @@ import { Box } from '@mui/system'
 import moment from 'moment'
 import { Link } from 'react-router-dom'
 import { TaskStatus } from 'getindexify'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 
 const TasksTable = ({
   extractionPolicies,
@@ -101,12 +104,12 @@ const TasksTable = ({
       headerName: 'Status',
       renderCell: (params) => {
         if (params.value === TaskStatus.Failure) {
-          return <Chip label="Failure" sx={{ backgroundColor: '#FBE5E5' }} />
+          return <Chip icon={<ErrorOutlineIcon />} label="Failure" variant="outlined" color="error" sx={{ backgroundColor: '#FBE5E5' }} />
         } else if (params.value === TaskStatus.Success) {
-          return <Chip label="Success" sx={{ backgroundColor: '#E5FBE6' }} />
+          return <Chip icon={<CheckCircleOutlineIcon />} label="Success" variant="outlined" color="success" sx={{ backgroundColor: '#E5FBE6' }} />
         } else {
-          return (
-            <Chip label="In Progress" sx={{ backgroundColor: '#E5EFFB' }} />
+          return  (
+            <Chip icon={<InfoOutlinedIcon />} label="In Progress" variant="outlined" color="info" sx={{ backgroundColor: '#E5EFFB' }}  />
           )
         }
       },

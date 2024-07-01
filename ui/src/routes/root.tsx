@@ -23,6 +23,7 @@ import {
   ListItemText,
 } from '@mui/material'
 import { Link } from 'react-router-dom'
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Cpu, Data, Grid7, MobileProgramming, SliderVertical1 } from 'iconsax-react'
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -62,7 +63,6 @@ export default function Dashboard() {
         }}
       >
         <CssBaseline />
-        {/* <NavigationBar namespace={namespace} namespaces={namespaces} /> */}
         <Drawer
           variant="permanent"
           sx={{
