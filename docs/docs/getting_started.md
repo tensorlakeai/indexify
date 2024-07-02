@@ -44,7 +44,6 @@ By doing so, we immediately get the two following endpoints created.
 | User Interface | [/ui](http://localhost:8900/ui) | Dashboard for extraction graphs, content, and indexes.                             |
 
 
-
 ## Creating a Virtual Environment
 
 ??? note "Want the Source Code?"
