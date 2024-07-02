@@ -63,6 +63,47 @@ export async function ExtractionGraphsPageLoader({
   }
 }
 
+export async function IndividualExtractionGraphsPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  if (!params.namespace) return redirect('/')
+  const client = await createClient(params.namespace)
+  const extractors = await client.extractors()
+
+  const counts = await Promise.all(
+    client.extractionGraphs.map(async (graph) => {
+      return Promise.all(
+        graph.extraction_policies
+          .map(async (policy) => {
+            if (!policy.id) return null
+            return {
+              id: policy.id,
+              counts: await getExtractionPolicyTaskCounts(policy.id, client),
+            }
+          })
+          .filter((result) => result !== null)
+      )
+    })
+  )
+  const countsArray = counts.flat()
+  const taskCountsMap: TaskCountsMap = new Map<
+    string,
+    { totalSuccess: number; totalFailed: number; totalUnknown: number }
+  >()
+  countsArray.forEach((policyCounts) => {
+    if (policyCounts && policyCounts.id) {
+      taskCountsMap.set(policyCounts.id, policyCounts.counts)
+    }
+  })
+
+  return {
+    namespace: client.namespace,
+    extractionGraphs: client.extractionGraphs,
+    extractors,
+    taskCountsMap,
+  }
+}
+
 export async function ExtractionPolicyPageLoader({
   params,
 }: LoaderFunctionArgs) {
