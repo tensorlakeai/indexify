@@ -2,10 +2,9 @@
 dockerfile = "dockerfiles/Dockerfile.cross"
 pre-build = [
     "apt-get update && apt-get install --assume-yes build-essential npm curl protobuf-compiler",
-
     "dpkg --add-architecture $CROSS_DEB_ARCH",
-
-    "chown -R 1000:1000 /usr/bin/npm"
+    "mkdir -p /.npm",
+    "chown -R 1000:1000 /.npm"
 ]
 
 [build.env]
