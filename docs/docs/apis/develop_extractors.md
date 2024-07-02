@@ -55,6 +55,7 @@ def extract(self, content: Content) -> List[Content]:
 
 **extract** - Takes a `Content` object which have the bytes of unstructured data and the mime-type. You can pass a list of JSON, text, video, audio and documents into the extract method. It should return a list of transformed or derived content, or a list of features. 
 Examples - 
+
 - Text Chunking: Input(Text) -> List(Text)
 - Audio Transcription: Input(Audio) -> List(Text)
 - Speaker Diarization: Input(Audio) -> List(JSON of text and corresponding speaker ids)

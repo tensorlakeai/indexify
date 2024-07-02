@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY ./ui .
 
-RUN npm ci && npm run build
+RUN npm install && npm run build
 
 FROM ubuntu:22.04
 

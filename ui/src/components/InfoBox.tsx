@@ -12,13 +12,13 @@ const InfoBox: React.FC<InfoBoxProps> = ({text}) => {
       sx={{
         border: '1px dashed #B0D1F7',
         borderRadius: '8px',
-        padding: '32px',
+        padding: '26px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        maxWidth: '600px',
-        margin: '20px',
-        boxShadow: "0px 1px 2px 0px ##00000040 inset",
+        maxWidth: '500px',
+        margin: '10px',
+        boxShadow: "0px 1px 2px 0px #00000040 inset",
       }}
     >
       <AccessTimeIcon

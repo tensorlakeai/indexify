@@ -67,7 +67,7 @@ const SearchIndexPage = () => {
           Search Indexes of <Chip sx={{borderRadius: '50px', fontWeight: 400, color: '#4A4F56'}} label={index.name}/>
         </Typography>
         <Stack direction={'row'} spacing={2} alignItems={'center'}>
-          <Typography variant="caption" gutterBottom>Search Query: </Typography>
+          <Typography variant="caption" gutterBottom>Search&nbsp;Query:</Typography>
           <OutlinedInput
             placeholder="Search Query"
             value={formData.query}

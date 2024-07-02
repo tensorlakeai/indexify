@@ -1,0 +1,14 @@
+name: 'transcription_indexing'
+extraction_policies:
+- extractor: 'tensorlake/whisper-asr'
+  name: 'transcription'
+- extractor: 'tensorlake/chunk-extractor'
+  name: 'transcription_chunks'
+  input_params:
+    text_splitter: 'recursive'
+    chunk_size: 1000
+    overlap: 200
+  content_source: 'transcription'
+- extractor: 'tensorlake/minilm-l6'
+  name: 'embedding'
+  content_source: 'transcription_chunks'

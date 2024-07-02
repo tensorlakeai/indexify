@@ -64,9 +64,15 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
           style={{ width: "100%", maxWidth: "400px", height: "auto" }}
         />
       );
-    } else if (mimeType.startsWith("text")) {
+    } else if (mimeType.startsWith("text/html")) {
       return (
-        <Box sx={{ maxHeight: "500px", overflow: "auto" }}>
+        <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
+           <code lang="html">{textContent}</code>
+        </Box>
+      );
+    } else if (mimeType.startsWith("text/plain") && !mimeType.startsWith("text/html")) {
+      return (
+        <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
            <InfoBox text={textContent} />
         </Box>
       );
@@ -85,15 +91,15 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
       elevation={0}
       sx={{ boxShadow: "0px 0px 2px 0px #D0D6DE", borderRadius: "12px" }}
     >
-      <Grid container spacing={2} paddingLeft={2} paddingRight={2}>
-        <Grid item xs={12} md={8} rowSpacing={4} spacing={2} marginTop={1}>
+      <Grid container spacing={1} paddingLeft={2} paddingRight={2}>
+        <Grid item xs={12} md={6} rowSpacing={4} spacing={2} marginTop={1}>
           <Stack
             direction="row"
             spacing={1}
             alignItems={"center"}
             sx={{ marginBottom: 1 }}
           >
-            <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
               Filename:
             </Typography>
             <Typography variant="subtitle2">
@@ -106,7 +112,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             alignItems={"center"}
             sx={{ marginBottom: 1 }}
           >
-            <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
               Source:
             </Typography>
             <Typography variant="subtitle2">
@@ -119,7 +125,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             alignItems={"center"}
             sx={{ marginBottom: 1 }}
           >
-            <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
               Size:
             </Typography>
             <Typography variant="subtitle2">
@@ -132,7 +138,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             alignItems={"center"}
             sx={{ marginBottom: 1 }}
           >
-            <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
               Created at:
             </Typography>
             <Typography variant="subtitle2">
@@ -145,7 +151,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             alignItems={"center"}
             sx={{ marginBottom: 1 }}
           >
-            <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
               Storage URL:
             </Typography>
             <Typography variant="subtitle2">
@@ -159,8 +165,8 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
               alignItems={"center"}
               sx={{ marginBottom: 1 }}
             >
-              <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
-                ParentID:
+              <Typography variant="caption" sx={{ color: "#757A82" }}>
+                Parent ID:
               </Typography>
               <Typography variant="subtitle2">
                 <Link
@@ -178,13 +184,13 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             alignItems={"center"}
             sx={{ marginBottom: 1 }}
           >
-            <Typography variant="subtitle1" sx={{ color: "#757A82" }}>
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
               MimeType:
             </Typography>
             <Chip label={mimeType} sx={{ backgroundColor: "#E5EFFB" }} />
           </Stack>
         </Grid>
-        <Grid item xs={12} md={4} marginTop={1}>
+        <Grid item xs={12} md={6} marginTop={1}>
           {renderContent()}
         </Grid>
       </Grid>

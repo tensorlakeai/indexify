@@ -36,6 +36,7 @@ extraction_policies:
 """
 ```
 Complete code:
+
 1. Define Graph by running [image_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/image_pipeline.py)
 2. Test Image extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/upload_and_retreive.py)
 
@@ -54,6 +55,7 @@ extraction_policies:
 """
 ```
 Complete code:
+
 1. Define Graph by running [table_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/table_pipeline.py)
 2. Test Table extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/upload_and_retreive.py)
 
@@ -144,8 +146,9 @@ We've curated a collection of PDF extraction examples. Check out these notebooks
 - [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
 - [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
 - [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
-- [PDF Chunk Extraction](https://docs.getindexify.ai/examples/chunking)
+- [PDF Chunk Extraction (Uses LangChain)](https://docs.getindexify.ai/examples/chunking)
 - [RAG on PDF (Uses OpenAI)](https://docs.getindexify.ai/examples/pdfrag)
+- [Schema Based PDF Extraction (Uses OpenAI)](https://docs.getindexify.ai/examples/schema)
 
 
 ## Extractor Performance Analysis
@@ -163,25 +166,25 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 
 ### Accuracy Comparison
 
-| PDF Document          | Marker Score | Unstructured IO Score | EasyOCR Score        | OCRmyPDF Score       |
-|-----------------------|--------------|-----------------------|----------------------|----------------------|
-| crowd.pdf             | 0.5391       | 0.5224                | 0.5486               | 0.5792               |
-| multicolcnn.pdf       | 0.5409       | 0.5213                | 0.5333               | 0.5627               |
-| switch_trans.pdf      | 0.5191       | 0.4730                | 0.5198               | 0.5198               |
-| thinkdsp.pdf          | 0.6810       | 0.6625                | 0.6755               | 0.6740               |
-| thinkos.pdf           | 0.7368       | 0.6855                | 0.6781               | 0.7050               |
-| thinkpython.pdf       | 0.6910       | 0.6822                | 0.6875               | 0.6161               |
+| PDF Document          | Marker Score | Unstructured IO Score | EasyOCR Score | OCRmyPDF Score | OpenAI GPT-4o Score |
+|-----------------------|--------------|----------------------|----------------|-----------------|---------------------|
+| crowd.pdf             | 0.5391       | 0.5224               | 0.5486         | 0.5792          | 0.5556              |
+| multicolcnn.pdf       | 0.5409       | 0.5213               | 0.5333         | 0.5627          | 0.3981              |
+| switch_trans.pdf      | 0.5191       | 0.4730               | 0.5198         | 0.5198          | 0.4358              |
+| thinkdsp.pdf          | 0.6810       | 0.6625               | 0.6755         | 0.6740          | 0.6818              |
+| thinkos.pdf           | 0.7368       | 0.6855               | 0.6781         | 0.7050          | 0.6813              |
+| thinkpython.pdf       | 0.6910       | 0.6822               | 0.6875         | 0.6161          | 0.6666              |
 
 ### Time Taken Comparison
 
-| PDF Document          | Marker Time (s) | Unstructured IO Time (s) | EasyOCR Time (s)     | OCRmyPDF Time (s)    |
-|-----------------------|------------------|--------------------------|----------------------|----------------------|
-| crowd.pdf             | 21.65            | 2.44                     | 14.18                | 5.44                 |
-| multicolcnn.pdf       | 17.91            | 1.64                     | 31.00                | 22.40                |
-| switch_trans.pdf      | 45.90            | 5.35                     | 0.14                 | 4.10                 |
-| thinkdsp.pdf          | 139.80           | 29.10                    | 17.37                | 20.59                |
-| thinkos.pdf           | 84.04            | 4.88                     | 0.13                 | 5.70                 |
-| thinkpython.pdf       | 217.60           | 21.00                    | 4.03                 | 13.96                |
+| PDF Document          | Marker Time (s) | Unstructured IO Time (s) | EasyOCR Time (s) | OCRmyPDF Time (s) | OpenAI GPT-4o Time (s) |
+|-----------------------|-----------------|--------------------------|------------------|-------------------|------------------------|
+| crowd.pdf             | 21.65           | 2.44                     | 14.18            | 5.44              | 722.21                 |
+| multicolcnn.pdf       | 17.91           | 1.64                     | 31.00            | 22.40             | 182.97                 |
+| switch_trans.pdf      | 45.90           | 5.35                     | 0.14             | 4.10              | 484.94                 |
+| thinkdsp.pdf          | 139.80          | 29.10                    | 17.37            | 20.59             | 1256.39                |
+| thinkos.pdf           | 84.04           | 4.88                     | 0.13             | 5.70              | 914.21                 |
+| thinkpython.pdf       | 217.60          | 21.00                    | 4.03             | 13.96             | 4991.86                |
 
 ### Visual Comparisons
 
@@ -200,6 +203,7 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
    - Marker extractor consistently provides high accuracy scores across all PDF documents.
    - EasyOCR and OCRMyPDF shows competetive accuracy across all the documents. 
    - Unstructured IO is fractionally better than EasyOCR in one of the books, and from OCRMyPDF on another.
+   - OpenAI GPT-4o performs well for code based texts however it performs average for regular texts.
 
 **Time Efficiency**:
 
@@ -207,6 +211,7 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
    - EasyOCR shows extreme variability in processing times, being exceptionally fast for some documents and very slow for others.
    - Marker extractor, despite providing high accuracy, is significantly slower compared to the other extractors.
    - OCRmyPDF shows moderate time efficiency, balancing between speed and accuracy.
+   - OpenAI GPT-4o takes by far the longest time and is best avoided for pdf extraction unless necessary. 
 
 **Extractor Recommendations**:
 

@@ -23,7 +23,7 @@ jobs:
           node-version: '20'
 
       - name: Npm Install
-        run: cd ui && npm install
+        run: cd ui && npm ci
 
       - name: UI Lint Check
         run: cd ui && npm run lint
