@@ -87,3 +87,8 @@ install: build-release ## Build the application and install it to the system
 
 package-ui:
 	cd ui && npm install && npm run build
+
+build-docs:
+	cd docs && pip install -r requirements.txt
+	cp -r examples docs/docs/example_code
+	cd docs && mkdocs build

@@ -5,8 +5,8 @@ Here are some of examples of use-cases you could accomplish with Indexify
 ## **PDF Extraction**
 Check out this inspiring example to showcase the power of PDF based extraction:
 
-- [Image Extraction](../../example_code/pdf/image/)
-- [Table Extraction](../../example_code/pdf/table/)
+- [Image Extraction](../example_code/pdf/image/)
+- [Table Extraction](../example_code/pdf/table/)
 - [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
 - [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
 - [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
