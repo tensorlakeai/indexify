@@ -35,7 +35,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
     if (params.namespace !== 'default') {
-      return redirect(`/${namespaces[0] ?? 'default'}/extractors`)
+      return redirect(`/${namespaces[0] ?? 'default'}/extraction-graphs`)
     }
   }
   return { namespaces, namespace: params.namespace }
