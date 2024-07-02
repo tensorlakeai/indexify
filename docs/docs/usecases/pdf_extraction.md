@@ -24,38 +24,40 @@ If all you want is to extract text, images, and tables from a PDF, this is the o
 ## Image Extraction
 If you would like to extract images from PDF, the best extractor to use is `tensorlake/pdfextractor` It automatically extracts images from documents and writes them into blob stores. 
 
-You can get extracted images from pdfextractor with a simple python code like this:
+You can get extracted images from pdfextractor by simply specifying ["image"] in the graph like this:
 ```python
-content_id = client.upload_file("extraction_graph_name", "file.pdf")
+extraction_graph_spec = """
+name: 'image_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_image'
+    input_params:
+      output_types: ["image"]
+"""
 ```
-```python
-def get_image_content(client, content_id):
-   extracted_content = client.get_extracted_content(content_id, "extraction_graph_name", "policy_name")
-    
-   for data in extracted_content:
-      if 'metadata' in data and data['metadata'].get('type') == 'image':
-         return item['content']
-   
-   return None
-```
+Complete code:
+
+1. Define Graph by running [image_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/image_pipeline.py)
+2. Test Image extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/upload_and_retreive.py)
 
 ## Table Extraction
 Tables are automatically extracted by `tensorlake/pdfextractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
 
-You can get extracted tables from pdfextractor with a simple python code like this:
+You can get extracted tables from pdfextractor by simply specifying ["table"] in the graph like this:
 ```python
-content_id = client.upload_file("extraction_graph_name", "file.pdf")
+extraction_graph_spec = """
+name: 'table_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_table'
+    input_params:
+      output_types: ["table"]
+"""
 ```
-```python
-def get_table_content(client, content_id):
-   extracted_content = client.get_extracted_content(content_id, "extraction_graph_name", "policy_name")
-   
-   for data in extracted_content:
-      if 'metadata' in data and data['metadata'].get('type') == 'table':
-            return item['content']
-   
-   return None
-```
+Complete code:
+
+1. Define Graph by running [table_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/table/table_pipeline.py)
+2. Test Table extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/table/upload_and_retreive.py)
 
 ## Explore PDF Extractors
 
@@ -141,23 +143,13 @@ You can extend the graph to do any kind of downstream tasks(embedding, summariza
 
 We've curated a collection of PDF extraction examples. Check out these notebooks:
 
-#### RAG based Question Answering
-- [Efficient and supercharged RAG for mixed context texts with Indexify's framework, Gemini's 1M context & Arctic's embeddings](../examples/efficient_rag.ipynb)
-- [Question Answering from PDF using Indexify and OpenAI](../examples/pdfqa.ipynb)
-- [Scientific Journals](../examples/Scientific_Journals.ipynb)
+- [Translation (Uses OpenAI)](../../example_code/pdf/openai_pdf_translation)
+- [Summarization (Uses Mistral)](../../example_code/pdf/mistral/pdf-summarization)
+- [Entity Extraction (Uses Mistral)](../../example_code/pdf/mistral/pdf-entity-extraction)
+- [Chunk Extraction (Uses LangChain)](../../example_code/pdf/chunking)
+- [Indexing and RAG (Uses OpenAI)](../../example_code/pdf/rag)
+- [Structured Extraction guided by Schema (Uses OpenAI)](../../example_code/pdf/schema)
 
-#### Schema based Extractions
-- [Schema based HOA Documents](../examples/HOA_Invoice_Data_Extraction.ipynb)
-- [SEC 10-K docs](../examples/SEC_10_K_docs.ipynb)
-
-#### LLM based Extractions
-- [Entity Recognition from PDF using Indexify and Gemini](https://colab.research.google.com/drive/1gHru2qjEhl4cmAOTQMj7unHnQACCh7We?usp=sharing)
-- [Invoices](../examples/Invoices.ipynb): Extract and analyze invoice data like a pro!
-
-#### Terms and Condition Documents
-- [Multi-state Terms Documents](../examples/Sixt.ipynb)
-- [Terms and Condition Documents of Car Rental](../examples/Terms_and_Condition_Documents_of_Car_Rental.ipynb): Navigate the complex world of car rental agreements with ease.
-- [Terms and Conditions Documents of Health Care Benefits](../examples/Terms_and_Conditions_Documents_of_Health_Care_Benefits.ipynb): Demystify health care benefits and make informed decisions.
 
 ## Extractor Performance Analysis
 
@@ -174,25 +166,25 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
 
 ### Accuracy Comparison
 
-| PDF Document          | Marker Score | Unstructured IO Score | EasyOCR Score        | OCRmyPDF Score       |
-|-----------------------|--------------|-----------------------|----------------------|----------------------|
-| crowd.pdf             | 0.5391       | 0.5224                | 0.5486               | 0.5792               |
-| multicolcnn.pdf       | 0.5409       | 0.5213                | 0.5333               | 0.5627               |
-| switch_trans.pdf      | 0.5191       | 0.4730                | 0.5198               | 0.5198               |
-| thinkdsp.pdf          | 0.6810       | 0.6625                | 0.6755               | 0.6740               |
-| thinkos.pdf           | 0.7368       | 0.6855                | 0.6781               | 0.7050               |
-| thinkpython.pdf       | 0.6910       | 0.6822                | 0.6875               | 0.6161               |
+| PDF Document          | Marker Score | Unstructured IO Score | EasyOCR Score | OCRmyPDF Score | OpenAI GPT-4o Score |
+|-----------------------|--------------|----------------------|----------------|-----------------|---------------------|
+| crowd.pdf             | 0.5391       | 0.5224               | 0.5486         | 0.5792          | 0.5556              |
+| multicolcnn.pdf       | 0.5409       | 0.5213               | 0.5333         | 0.5627          | 0.3981              |
+| switch_trans.pdf      | 0.5191       | 0.4730               | 0.5198         | 0.5198          | 0.4358              |
+| thinkdsp.pdf          | 0.6810       | 0.6625               | 0.6755         | 0.6740          | 0.6818              |
+| thinkos.pdf           | 0.7368       | 0.6855               | 0.6781         | 0.7050          | 0.6813              |
+| thinkpython.pdf       | 0.6910       | 0.6822               | 0.6875         | 0.6161          | 0.6666              |
 
 ### Time Taken Comparison
 
-| PDF Document          | Marker Time (s) | Unstructured IO Time (s) | EasyOCR Time (s)     | OCRmyPDF Time (s)    |
-|-----------------------|------------------|--------------------------|----------------------|----------------------|
-| crowd.pdf             | 21.65            | 2.44                     | 14.18                | 5.44                 |
-| multicolcnn.pdf       | 17.91            | 1.64                     | 31.00                | 22.40                |
-| switch_trans.pdf      | 45.90            | 5.35                     | 0.14                 | 4.10                 |
-| thinkdsp.pdf          | 139.80           | 29.10                    | 17.37                | 20.59                |
-| thinkos.pdf           | 84.04            | 4.88                     | 0.13                 | 5.70                 |
-| thinkpython.pdf       | 217.60           | 21.00                    | 4.03                 | 13.96                |
+| PDF Document          | Marker Time (s) | Unstructured IO Time (s) | EasyOCR Time (s) | OCRmyPDF Time (s) | OpenAI GPT-4o Time (s) |
+|-----------------------|-----------------|--------------------------|------------------|-------------------|------------------------|
+| crowd.pdf             | 21.65           | 2.44                     | 14.18            | 5.44              | 722.21                 |
+| multicolcnn.pdf       | 17.91           | 1.64                     | 31.00            | 22.40             | 182.97                 |
+| switch_trans.pdf      | 45.90           | 5.35                     | 0.14             | 4.10              | 484.94                 |
+| thinkdsp.pdf          | 139.80          | 29.10                    | 17.37            | 20.59             | 1256.39                |
+| thinkos.pdf           | 84.04           | 4.88                     | 0.13             | 5.70              | 914.21                 |
+| thinkpython.pdf       | 217.60          | 21.00                    | 4.03             | 13.96             | 4991.86                |
 
 ### Visual Comparisons
 
@@ -211,6 +203,7 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
    - Marker extractor consistently provides high accuracy scores across all PDF documents.
    - EasyOCR and OCRMyPDF shows competetive accuracy across all the documents. 
    - Unstructured IO is fractionally better than EasyOCR in one of the books, and from OCRMyPDF on another.
+   - OpenAI GPT-4o performs well for code based texts however it performs average for regular texts.
 
 **Time Efficiency**:
 
@@ -218,6 +211,7 @@ PDF is a complex data type, we recommend you try out all extractors on a represe
    - EasyOCR shows extreme variability in processing times, being exceptionally fast for some documents and very slow for others.
    - Marker extractor, despite providing high accuracy, is significantly slower compared to the other extractors.
    - OCRmyPDF shows moderate time efficiency, balancing between speed and accuracy.
+   - OpenAI GPT-4o takes by far the longest time and is best avoided for pdf extraction unless necessary. 
 
 **Extractor Recommendations**:
 

@@ -1,0 +1,14 @@
+name: "wiki_extraction_pipeline" 
+extraction_policies:
+  - extractor: "tensorlake/openai"
+    name: "entity-extractor" 
+    input_params:
+      system_prompt: "Extract entities from text, and return the output in JSON format." 
+  - extractor: "tensorlake/chunk-extractor"
+    name: "chunker" 
+    input_params:
+      chunk_size: 1000 
+      overlap: 100
+  - extractor: "tensorlake/minilm-l6"
+    name: "wikiembedding"
+    content_source: "chunker"

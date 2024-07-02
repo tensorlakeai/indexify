@@ -1,8 +1,8 @@
-# Topic Extraction 
+# Chunking and Indexing 
 
 1. The extraction graph creates an endpoint which accepts audio files and transcribes them using OpenAI's Whisper model
-2. The transcription is fed into an LLM for Topic Extraction.
-3. The transcription is fed into a summarization model to summarize the entire transcript.
+2. The transcription is fed through a chunking function to chunk the transcript into smaller segments.
+3. The chunks are embedded and indexed.
 
 ## Code Reference
 
@@ -23,8 +23,7 @@ source ve/bin/activate
 
 pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/whisper-asr
-indexify-extractor download tensorlake/summarization
-indexify-extractor download tensorlake/openai
+indexify-extractor download tensorlake/minilm-l6
 indexify-extractor join-server
 ```
 
@@ -33,8 +32,8 @@ indexify-extractor join-server
 python setup_graph.py
 ```
 
-## Upload Data and Retrieve 
-The next step is to upload an audio file and retrieve the transcript
+## Upload Data and Retreive 
+The next step is to upload an audio file and retreive the transcript
 
 ```bash title="Terminal 3"
 python upload_and_retrieve.py

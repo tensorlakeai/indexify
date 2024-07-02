@@ -23,7 +23,11 @@ Entity extraction, also known as named entity recognition (NER) involves identif
 
 Before we begin, ensure you have the following:
 
-- Python 3.7 or later
+- Create a virtual env with Python 3.9 or later
+  ```shell
+  python3.9 -m venv ve
+  source ve/bin/activate
+  ```
 - `pip` (Python package manager)
 - A Mistral API key
 - Basic familiarity with Python and command-line interfaces
@@ -46,7 +50,7 @@ This starts a long running server that exposes ingestion and retrieval APIs to a
 
 ### Install Required Extractors
 
-Next, we'll install the necessary extractors on another terminal:
+Next, we'll install the necessary extractors in a new terminal:
 
 ```bash
 pip install indexify-extractor-sdk
@@ -54,7 +58,7 @@ indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/mistral
 ```
 
-Once the extractors are downloaded, you can strart them in a new terminal:
+Once the extractors are downloaded, you can start them:
 ```bash
 indexify-extractor join-server
 ```
@@ -136,7 +140,6 @@ def extract_entities_from_pdf(pdf_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = "/path/to/your/document.pdf"
     pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
     pdf_path = "reference_document.pdf"
 
@@ -182,4 +185,4 @@ While the example might look simple, there are some unique advantages of using I
 ## Next Steps
 
 - Learn more about Indexify on our docs - https://docs.getindexify.ai
-- Go over an example, which uses Mistral for [building summarization at scale](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/examples/mistral/pdf-summarization-cookbook.md)
+- Go over an example, which uses Mistral for [building summarization at scale](../pdf-summarization/)

@@ -1,11 +1,20 @@
 # Getting Started
 
-In this tutorial, we'll show you how to create a simple RAG application using Indexify that you can use to query Wikipedia about Kevin Durant or any other topic of your choice.
+In this tutorial, we'll show you how to create an online ingestion pipeline for Wikipedia pages, that performs - 
+
+1. Structured Extraction(NER in this example) from the page using LLMs
+2. Chunks, extract embeddings and write them into vector databases(LanceDB in this example).
+
+You will also learn how to - 
+
+1. Use GPT-4 or Mistral LLMs to answer questions using indexed information(RAG).
+2. Retrieve the Named Entities extracted. 
+3. Use the User Interface to visually debug your pipelines, and inspect the chunks to understand how pages are being broken down.
 
 You'll need three different terminals open to complete this tutorial
 
 1. Terminal 1 to download and run the Indexify Server
-2. Terminal 2 to run our Indexify extractors which will handle the chunking and embedding of the data we download
+2. Terminal 2 to run our Indexify extractors which will handle structured extraction, chunking and embedding of ingested pages. 
 3. Terminal 3 to run our python scripts to help load and query data from our Indexify server.
 
 We'll indicate which terminal to run a command in by using the annotation
@@ -14,23 +23,9 @@ We'll indicate which terminal to run a command in by using the annotation
 <command goes here>
 ```
 
-We can think of our Indexify server as a central coordinator and our Extractors ( which we'll set up in a bit ) as specialized workers designed to perform a specific task.
+We can think of our Indexify server as a central coordinator, and data ingestion API. Extractors ( which we'll set up in a bit ) are specialized workers designed to perform a specific data processing task.
 
 These tasks can range from embedding data, generating summaries or even automatically extracting features from unstructured data. All it takes to chain together these extractors into a complex pipeline is a **a single declarative `.yaml` file**.
-
-## Creating a Virtual Environment
-
-??? note "Want the Source Code?"
-
-    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify-python-client/tree/main/examples/openai-rag) in our example folder
-
-Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
-
-```bash title="( Terminal 1 ) Install Dependencies"
-python3 -m venv venv
-source venv/bin/activate
-pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_community
-```
 
 ## Indexify Server
 
@@ -48,21 +43,45 @@ By doing so, we immediately get the two following endpoints created.
 | Ingestion API  | [/](http://localhost:8900)      | The API endpoint for uploading content and retrieving from indexes and SQL Tables. |
 | User Interface | [/ui](http://localhost:8900/ui) | Dashboard for extraction graphs, content, and indexes.                             |
 
+
+## Creating a Virtual Environment
+
+??? note "Want the Source Code?"
+
+    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website) in our example folder
+
+Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
+
+```bash title="( Terminal 2 ) Install Dependencies"
+python3 -m venv venv
+source venv/bin/activate
+pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_community
+```
+
 ## Indexify Extractors
 
 ??? info "Extractors"
 
-    Extractors help convert unstructured data into structured data or embeddings that we can query using a vector database or simple SQL. Examples of this could include converting PDF invoices to JSON, labelling objects in a video or even extracting text to embed from PDFs. You can read more about extractors [here](/apis/extractors)
+    Extractors help convert unstructured data into structured data or embeddings that we can query using a vector database or simple SQL.
 
-Next, we'll need to download two extractors - one for chunking our pages that we've downloaded from Wikipedia and another that will embed the text chunks that we've generated.
+Next, we'll need to download three extractors. Extractors are named, so that they can be referred in pipelines.
+- `tensorlake/minilm-l6` for embedding text chunks.
+- `tensorlake/chunking` for chunking our pages
+- `tensorlake/openai` for entity extraction.
 
 ```bash title="( Terminal 2 ) Download Indexify Extractors"
 source venv/bin/activate
+indexify-extractor download tensorlake/openai
 indexify-extractor download tensorlake/minilm-l6
 indexify-extractor download tensorlake/chunk-extractor
 ```
 
-We can then run all avaliable extractors using the command below.
+??? note "OpenAI API KEY"
+    The OpenAI extractor above requires setting the API key in the terminal. Don't forget to set it!
+
+    export OPENAI_API_KEY=xxxxxx
+
+We can then run all available extractors using the command below.
 
 ```python title="( Terminal 2 ) Starting Extractor Workers"
 indexify-extractor join-server
@@ -72,31 +91,38 @@ indexify-extractor join-server
 
 ### Defining Our Data Pipeline
 
-Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. What we want is a simple pipeline that will take in text documents, split it into individual chunks and then embed it. 
+Now that we've set up our `Indexify` server and extractors, it's time to define our data pipeline. We want the pipeline to take in text documents, split it into small chunks, extract entities and embed the chunks in parallel. 
 
 ??? info "Extraction Graphs"
-    Extraction Graphs are multi-stage data-pipelines that transforms or extracts information from any type of data. Data Pipelines in Indexify are called Extraction Graphs, because you can create branches in a single pipeline, so they look more like graphs than linear sequence of stages.
+    Extraction Graphs are multi-stage data-pipelines that transforms or extracts information from any type of data. They are called Extraction Graphs, because you can create branches in a single pipeline, so they can behave as graphs and not as linear sequence of stages.
+
+??? info "Extraction Policy"
+    Extraction Policy refers to an extractor and binds them into an Extraction Graph. They are also used to parameterize extractors which provide some knobs for configuring them slightly differently depending on use-cases.
 
 We can do so using a simple `.yaml` file as seen below
 
 ```yaml title="graph.yaml"
-name: "summarize_and_chunk" #(1)!
+name: "wiki_extraction_pipeline" #(1)!
 extraction_policies:
+  - extractor: "tensorlake/openai"
+    name: "entity-extractor" 
+    input_params:
+      system_prompt: "Extract entities from text, and return the output in JSON format." #(5)!
   - extractor: "tensorlake/chunk-extractor"
     name: "chunker" #(2)!
     input_params:
       chunk_size: 1000 #(3)!
       overlap: 100
-
   - extractor: "tensorlake/minilm-l6"
     name: "wikiembedding"
     content_source: "chunker" #(4)!
 ```
 
-1. Every data pipeline needs to have a unique name - this is known as a namespace
-2. Each extractor is uniquely identified by a single `name`
+1. Every data pipeline needs to have a unique name
+2. Each extraction policy is uniquely identified by a single `name`
 3. We can configure each extractor using the `input_params` field easily so that it is customized to our needs
 4. We can chain together multiple extractors sequentially by specifying a `content_source` for each extractor.
+5. The system prompts in LLM extractor passes in instructions to LLMs for structured extraction of the content being passed into the model.
 
 Now that we've defined our pipeline using a `.yaml` file , let's see how we can create our first data pipeline in Indexify using our Indexify SDK.
 
@@ -106,17 +132,15 @@ from indexify import IndexifyClient, ExtractionGraph
 client = IndexifyClient() #(1)!
 
 def create_extraction_graph():
-    with open("graph.yaml", "r") as file:
-        extraction_graph_spec = file.read()
-        extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec) #(2)!
-        client.create_extraction_graph(extraction_graph) #(3)!
+    extraction_graph = ExtractionGraph.from_yaml_file("graph.yaml") #(2)!
+    client.create_extraction_graph(extraction_graph) #(3)!
 
 if __name__ == "__main__":
     create_extraction_graph()
 ```
 
-1. We first create an instance of an `Indexify` client so that we can interact with our Indexify server in a typesafe manner
-2. We then read in our `.yaml` file which we defined above and create an Extraction Graph using the yaml definition. This is a python object which tells Indexify how to chain together different Extractors together
+1. We first create an instance of an `Indexify` client so that we can interact with Indexify server 
+2. We then read in our `.yaml` file which we defined above and create an Extraction Graph using the yaml definition.
 3. Lastly, we create our new data pipeline with the help of our `Indexify` client.
 
 We can then run this code to create our new extraction graph. Once an Extraction Graph is created, it's exposed as an API on the server and starts running extractions whenever data is ingested into the system.
@@ -135,14 +159,15 @@ from langchain_community.document_loaders import WikipediaLoader
 
 client = IndexifyClient()
 
-def load_data():
-    docs = WikipediaLoader(query="Kevin Durant", load_max_docs=20).load()
+def load_data(player):
+    docs = WikipediaLoader(query=player, load_max_docs=1).load()
 
     for doc in docs:
-        client.add_documents("summarize_and_chunk", doc.page_content)
+        client.add_documents("wiki_extraction_pipeline", doc.page_content)
 
 if __name__ == "__main__":
-    load_data()
+    load_data("Kevin Durant")
+    load_data("Stephen Curry")
 ```
 
 Now run this code to ingest data into Indexify. Indexify takes care of storing the data, and running the extraction policies in the graph reliably in parallel. 
@@ -154,13 +179,51 @@ python3 ./ingest.py
 
 ## Query Indexify
 
-Now that we've loaded our data into Indexify, we can then query our list of downloaded text chunks with some RAG. Create a file `query.py` and add the following code -
+You can query Indexify to - 
 
-```python title="query.py"
+1. List ingested content by extraction graph. You can also list content per extraction policy.
+2. Get extracted data from any of the extraction policies of an Extraction Graph.
+3. Perform semantic search on vector indexes populated by embedding extractors.
+4. Run SQL Queries on structured data(not in this tutorial).
+
+Create a file `query.py` and add code to query Indexify -
+
+#### Entities
+We can get the list of entities extracted by the policy `entity-extractor` for every ingested page as -
+```python  title="query.py"
 from indexify import IndexifyClient
-from openai import OpenAI
 
 client = IndexifyClient()
+
+ingested_content_list = client.list_content("wiki_extraction_pipeline") #(1)!
+content_id = ingested_content_list[0].id
+entities = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "entity-extractor") #(2)!
+```
+
+1. Get a list of ingested content into the extraction graph.
+2. Get the entities extracted by the `entity-extractor` extraction policy.
+
+#### Chunks
+Similarly, we can get the list of chunks created for one of the pages - 
+```python   title="query.py"
+chunks = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "chunker") #(1)!
+```
+
+1. Get the entities extracted by the `chunker` extraction policy.
+
+### Querying Vector Index 
+
+Finally, lets perform semantic search on the embeddings created by the `wikiembedding` extraction policy.
+
+```python title="query.py"
+from openai import OpenAI
+
 client_openai = OpenAI()
 
 def query_database(question: str, index: str, top_k=3):
@@ -179,10 +242,13 @@ def query_database(question: str, index: str, top_k=3):
 
 
 if __name__ == "__main__":
+    index_name = "wiki_extraction_pipeline.wikiembedding.embedding"
+    indexes = client.indexes()
+    print(f"Vector indexes present: {indexes}, querying index: {index_name}")
     print(
         query_database(
             "What accomplishments did Kevin durant achieve during his career?",
-            "summarize_and_chunk.wikiembedding.embedding",
+            "wiki_extraction_pipeline.wikiembedding.embedding",
             4,
         )
     )

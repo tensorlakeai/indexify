@@ -1,8 +1,8 @@
-# Topic Extraction 
+# Audio Transcription 
 
 1. The extraction graph creates an endpoint which accepts audio files and transcribes them using OpenAI's Whisper model
-2. The transcription is fed into an LLM for Topic Extraction.
-3. The transcription is fed into a summarization model to summarize the entire transcript.
+2. You can continuously transcribe audio with this pipeline by uploading audio files to indexify server.
+3. You can run 1000s of instances of the extractors in parallel transcribe audio in a fault tolerant manner.
 
 ## Code Reference
 
@@ -23,8 +23,6 @@ source ve/bin/activate
 
 pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/whisper-asr
-indexify-extractor download tensorlake/summarization
-indexify-extractor download tensorlake/openai
 indexify-extractor join-server
 ```
 
