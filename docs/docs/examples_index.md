@@ -3,26 +3,24 @@
 Here are some of examples of use-cases you could accomplish with Indexify
 
 ## **PDF Extraction**
-Check out this inspiring example to showcase the power of PDF based extraction:
 
 - [Image Extraction](../example_code/pdf/image)
 - [Table Extraction](../example_code/pdf/table)
-- [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
-- [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
-- [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
-- [Chunking PDF Docs](../example_code/pdf/chunking)
-- [RAG on PDF (Uses OpenAI)](https://docs.getindexify.ai/examples/pdfrag)
+- [Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
+- [Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
+- [Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
+- [Chunking](../example_code/pdf/chunking)
+- [Indexing and RAG (Uses OpenAI)](../example_code/pdf/rag)
 - [Structured Extraction guided by Schema (Uses OpenAI)](../example_code/pdf/schema)
 
 ## **Audio Extraction**
-Check out this inspiring example to showcase the power of audio based extraction:
-
-- [ASR Diarization Colab Notebook](https://colab.research.google.com/drive/1aW6DdAkxTQWZcCe1fS0QCVZ6GeQFji2S?usp=sharing)
-- [RAG using Audio as a Context](./audio_rag.ipynb)
-- [Transcribing Audio with Indexify](./audio_transcription.ipynb)
+- [General Instructions](../example_code/audio)
+- [Transcription](../example_code/audio/transcription)
+- [Summarization](../example_code/audio/summarization)
+- [Topic Extraction](../example_code/audio/topic_extraction)
+- [Indexing and RAG](../example_code/audio/chunking_and_indexing)
 
 ## **Image & Video Extraction**
-Check out this inspiring example to showcase the power of image & video based extraction:
 
 - [GIF search with MiniLM-L6 and CLIP embeddings](./GifSearch.ipynb)
 - [Accurate Image RAG using Yolo and CodeGemma](./Image_RAG_Structured_Extraction.ipynb)
