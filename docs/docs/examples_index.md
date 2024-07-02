@@ -19,3 +19,7 @@ Here are some of examples of use-cases you could accomplish with Indexify
 - [Summarization](../example_code/audio/summarization)
 - [Topic Extraction](../example_code/audio/topic_extraction)
 - [Indexing and RAG](../example_code/audio/chunking_and_indexing)
+
+## **Image & Video Extraction**
+- [Object Detection using YOLO](../example_code/image/detect)
+- [Video Transcript with Diarization](../example_code/video/transcript)
