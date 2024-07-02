@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Box,
+  Breadcrumbs,
   Table,
   TableBody,
   TableCell,
@@ -11,10 +12,15 @@ import {
   Typography,
   Chip,
   IconButton,
+  Stack,
 } from '@mui/material';
 import ExtendedContentTable from '../../components/ExtendedContentTable';
 import { InfoCircle, TableDocument } from 'iconsax-react';
 import CopyText from '../../components/CopyText';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
+import { Link, useLoaderData } from 'react-router-dom';
+import { ExtractionGraph, IExtractionPolicy, IndexifyClient } from 'getindexify';
+import { TaskCounts } from '../../types';
 
 const ExtractorTable = () => {
   const rows = [
@@ -33,19 +39,19 @@ const ExtractorTable = () => {
             <CopyText text='moondreamcaptionkb' />
           </Typography>
           <TableRow>
-            <TableCell sx={{ fontSize: 14}}>Name</TableCell>
-            <TableCell sx={{ fontSize: 14}}>Extractor</TableCell>
-            <TableCell sx={{ fontSize: 14}}>Input Types</TableCell>
-            <TableCell sx={{ fontSize: 14}}>Input Parameters</TableCell>
-            <TableCell sx={{ fontSize: 14}}>Pending</TableCell>
-            <TableCell sx={{ fontSize: 14}}>Failed</TableCell>
-            <TableCell sx={{ fontSize: 14}}>Completed</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Name</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Extractor</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Input Types</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Input Parameters</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Pending</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Failed</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Completed</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.id}>
-              <TableCell>
+              <TableCell sx={{ pt: 2}}>
                 <Box sx={{ display: 'flex', alignItems: 'left', flexDirection: 'column' }}>
                   <Box sx={{ mr: 1, display: 'flex' }}>
                     {Array(row.id).fill(0).map((_, i) => (
@@ -55,16 +61,16 @@ const ExtractorTable = () => {
                   {row.name}
                 </Box>
               </TableCell>
-              <TableCell>{row.extractor}</TableCell>
-              <TableCell>
+              <TableCell sx={{ pt: 2}}>{row.extractor}</TableCell>
+              <TableCell sx={{ pt: 2}}>
                 {row.inputTypes.map((type, index) => (
                   <Chip key={index} label={type} size="small" sx={{ mr: 0.5 }} />
                 ))}
               </TableCell>
-              <TableCell>{row.inputParameters}</TableCell>
-              <TableCell><Chip label={row.pending} sx={{ backgroundColor: '#E5EFFB' }} /></TableCell>
-              <TableCell><Chip label={row.failed} sx={{ backgroundColor: '#FBE5E5' }} /></TableCell>
-              <TableCell><Chip label={row.completed} sx={{ backgroundColor: '#E5FBE6' }} /></TableCell>
+              <TableCell sx={{ pt: 2}}>{row.inputParameters}</TableCell>
+              <TableCell sx={{ pt: 2}}><Chip label={row.pending} sx={{ backgroundColor: '#E5EFFB' }} /></TableCell>
+              <TableCell sx={{ pt: 2}}><Chip label={row.failed} sx={{ backgroundColor: '#FBE5E5' }} /></TableCell>
+              <TableCell sx={{ pt: 2}}><Chip label={row.completed} sx={{ backgroundColor: '#E5FBE6' }} /></TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -74,27 +80,49 @@ const ExtractorTable = () => {
 };
 
 const IndividualExtractorsPage = () => {
+
+  const { policy, namespace, extractionGraph, taskCounts, client } =
+    useLoaderData() as {
+      policy: IExtractionPolicy
+      namespace: string
+      client: IndexifyClient
+      extractionGraph: ExtractionGraph
+      taskCounts?: TaskCounts
+    }
+
   return (
-    <Box sx={{ p: 0 }}>
-      <Box sx={{ mb: 3 }}>
-        <div className="content-table-header">
-          <div className="heading-icon-container">
-            <TableDocument size="25" className="heading-icons" variant="Outline"/>
+    <Stack direction="column" spacing={3}>
+      <Breadcrumbs
+        aria-label="breadcrumb"
+        separator={<NavigateNextIcon fontSize="small" />}
+      >
+        <Typography color="text.primary">{namespace}</Typography>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
+          <Typography color="text.primary">Extraction Graphs</Typography>
+        </Link>
+        <Typography color="text.primary">{extractionGraph?.name}</Typography>
+      </Breadcrumbs>
+      <Box sx={{ p: 0 }}>
+        <Box sx={{ mb: 3 }}>
+          <div className="content-table-header">
+            <div className="heading-icon-container">
+              <TableDocument size="25" className="heading-icons" variant="Outline"/>
+            </div>
+            <Typography variant="h4">
+              tensorlake/moondream
+              <IconButton
+                href="https://docs.getindexify.ai/concepts/#content"
+                target="_blank"
+              >
+                <InfoCircle size="20" variant="Outline"/>
+              </IconButton>
+            </Typography>
           </div>
-          <Typography variant="h4">
-            tensorlake/moondream
-            <IconButton
-              href="https://docs.getindexify.ai/concepts/#content"
-              target="_blank"
-            >
-              <InfoCircle size="20" variant="Outline"/>
-            </IconButton>
-          </Typography>
-        </div>
-        <ExtractorTable />
+          <ExtractorTable />
+        </Box>
+        <ExtendedContentTable />
       </Box>
-      <ExtendedContentTable />
-    </Box>
+    </Stack>
   );
 };
 
