@@ -1,8 +1,7 @@
-# Audio Transcription 
+# Audio Transcript Summarizer 
 
 1. The extraction graph creates an endpoint which accepts audio files and transcribes them using OpenAI's Whisper model
-2. You can continuously transcribe audio with this pipeline by uploading audio files to indexify server.
-3. You can run 1000s of instances of the extractors in parallel transcribe audio in a fault tolerant manner.
+2. The transcription is fed into a summarization model to summarize the entire transcript.
 
 ## Code Reference
 
@@ -23,6 +22,7 @@ source ve/bin/activate
 
 pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/whisper-asr
+indexify-extractor download tensorlake/summarization
 ```
 
 ## Setup the Graph 
@@ -30,8 +30,8 @@ indexify-extractor download tensorlake/whisper-asr
 python setup_graph.py
 ```
 
-## Upload Data and Retrieve 
-The next step is to upload an audio file and retrieve the transcript
+## Upload Data and Retreive 
+The next step is to upload an audio file and retreive the transcript
 
 ```bash
 python upload_and_retrieve.py

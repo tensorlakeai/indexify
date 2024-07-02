@@ -21,6 +21,7 @@ data/
 src/state/store/snapshots/*
 .ipynb_checkpoints/
 .DS_Store
+docs/docs/example_code/
 local_server_config_*.yaml
 indexify-extractor/**/*
 rag/**/*

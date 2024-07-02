@@ -4,7 +4,7 @@ Indexify is capable of ingesting and processing audios. You can build pipelines 
 - [Transcription](transcription)
 - [Summarization](summarization)
 - [Topic Extraction](topic_extraction)
-- [Indexing](indexing)
+- [Indexing](chunking_and_indexing)
 
 Each of these examples are organized as - 
 1. Extraction Graph/Pipeline Description

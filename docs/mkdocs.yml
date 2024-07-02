@@ -51,8 +51,8 @@ nav:
 
   - APIs:
       - Install: 'apis/install_clients.md'
-      - Content Ingestion: 'apis/content_ingestion.md'
       - Extraction Graphs: 'apis/extraction_graphs.md'
+      - Content Ingestion: 'apis/content_ingestion.md'
       - Retrieval: 'apis/retrieval.md'
   - Use Cases:
       - Basic RAG: 'usecases/rag.md'
@@ -73,7 +73,7 @@ nav:
       - Develop Indexify: 'develop.md'
       - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
-      - All Examples: 'examples/landing.md'
+      - Index: 'examples_index.md'
 
 plugins:
   - mkdocs-jupyter
