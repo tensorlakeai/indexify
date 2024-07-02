@@ -37,8 +37,8 @@ extraction_policies:
 ```
 Complete code:
 
-1. Define Graph by running [image_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/image_pipeline.py)
-2. Test Image extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/image/upload_and_retreive.py)
+1. Define Graph by running [image_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/image_pipeline.py)
+2. Test Image extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/upload_and_retreive.py)
 
 ## Table Extraction
 Tables are automatically extracted by `tensorlake/pdfextractor` as JSON metadata. You can query the metadata associated with documents by calling the Retrieval APIs. 
@@ -56,8 +56,8 @@ extraction_policies:
 ```
 Complete code:
 
-1. Define Graph by running [table_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/table_pipeline.py)
-2. Test Table extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/docs/docs/usecases/table/upload_and_retreive.py)
+1. Define Graph by running [table_pipeline.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/table/table_pipeline.py)
+2. Test Table extraction by running [upload_and_retreive.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/table/upload_and_retreive.py)
 
 ## Explore PDF Extractors
 
@@ -143,12 +143,12 @@ You can extend the graph to do any kind of downstream tasks(embedding, summariza
 
 We've curated a collection of PDF extraction examples. Check out these notebooks:
 
-- [PDF Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
-- [PDF Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
-- [PDF Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
-- [PDF Chunk Extraction (Uses LangChain)](https://docs.getindexify.ai/examples/chunking)
-- [RAG on PDF (Uses OpenAI)](https://docs.getindexify.ai/examples/pdfrag)
-- [Schema Based PDF Extraction (Uses OpenAI)](https://docs.getindexify.ai/examples/schema)
+- [Translation (Uses OpenAI)](../../example_code/pdf/openai_pdf_translation)
+- [Summarization (Uses Mistral)](../../example_code/pdf/mistral/pdf-summarization)
+- [Entity Extraction (Uses Mistral)](../../example_code/pdf/mistral/pdf-entity-extraction)
+- [Chunk Extraction (Uses LangChain)](../../example_code/pdf/chunking)
+- [Indexing and RAG (Uses OpenAI)](../../example_code/pdf/rag)
+- [Structured Extraction guided by Schema (Uses OpenAI)](../../example_code/pdf/schema)
 
 
 ## Extractor Performance Analysis

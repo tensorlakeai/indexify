@@ -1,1 +1,0 @@
-#  Image Extraction from PDF

@@ -6,10 +6,10 @@ Here are some of examples of use-cases you could accomplish with Indexify
 
 - [Image Extraction](../example_code/pdf/image)
 - [Table Extraction](../example_code/pdf/table)
-- [Translation (Uses OpenAI)](https://docs.getindexify.ai/examples/openai_pdf_translation)
-- [Summarization (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-summarization-cookbook)
-- [Entity Extraction (Uses Mistral)](https://docs.getindexify.ai/examples/mistral/pdf-entity-extraction-cookbook)
-- [Chunking](../example_code/pdf/chunking)
+- [Translation (Uses OpenAI)](../example_code/pdf/openai_pdf_translation)
+- [Summarization (Uses Mistral)](../example_code/pdf/mistral/pdf-summarization)
+- [Entity Extraction (Uses Mistral)](../example_code/pdf/mistral/pdf-entity-extraction)
+- [Chunk Extraction (Uses LangChain)](../example_code/pdf/chunking)
 - [Indexing and RAG (Uses OpenAI)](../example_code/pdf/rag)
 - [Structured Extraction guided by Schema (Uses OpenAI)](../example_code/pdf/schema)
 
