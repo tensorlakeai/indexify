@@ -27,20 +27,6 @@ We can think of our Indexify server as a central coordinator, and data ingestion
 
 These tasks can range from embedding data, generating summaries or even automatically extracting features from unstructured data. All it takes to chain together these extractors into a complex pipeline is a **a single declarative `.yaml` file**.
 
-## Creating a Virtual Environment
-
-??? note "Want the Source Code?"
-
-    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website) in our example folder
-
-Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
-
-```bash title="( Terminal 1 ) Install Dependencies"
-python3 -m venv venv
-source venv/bin/activate
-pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_community
-```
-
 ## Indexify Server
 
 Let's first start by downloading the indexify server and running it
@@ -56,6 +42,22 @@ By doing so, we immediately get the two following endpoints created.
 | -------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
 | Ingestion API  | [/](http://localhost:8900)      | The API endpoint for uploading content and retrieving from indexes and SQL Tables. |
 | User Interface | [/ui](http://localhost:8900/ui) | Dashboard for extraction graphs, content, and indexes.                             |
+
+
+
+## Creating a Virtual Environment
+
+??? note "Want the Source Code?"
+
+    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website) in our example folder
+
+Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
+
+```bash title="( Terminal 2 ) Install Dependencies"
+python3 -m venv venv
+source venv/bin/activate
+pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_community
+```
 
 ## Indexify Extractors
 
