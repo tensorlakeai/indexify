@@ -26,5 +26,6 @@ You can list all the ASR extractors by running the command `indexify-extractor l
 There are a ton of other ASR APIs out there, which we haven't integrated with. We would love the community to contribute or you can write a custom extractor to call into any API.
 
 ### Indexing 
-The indexing example uses LanceDB by default, but you can swap it out with any other VectorDB that Indexify supports - Qdrant or PgVector
+The indexing example uses LanceDB by default, but you can swap it out with any other VectorDB that Indexify supports - Qdrant or PgVector.
+
 We are using the embedding model - minilm-l6 in this example, you can list the other available extractor by running the command - `indexify-extractor list`
