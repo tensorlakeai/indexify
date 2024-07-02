@@ -90,5 +90,5 @@ package-ui:
 
 build-docs:
 	cd docs && pip install -r requirements.txt
-	cp -r examples docs/docs/example_code
+	cp -r examples/* docs/docs/example_code
 	cd docs && mkdocs build
