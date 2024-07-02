@@ -1,5 +1,3 @@
-Here's a concise base README following the structure of the provided example:
-
 # Indexify Cookbooks
 
 Indexify is capable of ingesting and processing various types of unstructured data. This repository contains cookbooks demonstrating how to build pipelines for:
