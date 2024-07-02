@@ -73,7 +73,7 @@ nav:
       - Develop Indexify: 'develop.md'
       - Extractors on GPU: 'gpu-deployment.md'
   - Examples:
-      - All Examples: 'examples/landing.md'
+      - Index: 'examples_index.md'
 
 plugins:
   - mkdocs-jupyter
