@@ -3,7 +3,7 @@
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
-[Indexify Extractors](https://github.com/tensorlakeai/indexify-extractors) | [Python Client](https://github.com/tensorlakeai/indexify-python-client) | [TypeScript Client](https://github.com/tensorlakeai/indexify-typescript-client)
+[Examples](examples) | [Indexify Extractors](https://github.com/tensorlakeai/indexify-extractors) | [Python Client](https://github.com/tensorlakeai/indexify-python-client) | [TypeScript Client](https://github.com/tensorlakeai/indexify-typescript-client)
 
 
 ![Indexify High Level](docs/docs/images/Indexify_KAT.gif)
