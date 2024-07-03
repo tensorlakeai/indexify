@@ -34,8 +34,7 @@ indexify-extractor join-server
 ```bash title="Terminal 3"
 python setup_graph.py
 ```
-
-<img src="topic_extraction/carbon.png" alt="extraction graph" width="600"/>
+![extraction graph](carbon.png)
 
 ## Upload Data and Retrieve 
 The next step is to upload an audio file and retrieve the transcript
@@ -44,4 +43,4 @@ The next step is to upload an audio file and retrieve the transcript
 python upload_and_retrieve.py
 ```
 
-<img src="topic_extraction/output.png" alt="extraction graph" width="800"/>
+![output](output.png)

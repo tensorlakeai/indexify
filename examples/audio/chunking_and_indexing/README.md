@@ -33,13 +33,13 @@ indexify-extractor join-server
 ```bash title="Terminal 3"
 python setup_graph.py
 ```
-<img src="chunking_and_indexing/carbon.png" alt="extraction graph" width="600"/>
+![extraction graph](carbon.png)
 
-## Upload Data and Retreive 
+## Upload Data and Retrieve 
 The next step is to upload an audio file and retreive the transcript
 
 ```bash title="Terminal 3"
 python upload_and_retrieve.py
 ```
 
-<img src="chunking_and_indexing/output.png" alt="output" width="800"/>
+![output](output.png)
