@@ -6,6 +6,8 @@
 
 ## Code Reference
 
+[Link to Code](https://github.com/tensorlakeai/indexify/tree/main/examples/audio/chunking_and_indexing)
+
 1. `graph.yaml` - contains the extraction graph.
 2. `setup_graph.py` - Sets up the extraction graph in Indexify Server
 3. `upload_and_retrieve.py` - Uploads audio into the extraction graph, waits for extraction and finally retrieves from the endpoint.
@@ -31,6 +33,7 @@ indexify-extractor join-server
 ```bash title="Terminal 3"
 python setup_graph.py
 ```
+![Extraction Graph](carbon.png "graph.yaml")
 
 ## Upload Data and Retreive 
 The next step is to upload an audio file and retreive the transcript

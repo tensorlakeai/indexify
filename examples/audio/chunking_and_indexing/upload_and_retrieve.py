@@ -27,4 +27,4 @@ if __name__ == "__main__":
     retrieve(content_id)
     os.remove("audio.mp3")
     results = client.search_index("transcription_indexing.embedding.embedding", "black hole", 3)
-    print(results)
+    print("\n\n".join(results))

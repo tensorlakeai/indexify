@@ -71,28 +71,6 @@ Here's a quick overview of all the extractors:
 | tensorlake/easyocr                        | text               | Photocopied/Scanned PDFs on GPU     | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'page': 1}, comment=None)], labels={})]                                                                                                                                                                                                                                                                                                   |
 | tensorlake/marker                         | text, table        | Detailed structured & formatted PDF | [Content(content_type='text/plain', data=b'I love playing football.', features=[Feature(feature_type='metadata', name='text', value={'language': 'English', 'filetype': 'pdf', 'toc': [], 'pages': 1, 'ocr_stats': {'ocr_pages': 0, 'ocr_failed': 0, 'ocr_success': 0}, 'block_stats': {'header_footer': 2, 'code': 0, 'table': 0, 'equations': {'successful_ocr': 0, 'unsuccessful_ocr': 0, 'equations': 0}}, 'postprocess_stats': {'edit': {}}}, comment=None)], labels={})] |
 
-## Get Started with PDF Extraction
-
-You can test it locally:
-
-1. Download a PDF Extractor:
-   ```bash
-   indexify-extractor download tensorlake/pdfextractor
-   indexify-extractor join-server
-   ```
-
-2. Load it in a notebook or in a Python script:
-   ```python
-   from indexify_extractor_sdk import load_extractor, Content
-
-   extractor, config_cls = load_extractor("indexify_extractors.pdfextractor.pdf_extractor:PDFExtractor")
-   content = Content.from_file("/path/to/file.pdf")
-
-   results =  extractor.extract(content)
-   print(results)
-   ```
-
-
 ## Continuous PDF Extraction for Applications
 
 Here is an example of how you can create a pipeline that extracts text, tables and images from a PDF document.
@@ -105,6 +83,7 @@ Here is an example of how you can create a pipeline that extracts text, tables a
 
 2. Start a long-running PDF Extractor:
    ```bash
+   pip install indexify-extractor-sdk indexify
    indexify-extractor download tensorlake/pdfextractor
    indexify-extractor join-server
    ```
