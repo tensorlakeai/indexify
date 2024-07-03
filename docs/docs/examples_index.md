@@ -23,3 +23,4 @@ Here are some of examples of use-cases you could accomplish with Indexify
 ## **Image & Video Extraction**
 - [Object Detection using YOLO](../example_code/image/detect)
 - [Video Transcript with Diarization](../example_code/video/transcript)
+- [Image Captioning, Object Detection & Segmentation with Florence 2](../example_code/image/florence)
