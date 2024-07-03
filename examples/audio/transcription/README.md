@@ -6,7 +6,7 @@
 
 ## Code Reference
 
-[Code](https://github.com/tensorlakeai/indexify/tree/main/examples/audio/transcription)
+[Link to Code](https://github.com/tensorlakeai/indexify/tree/main/examples/audio/transcription)
 
 1. `graph.yaml` - contains the extraction graph.
 2. `setup_graph.py` - Sets up the extraction graph in Indexify Server
