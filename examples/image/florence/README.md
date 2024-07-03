@@ -175,11 +175,11 @@ image = Image.open(requests.get(image_url, stream=True).raw)
 ```python
 plot_bbox(image, objects[0]['content'].decode('utf-8'))
 ```
-![](detect.png)
+![](https://docs.getindexify.ai/example_code/image/florence/detect.png)
 ```python
 draw_polygons(image, segmentation[0]['content'].decode('utf-8'), fill_mask=True)
 ```
-![](segment.png)
+![](https://docs.getindexify.ai/example_code/image/florence/segment.png)
 
 ## Customization and Advanced Usage
 
