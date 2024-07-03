@@ -11,8 +11,6 @@ import {
 } from '../types'
 import CopyText from './CopyText'
 import { Cpu, InfoCircle } from 'iconsax-react'
-import ExtractionPolicyTable from './ExtractionPolicyTable'
-import ExtendedContentTable from './ExtendedContentTable'
 import { Link } from 'react-router-dom'
 
 const ExtractionGraphs = ({
