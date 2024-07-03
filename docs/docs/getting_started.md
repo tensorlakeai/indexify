@@ -40,8 +40,8 @@ By doing so, we immediately get the two following endpoints created.
 
 | Endpoint       | Route                           | Description                                                                        |
 | -------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
-| Ingestion API  | [/](http://localhost:8900)      | The API endpoint for uploading content and retrieving from indexes and SQL Tables. |
-| User Interface | [/ui](http://localhost:8900/ui) | Dashboard for extraction graphs, content, and indexes.                             |
+| Ingestion API  | [http://localhost:8900](http://localhost:8900)      | The API endpoint for uploading content and retrieving from indexes and SQL Tables. |
+| User Interface | [http://localhost:8900/ui](http://localhost:8900/ui) | Dashboard for extraction graphs, content, and indexes.                             |
 
 
 ## Creating a Virtual Environment
