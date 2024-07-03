@@ -42,4 +42,4 @@ The next step is to upload an audio file and retreive the transcript
 python upload_and_retrieve.py
 ```
 
-<img src="output.png" alt="output" width="600"/>
+<img src="output.png" alt="output" width="800"/>

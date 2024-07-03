@@ -35,6 +35,8 @@ indexify-extractor join-server
 python setup_graph.py
 ```
 
+<img src="carbon.png" alt="extraction graph" width="600"/>
+
 ## Upload Data and Retrieve 
 The next step is to upload an audio file and retrieve the transcript
 
