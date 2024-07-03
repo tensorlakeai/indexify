@@ -66,10 +66,9 @@ export async function ExtractionGraphsPageLoader({
 export async function IndividualExtractionGraphsPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
+  const { namespace, contentId } = params
+  if (!namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const extractors = await client.extractors()
-
   const counts = await Promise.all(
     client.extractionGraphs.map(async (graph) => {
       return Promise.all(
@@ -96,11 +95,28 @@ export async function IndividualExtractionGraphsPageLoader({
     }
   })
 
+  const [extractors, indexes, contentList, schemas, getTasks] = await Promise.all([
+    client.extractors(),
+    client.indexes(),
+    client.getExtractedContent(),
+    client.getSchemas(),
+    client.getTasks(
+      {
+        contentId,
+        returnTotal: true
+      }
+    )
+  ])
   return {
-    namespace: client.namespace,
-    extractionGraphs: client.extractionGraphs,
-    extractors,
+    getTasks,
     taskCountsMap,
+    client,
+    extractors,
+    extractionGraph: client.extractionGraphs,
+    indexes,
+    contentList,
+    schemas,
+    namespace: params.namespace,
   }
 }
 

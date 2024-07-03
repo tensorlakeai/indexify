@@ -20,8 +20,8 @@ import { InfoCircle, TableDocument } from 'iconsax-react';
 import CopyText from '../../components/CopyText';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom';
-import { ExtractionGraph, IExtractionPolicy, IndexifyClient } from 'getindexify';
-import { TaskCounts } from '../../types';
+import { ExtractionGraph, Extractor, IContentMetadata, IExtractionPolicy, IIndex, IndexifyClient, ISchema } from 'getindexify';
+import { TaskCounts, TaskCountsMap } from '../../types';
 
 const ExtractorTable = () => {
   const rows = [
@@ -81,15 +81,37 @@ const ExtractorTable = () => {
 };
 
 const IndividualExtractorsPage = () => {
-
-  const { policy, namespace, extractionGraph, taskCounts, client } =
+  const { getTasks,
+    taskCountsMap,
+    client,
+    extractors,
+    extractionGraph,
+    indexes,
+    contentList,
+    schemas,
+    namespace } =
     useLoaderData() as {
-      policy: IExtractionPolicy
       namespace: string
       client: IndexifyClient
       extractionGraph: ExtractionGraph
       taskCounts?: TaskCounts
+      getTasks: any,
+      taskCountsMap: TaskCountsMap,
+      extractors: Extractor[],
+      indexes: IIndex[],
+      contentList: IContentMetadata[],
+      schemas: ISchema[],
     }
+
+  console.log('taskCountsMap', taskCountsMap)
+  console.log('extractors', extractors)
+  console.log('extractionGraph', extractionGraph)
+  console.log('indexes', indexes)
+  console.log('contentList', contentList)
+  console.log('schemas', schemas)
+  console.log('namespace', namespace)
+  console.log('client', client)
+  console.log('getTasks', getTasks)
 
   return (
     <Stack direction="column" spacing={3}>
