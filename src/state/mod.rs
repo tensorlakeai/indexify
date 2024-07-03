@@ -593,6 +593,9 @@ impl App {
                 }
             }
         }
+        if self.state_machine.creates_cycle(&link)? {
+            return Err(anyhow!("unable to link extraction graphs: cycle detected"));
+        }
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionGraphLink {
                 extraction_graph_link: link,

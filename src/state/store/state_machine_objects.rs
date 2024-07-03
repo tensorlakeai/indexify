@@ -702,7 +702,7 @@ pub struct IndexifyState {
     pub change_id: std::sync::Mutex<u64>,
 
     /// Graph+ContentSource->Policy Id
-    pub graph_links: Arc<RwLock<HashMap<ExtractionGraphNode, HashSet<String>>>>,
+    pub graph_links: Arc<RwLock<HashMap<ExtractionGraphNode, HashSet<ExtractionPolicyId>>>>,
 }
 
 impl fmt::Display for IndexifyState {

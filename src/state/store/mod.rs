@@ -20,6 +20,7 @@ use indexify_internal_api::{
     ContentMetadataId,
     ExecutorMetadata,
     ExtractionGraph,
+    ExtractionGraphLink,
     ExtractionPolicy,
     NamespaceName,
     StructuredDataSchema,
@@ -335,6 +336,33 @@ fn read_snapshots(
     Ok(snapshots)
 }
 
+fn add_link(graph_links: &mut HashMap<String, HashSet<String>>, link: &ExtractionGraphLink) {
+    graph_links
+        .entry(link.node.graph_name.clone())
+        .or_default()
+        .insert(link.graph_name.clone());
+}
+
+// Returns a set of graph edges in the form (source, target set).
+// For cycle detection keep a single link between two graphs,
+// no need to distinguish by ContentSource.
+fn read_graph_links(
+    db: &OptimisticTransactionDB,
+    namespace: &str,
+) -> Result<HashMap<String, HashSet<String>>> {
+    let cf_handle = StateMachineColumns::ExtractionGraphLinks.cf(db);
+    let mut graph_links: HashMap<String, HashSet<String>> = HashMap::new();
+    for v in db.iterator_cf(cf_handle, IteratorMode::Start) {
+        let (key, _) = v.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        let link: ExtractionGraphLink = JsonEncoder::decode(&key)?;
+        if link.node.namespace != namespace {
+            continue;
+        }
+        add_link(&mut graph_links, &link);
+    }
+    Ok(graph_links)
+}
+
 pub struct StateMachineStore {
     pub data: StateMachineData,
 
@@ -436,6 +464,26 @@ impl StateMachineStore {
             })?;
 
         Ok(sm)
+    }
+
+    // Check if adding a link will create a cycle in the graph.
+    pub fn creates_cycle(&self, link: &ExtractionGraphLink) -> Result<bool> {
+        let db = self.db.read().unwrap();
+        let mut graph_links = read_graph_links(&db, &link.node.namespace)?;
+        add_link(&mut graph_links, link);
+        let mut visited = HashSet::new();
+        let mut stack = vec![link.node.graph_name.clone()];
+
+        while let Some(graph) = stack.pop() {
+            if visited.contains(&graph) {
+                return Ok(true);
+            }
+            visited.insert(graph.clone());
+            if let Some(links) = graph_links.get(&graph) {
+                stack.extend(links.iter().cloned());
+            }
+        }
+        Ok(false)
     }
 
     fn update_applied_log_id<'a>(

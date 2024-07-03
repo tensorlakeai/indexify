@@ -1918,6 +1918,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_link_cycle() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg_1 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_1",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_1.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let eg_2 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_2",
+            vec![
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_2.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let eg_3 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_3",
+            vec![
+                "test_extraction_policy_7",
+                "test_extraction_policy_8",
+                "test_extraction_policy_9",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_3.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let link = ExtractionGraphLink {
+            node: ExtractionGraphNode {
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+                graph_name: eg_1.name.clone(),
+                source: ContentSource::ExtractionPolicyName(
+                    eg_1.extraction_policies[1].name.clone(),
+                ),
+            },
+            graph_name: eg_1.name.clone(),
+        };
+        let result = coordinator.link_graphs(link).await;
+        assert!(result.is_err(), "Expected linking graph to itself to fail");
+
+        let link = ExtractionGraphLink {
+            node: ExtractionGraphNode {
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+                graph_name: eg_1.name.clone(),
+                source: ContentSource::ExtractionPolicyName(
+                    eg_1.extraction_policies[2].name.clone(),
+                ),
+            },
+            graph_name: eg_3.name.clone(),
+        };
+        coordinator.link_graphs(link).await?;
+
+        let link = ExtractionGraphLink {
+            node: ExtractionGraphNode {
+                namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+                graph_name: eg_3.name.clone(),
+                source: ContentSource::ExtractionPolicyName(
+                    eg_3.extraction_policies[2].name.clone(),
+                ),
+            },
+            graph_name: eg_1.name.clone(),
+        };
+
+        let result = coordinator.link_graphs(link).await;
+        assert!(
+            result.is_err(),
+            "Expected linking graph creating cycle to fail"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_policy_filters() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
