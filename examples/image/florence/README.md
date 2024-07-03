@@ -168,7 +168,7 @@ python upload_and_analyze.py
 
 ## Results
 
-With the helper functions to visualize the output images in [`plot.py`](plot.py) we can get results like this:
+With the helper functions to visualize the output images in [`plot.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/image/florence/plot.py) we can get results like this:
 ```python
 image = Image.open(requests.get(image_url, stream=True).raw)
 ```
