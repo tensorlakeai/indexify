@@ -23,6 +23,7 @@ def retrieve(content_id):
     summary = client.get_extracted_content(content_id, "topic_extraction", "summarization")
     print(summary)
     topics_extracted = client.get_extracted_content(content_id, "topic_extraction", "topics")
+    print(topics_extracted)
 
 
 if __name__ == "__main__":
