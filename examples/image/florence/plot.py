@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt  
 import matplotlib.patches as patches  
 def plot_bbox(image, data):
+    data = ast.literal_eval(data)
    # Create a figure and axes  
     fig, ax = plt.subplots()  
       
@@ -40,6 +41,7 @@ def draw_polygons(image, prediction, fill_mask=False):
                   'labels' is a list of labels corresponding to each polygon.  
     - fill_mask: Boolean indicating whether to fill the polygons with color.  
     """  
+    prediction = ast.literal_eval(prediction)
     # Load the image  
    
     draw = ImageDraw.Draw(image)  
