@@ -53,7 +53,7 @@ Before we begin, ensure you have the following:
 
 ## Usage
 
-1. First, run the [`image_pipeline.py`](image_pipeline.py) script to set up the extraction graph:
+1. First, run the [`setup.py`](setup.py) script to set up the extraction graph:
    ```bash
    python setup.py
    ```
