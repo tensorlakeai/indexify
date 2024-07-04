@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
 use futures::StreamExt;
 use hyper::StatusCode;
-use indexify_internal_api::{self as internal_api, ContentSourceFilter};
+use indexify_internal_api::{self as internal_api, ContentSourceFilter, ExtractionGraphLink};
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_server::CoordinatorService,
@@ -212,6 +212,21 @@ impl CoordinatorServiceServer {
 impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+
+    async fn link_extraction_graphs(
+        &self,
+        request: tonic::Request<indexify_coordinator::LinkExtractionGraphsRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::LinkExtractionGraphsResponse>, tonic::Status>
+    {
+        let link: ExtractionGraphLink = request.into_inner().into();
+        self.coordinator
+            .link_graphs(link)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(
+            indexify_coordinator::LinkExtractionGraphsResponse {},
+        ))
+    }
 
     async fn executors_heartbeat(
         &self,

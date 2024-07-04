@@ -11,14 +11,16 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
-use indexify_internal_api::{self as internal_api};
+use indexify_internal_api::{self as internal_api, ExtractionGraphNode};
 use indexify_proto::{
     indexify_coordinator::CreateContentStatus,
     indexify_raft::raft_api_server::RaftApiServer,
 };
 use internal_api::{
     ContentMetadataId,
+    ContentSource,
     ExtractionGraph,
+    ExtractionGraphLink,
     ExtractionPolicy,
     StateChange,
     StateChangeId,
@@ -415,27 +417,34 @@ impl App {
         content_metadata: &internal_api::ContentMetadata,
     ) -> Result<Vec<ExtractionPolicy>> {
         if content_metadata.tombstoned {
-            return Ok(vec![]);
-        }
-
-        if content_metadata.extraction_graph_names.is_empty() {
             return Ok(Vec::new());
         }
-        let extraction_graphs = self.get_extraction_graphs_by_name(
-            &content_metadata.namespace,
-            &content_metadata.extraction_graph_names,
-        )?;
-        let mut all_extraction_policies: Vec<ExtractionPolicy> = Vec::new();
-        for extraction_graph in extraction_graphs {
-            if let Some(eg) = extraction_graph {
-                all_extraction_policies.extend(eg.extraction_policies);
+        let mut policy_ids = Vec::new();
+        for graph_name in &content_metadata.extraction_graph_names {
+            let graph_links = self
+                .state_machine
+                .data
+                .indexify_state
+                .graph_links
+                .read()
+                .unwrap();
+            let key = ExtractionGraphNode {
+                namespace: content_metadata.namespace.clone(),
+                graph_name: graph_name.clone(),
+                source: content_metadata.source.clone(),
+            };
+            if let Some(graph_links) = graph_links.get(&key) {
+                policy_ids.extend(graph_links.iter().cloned());
             }
         }
+        if policy_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let all_extraction_policies = self
+            .get_extraction_policies_from_ids(policy_ids.into_iter().collect())
+            .await?;
         let mut matched_policies = Vec::new();
         for extraction_policy in all_extraction_policies {
-            if content_metadata.source != extraction_policy.content_source {
-                continue;
-            }
             if !extraction_policy.filters.iter().all(|(name, value)| {
                 content_metadata
                     .labels
@@ -557,6 +566,47 @@ impl App {
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
+        Ok(())
+    }
+
+    pub async fn link_graphs(&self, link: ExtractionGraphLink) -> Result<()> {
+        let graphs = vec![link.node.graph_name.clone(), link.graph_name.clone()];
+        let graphs = self.get_extraction_graphs_by_name(&link.node.namespace, &graphs)?;
+        if graphs.len() != 2 || graphs[0].is_none() || graphs[1].is_none() {
+            return Err(anyhow!(
+                "unable to link extraction graphs: one or more graphs not found"
+            ));
+        }
+        match link.node.source {
+            ContentSource::Ingestion => (),
+            ContentSource::ExtractionPolicyName(ref policy_name) => {
+                if !graphs[0]
+                    .as_ref()
+                    .unwrap()
+                    .extraction_policies
+                    .iter()
+                    .any(|policy| policy.name == *policy_name)
+                {
+                    return Err(anyhow!(
+                        "unable to link extraction graphs: source extraction policy not found"
+                    ));
+                }
+            }
+        }
+        if self.state_machine.creates_cycle(&link)? {
+            return Err(anyhow!("unable to link extraction graphs: cycle detected"));
+        }
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateExtractionGraphLink {
+                extraction_graph_link: link,
+            },
+            new_state_changes: vec![],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to link extraction graphs: {}", e.to_string()))?;
         Ok(())
     }
 

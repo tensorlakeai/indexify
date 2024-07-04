@@ -176,6 +176,10 @@ impl Server {
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/extraction_graph_links",
+                post(link_extraction_graphs).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/indexes",
                 get(list_indexes).with_state(namespace_endpoint_state.clone()),
             )
@@ -576,6 +580,29 @@ async fn create_extraction_graph(
         .into_iter()
         .collect();
     Ok(Json(ExtractionGraphResponse { indexes }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/namespace/{namespace}/link_extraction_graphs",
+    request_body = ExtractionGraphLink,
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Extraction graphs linked successfully", body = ExtractionGraphResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to link extraction graphs")
+    ),
+)]
+#[axum::debug_handler]
+async fn link_extraction_graphs(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+    Json(payload): Json<ExtractionGraphLink>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .link_extraction_graphs(&namespace, payload)
+        .await
+        .map_err(IndexifyAPIError::internal_error)
 }
 
 #[tracing::instrument(skip(state, payload))]
