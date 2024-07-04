@@ -47,7 +47,7 @@ Before we begin, ensure you have the following:
 
 ## File Descriptions
 
-1. `image_pipeline.py`: This script sets up the extraction graph for converting PDFs to images.
+1. `setup.py`: This script sets up the extraction graph for converting PDFs to images.
 
 2. `upload_and_retreive.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted images.
 
