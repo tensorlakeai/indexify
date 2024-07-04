@@ -33,21 +33,20 @@ ETL-based ingestion systems process files in batches, suitable for offline use c
 To get started follow our [documentation](https://docs.getindexify.ai/getting_started/).
 
 ## Quick Start
-
-#### Download and start Indexify 
+#### Download and start Indexify | Terminal1
 ```bash title="Terminal 1"
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
 
-#### Install the Indexify Extractor and Client SDKs
+#### Install the Indexify Extractor and Client SDKs | Terminal2
 ```bash title="Terminal 2"
 virtualenv ve
 source ve/bin/activate
 pip install indexify indexify-extractor-sdk requests
 ```
 
-#### Download some extractors
+#### Download some extractors | Terminal2
 ```bash title="Terminal 2"
 indexify-extractor download tensorlake/minilm-l6
 indexify-extractor download tensorlake/pdfextractor
@@ -58,7 +57,7 @@ indexify-extractor download tensorlake/whisper-asr
 indexify-extractor join-server
 ```
 
-### Basic RAG
+### Text Embedding Pipeline
 This example shows how to implement RAG on text
 #### Create an Extraction Graph
 ```python
@@ -123,7 +122,7 @@ print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
 ```
 
 
-### Podcast Summarization and Embedding
+### Audio Transcription and Summarization
 This example shows how to transcribe audio, and create a pipeline that embeds the transcription 
 More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_extraction/
 
