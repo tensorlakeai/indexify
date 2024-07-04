@@ -184,7 +184,7 @@ impl DiskFileReader {
 
 #[async_trait]
 impl BlobStorageReader for DiskFileReader {
-    async fn get(&self, file_path: &str) -> Result<BoxStream<Result<Bytes>>> {
+    async fn get(&self, file_path: &str) -> Result<BoxStream<'static, Result<Bytes>>> {
         let (tx, rx) = mpsc::unbounded_channel();
         let file_path = file_path.trim_start_matches("file://").to_string();
         let client = LocalFileSystem::new();

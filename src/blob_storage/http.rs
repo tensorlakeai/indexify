@@ -9,7 +9,7 @@ pub struct HttpReader {}
 
 #[async_trait]
 impl BlobStorageReader for HttpReader {
-    async fn get(&self, key: &str) -> Result<BoxStream<Result<Bytes>>> {
+    async fn get(&self, key: &str) -> Result<BoxStream<'static, Result<Bytes>>> {
         let client = reqwest::Client::new();
         let key = key.to_string();
         let response = client.get(key).send().await?;

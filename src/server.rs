@@ -31,7 +31,7 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
@@ -895,21 +895,15 @@ async fn download_content(
     if content_metadata.size > 0 {
         resp_builder = resp_builder.header("Content-Length", content_metadata.size);
     }
+
+    let storage_reader = state.content_reader.get(&content_metadata.storage_url);
+    let content_stream = storage_reader
+        .get(&content_metadata.storage_url)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+
     resp_builder
-        .body(Body::from_stream(async_stream::stream! {
-            let storage_url = &content_metadata.storage_url.clone();
-            let content_reader = state.content_reader.clone();
-            let reader = content_reader.get(storage_url);
-            let maybe_content_stream = reader.get(storage_url).await;
-            if let Err(e) = maybe_content_stream {
-                error!("failed to get content stream: {}", e);
-                return;
-            }
-            let mut content_stream = maybe_content_stream.unwrap();
-            while let Some(buf)  = content_stream.next().await {
-                yield buf;
-            }
-        }))
+        .body(Body::from_stream(content_stream))
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
 

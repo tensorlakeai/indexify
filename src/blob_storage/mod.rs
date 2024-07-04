@@ -60,7 +60,7 @@ type BlobStorageReaderTS = Arc<dyn BlobStorageReader + Sync + Send>;
 
 #[async_trait]
 pub trait BlobStorageReader {
-    async fn get(&self, key: &str) -> Result<BoxStream<Result<Bytes>>>;
+    async fn get(&self, key: &str) -> Result<BoxStream<'static, Result<Bytes>>>;
 }
 
 #[derive(Clone)]
