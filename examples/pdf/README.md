@@ -1,4 +1,4 @@
-# Indexify Cookbooks
+# PDF Extraction Pipelines
 
 Indexify is capable of ingesting and processing various types of unstructured data. This repository contains cookbooks demonstrating how to build pipelines for:
 
