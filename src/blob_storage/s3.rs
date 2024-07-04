@@ -99,7 +99,7 @@ impl S3FileReader {
 
 #[async_trait]
 impl BlobStorageReader for S3FileReader {
-    async fn get(&self, _key: &str) -> Result<BoxStream<Result<Bytes>>> {
+    async fn get(&self, _key: &str) -> Result<BoxStream<'static, Result<Bytes>>> {
         let client_clone = self.client.clone();
         let (tx, rx) = mpsc::unbounded_channel();
         let key = self.key.clone();
