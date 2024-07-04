@@ -55,12 +55,12 @@ Before we begin, ensure you have the following:
 
 1. First, run the [`image_pipeline.py`](image_pipeline.py) script to set up the extraction graph:
    ```bash
-   python image_pipeline.py
+   python setup.py
    ```
 
-2. Then, run the [`upload_and_retreive.py`](upload_and_retreive.py) script to process a PDF and extract images:
+2. Then, run the [`upload_and_retrieve.py`](upload_and_retrieve.py) script to process a PDF and extract images:
    ```bash
-   python upload_and_retreive.py
+   python upload_and_retrieve.py
    ```
 
    This script will:
@@ -73,7 +73,7 @@ Before we begin, ensure you have the following:
 
 You can customize the image extraction process by modifying the `extraction_graph_spec` in `image_pipeline.py`. For example, you could add additional extraction steps or change the output format.
 
-In `upload_and_retreive.py`, you can modify the `pdf_url` variable to process different PDF documents.
+In `upload_and_retrieve.py`, you can modify the `pdf_url` variable to process different PDF documents.
 
 ## Conclusion
 

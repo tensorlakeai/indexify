@@ -4,26 +4,10 @@
 
 Indexify is a data framework designed for building ingestion and extraction pipelines for unstructured data. These pipelines are defined using declarative configuration. Each stage of the pipeline can perform structured extraction using any AI model or transform ingested data. The pipelines start working immediately upon data ingestion into Indexify, making them ideal for interactive applications and low-latency use cases.
 
-You should use Indexify if - 
+## How It Works
 
-1. You are working with non-trivial amount of data, >1000s of documents, audio files, videos or images. 
-2. The data volume grows over time, and LLMs need access to updated data as quickly as possible
-3. You care about reliability and availability of your ingestion pipelines. 
-4. You are working with multi-modal data, or combine multiple models into a single pipeline for data extraction.
-5. User Experience of your application degrades if your LLM application is reading stale data when data sources are updated.
+##### Setup Ingestion Pipelines
 
-## Why use Indexify?
-Most LLM data frameworks for unstructured data are primarily optimized for prototyping applications. A typical MVP data processing pipeline is written as follows -
-```python
-data = load_data(source)
-embedding = generate_embedding(data) 
-structured_data = structured_extraction_function(data)
-db.save(embedding)
-db.save(structured_data)
-```
-All of these lines in the above code snippet **can and will** [fail in production](https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/). If your application relies on your data framework being reliable and not losing data, you will inevitably lose data in production with LLM data frameworks designed for prototyping MVPs.
-
-##### The Indexify Approach
 Indexify provides a declarative configuration approach. You can translate the code above into a pipeline like this,
 ```yaml
 name: 'pdf-ingestion-pipeline'
@@ -44,10 +28,52 @@ extraction_policies:
 
 3. We have written some ready to use extractors. You can write custom extractors very easily to add any data extraction/transformation code or library.
 
+##### Upload Data 
+```python
+client = IndexifyClient()
+
+content_id = client.upload_file("pdf-ingestion-pipeline", "file.pdf")
+```
+
+#### Retrieve
+Retrieve extracted data from extraction policy for the uploaded document.
+```python
+markdown = client.get_extracted_content(content_id, "pdf-ingestion-pipeline", "pdf_to_markdown")
+
+named_entities = client.get_extracted_content(content_id, "pdf-ingestion-pipeline", "entity_extractor")
+```
+
+Embeddings are automatically written into configured vector databases(default: lancedb).
+You can search by 
+```python
+results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
+```
+
+## Multi-Modal 
+Indexify can parse PDFs, Videos, Images and Audio. You can use any model under the sun to extract data in the pipelines. We have written some ourselves, and continue to add more. You can write new extractors that wrap any local model or API under 5 minutes.
+
+## Highly Available and Fault Tolerant
+Most LLM data frameworks for unstructured data are primarily optimized for prototyping applications. A typical MVP data processing pipeline is written as follows -
+```python
+data = load_data(source)
+embedding = generate_embedding(data) 
+structured_data = structured_extraction_function(data)
+db.save(embedding)
+db.save(structured_data)
+```
+All of these lines in the above code snippet **can and will** [fail in production](https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/). If your application relies on your data framework being reliable and not losing data, you will inevitably lose data in production with LLM data frameworks designed for prototyping MVPs.
+
 Indexify is distributed on many machines to scale-out each of the stages in the above pipeline. The pipeline state is replicated across multiple machines to recover from hardware failures, software crashes of the server. You get predictable latencies and throughput for data extraction, and it's fully observable to help troubleshoot. 
+
 
 ## Local Experience
 Indexify runs locally without **any** dependencies. The pipelines developed and tested on laptops can run unchanged in production.
+
+You should use Indexify if - 
+
+1. You are working with non-trivial amount of data, >1000s of documents, audio files, videos or images. 
+2. The data volume grows over time, and LLMs need access to updated data as quickly as possible
+3. You care about reliability and availability of your ingestion pipelines. 
 
 ## Start Using Indexify
 

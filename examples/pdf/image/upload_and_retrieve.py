@@ -24,7 +24,7 @@ def get_images(pdf_path):
         policy_name="pdf_to_image"
     )
     
-    return images[0]['content']
+    return images
 
 # Example usage
 if __name__ == "__main__":
@@ -36,5 +36,9 @@ if __name__ == "__main__":
     
     # Get images from the PDF
     images = get_images(pdf_path)
-    print("Images from the PDF:")
-    print(images)
+    for image in images:
+        content_id = image["id"]
+        with open(f"{content_id}.png", 'wb') as f:
+            print("writing image ", image["id"])
+            f.write(image["content"])
+

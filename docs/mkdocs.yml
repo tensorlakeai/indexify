@@ -33,6 +33,7 @@ nav:
       - Key Concepts: 'concepts.md'
       - Architecture: 'architecture.md'
       - Comparisons: 'comparisons.md'
+      - Examples: 'examples_index.md'
   - CLI and UI:
       - User Interface: 'ui.md'
       - Extractor CLI: 'extractor_cli.md'
