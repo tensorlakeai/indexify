@@ -35,7 +35,7 @@ client = IndexifyClient()
 content_id = client.upload_file("pdf-ingestion-pipeline", "file.pdf")
 ```
 
-#### Retrieve
+##### Retrieve
 Retrieve extracted data from extraction policy for the uploaded document.
 ```python
 markdown = client.get_extracted_content(content_id, "pdf-ingestion-pipeline", "pdf_to_markdown")
