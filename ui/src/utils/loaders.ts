@@ -66,7 +66,7 @@ export async function ExtractionGraphsPageLoader({
 export async function IndividualExtractionGraphsPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, contentId } = params
+  const { namespace, extractorName } = params
   if (!namespace) return redirect('/')
   const client = await createClient(params.namespace)
   const counts = await Promise.all(
@@ -102,7 +102,6 @@ export async function IndividualExtractionGraphsPageLoader({
     client.getSchemas(),
     client.getTasks(
       {
-        contentId,
         returnTotal: true
       }
     )
@@ -117,6 +116,7 @@ export async function IndividualExtractionGraphsPageLoader({
     contentList,
     schemas,
     namespace: params.namespace,
+    extractorName
   }
 }
 
