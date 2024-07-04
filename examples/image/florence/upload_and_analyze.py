@@ -1,5 +1,5 @@
 import requests
-from indexify import IndexifyClient, Content
+from indexify import IndexifyClient
 
 def download_image(url, save_path):
     response = requests.get(url)
@@ -11,9 +11,7 @@ def analyze_image(image_path):
     client = IndexifyClient()
     
     # Upload the image file
-    with open(image_path, 'rb') as f:
-        image_content = Content(data=f.read(), mime_type="image/jpeg")
-    content_id = client.upload_content("florence_image_analyzer", image_content)
+    content_id = client.upload_file("florence_image_analyzer", image_path)
     
     # Wait for the extraction to complete
     client.wait_for_extraction(content_id)

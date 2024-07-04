@@ -12,8 +12,9 @@ This cookbook demonstrates how to create an image analysis pipeline using Indexi
 4. [Creating the Extraction Graph](#creating-the-extraction-graph)
 5. [Implementing the Image Analysis Pipeline](#implementing-the-image-analysis-pipeline)
 6. [Running the Analysis Process](#running-the-analysis-process)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
+7. [Results](#results)
+8. [Customization and Advanced Usage](#customization-and-advanced-usage)
+9. [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -100,7 +101,7 @@ Now that we have our extraction graph set up, we can upload images and make the 
 
 ```python
 import requests
-from indexify import IndexifyClient, Content
+from indexify import IndexifyClient
 
 def download_image(url, save_path):
     response = requests.get(url)
@@ -112,9 +113,7 @@ def analyze_image(image_path):
     client = IndexifyClient()
     
     # Upload the image file
-    with open(image_path, 'rb') as f:
-        image_content = Content(data=f.read(), mime_type="image/jpeg")
-    content_id = client.upload_content("florence_image_analyzer", image_content)
+    content_id = client.upload_file("florence_image_analyzer", image_path)
     
     # Wait for the extraction to complete
     client.wait_for_extraction(content_id)
@@ -170,6 +169,7 @@ python upload_and_analyze.py
 
 With the helper functions to visualize the output images in [`plot.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/image/florence/plot.py) we can get results like this:
 ```python
+from PIL import Image
 image = Image.open(requests.get(image_url, stream=True).raw)
 ```
 ```python
