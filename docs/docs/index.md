@@ -32,15 +32,18 @@ extraction_policies:
 ```python
 client = IndexifyClient()
 
-content_id = client.upload_file("pdf-ingestion-pipeline", "file.pdf")
+files = ["file1.pdf", .... "file100.pdf"]
+for file in files:
+  client.upload_file("pdf-ingestion-pipeline", file)
 ```
 
 ##### Retrieve
 Retrieve extracted data from extraction policy for the uploaded document.
 ```python
-markdown = client.get_extracted_content(content_id, "pdf-ingestion-pipeline", "pdf_to_markdown")
+content_ids = [content.id for content in client.list_content("pdf-ingestion-pipeline")]
 
-named_entities = client.get_extracted_content(content_id, "pdf-ingestion-pipeline", "entity_extractor")
+markdown = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "pdf_to_markdown")
+named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
 ```
 
 Embeddings are automatically written into configured vector databases(default: lancedb).
