@@ -1,7 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
     fmt,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     str::FromStr,
     sync::Arc,
     time::SystemTime,

@@ -7,6 +7,13 @@ pre-build = [
     "chown -R 1000:1000 /.npm"
 ]
 
+[target.x86_64-unknown-linux-gnu]
+dockerfile = "dockerfiles/Dockerfile_20.04.cross"
+pre-build = [
+    "apt-get update && apt-get install --assume-yes build-essential npm curl protobuf-compiler",
+    "mkdir -p /.npm",
+    "chown -R 1000:1000 /.npm"
+]
 [build.env]
 passthrough = [
   "PYO3_PYTHON=/usr/bin/python3.11",

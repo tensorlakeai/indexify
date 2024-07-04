@@ -17,6 +17,10 @@ build: ## Build rust application
 build-release: ## Build rust release
 	cargo build --release
 
+build-release-ubuntu20.04:
+	cargo install cross
+	cross build --target x86_64-unknown-linux-gnu --release
+
 build-release-aarch64:
 	cargo install cross
 	cross build --target aarch64-unknown-linux-gnu --release
