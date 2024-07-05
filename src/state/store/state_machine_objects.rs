@@ -516,76 +516,6 @@ impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChi
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct PendingTasksForContent {
-    pending_tasks_for_content:
-        Arc<RwLock<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>>,
-}
-
-impl PendingTasksForContent {
-    pub fn insert(
-        &self,
-        content_id: &ContentMetadataId,
-        extraction_policy_id: &ExtractionPolicyId,
-        task_id: &TaskId,
-    ) {
-        let mut guard = self.pending_tasks_for_content.write().unwrap();
-        let policies_map = guard.entry(content_id.clone()).or_default();
-        let tasks_set = policies_map
-            .entry(extraction_policy_id.clone())
-            .or_default();
-        tasks_set.insert(task_id.clone());
-    }
-
-    pub fn remove(
-        &self,
-        content_id: &ContentMetadataId,
-        extraction_policy_id: &ExtractionPolicyId,
-        task_id: &TaskId,
-    ) {
-        let mut guard = self.pending_tasks_for_content.write().unwrap();
-        if let Some(extraction_policies_map) = guard.get_mut(content_id) {
-            if let Some(task_ids) = extraction_policies_map.get_mut(extraction_policy_id) {
-                task_ids.remove(task_id);
-                if task_ids.is_empty() {
-                    extraction_policies_map.remove(extraction_policy_id);
-                }
-            }
-            if extraction_policies_map.is_empty() {
-                guard.remove(content_id);
-            }
-        }
-    }
-
-    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        let guard = self.pending_tasks_for_content.read().unwrap();
-        guard.get(content_id).is_none()
-    }
-
-    pub fn inner(
-        &self,
-    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
-        let guard = self.pending_tasks_for_content.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>>>
-    for PendingTasksForContent
-{
-    fn from(
-        pending_tasks_for_content: HashMap<
-            ContentMetadataId,
-            HashMap<ExtractionPolicyId, HashSet<TaskId>>,
-        >,
-    ) -> Self {
-        let pending_tasks_for_content = Arc::new(RwLock::new(pending_tasks_for_content));
-        Self {
-            pending_tasks_for_content,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct Metrics {
     /// Number of tasks total
     pub tasks_completed: u64,
@@ -682,9 +612,6 @@ pub struct IndexifyState {
 
     /// Parent content id -> children content id's
     pub content_children_table: ContentChildrenTable,
-
-    /// content id -> Map<ExtractionPolicyId, HashSet<TaskId>>
-    pub pending_tasks_for_content: PendingTasksForContent,
 
     /// Number of tasks pending for root content
     root_task_counts: RwLock<HashMap<String, TaskCount>>,
@@ -1541,11 +1468,6 @@ impl IndexifyState {
                     self.unassigned_tasks.insert(&task.id, task.creation_time);
                     self.unfinished_tasks_by_extractor
                         .insert(&task.extractor, &task.id);
-                    self.pending_tasks_for_content.insert(
-                        &task.content_metadata.id,
-                        &task.extraction_policy_id,
-                        &task.id,
-                    );
                 }
                 Ok(())
             }
@@ -1630,12 +1552,6 @@ impl IndexifyState {
                                 })
                             });
                     }
-                    let content_id = task.content_metadata.id;
-                    self.pending_tasks_for_content.remove(
-                        &content_id,
-                        &task.extraction_policy_id,
-                        &task.id,
-                    );
                 }
                 Ok(())
             }
@@ -2241,12 +2157,6 @@ impl IndexifyState {
         self.content_children_table.inner()
     }
 
-    pub fn get_pending_tasks_for_content(
-        &self,
-    ) -> HashMap<ContentMetadataId, HashMap<ExtractionPolicyId, HashSet<TaskId>>> {
-        self.pending_tasks_for_content.inner()
-    }
-
     fn inc_root_ref_count(&self, content_id: &str) {
         let mut root_task_counts = self.root_task_counts.write().unwrap();
         root_task_counts
@@ -2383,11 +2293,6 @@ impl IndexifyState {
             .content_children_table
             .write()
             .unwrap();
-        let mut pending_tasks_for_content = self
-            .pending_tasks_for_content
-            .pending_tasks_for_content
-            .write()
-            .unwrap();
         let mut graphs = self
             .extraction_graphs_by_ns
             .eg_by_namespace
@@ -2424,16 +2329,6 @@ impl IndexifyState {
                     .entry(task.extractor.clone())
                     .or_default()
                     .insert(task.id.clone());
-                let content_id = &task.content_metadata.id;
-                let extraction_policy_id = &task.extraction_policy_id;
-
-                let policies_map = pending_tasks_for_content
-                    .entry(content_id.clone())
-                    .or_default();
-                let tasks_set = policies_map
-                    .entry(extraction_policy_id.clone())
-                    .or_default();
-                tasks_set.insert(task.id.clone());
             }
         }
 
