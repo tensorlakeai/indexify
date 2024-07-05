@@ -34,6 +34,7 @@ nav:
       - Architecture: 'architecture.md'
       - Comparisons: 'comparisons.md'
       - Examples: 'examples_index.md'
+      - Custom Extractors: 'apis/develop_extractors.md'
   - CLI and UI:
       - User Interface: 'ui.md'
       - Extractor CLI: 'extractor_cli.md'

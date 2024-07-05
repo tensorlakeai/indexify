@@ -1,6 +1,7 @@
 # Developing a new Extractor
 
-When you are working on a use case for which we might not have an extractor already you can write a new extractor, and deploy in your cluster and add new capabilities to Indexify.
+Custom Extractors allows you to plug in any data processing code you want into an Indexify pipeline. Examples - Custom chunking algorithms for your data, or using your own model in a pipeline.
+
 
 ## Concepts
 
@@ -90,6 +91,13 @@ Extractors are just python modules so you can write a unit test like any any oth
 indexify-extractor describe custom_extractor:MyExtractor
 indexify-extractor run-local custom_extractor:MyExtractor --text "hello world"
 ```
+
+#### Install the extractor locally
+```shell
+indexify-extractor install-local custom_extractor:MyExtractor 
+```
+
+This makes the extractor available locally to Indexify server
 
 #### Join with Control Plane
 You can join the extractor with the Indexfy server for it to receive streams of content to extract from
