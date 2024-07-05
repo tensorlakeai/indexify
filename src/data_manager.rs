@@ -149,12 +149,13 @@ impl DataManager {
 
     pub async fn link_extraction_graphs(
         &self,
-        namespace: &str,
+        namespace: String,
+        graph_name: String,
         req: ExtractionGraphLink,
     ) -> Result<()> {
         let req = indexify_coordinator::LinkExtractionGraphsRequest {
-            namespace: namespace.to_string(),
-            source_graph_name: req.source_graph_name,
+            namespace,
+            source_graph_name: graph_name,
             linked_graph_name: req.linked_graph_name,
             content_source: req.content_source,
         };
@@ -163,6 +164,25 @@ impl DataManager {
             .link_extraction_graphs(req)
             .await?;
         Ok(())
+    }
+
+    pub async fn extraction_graph_links(
+        &self,
+        namespace: String,
+        graph_name: String,
+    ) -> Result<Vec<api::ExtractionGraphLink>> {
+        let req = indexify_coordinator::ExtractionGraphLinksRequest {
+            namespace,
+            source_graph_name: graph_name,
+        };
+        let response = self
+            .get_coordinator_client()
+            .await?
+            .extraction_graph_links(req)
+            .await?;
+        let links = response.into_inner().links;
+        let api_links = links.into_iter().map(|l| l.into()).collect();
+        Ok(api_links)
     }
 
     pub async fn create_extraction_graph(

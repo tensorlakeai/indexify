@@ -70,6 +70,16 @@ impl Coordinator {
         })
     }
 
+    pub async fn get_extraction_graph_links(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Vec<indexify_coordinator::ExtractionGraphLink>> {
+        self.shared_state
+            .get_extraction_graph_links(namespace, graph_name)
+            .await
+    }
+
     pub async fn link_graphs(&self, link: ExtractionGraphLink) -> Result<()> {
         self.shared_state.link_graphs(link).await
     }
