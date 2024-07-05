@@ -1,4 +1,4 @@
-# PDF Schema Extraction with Indexify and OpenAI
+# Structured Extraction from PDFs with GPT-4
 
 In this cookbook, we'll explore how to create a PDF schema extraction pipeline using Indexify, the Marker PDF extractor, and OpenAI's language models. By the end of the document, you should have a pipeline capable of ingesting PDF documents and extracting structured information based on a predefined schema.
 

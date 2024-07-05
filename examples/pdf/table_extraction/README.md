@@ -1,4 +1,4 @@
-# PDF Table Extraction with Indexify
+# Table Extraction from PDFs
 
 This project demonstrates how to extract tables from PDF documents using Indexify. It includes two main components: setting up an extraction graph for table extraction and a script to process PDFs and retrieve the extracted tables.
 

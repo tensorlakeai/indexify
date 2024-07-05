@@ -2,14 +2,12 @@
 
 Indexify is capable of ingesting and processing various types of unstructured data. This repository contains cookbooks demonstrating how to build pipelines for:
 
-- [Image Extraction](image)
-- [Table Extraction](table)
-- [Translation (Uses OpenAI)](openai_pdf_translation)
-- [Summarization (Uses Mistral)](mistral/pdf-summarization)
-- [Entity Extraction (Uses Mistral)](mistral/pdf-entity-extraction)
-- [Chunk Extraction (Uses LangChain)](chunking)
-- [Indexing and RAG (Uses OpenAI)](rag)
-- [Structured Extraction guided by Schema (Uses OpenAI)](schema)
+- [Image Extraction](image_extraction)
+- [Table Extraction](table_extraction)
+- [Chunk PDFs](chunking)
+- [Converting PDF to Markdown](pdf_to_markdown)
+- [Indexing and RAG (Uses OpenAI)](indexing_and_rag)
+- [Structured Extraction guided by Schema (Uses OpenAI)](structured_extraction)
 
 Each example is organized as:
 1. Extraction Graph/Pipeline Description

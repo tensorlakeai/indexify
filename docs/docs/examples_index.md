@@ -4,15 +4,12 @@ Here are some of examples of use-cases you could accomplish with Indexify
 
 ## **PDF Extraction**
 
-- [Image Extraction](../example_code/pdf/image)
-- [Table Extraction](../example_code/pdf/table)
-- [Markdown Extraction](../example_code/pdf/marker)
-- [Translation (Uses OpenAI)](../example_code/pdf/openai_pdf_translation)
-- [Summarization (Uses Mistral)](../example_code/pdf/mistral/pdf-summarization)
-- [Entity Extraction (Uses Mistral)](../example_code/pdf/mistral/pdf-entity-extraction)
+- [Image Extraction](../example_code/pdf/image_extraction)
+- [Table Extraction](../example_code/pdf/table_extraction)
+- [Markdown Extraction](../example_code/pdf/pdf_to_markdown)
 - [Chunk Extraction (Uses LangChain)](../example_code/pdf/chunking)
-- [Indexing and RAG (Uses OpenAI)](../example_code/pdf/rag)
-- [Structured Extraction guided by Schema (Uses OpenAI)](../example_code/pdf/schema)
+- [Indexing and RAG (Uses OpenAI)](../example_code/pdf/indexing_and_rag)
+- [Structured Extraction guided by Schema (Uses OpenAI)](../example_code/pdf/structured_extraction)
 
 ## **Audio Extraction**
 - [General Instructions](../example_code/audio)
@@ -25,3 +22,11 @@ Here are some of examples of use-cases you could accomplish with Indexify
 - [Object Detection using YOLO](../example_code/image/detect)
 - [Video Transcript with Diarization](../example_code/video/transcript)
 - [Image Captioning, Object Detection & Segmentation with Florence 2](../example_code/image/florence)
+
+## **LLM Integrations**
+#### Mistral
+- [Summarization](../example_code/pdf/mistral/pdf-summarization)
+- [Entity Extraction](../example_code/pdf/mistral/pdf-entity-extraction)
+
+#### OpenAI
+- [PDF Translation](../example_code/pdf/openai_pdf_translation)
