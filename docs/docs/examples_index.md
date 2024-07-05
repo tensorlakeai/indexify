@@ -6,6 +6,7 @@ Here are some of examples of use-cases you could accomplish with Indexify
 
 - [Image Extraction](../example_code/pdf/image)
 - [Table Extraction](../example_code/pdf/table)
+- [Markdown Extraction](../example_code/pdf/marker)
 - [Translation (Uses OpenAI)](../example_code/pdf/openai_pdf_translation)
 - [Summarization (Uses Mistral)](../example_code/pdf/mistral/pdf-summarization)
 - [Entity Extraction (Uses Mistral)](../example_code/pdf/mistral/pdf-entity-extraction)
