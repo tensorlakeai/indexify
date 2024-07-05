@@ -831,10 +831,19 @@ impl StateMachineStore {
         self.data.indexify_state.get_unprocessed_state_changes()
     }
 
+    #[cfg(test)]
     pub fn get_content_namespace_table(
         &self,
-    ) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
-        self.data.indexify_state.get_content_namespace_table()
+    ) -> Result<HashMap<NamespaceName, HashSet<ContentMetadataId>>> {
+        let db = self.db.read().unwrap();
+        let cf = StateMachineColumns::ContentTable.cf(&db);
+        let mut res: HashMap<NamespaceName, HashSet<ContentMetadataId>> = HashMap::new();
+        for val in db.iterator_cf(cf, IteratorMode::Start) {
+            let (_, val) = val?;
+            let content: ContentMetadata = JsonEncoder::decode(&val)?;
+            res.entry(content.namespace).or_default().insert(content.id);
+        }
+        Ok(res)
     }
 
     pub async fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
@@ -1733,7 +1742,7 @@ mod tests {
 
         //  ensure that snapshot invariants are maintained on new node
         let new_node = cluster.get_raft_node(1)?;
-        let content_table = new_node.state_machine.get_content_namespace_table();
+        let content_table = new_node.state_machine.get_content_namespace_table()?;
         assert_eq!(content_table.len(), 1);
         let (key, value) = content_table.iter().next().unwrap();
         assert_eq!(*key, namespace);

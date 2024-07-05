@@ -660,9 +660,6 @@ pub struct IndexifyState {
     /// State changes that have not been processed yet
     pub unprocessed_state_changes: UnprocessedStateChanges,
 
-    /// Namespace -> Content ID
-    pub content_namespace_table: ContentNamespaceTable,
-
     /// Namespace -> Extraction policy id
     pub extraction_policies_table: ExtractionPoliciesTable,
 
@@ -709,10 +706,9 @@ impl fmt::Display for IndexifyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, content_namespace_table: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, unfinished_tasks_by_executor: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, unfinished_tasks_by_executor: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
-            self.content_namespace_table,
             self.extraction_policies_table,
             self.extractor_executors_table,
             self.namespace_index_table,
@@ -1579,8 +1575,6 @@ impl IndexifyState {
             }
             RequestPayload::CreateOrUpdateContent { entries } => {
                 for entry in entries {
-                    self.content_namespace_table
-                        .insert(&entry.content.namespace, &entry.content.id);
                     let mut guard = self.metrics.lock().unwrap();
                     if let Some(prev_parent) = entry.previous_parent {
                         self.content_children_table
@@ -2212,12 +2206,6 @@ impl IndexifyState {
         self.unprocessed_state_changes.inner()
     }
 
-    pub fn get_content_namespace_table(
-        &self,
-    ) -> HashMap<NamespaceName, HashSet<ContentMetadataId>> {
-        self.content_namespace_table.inner()
-    }
-
     pub fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
         self.extraction_policies_table.inner()
     }
@@ -2364,11 +2352,6 @@ impl IndexifyState {
             .unprocessed_state_changes
             .write()
             .unwrap();
-        let mut content_namespace_table_guard = self
-            .content_namespace_table
-            .content_namespace_table
-            .write()
-            .unwrap();
         let mut extraction_policies_table = self
             .extraction_policies_table
             .extraction_policies_table
@@ -2490,20 +2473,12 @@ impl IndexifyState {
 
         for content in self.iter_cf::<ContentMetadata>(db, StateMachineColumns::ContentTable) {
             let (_, content) = content?;
-            content_namespace_table_guard
-                .entry(content.namespace.clone())
-                .or_default()
-                .insert(content.id.clone());
             if let Some(parent_id) = &content.parent_id {
                 content_children_table
                     .entry(parent_id.clone())
                     .or_default()
                     .insert(content.id.clone());
             }
-            content_namespace_table_guard
-                .entry(content.namespace.clone())
-                .or_default()
-                .insert(content.id.clone());
         }
 
         for extraction_policy in
