@@ -141,23 +141,25 @@ def analyze_image(image_path):
 
 # Example usage
 if __name__ == "__main__":
-    image_url = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
-    image_path = "sample_image.jpg"
+    image_urls = [
+        "https://www.greencarguide.co.uk/wp-content/uploads/2023/02/Skoda-Enyaq-iV-vRS-001-low-res-600x400.jpeg",
+        "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg?download=true"
+    ]
     
-    # Download the image
-    download_image(image_url, image_path)
-    
-    # Analyze the image
-    caption, objects, segmentation = analyze_image(image_path)
-    
-    print("Detailed Caption:")
-    print(caption[0]['content'].decode('utf-8'))
-    
-    print("\nObject Detection:")
-    print(objects[0]['content'].decode('utf-8'))
-    
-    print("\nReferring Expression Segmentation:")
-    print(segmentation[0]['content'].decode('utf-8'))
+    for i,image_url in enumerate(image_urls, 1):
+        image_path = "sample_image.jpg"
+        
+        # Download the image
+        download_image(image_url, image_path)
+        
+        # Analyze the image
+        caption, objects, segmentation = analyze_image(image_path)
+        
+        print("Detailed Caption:")
+        print(caption[0]['content'].decode('utf-8'))
+        
+        print("\nObject Detection:")
+        print(objects[0]['content'].decode('utf-8'))
 ```
 
 You can run the Python script to process an image and generate analysis results:
@@ -170,14 +172,15 @@ python upload_and_analyze.py
 With the helper functions to visualize the output images in [`plot.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/image/florence/plot.py) we can get results like this:
 ```python
 from PIL import Image
+from plot import plot_bbox, draw_polygons
 image = Image.open(requests.get(image_url, stream=True).raw)
 ```
 ```python
-plot_bbox(image, objects[0]['content'].decode('utf-8'))
+plot_bbox(image, objects[0]['content'].decode('utf-8'), output_filename=f'bbox_output_{i}.png')
 ```
 ![](https://docs.getindexify.ai/example_code/image/florence/detect.png)
 ```python
-draw_polygons(image, segmentation[0]['content'].decode('utf-8'), fill_mask=True)
+draw_polygons(image, segmentation[0]['content'].decode('utf-8'), fill_mask=True, output_filename=f'polygon_output_{i}.png')
 ```
 ![](https://docs.getindexify.ai/example_code/image/florence/segment.png)
 
