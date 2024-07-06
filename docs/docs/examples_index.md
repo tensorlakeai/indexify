@@ -4,7 +4,7 @@ Here are some of examples of use-cases you could accomplish with Indexify
 
 ## **PDF Extraction**
 
-- [Image Extraction](../example_code/pdf/image_extraction)
+- [Image Extraction](../example_code/pdf/image)
 - [Table Extraction](../example_code/pdf/table_extraction)
 - [Markdown Extraction](../example_code/pdf/pdf_to_markdown)
 - [Chunk Extraction (Uses LangChain)](../example_code/pdf/chunking)
