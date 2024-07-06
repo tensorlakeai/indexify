@@ -187,8 +187,14 @@ impl Server {
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
                 post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
             )
-            .route("namespaces/:namespace/extraction_graphs/:extraction_graph/:content_id/:extraction_policy",
+            .route(
+                "/namespaces/:namespace/:extraction_graph/content",
+                get(list_content).with_state(namespace_endpoint_state.clone()),
+            )
+            .route("namespaces/:namespace/:content_id/",
                 get(download_content).with_state(namespace_endpoint_state.clone()))
+            .route("namespaces/:namespace/extraction_graphs/:extraction_graph/content/:content_id/extraction_policies/:extraction_policy",
+                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()))
             .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 post(link_extraction_graphs).with_state(namespace_endpoint_state.clone()),
@@ -200,11 +206,7 @@ impl Server {
             .route(
                 "/namespaces/:namespace/indexes",
                 get(list_indexes).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/:extraction_graph/content",
-                get(list_content).with_state(namespace_endpoint_state.clone()),
-            )
+            ) 
             .route(
                 "/namespaces/:namespace/active_content",
                 get(active_content).with_state(namespace_endpoint_state.clone()),
@@ -224,10 +226,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id/content-tree",
-                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/content/:content_id",
@@ -556,6 +554,8 @@ async fn get_namespace(
     }))
 }
 
+
+// Create a new extraction graph in the namespace
 #[utoipa::path(
     post,
     path = "/namespace/{namespace}/extraction_graph",
@@ -904,7 +904,7 @@ async fn active_content(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/content/{content_id}/content-tree",
+    path = "/namespaces/{namespace}/{extraction_graph}/content/{content_id}/{extraction_policy}",
     tag = "indexify",
     responses(
         (status = 200, description = "Gets a content tree rooted at a specific content id in the namespace"),
@@ -913,12 +913,17 @@ async fn active_content(
 )]
 #[axum::debug_handler]
 async fn get_content_tree_metadata(
-    Path((namespace, content_id)): Path<(String, String)>,
+    Path((namespace, extraction_graph, content_id, extraction_policy)): Path<(
+        String,
+        String,
+        String,
+        String,
+    )>,
     State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<GetContentTreeMetadataResponse>, IndexifyAPIError> {
     let content_tree_metadata = state
         .data_manager
-        .get_content_tree_metadata(&namespace, content_id)
+        .get_content_tree_metadata(&namespace, &content_id, &extraction_graph, &extraction_policy)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(GetContentTreeMetadataResponse {

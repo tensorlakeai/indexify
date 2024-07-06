@@ -15,7 +15,13 @@ pub struct GetContentMetadataResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetContentTreeMetadataRequest {
     #[prost(string, tag = "1")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
     pub content_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub extraction_graph_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub extraction_policy: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

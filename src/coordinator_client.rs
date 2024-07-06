@@ -243,6 +243,23 @@ impl CoordinatorClient {
         Ok(response.into_inner().task)
     }
 
+    pub async fn get_content_metadata_tree(
+        &self,
+        namespace: &str,
+        extraction_graph_name: &str,
+        extraction_policy: &str,
+        content_id: &str,
+    ) -> Result<indexify_proto::indexify_coordinator::GetContentTreeMetadataResponse> {
+        let req = indexify_coordinator::GetContentTreeMetadataRequest {
+            namespace: namespace.to_string(),
+            extraction_graph_name: extraction_graph_name.to_string(),
+            extraction_policy: extraction_policy.to_string(),
+            content_id: content_id.to_string(),
+        };
+        let resp = self.get().await?.get_content_tree_metadata(req).await?;
+        Ok(resp.into_inner())
+    }
+
     pub async fn get_metadata_for_ingestion(
         &self,
         task_id: &str,

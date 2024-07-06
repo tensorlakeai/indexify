@@ -247,7 +247,9 @@ impl CoordinatorService for CoordinatorServiceServer {
             })?;
             proto_graphs.push(proto_graph);
         }
-        Ok(Response::new(ListExtractionGraphResponse { graphs: proto_graphs }))
+        Ok(Response::new(ListExtractionGraphResponse {
+            graphs: proto_graphs,
+        }))
     }
 
     async fn link_extraction_graphs(

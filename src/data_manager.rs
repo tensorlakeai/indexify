@@ -7,11 +7,17 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api::{self as internal_api};
-use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
+use indexify_proto::indexify_coordinator::{
+    self,
+    CreateContentStatus,
+    GetContentMetadataResponse,
+    GetContentTreeMetadataResponse,
+    ListActiveContentsRequest,
+};
 use mime::Mime;
 use nanoid::nanoid;
 use sha2::{Digest, Sha256};
@@ -520,17 +526,22 @@ impl DataManager {
 
     pub async fn get_content_tree_metadata(
         &self,
-        _namespace: &str,
-        content_id: String,
+        namespace: &str,
+        content_id: &str,
+        extraction_graph_name: &str,
+        extraction_policy: &str,
     ) -> Result<Vec<api::ContentMetadata>> {
-        let req = indexify_coordinator::GetContentTreeMetadataRequest { content_id };
         let response = self
-            .get_coordinator_client()
-            .await?
-            .get_content_tree_metadata(req)
+            .coordinator_client
+            .get_content_metadata_tree(
+                namespace,
+                extraction_graph_name,
+                extraction_policy,
+                content_id,
+            )
             .await?;
         let mut content_list: Vec<api::ContentMetadata> = vec![];
-        for content in response.into_inner().content_list {
+        for content in response.content_list {
             let content: api::ContentMetadata = content.try_into()?;
             content_list.push(content);
         }

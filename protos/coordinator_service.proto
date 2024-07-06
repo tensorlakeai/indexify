@@ -90,7 +90,10 @@ message GetContentMetadataResponse {
 }
 
 message GetContentTreeMetadataRequest {
-    string content_id = 1;
+    string namespace = 1;
+    string content_id = 2;
+    string extraction_graph_name = 3;
+    string extraction_policy = 4;
 }
 
 message GetContentTreeMetadataResponse {
