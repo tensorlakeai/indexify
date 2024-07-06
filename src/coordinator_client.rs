@@ -143,6 +143,19 @@ impl CoordinatorClient {
         Ok(client)
     }
 
+    pub async fn list_extraction_graphs(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<indexify_coordinator::ExtractionGraph>> {
+        let request = tonic::Request::new(
+            indexify_proto::indexify_coordinator::ListExtractionGraphRequest {
+                namespace: namespace.to_string(),
+            },
+        );
+        let response = self.get().await?.list_extraction_graphs(request).await?;
+        Ok(response.into_inner().graphs)
+    }
+
     pub async fn get_raft_metrics_snapshot(
         &self,
     ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {

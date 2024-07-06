@@ -176,6 +176,20 @@ impl Server {
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/extraction_graphs",
+                get(list_extraction_graphs).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract",
+                post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
+                post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route("namespaces/:namespace/extraction_graphs/:extraction_graph/:content_id/:extraction_policy",
+                get(download_content).with_state(namespace_endpoint_state.clone()))
+            .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 post(link_extraction_graphs).with_state(namespace_endpoint_state.clone()),
             )
@@ -188,15 +202,7 @@ impl Server {
                 get(list_indexes).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/add_texts",
-                post(add_texts).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/ingest_remote_file",
-                post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content",
+                "/namespaces/:namespace/:extraction_graph/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -220,16 +226,8 @@ impl Server {
                 get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/content/:content_id/download",
-                get(download_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/content/:content_id/content-tree",
                 get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/upload_file",
-                post(upload_file).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/content/:content_id",
@@ -964,6 +962,35 @@ async fn download_content(
 struct UploadFileQueryParams {
     id: Option<String>,
     extraction_graph_names: Option<String>,
+}
+
+#[tracing::instrument]
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/extraction_graphs",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of Extraction Graphs registered on the server", body = ListExtractionGraphResponse),
+        (status = BAD_REQUEST, description = "Unable to list extraction graphs")
+    ),
+)]
+async fn list_extraction_graphs(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<ListExtractionGraphResponse>, IndexifyAPIError> {
+    let graphs = state
+        .data_manager
+        .list_extraction_graphs(&namespace)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to list extraction graphs: {}", e),
+            )
+        })?;
+    Ok(Json(ListExtractionGraphResponse {
+        extraction_graphs: graphs,
+    }))
 }
 
 #[tracing::instrument]

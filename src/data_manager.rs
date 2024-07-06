@@ -7,7 +7,7 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Ok, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api::{self as internal_api};
@@ -77,6 +77,22 @@ impl DataManager {
 
     pub async fn get_coordinator_client(&self) -> Result<CoordinatorServiceClient> {
         self.coordinator_client.get().await
+    }
+
+    pub async fn list_extraction_graphs(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<api::ExtractionGraph>> {
+        let graphs = self
+            .coordinator_client
+            .list_extraction_graphs(namespace)
+            .await?;
+        let mut api_graphs = Vec::new();
+        for graph in graphs {
+            let api_graph: api::ExtractionGraph = graph.try_into()?;
+            api_graphs.push(api_graph);
+        }
+        return Ok(api_graphs);
     }
 
     #[tracing::instrument]

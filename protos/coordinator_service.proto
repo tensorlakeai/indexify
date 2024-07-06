@@ -20,6 +20,8 @@ service CoordinatorService {
 
     rpc ListExtractionPolicies(ListExtractionPoliciesRequest) returns (ListExtractionPoliciesResponse) {}
 
+    rpc ListExtractionGraphs(ListExtractionGraphRequest) returns (ListExtractionGraphResponse) {}
+
     rpc CreateNS(CreateNamespaceRequest) returns (CreateNamespaceResponse) {}
 
     rpc ListNS(ListNamespaceRequest) returns (ListNamespaceResponse) {}
@@ -357,6 +359,14 @@ message ListExtractionPoliciesRequest {
 
 message ListExtractionPoliciesResponse {
     repeated ExtractionPolicy policies = 1;
+}
+
+message ListExtractionGraphRequest {
+    string namespace = 1;
+}
+
+message ListExtractionGraphResponse {
+    repeated ExtractionGraph graphs = 1;
 }
 
 message CreateNamespaceRequest {

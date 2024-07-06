@@ -354,6 +354,11 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListExtractionGraphResponse {
+    pub extraction_graphs: Vec<ExtractionGraph>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
 pub struct ListContent {
     #[serde(
