@@ -26,6 +26,7 @@ use indexify_internal_api::{
     StructuredDataSchema,
     Task,
 };
+use indexify_proto::indexify_coordinator;
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -179,9 +180,7 @@ pub struct FilterResponse<T> {
     pub total: usize,
 }
 
-impl TryFrom<FilterResponse<ContentMetadata>>
-    for indexify_proto::indexify_coordinator::ListContentResponse
-{
+impl TryFrom<FilterResponse<ContentMetadata>> for indexify_coordinator::ListContentResponse {
     type Error = anyhow::Error;
 
     fn try_from(value: FilterResponse<ContentMetadata>) -> Result<Self> {
@@ -197,7 +196,7 @@ impl TryFrom<FilterResponse<ContentMetadata>>
     }
 }
 
-impl TryFrom<FilterResponse<Task>> for indexify_proto::indexify_coordinator::ListTasksResponse {
+impl TryFrom<FilterResponse<Task>> for indexify_coordinator::ListTasksResponse {
     type Error = anyhow::Error;
 
     fn try_from(value: FilterResponse<Task>) -> Result<Self> {
@@ -592,6 +591,30 @@ impl StateMachineStore {
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES
+    pub fn get_extraction_graph_links(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Vec<indexify_coordinator::ExtractionGraphLink>> {
+        let db = self.db.read().unwrap();
+        let txn = db.transaction();
+        let mut graph_links = Vec::new();
+        for v in txn.iterator_cf(
+            StateMachineColumns::ExtractionGraphLinks.cf(&db),
+            IteratorMode::Start,
+        ) {
+            let (key, _) = v.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let link: ExtractionGraphLink = JsonEncoder::decode(&key)?;
+            if link.node.namespace == namespace && link.node.graph_name == graph_name {
+                graph_links.push(indexify_coordinator::ExtractionGraphLink {
+                    linked_graph_name: link.graph_name,
+                    content_source: link.node.source.into(),
+                });
+            }
+        }
+        Ok(graph_links)
+    }
+
     pub fn get_latest_version_of_content(
         &self,
         content_id: &str,

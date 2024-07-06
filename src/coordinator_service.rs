@@ -27,6 +27,8 @@ use indexify_proto::indexify_coordinator::{
     CreateGcTasksResponse,
     ExecutorsHeartbeatRequest,
     ExecutorsHeartbeatResponse,
+    ExtractionGraphLinksRequest,
+    ExtractionGraphLinksResponse,
     GcTask,
     GcTaskAcknowledgement,
     GetAllSchemaRequest,
@@ -212,6 +214,19 @@ impl CoordinatorServiceServer {
 impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+
+    async fn extraction_graph_links(
+        &self,
+        request: tonic::Request<ExtractionGraphLinksRequest>,
+    ) -> Result<tonic::Response<ExtractionGraphLinksResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let links = self
+            .coordinator
+            .get_extraction_graph_links(&request.namespace, &request.source_graph_name)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(ExtractionGraphLinksResponse { links }))
+    }
 
     async fn link_extraction_graphs(
         &self,

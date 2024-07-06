@@ -176,8 +176,12 @@ impl Server {
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/extraction_graph_links",
+                "/namespaces/:namespace/extraction_graphs/:graph/links",
                 post(link_extraction_graphs).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:graph/links",
+                get(extraction_graph_links).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/indexes",
@@ -584,25 +588,47 @@ async fn create_extraction_graph(
 
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/link_extraction_graphs",
+    path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
     request_body = ExtractionGraphLink,
     tag = "indexify",
     responses(
-        (status = 200, description = "Extraction graphs linked successfully", body = ExtractionGraphResponse),
+        (status = 200, description = "Extraction graphs linked successfully"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to link extraction graphs")
     ),
 )]
 #[axum::debug_handler]
 async fn link_extraction_graphs(
-    Path(namespace): Path<String>,
+    Path((namespace, graph_name)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<ExtractionGraphLink>,
 ) -> Result<(), IndexifyAPIError> {
     state
         .data_manager
-        .link_extraction_graphs(&namespace, payload)
+        .link_extraction_graphs(namespace, graph_name, payload)
         .await
         .map_err(IndexifyAPIError::internal_error)
+}
+
+#[utoipa::path(
+    get,
+    path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "List of extraction graph links", body = ExtractionGraphLinksResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list links")
+    ),
+)]
+#[axum::debug_handler]
+async fn extraction_graph_links(
+    Path((namespace, graph_name)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<Vec<ExtractionGraphLink>>, IndexifyAPIError> {
+    let res = state
+        .data_manager
+        .extraction_graph_links(namespace, graph_name)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(Json(res))
 }
 
 #[tracing::instrument(skip(state, payload))]

@@ -13,6 +13,7 @@ use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
 use indexify_internal_api::{self as internal_api, ExtractionGraphNode};
 use indexify_proto::{
+    indexify_coordinator,
     indexify_coordinator::CreateContentStatus,
     indexify_raft::raft_api_server::RaftApiServer,
 };
@@ -567,6 +568,15 @@ impl App {
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
         Ok(())
+    }
+
+    pub async fn get_extraction_graph_links(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Vec<indexify_coordinator::ExtractionGraphLink>> {
+        self.state_machine
+            .get_extraction_graph_links(namespace, graph_name)
     }
 
     pub async fn link_graphs(&self, link: ExtractionGraphLink) -> Result<()> {

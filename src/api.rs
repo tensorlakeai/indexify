@@ -17,9 +17,17 @@ use crate::{api_utils, metadata_storage, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphLink {
-    pub source_graph_name: String,
     pub content_source: String,
     pub linked_graph_name: String,
+}
+
+impl From<indexify_coordinator::ExtractionGraphLink> for ExtractionGraphLink {
+    fn from(value: indexify_coordinator::ExtractionGraphLink) -> Self {
+        Self {
+            content_source: value.content_source,
+            linked_graph_name: value.linked_graph_name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
