@@ -14,7 +14,9 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import InfoIcon from "@mui/icons-material/Info";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import { ExtractionGraph } from "getindexify";
 
+// Styled components remain the same
 // Styled components for the TabSwitcher
 const StyledToggleButtonGroup = styled(ToggleButtonGroup)(({ theme }) => ({
   backgroundColor: "#F7F9FC",
@@ -48,6 +50,31 @@ const StyledToggleButton = styled(ToggleButton)(({ theme }) => ({
   }
 }));
 
+interface IBaseContentMetadata {
+  id: string;
+  parent_id: string;
+  root_content_id: string;
+  namespace: string;
+  name: string;
+  mime_type: string;
+  labels: Record<string, string>;
+  storage_url: string;
+  created_at: number;
+  source: string;
+  size: number;
+  hash: string;
+  extraction_graph_names: string[];
+}
+
+interface IContentMetadata extends IBaseContentMetadata {
+  content_url: string;
+}
+
+interface ExtendedContentTableProps {
+  content: IContentMetadata[];
+  extractionGraph: ExtractionGraph;
+}
+
 const columns: GridColDef[] = [
   {
     field: "id",
@@ -70,40 +97,7 @@ const columns: GridColDef[] = [
   { field: "createdAt", headerName: "CREATED AT", width: 200 }
 ];
 
-const rows = [
-  {
-    id: "00b2a11759dce114",
-    children: 0,
-    labels: '{width"284","',
-    createdAt: "12/06/2024 12:05 AM"
-  },
-  {
-    id: "00b2a11759dce114",
-    children: 0,
-    labels: '{width"284","',
-    createdAt: "12/06/2024 12:05 AM"
-  },
-  {
-    id: "00b2a11759dce114",
-    children: 0,
-    labels: '{width"284","',
-    createdAt: "12/06/2024 12:05 AM"
-  },
-  {
-    id: "00b2a11759dce114",
-    children: 0,
-    labels: '{width"284","',
-    createdAt: "12/06/2024 12:05 AM"
-  },
-  {
-    id: "00b2a11759dce114",
-    children: 0,
-    labels: '{width"284","',
-    createdAt: "12/06/2024 12:05 AM"
-  }
-];
-
-const ExtendedContentTable: React.FC = () => {
+const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph }) => {
   const [tabValue, setTabValue] = useState<string>("ingested");
   const [policy, setPolicy] = useState("");
   const [contentId, setContentId] = useState("");
@@ -116,6 +110,13 @@ const ExtendedContentTable: React.FC = () => {
       setTabValue(newTab);
     }
   };
+
+  const rows = content.map(item => ({
+    id: item.id,
+    children: 0, // You may want to calculate this based on the content structure
+    labels: JSON.stringify(item.labels),
+    createdAt: new Date(item.created_at).toLocaleString()
+  }));
 
   return (
     <Box
@@ -180,9 +181,11 @@ const ExtendedContentTable: React.FC = () => {
             <MenuItem value="" disabled>
               Choose policy
             </MenuItem>
-            <MenuItem value="policy1">Policy 1</MenuItem>
-            <MenuItem value="policy2">Policy 2</MenuItem>
-            <MenuItem value="policy3">Policy 3</MenuItem>
+            {extractionGraph.extraction_policies.map((policy, index) => (
+              <MenuItem key={index} value={`policy${index + 1}`}>
+                Policy {index + 1}
+              </MenuItem>
+            ))}
           </Select>
         </Box>
       </Box>
@@ -200,7 +203,7 @@ const ExtendedContentTable: React.FC = () => {
           "& .MuiDataGrid-cell:focus": {
             outline: "none"
           },
-          boxShadow: "0px 0px 1px 0px rgba(51, 132, 252, 0.2) inset",
+          boxShadow: "0px 0px 1px 0px rgba(51, 132, 254, 0.2) inset",
           mt: 2
         }}
       />

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Box,
   Breadcrumbs,
@@ -14,6 +14,7 @@ import {
   Chip,
   IconButton,
   Stack,
+  Alert,
 } from '@mui/material';
 import ExtendedContentTable from '../../components/ExtendedContentTable';
 import { InfoCircle, TableDocument } from 'iconsax-react';
@@ -24,7 +25,27 @@ import { TaskCounts, TaskCountsMap } from '../../types';
 import { mapExtractionPoliciesToRows, Row } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
 
+const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
+  console.log('contentList', contentList)
+  if (!contentList || !Array.isArray(contentList) || contentList.length === 0) {
+    return {};
+  }
+
+  return contentList.reduce((acc, content) => {
+    if (content && Array.isArray(content.extraction_graph_names)) {
+      content.extraction_graph_names.forEach(graphName => {
+        if (!acc[graphName]) {
+          acc[graphName] = [];
+        }
+        acc[graphName].push(content);
+      });
+    }
+    return acc;
+  }, {} as Record<string, IContentMetadata[]>);
+};
+
 const IndividualExtractorsPage = () => {
+  
   const { getTasks,
     extractorName,
     taskCountsMap,
@@ -48,6 +69,10 @@ const IndividualExtractorsPage = () => {
       contentList: IContentMetadata[],
       schemas: ISchema[],
     }
+
+    const groupedContent = useMemo(() => {
+    return groupContentByGraphs(contentList)
+  }, [contentList])
 
     console.log('taskCountsMap', taskCountsMap)
     console.log('getTasks', getTasks)
@@ -88,7 +113,14 @@ const IndividualExtractorsPage = () => {
           </div>
           <ExtractorGraphTable rows={mappedRows} graphName={extractorName} />
         </Box>
-        <ExtendedContentTable />
+        {groupedContent[extractorName] ? (
+          <ExtendedContentTable
+            content={groupedContent[extractorName]}
+            extractionGraph={extractionGraph}
+          />
+        ) : (
+          <Alert severity="info">No content found</Alert>
+        )}
       </Box>
     </Stack>
   );
