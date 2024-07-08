@@ -63,7 +63,7 @@ export async function ExtractionGraphsPageLoader({
   }
 }
 
-export async function IndividualExtractionGraphsPageLoader({
+export async function IndividualExtractionGraphPageLoader({
   params,
 }: LoaderFunctionArgs) {
   const { namespace, extractorName } = params
@@ -95,10 +95,10 @@ export async function IndividualExtractionGraphsPageLoader({
     }
   })
 
-  const [extractors, indexes, contentList, schemas, getTasks] = await Promise.all([
+  const [extractors, contentList, getTasks] = await Promise.all([
     client.extractors(),
     client.indexes(),
-    client.getExtractedContent(),
+    (await client.getExtractedContent()).contentList,
     client.getSchemas(),
     client.getTasks(
       {
@@ -106,15 +106,13 @@ export async function IndividualExtractionGraphsPageLoader({
       }
     )
   ])
+  const extractionGraphs = client.extractionGraphs;
   return {
     getTasks,
     taskCountsMap,
-    client,
     extractors,
-    extractionGraph: client.extractionGraphs,
-    indexes,
+    extractionGraphs: extractionGraphs,
     contentList,
-    schemas,
     namespace: params.namespace,
     extractorName
   }

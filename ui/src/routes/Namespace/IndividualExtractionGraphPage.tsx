@@ -26,7 +26,6 @@ import { mapExtractionPoliciesToRows, Row } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
 
 const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
-  console.log('contentList', contentList)
   if (!contentList || !Array.isArray(contentList) || contentList.length === 0) {
     return {};
   }
@@ -44,42 +43,29 @@ const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
   }, {} as Record<string, IContentMetadata[]>);
 };
 
-const IndividualExtractorsPage = () => {
-  
+const IndividualExtractionGraphPage = () => {
   const { getTasks,
     extractorName,
     taskCountsMap,
-    client,
     extractors,
     extractionGraph,
-    indexes,
     contentList,
-    schemas,
     namespace } =
     useLoaderData() as {
       extractorName: string
       namespace: string
       client: IndexifyClient
-      extractionGraph: ExtractionGraph
-      taskCounts?: TaskCounts
+      extractionGraph: ExtractionGraph[]
       getTasks: any,
       taskCountsMap: TaskCountsMap,
       extractors: Extractor[],
-      indexes: IIndex[],
       contentList: IContentMetadata[],
-      schemas: ISchema[],
     }
-
     const groupedContent = useMemo(() => {
-    return groupContentByGraphs(contentList)
+      return groupContentByGraphs(contentList)
   }, [contentList])
 
-    console.log('taskCountsMap', taskCountsMap)
-    console.log('getTasks', getTasks)
-    console.log('extractors', extractors)
-    console.log('extractionGraph', extractionGraph)
-
-  const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph)); // This could be an array or a single object
+  const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  
   const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName);
 
@@ -115,8 +101,9 @@ const IndividualExtractorsPage = () => {
         </Box>
         {groupedContent[extractorName] ? (
           <ExtendedContentTable
-            content={groupedContent[extractorName]}
+            content={contentList}
             extractionGraph={extractionGraph}
+            graphName={extractorName}
           />
         ) : (
           <Alert severity="info">No content found</Alert>
@@ -126,4 +113,4 @@ const IndividualExtractorsPage = () => {
   );
 };
 
-export default IndividualExtractorsPage;
+export default IndividualExtractionGraphPage;

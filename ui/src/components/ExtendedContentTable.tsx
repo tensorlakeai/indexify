@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   TextField,
@@ -14,10 +14,12 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import InfoIcon from "@mui/icons-material/Info";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import { ExtractionGraph } from "getindexify";
+import { ExtractionGraph, IContentMetadata } from "getindexify";
 
-// Styled components remain the same
-// Styled components for the TabSwitcher
+const filterContentByGraphName = (contentList: IContentMetadata[], graphName: string): IContentMetadata[] => {
+  return contentList.filter(content => content.extraction_graph_names.includes(graphName));
+};
+
 const StyledToggleButtonGroup = styled(ToggleButtonGroup)(({ theme }) => ({
   backgroundColor: "#F7F9FC",
   borderRadius: 30,
@@ -50,29 +52,10 @@ const StyledToggleButton = styled(ToggleButton)(({ theme }) => ({
   }
 }));
 
-interface IBaseContentMetadata {
-  id: string;
-  parent_id: string;
-  root_content_id: string;
-  namespace: string;
-  name: string;
-  mime_type: string;
-  labels: Record<string, string>;
-  storage_url: string;
-  created_at: number;
-  source: string;
-  size: number;
-  hash: string;
-  extraction_graph_names: string[];
-}
-
-interface IContentMetadata extends IBaseContentMetadata {
-  content_url: string;
-}
-
 interface ExtendedContentTableProps {
   content: IContentMetadata[];
-  extractionGraph: ExtractionGraph;
+  extractionGraph: ExtractionGraph[];
+  graphName: string;
 }
 
 const columns: GridColDef[] = [
@@ -97,7 +80,8 @@ const columns: GridColDef[] = [
   { field: "createdAt", headerName: "CREATED AT", width: 200 }
 ];
 
-const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph }) => {
+const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph, graphName }) => {
+
   const [tabValue, setTabValue] = useState<string>("ingested");
   const [policy, setPolicy] = useState("");
   const [contentId, setContentId] = useState("");
@@ -111,12 +95,37 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
     }
   };
 
-  const rows = content.map(item => ({
-    id: item.id,
-    children: 0, // You may want to calculate this based on the content structure
-    labels: JSON.stringify(item.labels),
-    createdAt: new Date(item.created_at).toLocaleString()
-  }));
+  const filteredContent = React.useMemo(() => {
+    return Array.isArray(content) ? filterContentByGraphName(content, graphName) : [];
+  }, [content, graphName]);
+
+  const rows = React.useMemo(() => {
+    return filteredContent.map(item => ({
+      id: item.id,
+      children: 0,
+      labels: JSON.stringify(item.labels),
+      createdAt: new Date(item.created_at).toLocaleString()
+    }));
+  }, [filteredContent]);
+
+  const filteredRows = React.useMemo(() => {
+    return rows.filter(row => {
+      if (tabValue === "search") {
+        return row.id.includes(contentId);
+      }
+      return true;
+    });
+  }, [rows, tabValue, contentId]);
+
+  const extractionPolicyOptions = React.useMemo(() => {
+    const extractionPolicies = extractionGraph?.map(graph => graph.extraction_policies) || [];
+    return extractionPolicies.map((policy, index) => ({
+      value: `policy${index + 1}`,
+      label: `Policy ${index + 1}`
+    })) || [];
+  }, [extractionGraph]);
+
+  console.log('extractionPolicyOptions', extractionPolicyOptions)
 
   return (
     <Box
@@ -181,17 +190,17 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
             <MenuItem value="" disabled>
               Choose policy
             </MenuItem>
-            {extractionGraph.extraction_policies.map((policy, index) => (
-              <MenuItem key={index} value={`policy${index + 1}`}>
-                Policy {index + 1}
+            {extractionPolicyOptions.map((policy, index) => (
+              <MenuItem key={index} value={policy.value}>
+                {policy.label}
               </MenuItem>
-            ))}
+            )) || null}
           </Select>
         </Box>
       </Box>
 
       <DataGrid
-        rows={rows}
+        rows={filteredRows}
         columns={columns}
         initialState={{
           pagination: {
