@@ -302,7 +302,6 @@ mod test_deserialize_labels_eq_filter {
     #[test]
     fn test_key_value() {
         let expected_query: Query<ListContent> = Query(ListContent {
-            graph: "".to_string(),
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -326,7 +325,6 @@ mod test_deserialize_labels_eq_filter {
     #[test]
     fn test_key_empty_value() {
         let expected_query: Query<ListContent> = Query(ListContent {
-            graph: "".to_string(),
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -361,7 +359,6 @@ mod test_deserialize_labels_eq_filter {
     #[test]
     fn test_multiple_key_value() {
         let expected_query: Query<ListContent> = Query(ListContent {
-            graph: "".to_string(),
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
@@ -387,7 +384,6 @@ mod test_deserialize_labels_eq_filter {
     #[test]
     fn test_multiple_key_value_key_empty_value() {
         let expected_query: Query<ListContent> = Query(ListContent {
-            graph: "".to_string(),
             source: "foo".to_string(),
             parent_id: "".to_string(),
             labels_eq: Some({
