@@ -14,8 +14,6 @@ use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{
     self,
     CreateContentStatus,
-    GetContentMetadataResponse,
-    GetContentTreeMetadataResponse,
     ListActiveContentsRequest,
 };
 use mime::Mime;

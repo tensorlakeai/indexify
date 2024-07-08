@@ -43,7 +43,6 @@ use crate::{
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
-    extractor_router::ExtractorRouter,
     ingest_extracted_content::IngestExtractedContentState,
     metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
     metrics,
@@ -79,7 +78,6 @@ pub struct NamespaceEndpointState {
             get_content_metadata,
             upload_file,
             list_tasks,
-            extract_content
         ),
         components(
             schemas(CreateNamespace, CreateNamespaceResponse, IndexDistance,
@@ -191,9 +189,13 @@ impl Server {
                 "/namespaces/:namespace/:extraction_graph/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
-            .route("namespaces/:namespace/:content_id/",
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
+                get(list_tasks).with_state(namespace_endpoint_state.clone()),
+            )
+            .route("/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()))
-            .route("namespaces/:namespace/extraction_graphs/:extraction_graph/content/:content_id/extraction_policies/:extraction_policy",
+            .route("/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/content/:content_id",
                 get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()))
             .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
@@ -208,11 +210,15 @@ impl Server {
                 get(list_indexes).with_state(namespace_endpoint_state.clone()),
             ) 
             .route(
+                "/namespaces/:namespace/index/:index/search",
+                post(index_search_v2).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/active_content",
                 get(active_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/content/:content_id",
+                "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -224,10 +230,6 @@ impl Server {
                 get(wait_content_extraction).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/content/:content_id/metadata",
-                get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/content/:content_id",
                 put(update_content)
                     .with_state(namespace_endpoint_state.clone())
@@ -236,14 +238,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content",
                 delete(delete_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/search",
-                post(index_search).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/sql_query",
-                post(run_sql_query).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/schemas",
@@ -276,14 +270,6 @@ impl Server {
             .route(
                 "/state_changes",
                 get(list_state_changes).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/tasks",
-                get(list_tasks).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/extractors/extract",
-                post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/task_assignments",
@@ -1341,35 +1327,6 @@ async fn list_tasks(
     Ok(Json(resp.try_into()?))
 }
 
-#[utoipa::path(
-    post,
-    path = "/extractors/extract",
-    request_body = ExtractRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Extract content from extractors", body = ExtractResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
-    ),
-)]
-#[axum::debug_handler]
-async fn extract_content(
-    State(namespace_endpoint): State<NamespaceEndpointState>,
-    Json(request): Json<ExtractRequest>,
-) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let extractor_router = ExtractorRouter::new(namespace_endpoint.coordinator_client.clone())
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    let response = extractor_router
-        .extract_content(&request.name, request.content, request.input_params)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to extract content: {}", e),
-            )
-        })?;
-    Ok(Json(response.into()))
-}
-
 #[axum::debug_handler]
 async fn list_task_assignments(
     State(namespace_endpoint): State<NamespaceEndpointState>,
@@ -1405,6 +1362,51 @@ async fn list_indexes(
         .into_iter()
         .collect();
     Ok(Json(ListIndexesResponse { indexes }))
+}
+
+// Search a vector index in a namespace
+#[utoipa::path(
+    post,
+    path = "/namespace/{namespace}/index/{index}/search",
+    tag = "indexify",
+    responses(
+        (status = 200, description = "Index search results", body = IndexSearchResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
+    ),
+)]
+#[axum::debug_handler]
+async fn index_search_v2(
+    Path((namespace, index)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Json(query): Json<SearchRequest>,
+) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
+    let results = state
+        .data_manager
+        .search(
+            &namespace,
+            &index,
+            &query.query,
+            query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
+            query.filters,
+            query.include_content.unwrap_or(true),
+        )
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    let document_fragments: Vec<DocumentFragment> = results
+        .iter()
+        .map(|text| DocumentFragment {
+            content_id: text.content_id.clone(),
+            mime_type: text.mime_type.clone(),
+            text: text.text.clone(),
+            labels: text.labels.clone(),
+            confidence_score: text.confidence_score,
+            root_content_metadata: text.root_content_metadata.clone().map(|r| r.into()),
+            content_metadata: text.content_metadata.clone().into(),
+        })
+        .collect();
+    Ok(Json(IndexSearchResponse {
+        results: document_fragments,
+    }))
 }
 
 #[utoipa::path(
