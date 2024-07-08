@@ -1,5 +1,8 @@
 # Image Extractors
 
+#### [Florence Image Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/florence) ![Static Badge](https://img.shields.io/badge/GPU%20Accelerated-green?logo=nvidia&logoColor=ffffff)
+FlorenceImageExtractor is a powerful image analysis tool leveraging the Microsoft Florence-2 large vision-language model. It performs a wide range of image understanding tasks, from simple captioning to complex visual reasoning.
+
 #### [Yolo](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/yolo)
 Extract bounding boxes and class names from Ultralytics YOLOv9 model.
 

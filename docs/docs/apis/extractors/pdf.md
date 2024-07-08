@@ -1,5 +1,8 @@
 # PDF Extractors
 
+#### [EasyOCR](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/easyocrpdf)
+This extractor uses EasyOCR to generate searchable PDF content from a regular PDF and then extract the text into plain text content.
+
 #### [PDFExtractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdfextractor)
 Extract text, images and tables as strings, bytes and json respectively using this extractor.
 
