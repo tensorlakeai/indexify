@@ -71,12 +71,6 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/content",
-          element: <ContentsPage />,
-          loader: ContentsPageLoader,
-          errorElement: <ErrorPage />
-        },
-        {
           path: "/:namespace/extractors",
           element: <ExtractorsPage />,
           loader: ExtractorsPageLoader,
