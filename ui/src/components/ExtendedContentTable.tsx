@@ -69,7 +69,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
     flex: 1,
     renderCell: params =>
       <Box sx={{ display: "flex", alignItems: "center" }}>
-        <Link to={`/${namespace}/content/${params.value}`}>
+        <Link to={`/${namespace}/extraction-graphs/${graphName}/content/${params.value}`}>
           {params.value}
         </Link>
         <Tooltip title="Copy">

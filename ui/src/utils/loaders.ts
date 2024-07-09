@@ -161,7 +161,7 @@ export async function IndexesPageLoader({ params }: LoaderFunctionArgs) {
 export async function IndividualContentPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, contentId } = params
+  const { namespace, contentId, extractorName } = params
   if (!namespace || !contentId) return redirect('/')
 
   const client = await createClient(namespace)
@@ -201,6 +201,7 @@ export async function IndividualContentPageLoader({
     contentMetadata,
     groupedExtractedMetadata: groupMetadataByExtractor(extractedMetadataList),
     errors,
+    extractorName
   }
 }
 

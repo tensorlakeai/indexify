@@ -48,6 +48,7 @@ const IndividualContentPage = () => {
     groupedExtractedMetadata,
     errors,
     extractionGraph,
+    extractorName,
   } = useLoaderData() as {
     namespace: string
     tasks: ITask[]
@@ -57,6 +58,7 @@ const IndividualContentPage = () => {
     client: IndexifyClient
     errors: string[]
     extractionGraph: ExtractionGraph
+    extractorName: string
   }
 
   const [textContent, setTextContent] = useState('')
@@ -271,6 +273,9 @@ const IndividualContentPage = () => {
         <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
           <Typography color="text.primary">Extraction Graph</Typography>
         </Link>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs/${extractorName}`}>
+          <Typography color="text.primary">{extractorName}</Typography>
+        </Link>
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
       <Errors errors={errors} />
@@ -284,7 +289,7 @@ const IndividualContentPage = () => {
         parentID={contentMetadata.parent_id}
         namespace={namespace}
         mimeType={contentMetadata.mime_type}
-        contentUrl={contentMetadata.content_url}
+        contentUrl={`/${namespace}/content/${contentId}/${contentMetadata.content_url}`}
         textContent={textContent}
       />
       <Box>
