@@ -1,4 +1,18 @@
 # LLM Extractors
+LLM based text extractors are the backbone of structured data parsing. Indexify allows you to choose between multiple extractors as per the use case and the type of data. If you want to read more about how extractors are created and used read the [documentation]([url](https://docs.getindexify.ai/concepts/)).
+
+| Extractor Name | Use Case | Supported Input Types |
+|----------------|----------|------------------------|
+| Gemini | General-purpose text and image processing | `text/plain`, `application/pdf`, `image/jpeg`, `image/png` |
+| Mistral AI | General-purpose text processing | `text/plain` |
+| Ollama | Local LLM processing | `text/plain` |
+| OpenAI | General-purpose text and image processing | `text/plain`, `application/pdf`, `image/jpeg`, `image/png` |
+| NER | Named Entity Recognition | `text/plain` |
+| Summarization | Text summarization using BART | `text/plain` |
+| LLM-Summary | Text summarization using lightweight LLM | `text/plain` |
+| Chunking | Text splitting into smaller chunks | `text/plain` |
+| Schema | Structured information extraction based on JSON schema | `text/plain` |
+
 
 #### [Gemini Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/gemini)
 The Gemini extractors supports various Gemini models like 1.5 Pro and 1.5 Flash. It supports input documents like text, pdf and images and returns output in text. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended into the user prompt. 
@@ -31,97 +45,108 @@ This Mistral extractor supports various Mistral AI models like mistral-large-lat
 ```["text/plain"]```
 
 #### [Ollama Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/ollama)
-The extractor provides access to local LLMs using the Ollama API. It Llama3 by default. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended into the user prompt.
+The extractor provides access to local LLMs using the Ollama API. It is Llama3 by default. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended to the user prompt.
 
 ##### Input Params
 **model_name**(default='llama3'): Model Name
 
-**system_prompt**(default='You are a helpful assistant.'): = System prompt 
+**system_prompt**(default='You are a helpful assistant.'): System prompt 
 
-**user_prompt**(default=None): = User prompt
+**user_prompt**(default=None): User prompt
 
 
 ##### Input Data Types
 ```["text/plain"]```
 
-#### [OpenAI Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/openai)
-This is an extractor that supports multiple kinds of input documents like text, pdf and images and returns output in text using OpenAI. This extractor supports various OpenAI models like 3.5 Turbo and 4o and works on the Content of previous extractor as message, however we can manually overwrite prompt and message.
+## [OpenAI Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/openai)
 
-##### Input Params
+### Description
+This extractor supports multiple types of input documents like text, PDF, and images, returning output in text format using OpenAI. It supports all OpenAI LLM models like 3.5 Turbo and 4, working on the content of previous extractors as messages. The user can manually overwrite prompts and messages.
+
+### Input Parameters
+- **model_name** (default: 'gpt-3.5-turbo'): Name of the OpenAI model to use.
+- **key** (default: None): API Key
+- **system_prompt** (default: 'You are a helpful assistant.'): Default system prompt.
+- **user_prompt** (default: None): User prompt
+
+### Input Data Types
 ```
-    model_name: Optional[str] = Field(default='gpt-3.5-turbo')
-    key: Optional[str] = Field(default=None)
-    system_prompt: str = Field(default='You are a helpful assistant.')
-    user_prompt: Optional[str] = Field(default=None)
+["text/plain", "application/pdf", "image/jpeg", "image/png"]
 ```
-##### Input Data Types
-```["text/plain", "application/pdf", "image/jpeg", "image/png"]```
 
-#### [NER Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/ner)
-bert-base-NER is a fine-tuned BERT model that is ready to use for Named Entity Recognition and achieves state-of-the-art performance for the NER task. It has been trained to recognize four types of entities: location (LOC), organizations (ORG), person (PER) and Miscellaneous (MISC). Specifically, this model is a bert-base-cased model that was fine-tuned on the English version of the standard CoNLL-2003 Named Entity Recognition dataset.
+## [NER Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/ner)
 
-##### Input Params
+### Description
+This is a bert-base-NER (Named-Entity-Recognition) model. It is a fine-tuned BERT model ready for Named Entity Recognition, achieving state-of-the-art performance. It recognizes four types of entities: location (LOC), organizations (ORG), person (PER), and Miscellaneous (MISC). This model is a bert-base-based model fine-tuned on the English version of the standard CoNLL-2003 Named Entity Recognition dataset.
+
+### Input Parameters
+- **model_name** (default: "dslim/bert-base-NER"): Name of the NER model to use.
+
+### Input Data Types
 ```
-    model_name: Optional[str] = Field(default="dslim/bert-base-NER")
+["text/plain"]
 ```
-##### Input Data Types
-```["text/plain"]```
 
-#### [Summarization](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/summarization)
-This is a BART based Summary Extractor that can convert text from Audio, PDF and other files to their summaries. For summary extraction we use facebook/bart-large-cnn which is a strong summarization model trained on English news articles. Excels at generating factual summaries. For chunking we use FastRecursiveTextSplitter along with support for LangChain based text splitters.
+## [Summarization Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/summarization)
 
-##### Input Params
+### Description
+This BART-based Summary Extractor can convert text from Audio, PDF, and other files into summaries. It uses facebook/bart-large-cnn, which excels at generating factual summaries from English news articles. For chunking, it uses FastRecursiveTextSplitter along with support for LangChain-based text splitters.
+
+### Input Parameters
+- **max_length** (default: 3000): Maximum length of the summary.
+- **min_length** (default: 30): Minimum length of the summary.
+- **chunk_method** (default: "indexify"): Method used for text chunking.
+
+### Input Data Types
 ```
-    max_length: int = 3000
-    min_length: int = 30
-    chunk_method: str = "indexify"
+["text/plain"]
 ```
-##### Input Data Types
-```["text/plain"]```
 
-#### [LLM-Summary](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/llm-summary)
-This is a LLM based Summary Extractor that can convert text from Audio, PDF and other files to their summaries. For summary extraction we use h2oai/h2o-danube2-1.8b-chat which is a strong <3B parameter Large Language Model suitable even for low end machines. For chunking we use FastRecursiveTextSplitter along with support for LangChain based text splitters.
+## [LLM-Summary Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/llm-summary)
 
-##### Input Params
+### Description
+This LLM-based Summary Extractor converts text from Audio, PDF, and other files into summaries. It uses h2oai/h2o-danube2-1.8b-chat, a <3B parameter Large Language Model suitable for low-end machines. For chunking, it uses FastRecursiveTextSplitter along with support for LangChain-based text splitters.
+
+### Input Parameters
+- **max_length** (default: 130): Maximum length of the summary.
+- **chunk_method** (default: "indexify"): Method used for text chunking.
+
+### Input Data Types
 ```
-    max_length: int = 130
-    chunk_method: str = "indexify"
+["text/plain"]
 ```
-##### Input Data Types
-```["text/plain"]```
 
-#### [Chunking](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/chunking)
-ChunkExtractor splits text into smaller chunks. The input to this extractor can be from any source which produces text, with a mime type text/plain. The chunk extractor can be configured to use one of the many chunking strategies available. We use Langchain under the hood in this extractor.
+## [Chunking Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/chunking)
 
-##### Input Params
+### Description
+ChunkExtractor splits text into smaller chunks. It can handle input from any source producing text with a mime type of text/plain. The extractor can be configured to use various chunking strategies available through Langchain.
+
+### Input Parameters
+- **overlap** (default: 0): Overlap between chunks.
+- **chunk_size** (default: 100): Size of each chunk.
+- **text_splitter** (default: "recursive"): Type of text splitter to use (options: "char", "recursive", "markdown", "html").
+- **headers_to_split_on** (default: []): List of headers to use for splitting.
+
+### Input Data Types
 ```
-    overlap: int = 0
-    chunk_size: int = 100
-    text_splitter: Literal["char", "recursive", "markdown", "html"] = "recursive"
-    headers_to_split_on: List[str] = []
+["text/plain"]
 ```
-##### Input Data Types
-```["text/plain"]```
 
-#### [Schema](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/schema)
-The schema extractors enables structured extraction using LLMs. It accepts a user provided JSON Schema and extracts information from text based on the schema. The extractor uses OpenAI by default, with ability to use other LLMs as well. 
+## [Schema Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/schema)
 
-This is inspired by Instructor from @jxnlco. 
+### Description
+The Schema Extractor enables structured extraction using LLMs. It accepts a user-provided JSON Schema and extracts information from text based on the schema. By default, it uses OpenAI, with the ability to use other LLMs as well. This extractor is inspired by Instructor from @jxnlco.
 
-##### Input Params
-**service**(default='openai'): = LLM Service to use. Options: 
+### Input Parameters
+- **service** (default: 'openai'): LLM Service to use.
+- **model_name** (default: 'gpt-3.5-turbo'): LLM model to use.
+- **key** (default: None): API key of the service.
+- **schema_config** (default: None): The JSON Schema to use for structured extraction.
+- **example_text** (default: None): Few examples of how the scema should look like
+- **data**: Unstructured text data
+- **additional_messages** (default: None): Any additional instrunction for the model
 
-**model_name**(default='gpt-3.5-turbo'): LLM to use.
-
-**key**(default=None) = API key of the service
-
-**schema_config**(default=None): The JSON Schema to use for structured extraction.
-
-**example_text**(default=None): TBD
-
-**data**: TBD
-
-**additional_messages**:(default: None): TBD
+### Input Data Types
 ```
-##### Input Data Types
-```["text/plain"]```
+["text/plain"]
+```
