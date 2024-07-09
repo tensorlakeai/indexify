@@ -1,40 +1,46 @@
-# Text Extractors
+# LLM Extractors
 
 #### [Gemini Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/gemini)
-This is an extractor that supports multiple kinds of input documents like text, pdf and images and returns output in text using Gemini from Google. This extractor supports various Gemini models like 1.5 Pro and 1.5 Flash and works on the Content of previous extractor as message, however we can manually overwrite prompt and message. Gemini has 1 million token context window that can process vast amounts of information in one go — including 11 hours of audio transcript, codebases with over 30,000 lines of code or over 700,000 words.
+The Gemini extractors supports various Gemini models like 1.5 Pro and 1.5 Flash. It supports input documents like text, pdf and images and returns output in text. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended into the user prompt. 
 
 ##### Input Params
-```
-    model_name: Optional[str] = Field(default='gemini-1.5-flash-latest')
-    key: Optional[str] = Field(default=None)
-    system_prompt: str = Field(default='You are a helpful assistant.')
-    user_prompt: Optional[str] = Field(default=None)
-```
+**model_name**(default:'gemini-1.5-flash-latest'): Name of the gemini model to use.
+
+**key**(default: None): API Key
+
+**system_prompt**(default: "You are a helpful assistant"): Default system prompt.
+
+**user_prompt**(default: None): User prompt
+
 ##### Input Data Types
 ```["text/plain", "application/pdf", "image/jpeg", "image/png"]```
 
 #### [Mistral AI Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/mistralai)
-This is an extractor that supports text input documents and returns output in text using Mistral AI. This extractor supports various Mistral AI models like mistral-large-latest and works on the Content of previous extractor as message, however we can manually overwrite prompt and message.
+This Mistral extractor supports various Mistral AI models like mistral-large-latest. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended into the user prompt.
 
 ##### Input Params
-```
-    model_name: Optional[str] = Field(default='mistral-large-latest')
-    key: Optional[str] = Field(default=None)
-    system_prompt: str = Field(default='You are a helpful assistant.')
-    user_prompt: Optional[str] = Field(default=None)
-```
+**model_name**(default:'mistral-large-latest'): Name of the Mistral model to use.
+
+**key**:(default: None): API Key
+
+**system_prompt**(default: "You are a helpful assistant"): Default system prompt.
+
+**user_prompt**(default: None): User prompt
+
 ##### Input Data Types
 ```["text/plain"]```
 
 #### [Ollama Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/ollama)
-This is a Ollama based Extractor that supports multiple Ollama models. The extractor uses Llama3 by default, with ability to use other Ollamas as well and works on the Content of previous extractor as message, however we can manually overwrite prompt and message. We support any open source Ollama models from Hugging Face if you want to run locally.
+The extractor provides access to local LLMs using the Ollama API. It Llama3 by default. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended into the user prompt.
 
 ##### Input Params
-```
-    model_name: Optional[str] = Field(default='llama3')
-    system_prompt: str = Field(default='You are a helpful assistant.')
-    user_prompt: Optional[str] = Field(default=None)
-```
+**model_name**(default='llama3'): Model Name
+
+**system_prompt**(default='You are a helpful assistant.'): = System prompt 
+
+**user_prompt**(default=None): = User prompt
+
+
 ##### Input Data Types
 ```["text/plain"]```
 
