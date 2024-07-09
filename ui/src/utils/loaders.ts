@@ -95,23 +95,20 @@ export async function IndividualExtractionGraphPageLoader({
     }
   })
 
-  const [extractors, contentList, getTasks] = await Promise.all([
+  const [extractors, contentList, tasks] = await Promise.all([
     client.extractors(),
-    client.indexes(),
     (await client.getExtractedContent()).contentList,
-    client.getSchemas(),
     client.getTasks(
       {
         returnTotal: true
       }
     )
   ])
-  const extractionGraphs = client.extractionGraphs;
+  const extractionGraph = client.extractionGraphs.filter(extractionGraph => extractionGraph.name === extractorName)[0];
   return {
-    getTasks,
-    taskCountsMap,
+    tasks,
     extractors,
-    extractionGraphs: extractionGraphs,
+    extractionGraph: extractionGraph,
     contentList,
     namespace: params.namespace,
     extractorName

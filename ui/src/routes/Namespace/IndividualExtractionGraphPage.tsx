@@ -1,17 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   Box,
   Breadcrumbs,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
   Typography,
-  Chip,
   IconButton,
   Stack,
   Alert,
@@ -19,10 +10,9 @@ import {
 import ExtendedContentTable from '../../components/ExtendedContentTable';
 import { InfoCircle, TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
-import { Link, useLoaderData, useParams } from 'react-router-dom';
-import { ExtractionGraph, Extractor, IContentMetadata, IExtractionPolicy, IIndex, IndexifyClient, ISchema } from 'getindexify';
-import { TaskCounts, TaskCountsMap } from '../../types';
-import { mapExtractionPoliciesToRows, Row } from '../../utils/helpers';
+import { Link, useLoaderData } from 'react-router-dom';
+import { ExtractionGraph, Extractor, IContentMetadata, IndexifyClient } from 'getindexify';
+import { mapExtractionPoliciesToRows } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
 
 const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
@@ -44,9 +34,8 @@ const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
 };
 
 const IndividualExtractionGraphPage = () => {
-  const { getTasks,
+  const { tasks,
     extractorName,
-    taskCountsMap,
     extractors,
     extractionGraph,
     contentList,
@@ -55,9 +44,8 @@ const IndividualExtractionGraphPage = () => {
       extractorName: string
       namespace: string
       client: IndexifyClient
-      extractionGraph: ExtractionGraph[]
-      getTasks: any,
-      taskCountsMap: TaskCountsMap,
+      extractionGraph: ExtractionGraph
+      tasks: any,
       extractors: Extractor[],
       contentList: IContentMetadata[],
     }
@@ -65,9 +53,11 @@ const IndividualExtractionGraphPage = () => {
       return groupContentByGraphs(contentList)
   }, [contentList])
 
+  console.log('contentList', contentList)
+
   const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  
-  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName);
+  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName, tasks);
 
   return (
     <Stack direction="column" spacing={3}>
@@ -104,6 +94,7 @@ const IndividualExtractionGraphPage = () => {
             content={contentList}
             extractionGraph={extractionGraph}
             graphName={extractorName}
+            namespace={namespace}
           />
         ) : (
           <Alert severity="info">No content found</Alert>

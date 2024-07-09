@@ -1,4 +1,4 @@
-import React, {useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Box,
   TextField,
@@ -13,8 +13,9 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import InfoIcon from "@mui/icons-material/Info";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { ExtractionGraph, IContentMetadata } from "getindexify";
+import CopyText from "./CopyText";
+import { Link } from "react-router-dom";
 
 const filterContentByGraphName = (contentList: IContentMetadata[], graphName: string): IContentMetadata[] => {
   return contentList.filter(content => content.extraction_graph_names.includes(graphName));
@@ -54,36 +55,38 @@ const StyledToggleButton = styled(ToggleButton)(({ theme }) => ({
 
 interface ExtendedContentTableProps {
   content: IContentMetadata[];
-  extractionGraph: ExtractionGraph[];
+  extractionGraph: ExtractionGraph;
   graphName: string;
+  namespace: string;
 }
 
-const columns: GridColDef[] = [
+const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph, graphName, namespace }) => {
+
+  const columns: GridColDef[] = [
   {
     field: "id",
     headerName: "ID",
     flex: 1,
     renderCell: params =>
       <Box sx={{ display: "flex", alignItems: "center" }}>
-        <Typography color="primary" sx={{ cursor: "pointer" }}>
+        <Link to={`/${namespace}/content/${params.value}`}>
           {params.value}
-        </Typography>
+        </Link>
         <Tooltip title="Copy">
-          <IconButton size="small">
-            <ContentCopyIcon fontSize="small" />
-          </IconButton>
+          <CopyText text={params.value}/>
         </Tooltip>
       </Box>
   },
-  { field: "children", headerName: "CHILDREN", width: 130, type: "number" },
-  { field: "labels", headerName: "LABELS", flex: 1 },
-  { field: "createdAt", headerName: "CREATED AT", width: 200 }
+  { field: "children", headerName: "Children", width: 130, type: "number" },
+  { field: "source", headerName: "Source", flex: 1 },
+  { field: "parentId", headerName: "Parent ID", flex: 1 },
+  { field: "labels", headerName: "Labels", flex: 1 },
+  { field: "createdAt", headerName: "Created At", width: 200 }
 ];
 
-const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph, graphName }) => {
 
-  const [tabValue, setTabValue] = useState<string>("ingested");
-  const [policy, setPolicy] = useState("");
+  const [tabValue, setTabValue] = useState<string>("search");
+  const [policy, setPolicy] = useState("any");
   const [contentId, setContentId] = useState("");
 
   const handleTabChange = (
@@ -95,37 +98,38 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
     }
   };
 
-  const filteredContent = React.useMemo(() => {
+  const filteredContent = useMemo(() => {
     return Array.isArray(content) ? filterContentByGraphName(content, graphName) : [];
   }, [content, graphName]);
 
-  const rows = React.useMemo(() => {
+  const rows = useMemo(() => {
     return filteredContent.map(item => ({
       id: item.id,
       children: 0,
       labels: JSON.stringify(item.labels),
+      parentId: item.parent_id,
+      source: item.source,
       createdAt: new Date(item.created_at).toLocaleString()
     }));
   }, [filteredContent]);
 
-  const filteredRows = React.useMemo(() => {
-    return rows.filter(row => {
-      if (tabValue === "search") {
-        return row.id.includes(contentId);
-      }
-      return true;
-    });
-  }, [rows, tabValue, contentId]);
+  const filteredRows = useMemo(() => {
+   if (tabValue === "search") {
+    return rows.filter(row => 
+      (contentId ? row.id.includes(contentId) : true) &&
+      (policy !== "any" ? row.source === policy : true)
+    );
+  }
+   return rows;
+  }, [rows, tabValue, contentId , policy]);
 
-  const extractionPolicyOptions = React.useMemo(() => {
-    const extractionPolicies = extractionGraph?.map(graph => graph.extraction_policies) || [];
-    return extractionPolicies.map((policy, index) => ({
-      value: `policy${index + 1}`,
-      label: `Policy ${index + 1}`
+  const extractionPolicyOptions = useMemo(() => {
+    const extractionPolicies = extractionGraph?.extraction_policies || [];
+    return extractionPolicies?.map((policy, index) => ({
+      value: policy.name,
+      label: policy.name
     })) || [];
   }, [extractionGraph]);
-
-  console.log('extractionPolicyOptions', extractionPolicyOptions)
 
   return (
     <Box
@@ -171,32 +175,37 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
             </StyledToggleButton>
           </StyledToggleButtonGroup>
         </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <TextField
-            placeholder="Content Id..."
-            variant="outlined"
-            size="small"
-            value={contentId}
-            onChange={e => setContentId(e.target.value)}
-            sx={{ mr: 2 }}
-          />
-          <Select
-            value={policy}
-            displayEmpty
-            size="small"
-            onChange={e => setPolicy(e.target.value as string)}
-            sx={{ minWidth: 120 }}
-          >
-            <MenuItem value="" disabled>
-              Choose policy
-            </MenuItem>
-            {extractionPolicyOptions.map((policy, index) => (
-              <MenuItem key={index} value={policy.value}>
-                {policy.label}
+        {tabValue === "search" && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <TextField
+              placeholder="Content Id..."
+              variant="outlined"
+              size="small"
+              value={contentId}
+              onChange={e => setContentId(e.target.value)}
+              sx={{ mr: 2 }}
+            />
+            <Select
+              value={policy}
+              displayEmpty
+              size="small"
+              onChange={e => setPolicy(e.target.value as string)}
+              sx={{ minWidth: 120 }}
+            >
+              <MenuItem value="" disabled>
+                Choose policy
               </MenuItem>
-            )) || null}
-          </Select>
-        </Box>
+              <MenuItem value="any">
+                Any
+              </MenuItem>
+              {extractionPolicyOptions.map((policy, index) => (
+                <MenuItem key={index} value={policy.value}>
+                  {policy.label}
+                </MenuItem>
+              )) || null}
+            </Select>
+          </Box>
+        )}
       </Box>
 
       <DataGrid

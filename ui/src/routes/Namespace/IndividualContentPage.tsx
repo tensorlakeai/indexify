@@ -139,6 +139,7 @@ const IndividualContentPage = () => {
       // This is just a placeholder, you'll need to implement the actual fetching logic
       setFilteredContent([])
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const columns: GridColDef[] = [
@@ -267,8 +268,8 @@ const IndividualContentPage = () => {
         separator={<NavigateNextIcon fontSize="small" />}
       >
         <Typography color="text.primary">{namespace}</Typography>
-        <Link color="inherit" to={`/${namespace}/content`}>
-          <Typography color="text.primary">Content</Typography>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
+          <Typography color="text.primary">Extraction Graph</Typography>
         </Link>
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
