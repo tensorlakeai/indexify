@@ -103,39 +103,25 @@ ChunkExtractor splits text into smaller chunks. The input to this extractor can 
 ##### Input Data Types
 ```["text/plain"]```
 
-#### [LLM](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/llm)
-This is a LLM based Extractor that supports multiple LLMs. The extractor uses OpenAI by default, with ability to use other LLMs as well and works on the Content of previous extractor as message, however we can manually overwrite prompt and message. We support Gemini 1.5 Pro which has 1 million token context window that can process vast amounts of information in one go — including 11 hours of audio transcript, codebases with over 30,000 lines of code or over 700,000 words. We also support using any open source LLM from Hugging Face if you want to run locally.
-
-##### Input Params
-```
-    service: str = Field(default='openai')
-    model_name: Optional[str] = Field(default='gpt-3.5-turbo')
-    key: Optional[str] = Field(default=None)
-    prompt: str = Field(default='You are a helpful assistant.')
-    query: Optional[str] = Field(default=None)
-```
-##### Input Data Types
-```["text/plain"]```
-
 #### [Schema](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/schema)
-This is a LLM based Schema Extractor that supports multiple LLMs. It accepts a user provided JSON Schema and extracts information from text passed into it to the schema. The extractor uses OpenAI by default, with ability to use other LLMs as well. We support Gemini 1.5 Pro which has 1 million token context window that can process vast amounts of information in one go — including 11 hours of audio transcript, codebases with over 30,000 lines of code or over 700,000 words. We also support using any open source LLM from Hugging Face if you want to run locally.
+The schema extractors enables structured extraction using LLMs. It accepts a user provided JSON Schema and extracts information from text based on the schema. The extractor uses OpenAI by default, with ability to use other LLMs as well. 
 
-This is inspired by Instructor from @jxnlco. We support instructor too by pickling the user provided pydantic model into the Instructor extractor. This extractor doesn't depend on pickling and only uses JSON schema which is easier to work with in distributed production deployments.
+This is inspired by Instructor from @jxnlco. 
 
 ##### Input Params
-```
-    service: str = Field(default='openai')
-    model_name: Optional[str] = Field(default='gpt-3.5-turbo')
-    key: Optional[str] = Field(default=None)
-    schema_config: Dict = Field(default={
-        'properties': {'name': {'title': 'Name', 'type': 'string'}},
-        'required': ['name'],
-        'title': 'User',
-        'type': 'object'
-    }, alias='schema')
-    example_text: Optional[str] = Field(default=None)
-    data: Optional[str] = Field(default=None)
-    additional_messages: str = Field(default='Extract information in JSON according to this schema and return only the output.')
+**service**(default='openai'): = LLM Service to use. Options: 
+
+**model_name**(default='gpt-3.5-turbo'): LLM to use.
+
+**key**(default=None) = API key of the service
+
+**schema_config**(default=None): The JSON Schema to use for structured extraction.
+
+**example_text**(default=None): TBD
+
+**data**: TBD
+
+**additional_messages**:(default: None): TBD
 ```
 ##### Input Data Types
 ```["text/plain"]```
