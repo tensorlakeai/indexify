@@ -115,6 +115,15 @@ export default function Dashboard() {
                 <ListItemText primary={'Extractors'} />
               </ListItemButton>
               <ListItemButton
+                to={`/${namespace}/content`}
+                component={Link}
+                selected={location.pathname.startsWith(`/${namespace}/content`)}
+                className={location.pathname.startsWith(`/${namespace}/content`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+              >
+                <SliderVertical1 size="20" className="drawer-logo" variant="Outline" />
+                <ListItemText primary={'Content'} />
+              </ListItemButton>
+              <ListItemButton
                 to={`/${namespace}/extraction-graphs`}
                 component={Link}
                 selected={
