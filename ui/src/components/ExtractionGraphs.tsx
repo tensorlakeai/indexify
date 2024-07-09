@@ -63,7 +63,6 @@ const ExtractionGraphs = ({
     let items: ReactElement[] = []
     // use sibling count to keep track of how many are above
     let siblingCount = items.length
-    console.log('policies', policies)
     policies
       .filter((policy) => policy.content_source === source)
       .forEach((policy, i) => {

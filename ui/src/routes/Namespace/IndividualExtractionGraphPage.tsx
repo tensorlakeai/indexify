@@ -53,8 +53,6 @@ const IndividualExtractionGraphPage = () => {
       return groupContentByGraphs(contentList)
   }, [contentList])
 
-  console.log('contentList', contentList)
-
   const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  
   const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName, tasks);
