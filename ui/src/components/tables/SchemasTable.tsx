@@ -30,7 +30,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
               {Object.keys(params.value).map((val) => (
                 <Chip
                   key={val}
-                  sx={{ backgroundColor: '#3296FE', color: '#FFFFFF' }}
+                  sx={{ backgroundColor: "#E5EFFB" }}
                   label={`${val}: ${params.value[val].type}`}
                 />
               ))}
