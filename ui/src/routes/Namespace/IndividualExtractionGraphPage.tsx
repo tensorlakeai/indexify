@@ -3,12 +3,11 @@ import {
   Box,
   Breadcrumbs,
   Typography,
-  IconButton,
   Stack,
   Alert,
 } from '@mui/material';
 import ExtendedContentTable from '../../components/ExtendedContentTable';
-import { InfoCircle, TableDocument } from 'iconsax-react';
+import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom';
 import { ExtractionGraph, Extractor, IContentMetadata, IndexifyClient } from 'getindexify';
@@ -77,12 +76,6 @@ const IndividualExtractionGraphPage = () => {
             </div>
             <Typography variant="h4">
               {extractorName}
-              <IconButton
-                href="https://docs.getindexify.ai/concepts/#content"
-                target="_blank"
-              >
-                <InfoCircle size="20" variant="Outline"/>
-              </IconButton>
             </Typography>
           </div>
           <ExtractorGraphTable rows={mappedRows} graphName={extractorName} />

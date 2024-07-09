@@ -140,7 +140,8 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
         pb: 2,
         pt: 2,
         backgroundColor: "white",
-        borderRadius: "0.5rem"
+        borderRadius: "0.5rem",
+        boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",
       }}
     >
       <Box
@@ -156,7 +157,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
               Content
             </Typography>
             <Tooltip title="Info about content">
-              <IconButton size="small">
+              <IconButton size="small" href="https://docs.getindexify.ai/concepts/#content" target="_blank">
                 <InfoIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -221,7 +222,6 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
           "& .MuiDataGrid-cell:focus": {
             outline: "none"
           },
-          boxShadow: "0px 0px 1px 0px rgba(51, 132, 254, 0.2) inset",
           mt: 2
         }}
       />

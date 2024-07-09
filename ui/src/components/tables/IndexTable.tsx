@@ -84,7 +84,7 @@ const IndexTable = ({
           }}
         >
           <DataGrid
-            sx={{ backgroundColor: 'white', boxShadow: '0px 0px 2px 0px #D0D6DE' }}
+            sx={{ backgroundColor: 'white', boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset", }}
             autoHeight
             getRowId={getRowId}
             rows={indexes}

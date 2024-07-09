@@ -107,7 +107,7 @@ const ExtractionGraphs = ({
         mt={2}
       >
         <Grid container spacing={1}>
-          {extractionGraphs.map((graph)  => (
+          {extractionGraphs.sort((a, b) => a.name.localeCompare(b.name)).map((graph)  => (
             <Grid item xs={12} sm={6} md={4} key={graph.name} mb={2}>
               <Card sx={{ minWidth: 275, height: '100%', boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
                 <CardContent>

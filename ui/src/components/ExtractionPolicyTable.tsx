@@ -53,7 +53,7 @@ const ExtractionPolicyTable: React.FC = () => {
   );
 
   return (
-    <TableContainer component={Paper}>
+    <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}}>
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <Typography variant="h6" sx={{ p: 2 }}>
         moondreamcaptionkb
