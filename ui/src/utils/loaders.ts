@@ -63,6 +63,58 @@ export async function ExtractionGraphsPageLoader({
   }
 }
 
+export async function IndividualExtractionGraphPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  const { namespace, extractorName } = params
+  if (!namespace) return redirect('/')
+  const client = await createClient(params.namespace)
+  const counts = await Promise.all(
+    client.extractionGraphs.map(async (graph) => {
+      return Promise.all(
+        graph.extraction_policies
+          .map(async (policy) => {
+            if (!policy.id) return null
+            return {
+              id: policy.id,
+              counts: await getExtractionPolicyTaskCounts(policy.id, client),
+            }
+          })
+          .filter((result) => result !== null)
+      )
+    })
+  )
+  const countsArray = counts.flat()
+  const taskCountsMap: TaskCountsMap = new Map<
+    string,
+    { totalSuccess: number; totalFailed: number; totalUnknown: number }
+  >()
+  countsArray.forEach((policyCounts) => {
+    if (policyCounts && policyCounts.id) {
+      taskCountsMap.set(policyCounts.id, policyCounts.counts)
+    }
+  })
+
+  const [extractors, contentList, tasks] = await Promise.all([
+    client.extractors(),
+    (await client.getExtractedContent()).contentList,
+    client.getTasks(
+      {
+        returnTotal: true
+      }
+    )
+  ])
+  const extractionGraph = client.extractionGraphs.filter(extractionGraph => extractionGraph.name === extractorName)[0];
+  return {
+    tasks,
+    extractors,
+    extractionGraph: extractionGraph,
+    contentList,
+    namespace: params.namespace,
+    extractorName
+  }
+}
+
 export async function ExtractionPolicyPageLoader({
   params,
 }: LoaderFunctionArgs) {

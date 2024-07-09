@@ -1,4 +1,4 @@
-import { IExtractedMetadata, IndexifyClient } from 'getindexify'
+import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient, ITask } from 'getindexify'
 import { TaskCounts } from '../types'
 
 export const stringToColor = (str: string) => {
@@ -90,3 +90,60 @@ export const splitLabels = (data: KeyValueObject): string[] => {
   return Object.entries(data).map(([key, value]) => `${key}: ${value}`);
 }
 
+export interface Row {
+    id: number;
+    name: string;
+    extractor: string;
+    inputTypes: string[];
+    inputParameters: string;
+    pending: number;
+    failed: number;
+    completed: number;
+}
+
+export const mapExtractionPoliciesToRows = (
+  extractionGraph: ExtractionGraph,
+  extractors: Extractor[],
+  graphName: string,
+  tasks: {
+      tasks: ITask[];
+      total?: number;
+  }
+): Row[] => {
+  const extractorMap = new Map(extractors.map(e => [e.name, e]));
+  
+  let targetGraph: ExtractionGraph | undefined;
+  
+  if (Array.isArray(extractionGraph)) {
+    targetGraph = extractionGraph.find(graph => graph.name === graphName);
+  } else if (extractionGraph.name === graphName) {
+    targetGraph = extractionGraph;
+  }
+  
+  if (!targetGraph) {
+    console.error(`No graph found with name: ${graphName}`);
+    return [];
+  }
+
+  
+  const rows: Row[] = targetGraph.extraction_policies.map((policy, index) => {
+    const extractor = extractorMap.get(policy.extractor);
+    const filterTasks = tasks.tasks.filter(task => task.extraction_policy_id === policy.id)
+    const pendingTaskCount = filterTasks.filter(task => task.outcome === 0).length
+    const failedTaskCount = filterTasks.filter(task => task.outcome === 1).length
+    const completedTaskCount = filterTasks.filter(task => task.outcome === 2).length
+    const finalRows = {
+      id: index + 1,
+      name: policy.name,
+      extractor: policy.extractor,
+      inputTypes: extractor ? extractor.input_mime_types : ['Unknown'],
+      inputParameters: policy.input_params ? JSON.stringify(policy.input_params) : 'None',
+      pending: pendingTaskCount,
+      failed: failedTaskCount,
+      completed: completedTaskCount,
+    };
+    return finalRows;
+  });
+
+  return rows;
+};

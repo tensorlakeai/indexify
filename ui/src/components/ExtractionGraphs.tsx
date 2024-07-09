@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { ExtractionGraph, IExtractionPolicy, IExtractor } from 'getindexify'
-import { Alert, IconButton, Typography } from '@mui/material'
+import { Alert, Card, CardContent, Grid, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { ReactElement } from 'react'
 import ExtractionPolicyItem from './ExtractionPolicyItem'
@@ -10,6 +11,7 @@ import {
 } from '../types'
 import CopyText from './CopyText'
 import { Cpu, InfoCircle } from 'iconsax-react'
+import { Link } from 'react-router-dom'
 
 const ExtractionGraphs = ({
   extractionGraphs,
@@ -100,24 +102,34 @@ const ExtractionGraphs = ({
         sx={{
           width: '100%',
           overflow: 'auto',
-          border: '1px solid rgba(224, 224, 224, 1);',
           borderRadius: '5px',
-          backgroundColor: 'white',
         }}
         mt={2}
       >
-        <div style={{ minWidth: 'max-content' }}>{renderHeader()}</div>
-        {extractionGraphs.map((graph) => {
-          return (
-            <Box key={graph.name} sx={{ p: 2 }}>
-              <Box display="flex" alignItems={'center'}>
-                <Typography variant="h3">{graph.name}</Typography>
-                <CopyText text={graph.name} />
-              </Box>
-              {renderGraphItems(graph.extraction_policies, '')}
-            </Box>
-          )
-        })}
+        <Grid container spacing={1}>
+          {extractionGraphs.map((graph)  => (
+            <Grid item xs={12} sm={6} md={4} key={graph.name} mb={2}>
+              <Card sx={{ minWidth: 275, height: '100%', boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
+                <CardContent>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Link to={`/${namespace}/extraction-graphs/${graph.name}`}>
+                      <Typography variant="h6" component="div">
+                        {graph.name}
+                      </Typography>
+                    </Link>
+                    <CopyText text={graph.name} />
+                  </div>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Namespace: {graph.namespace}
+                  </Typography>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Number of Extractors: {graph.extraction_policies.length}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
       </Box>
     )
   }

@@ -20,7 +20,8 @@ import {
   ExtractorsPageLoader,
   ExtractionGraphsPageLoader,
   IndexesPageLoader,
-  SqlTablesPageLoader
+  SqlTablesPageLoader,
+  IndividualExtractionGraphPageLoader
 } from "./utils/loaders";
 import {
   ExtractionPolicyPage,
@@ -32,6 +33,7 @@ import {
   IndexesPage,
   SqlTablesPage
 } from "./routes/Namespace";
+import IndividualExtractionGraphPage from "./routes/Namespace/IndividualExtractionGraphPage";
 
 function RedirectToExtractors() {
   const { namespace } = useParams();
@@ -84,6 +86,12 @@ const router = createBrowserRouter(
           path: "/:namespace/extraction-graphs",
           element: <ExtractionGraphsPage />,
           loader: ExtractionGraphsPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/extraction-graphs/:extractorName",
+          element: <IndividualExtractionGraphPage />,
+          loader: IndividualExtractionGraphPageLoader,
           errorElement: <ErrorPage />
         },
         {
