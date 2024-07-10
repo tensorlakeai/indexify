@@ -48,7 +48,7 @@ By doing so, we immediately get the two following endpoints created.
 
 ??? note "Want the Source Code?"
 
-    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website) in our example folder
+    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/basic) in our example folder
 
 Let's start by creating a new virtual environment before installing the required packages in our virtual environment.
 

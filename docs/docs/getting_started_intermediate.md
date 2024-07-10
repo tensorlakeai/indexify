@@ -15,6 +15,10 @@ curl https://getindexify.ai | sh
 
 ## Download the Extractors
 
+??? note "Want the Source Code?"
+
+    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/intermediate) in our example folder
+
 Before we begin, let's download the extractors
 
 !!! note "Python Versions"
