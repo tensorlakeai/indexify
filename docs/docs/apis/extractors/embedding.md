@@ -1,3 +1,22 @@
+# Embedding Extractors
+
+Embedding extractors are essential tools in modern natural language processing and computer vision tasks. They transform raw data (text, images, or other types of input) into dense vector representations, enabling machines to understand and process information in a more meaningful way, and facilitating tasks such as semantic search, clustering, and machine learning. Indexify allows you to choose between different extractors based on your use case and source of data. If you want to learn more about extractors, their design and usage, read the Indexify [documentation](https://docs.getindexify.ai/concepts/).
+
+| Extractor Name | Use Case | Supported Input Types |
+|----------------|----------|------------------------|
+| OpenAI Clip | Image and text embedding | `image/jpeg`, `image/png`, `image/gif`, `text/plain` |
+| ColBERT | Text embedding | `text/plain` |
+| E5 | Text embedding for similarity search | `text/plain` |
+| Hash | Identity embedding for duplicate detection | `text/plain` |
+| Jina | Text embedding | `text/plain` |
+| Arctic | Text embedding | `text/plain` |
+| MiniLML6 | Text embedding | `text/plain` |
+| MPnet | Multilingual text embedding | `text/plain` |
+| OpenAI Embedding | Text embedding | `text/plain` |
+| SciBERT Uncased | Scientific text embedding | `text/plain` |
+| BGE Base | Text embedding | `text/plain` |
+
+
 ## [OpenAI Clip](https://github.com/tensorlakeai/indexify-extractors/tree/main/embedding/clip_embedding)
 
 ### Description
