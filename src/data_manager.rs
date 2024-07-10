@@ -11,11 +11,7 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use indexify_internal_api::{self as internal_api};
-use indexify_proto::indexify_coordinator::{
-    self,
-    CreateContentStatus,
-    ListActiveContentsRequest,
-};
+use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
 use mime::Mime;
 use nanoid::nanoid;
 use sha2::{Digest, Sha256};
