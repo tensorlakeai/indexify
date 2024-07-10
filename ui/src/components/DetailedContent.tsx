@@ -92,7 +92,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
       sx={{ boxShadow: "0px 0px 2px 0px #D0D6DE", borderRadius: "12px" }}
     >
       <Grid container spacing={1} paddingLeft={2} paddingRight={2}>
-        <Grid item xs={12} md={6} rowSpacing={4} spacing={2} marginTop={1}>
+        <Grid item xs={12} md={6} rowSpacing={4} marginTop={1}>
           <Stack
             direction="row"
             spacing={1}

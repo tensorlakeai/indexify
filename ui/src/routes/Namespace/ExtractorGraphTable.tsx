@@ -9,7 +9,7 @@ interface ExtractorTableProps {
 
 const ExtractorGraphTable: React.FC<ExtractorTableProps> = ({ rows, graphName }) => {
   return (
-    <TableContainer component={Paper} sx={{borderRadius: '8px', mt: 2, boxShadow: 'none'}}>
+    <TableContainer component={Paper} sx={{borderRadius: '8px', mt: 2, boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
       <Table sx={{ minWidth: 650 }} aria-label="extractor table">
         <TableHead sx={{ pt: 2}}>
           <TableRow sx={{ mt: 2}}>

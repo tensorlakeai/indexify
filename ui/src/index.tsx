@@ -65,15 +65,9 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/content/:contentId",
+          path: "/:namespace/extraction-graphs/:extractorName/content/:contentId",
           element: <IndividualContentPage />,
           loader: IndividualContentPageLoader,
-          errorElement: <ErrorPage />
-        },
-        {
-          path: "/:namespace/content",
-          element: <ContentsPage />,
-          loader: ContentsPageLoader,
           errorElement: <ErrorPage />
         },
         {

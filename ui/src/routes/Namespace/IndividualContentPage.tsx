@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useLoaderData } from 'react-router-dom'
 import { Typography, Stack, Breadcrumbs, Box, Tab, Tabs, TextField, FormControl, InputLabel, MenuItem, Select, Button, Alert } from '@mui/material'
 import {
@@ -48,6 +49,7 @@ const IndividualContentPage = () => {
     groupedExtractedMetadata,
     errors,
     extractionGraph,
+    extractorName,
   } = useLoaderData() as {
     namespace: string
     tasks: ITask[]
@@ -57,6 +59,7 @@ const IndividualContentPage = () => {
     client: IndexifyClient
     errors: string[]
     extractionGraph: ExtractionGraph
+    extractorName: string
   }
 
   const [textContent, setTextContent] = useState('')
@@ -262,7 +265,7 @@ const IndividualContentPage = () => {
   }
 
   return (
-    <Stack direction="column" spacing={3}>
+    <Stack direction="column" spacing={1}>
       <Breadcrumbs
         aria-label="breadcrumb"
         separator={<NavigateNextIcon fontSize="small" />}
@@ -270,6 +273,9 @@ const IndividualContentPage = () => {
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
           <Typography color="text.primary">Extraction Graph</Typography>
+        </Link>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs/${extractorName}`}>
+          <Typography color="text.primary">{extractorName}</Typography>
         </Link>
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
@@ -284,10 +290,11 @@ const IndividualContentPage = () => {
         parentID={contentMetadata.parent_id}
         namespace={namespace}
         mimeType={contentMetadata.mime_type}
-        contentUrl={contentMetadata.content_url}
+        contentUrl={`/${namespace}/content/${contentId}/${contentMetadata.content_url}`}
         textContent={textContent}
       />
-      <Box>
+      {/* 
+        <Box>
         <Box justifyContent={'space-between'} display={'flex'}>
           <Tabs
             value={currentTab}
@@ -343,6 +350,7 @@ const IndividualContentPage = () => {
         </Box>
         {renderContent()}
       </Box>
+      */}
       {Object.keys(groupedExtractedMetadata).map((key) => {
         const extractedMetadata = groupedExtractedMetadata[key]
         return (
@@ -352,14 +360,14 @@ const IndividualContentPage = () => {
           />
         )
       })}
-      <TasksTable
+      {/* <TasksTable
         namespace={namespace}
         extractionPolicies={client.extractionGraphs
           .map((graph) => graph.extraction_policies)
           .flat()}
         loadData={taskLoader}
         hideContentId
-      />
+      /> */}
     </Stack>
   )
 }
