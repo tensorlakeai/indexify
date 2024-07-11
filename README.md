@@ -10,7 +10,7 @@
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 
-Indexify is an open-source engine for building fast data pipelines for unstructured data(video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction.  Indexify keeps vectordbs, structured databases(postgres) updated automatically when pipelines produce embedding or structured data.
+Indexify is an open-source engine for building fast data pipelines for unstructured data (video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. Indexify keeps vectordbs, structured databases (Postgres) updated automatically when pipelines produce embedding or structured data.
 
 Applications can query indexes and databases using semantic search and SQL queries. 
 
@@ -21,7 +21,7 @@ ETL-based ingestion systems process files in batches, suitable for offline use c
 
 * **Incremental Extraction** when content is updated. Indexfiy processes only the chunks which have changed when documents, video or audio are updated.
 * **Extractor SDK** allows plugging in any custom model or API in pipelines.
-* Many pre-built extractors for emebedding and handling **PDF**, **Image** and **Video**.
+* Many pre-built extractors for embedding and handling **PDF**, **Image** and **Video**.
 * Works with **any LLM Framework**. Built in support for **Langchain**, **DSPy**, etc.
 * Runs locally for **prototyping** without any external dependencies.
 * Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
