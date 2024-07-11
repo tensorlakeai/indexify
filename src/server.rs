@@ -185,7 +185,7 @@ impl Server {
                 post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/:extraction_graph/content",
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -203,6 +203,9 @@ impl Server {
             .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 get(extraction_graph_links).with_state(namespace_endpoint_state.clone()),
+            )
+            .route("/namespaces/:namespace/sql_query",
+                post(run_sql_query).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/indexes",
@@ -676,7 +679,7 @@ async fn update_labels(
 )]
 #[axum::debug_handler]
 async fn list_content(
-    Path(namespace): Path<String>,
+    Path((namespace, extraction_graph)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
     filter: Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
@@ -684,7 +687,7 @@ async fn list_content(
         .data_manager
         .list_content(
             &namespace,
-            &filter.graph,
+            &extraction_graph,
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),
@@ -824,7 +827,7 @@ async fn active_content(
 )]
 #[axum::debug_handler]
 async fn get_content_tree_metadata(
-    Path((namespace, extraction_graph, content_id, extraction_policy)): Path<(
+    Path((namespace, extraction_graph, extraction_policy, content_id)): Path<(
         String,
         String,
         String,
@@ -882,7 +885,6 @@ async fn download_content(
 #[derive(Debug, serde::Deserialize)]
 struct UploadFileQueryParams {
     id: Option<String>,
-    mime_type: Option<String>,
 }
 
 #[tracing::instrument]

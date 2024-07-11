@@ -364,11 +364,6 @@ pub struct ListContent {
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default
     )]
-    pub graph: String,
-    #[serde(
-        deserialize_with = "api_utils::deserialize_none_to_empty_string",
-        default
-    )]
     pub source: String,
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
