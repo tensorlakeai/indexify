@@ -18,6 +18,7 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use async_trait::async_trait;
+use filter::Operator;
 use futures::{StreamExt, TryStreamExt};
 use itertools::izip;
 use lance::dataset::{BatchUDF, WriteParams};
@@ -29,28 +30,29 @@ use lancedb::{
 };
 use tracing;
 
-use super::{CreateIndexParams, Filter, FilterOperator, SearchResult, VectorChunk, VectorDb};
+use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
 use crate::server_config::LancedbConfig;
 
-fn from_filter_to_str(filters: Vec<Filter>) -> String {
-    filters
-        .into_iter()
+fn from_filter_to_str(filter: &filter::LabelsFilter) -> String {
+    filter
+        .expressions()
+        .iter()
         .map(|f| {
-            let value = from_filter_value_to_str(f.value);
+            let value = from_filter_value_to_str(&f.value);
             match f.operator {
-                FilterOperator::Eq => format!("{} = {}", f.key, value),
-                FilterOperator::Neq => format!("{} != {}", f.key, value),
-                FilterOperator::Gt => format!("{} > {}", f.key, value),
-                FilterOperator::Lt => format!("{} < {}", f.key, value),
-                FilterOperator::GtEq => format!("{} >= {}", f.key, value),
-                FilterOperator::LtEq => format!("{} <= {}", f.key, value),
+                Operator::Eq => format!("{} = {}", f.key, value),
+                Operator::Neq => format!("{} != {}", f.key, value),
+                Operator::Gt => format!("{} > {}", f.key, value),
+                Operator::Lt => format!("{} < {}", f.key, value),
+                Operator::GtEq => format!("{} >= {}", f.key, value),
+                Operator::LtEq => format!("{} <= {}", f.key, value),
             }
         })
         .collect::<Vec<_>>()
         .join(" AND ")
 }
 
-fn from_filter_value_to_str(value: serde_json::Value) -> String {
+fn from_filter_value_to_str(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => format!("'{s}'"),
         serde_json::Value::Number(n) => n.to_string(),
@@ -437,7 +439,7 @@ impl VectorDb for LanceDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-        filters: Vec<Filter>,
+        filter: filter::LabelsFilter,
     ) -> Result<Vec<SearchResult>> {
         // FIXME remove the hardcoding to cosine
         // We need to pass the distance metric from
@@ -447,8 +449,8 @@ impl VectorDb for LanceDb {
             .vector_search(query_embedding)
             .map_err(|e| anyhow!("unable to create vector search query: {}", e))?
             .distance_type(lancedb::DistanceType::Cosine);
-        if !filters.is_empty() {
-            query = query.only_if(from_filter_to_str(filters));
+        if !filter.is_empty() {
+            query = query.only_if(from_filter_to_str(&filter));
         }
         let res = query
             .column("vector")

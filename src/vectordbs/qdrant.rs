@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use filter::Operator;
 use indexify_internal_api::ContentMetadata;
 use qdrant_client::{
     client::{QdrantClient, QdrantClientConfig},
@@ -32,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use super::{CreateIndexParams, VectorDb};
 use crate::{
     server_config::QdrantConfig,
-    vectordbs::{FilterOperator, IndexDistance, SearchResult, VectorChunk},
+    vectordbs::{IndexDistance, SearchResult, VectorChunk},
 };
 
 fn hex_to_u64(hex: &str) -> Result<u64, std::num::ParseIntError> {
@@ -264,12 +265,13 @@ impl VectorDb for QdrantDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-        filters: Vec<super::Filter>,
+        filter: filter::LabelsFilter,
     ) -> Result<Vec<SearchResult>> {
-        let mut filter = None;
-        if !filters.is_empty() {
-            filter = Some(get_filters(filters)?);
-        }
+        let filter = if !filter.is_empty() {
+            Some(get_filters(filter.0)?)
+        } else {
+            None
+        };
         let result = self
             .create_client()?
             .search_points(&SearchPoints {
@@ -328,21 +330,21 @@ impl VectorDb for QdrantDb {
 }
 
 /// Convert Indexify Filters to Qdrant Filters.
-fn get_filters(filters: Vec<super::Filter>) -> Result<Filter> {
+fn get_filters(filters: Vec<super::Expression>) -> Result<Filter> {
     let mut must = Vec::new();
     let mut must_not = Vec::new();
 
     for f in filters {
         match f.operator {
-            FilterOperator::Eq => {
+            Operator::Eq => {
                 let value = get_match_value_from_json_value(f.value)?;
                 must.push(Condition::matches(f.key, value))
             }
-            FilterOperator::Neq => {
+            Operator::Neq => {
                 let value = get_match_value_from_json_value(f.value)?;
                 must_not.push(Condition::matches(f.key, value))
             }
-            FilterOperator::Lt => {
+            Operator::Lt => {
                 let value = get_f64_from_json_value(f.value)?;
                 must.push(Condition::range(
                     f.key,
@@ -352,7 +354,7 @@ fn get_filters(filters: Vec<super::Filter>) -> Result<Filter> {
                     },
                 ));
             }
-            FilterOperator::Gt => {
+            Operator::Gt => {
                 let value = get_f64_from_json_value(f.value)?;
                 must.push(Condition::range(
                     f.key,
@@ -362,7 +364,7 @@ fn get_filters(filters: Vec<super::Filter>) -> Result<Filter> {
                     },
                 ));
             }
-            FilterOperator::LtEq => {
+            Operator::LtEq => {
                 let value = get_f64_from_json_value(f.value)?;
                 must.push(Condition::range(
                     f.key,
@@ -372,7 +374,7 @@ fn get_filters(filters: Vec<super::Filter>) -> Result<Filter> {
                     },
                 ));
             }
-            FilterOperator::GtEq => {
+            Operator::GtEq => {
                 let value = get_f64_from_json_value(f.value)?;
                 must.push(Condition::range(
                     f.key,

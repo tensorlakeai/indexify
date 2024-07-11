@@ -382,11 +382,8 @@ pub struct ListContentRequest {
     pub source: ::core::option::Option<ContentSource>,
     #[prost(string, tag = "3")]
     pub parent_id: ::prost::alloc::string::String,
-    #[prost(map = "string, message", tag = "4")]
-    pub labels_eq: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost_wkt_types::Value,
-    >,
+    #[prost(string, repeated, tag = "4")]
+    pub labels_filter: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(uint64, tag = "5")]
     pub limit: u64,
     #[prost(string, tag = "6")]
@@ -488,11 +485,6 @@ pub struct ExtractionPolicy {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
-    #[prost(map = "string, message", tag = "5")]
-    pub filters: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost_wkt_types::Value,
-    >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,
     #[prost(string, tag = "7")]
@@ -502,6 +494,8 @@ pub struct ExtractionPolicy {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    #[prost(string, repeated, tag = "9")]
+    pub filter: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -514,15 +508,12 @@ pub struct ExtractionPolicyRequest {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub input_params: ::prost::alloc::string::String,
-    #[prost(map = "string, message", tag = "5")]
-    pub filters: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost_wkt_types::Value,
-    >,
     #[prost(string, tag = "6")]
     pub content_source: ::prost::alloc::string::String,
     #[prost(int64, tag = "7")]
     pub created_at: i64,
+    #[prost(string, repeated, tag = "8")]
+    pub filter: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

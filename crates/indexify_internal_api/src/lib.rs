@@ -1,5 +1,6 @@
 pub mod utils;
 pub mod v1;
+pub mod v2;
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
@@ -10,6 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
+use filter::LabelsFilter;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
 use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
@@ -21,7 +23,7 @@ use utoipa::{schema, ToSchema};
 pub type ExtractionGraphId = String;
 pub type ExtractionGraphName = String;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionGraph {
     pub id: ExtractionGraphId,
@@ -628,7 +630,7 @@ impl From<GarbageCollectionTask> for indexify_coordinator::GcTask {
 pub type ExtractionPolicyId = String;
 pub type ExtractionPolicyName = String;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Builder, PartialEq, Eq)]
 #[builder(build_fn(skip))]
 pub struct ExtractionPolicy {
     pub id: ExtractionPolicyId,
@@ -636,7 +638,7 @@ pub struct ExtractionPolicy {
     pub name: ExtractionPolicyName,
     pub namespace: String,
     pub extractor: String,
-    pub filters: HashMap<String, serde_json::Value>,
+    pub filter: LabelsFilter,
     pub input_params: serde_json::Value,
     // Extractor Output -> Table Name
     pub output_table_mapping: HashMap<String, String>,
@@ -649,13 +651,13 @@ impl TryFrom<ExtractionPolicy> for indexify_coordinator::ExtractionPolicy {
     type Error = anyhow::Error;
 
     fn try_from(value: ExtractionPolicy) -> Result<Self> {
-        let filters = utils::convert_map_serde_to_prost_json(value.filters)?;
+        let filter = value.filter.0.iter().map(|expr| expr.to_string()).collect();
 
         Ok(Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
-            filters,
+            filter,
             input_params: value.input_params.to_string(),
             content_source: value.content_source.into(),
             graph_name: value.graph_name,
@@ -715,8 +717,8 @@ impl ExtractionPolicyBuilder {
             name,
             namespace: ns,
             extractor,
-            filters: self.filters.clone().unwrap_or_default(),
-            input_params: self.input_params.clone().unwrap_or_default(),
+            filter: self.filter.clone().unwrap_or_default(),
+            input_params,
             output_table_mapping,
             content_source,
         })

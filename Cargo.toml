@@ -12,7 +12,7 @@ axum-server = { git = "https://github.com/grafbase/axum-server", branch = "rustl
 
 [workspace]
 members = [
-    ".",
+    ".", "crates/filter",
     "crates/indexify_internal_api",
     "crates/indexify_proto",
     "crates/indexify_ui",
@@ -38,6 +38,7 @@ byteorder = "1"
 clap = { version = "4", features = ["derive"] }
 derive_builder = { version = "0.20.0" }
 figment = { version = "0.10", features = ["yaml", "env"] }
+filter = { path = "crates/filter" }
 flexbuffers = { version = "2.0" }
 futures = { version = "0.3" }
 hostname = { version = "0.3" }
@@ -164,6 +165,7 @@ byteorder = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 derive_builder = { workspace = true }
+filter = { workspace = true }
 figment = { workspace = true }
 flexbuffers = { workspace = true }
 futures = { workspace = true }
@@ -242,6 +244,7 @@ http = { workspace = true }
 opentelemetry-stdout = { workspace = true }
 opentelemetry-datadog = { workspace = true }
 indexify_ui = { path = "crates/indexify_ui" }
+axum-extra = { version = "0.9.3", features = ["query"] }
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }

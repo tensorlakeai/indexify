@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use filter::{Expression, LabelsFilter};
 use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self};
 use serde::{Deserialize, Serialize};
@@ -70,8 +71,8 @@ pub struct ExtractionPolicy {
     pub id: String,
     pub extractor: String,
     pub name: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    pub filter: filter::LabelsFilter,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
     pub graph_name: String,
@@ -81,12 +82,16 @@ impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::ExtractionPolicy) -> Result<Self> {
-        let filters_eq = internal_api::utils::convert_map_prost_to_serde_json(value.filters)?;
+        let expressions: Result<Vec<_>> = value
+            .filter
+            .iter()
+            .map(|e| filter::Expression::from_str(e))
+            .collect();
         Ok(Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
-            filters_eq: Some(filters_eq),
+            filter: LabelsFilter(expressions?),
             input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
             content_source: Some(value.content_source),
             graph_name: value.graph_name,
@@ -169,8 +174,8 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
 pub struct ExtractionPolicyRequest {
     pub extractor: String,
     pub name: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    pub filter: LabelsFilter,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
 }
@@ -317,7 +322,7 @@ pub struct SearchRequest {
     pub query: String,
     pub k: Option<u64>,
     #[serde(default)]
-    pub filters: Vec<String>,
+    pub filters: LabelsFilter,
     pub include_content: Option<bool>,
 }
 
@@ -357,8 +362,8 @@ pub struct ListContent {
         default
     )]
     pub parent_id: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub labels_eq: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    pub labels_filter: Vec<Expression>,
 
     pub limit: Option<u64>,
 

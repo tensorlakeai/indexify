@@ -1154,6 +1154,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-extra"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0be6ea09c9b96cb5076af0de2e383bd2bc0c18f827cf1967bdd353e0b910d733"
+dependencies = [
+ "axum 0.7.5",
+ "axum-core 0.4.3",
+ "bytes",
+ "futures-util",
+ "http 1.1.0",
+ "http-body 1.0.0",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "serde",
+ "serde_html_form",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "axum-macros"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2619,6 +2642,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "filter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "find-crate"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3365,6 +3397,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum 0.7.5",
+ "axum-extra",
  "axum-otel-metrics",
  "axum-server",
  "axum-streams",
@@ -3376,6 +3409,7 @@ dependencies = [
  "clap",
  "derive_builder",
  "figment",
+ "filter",
  "flate2",
  "flexbuffers",
  "futures",
@@ -3465,6 +3499,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_builder",
+ "filter",
  "indexify_proto",
  "jsonschema",
  "mime",
@@ -6414,6 +6449,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.58",
+]
+
+[[package]]
+name = "serde_html_form"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de514ef58196f1fc96dcaef80fe6170a1ce6215df9687a93fe8300e773fefc5"
+dependencies = [
+ "form_urlencoded",
+ "indexmap 2.2.6",
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]

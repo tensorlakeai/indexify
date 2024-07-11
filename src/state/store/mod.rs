@@ -1,11 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    fs::{
-        File,
-        {self},
-    },
-    io::{BufReader, Read},
+    fs::{self, File},
+    io::{BufReader, Cursor, Read},
     ops::RangeBounds,
     path::{Path, PathBuf},
     sync::Arc,
@@ -95,6 +92,7 @@ pub type ContentType = String;
 pub type ExtractionGraphId = String;
 pub type SchemaId = String;
 
+mod compat;
 pub mod requests;
 pub mod serializer;
 pub mod state_machine_objects;
@@ -137,7 +135,9 @@ pub enum StateMachineColumns {
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
 const LAST_APPLIED_LOG_ID_KEY: &[u8] = b"last_applied_log_id";
 const STORE_VERSION: &[u8] = b"store_version";
-const CURRENT_STORE_VERSION: u64 = 2;
+const CURRENT_STORE_VERSION: u64 = 3;
+const LOG_STORE_LOGS_COLUMN: &str = "logs";
+const LOG_STORE_STORE_COLUMN: &str = "store";
 
 impl StateMachineColumns {
     pub fn cf<'a>(&'a self, db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
@@ -377,7 +377,10 @@ pub struct StateMachineStore {
 }
 
 impl StateMachineStore {
-    async fn new(db_path: PathBuf) -> Result<StateMachineStore, StorageError<NodeId>> {
+    async fn new(
+        db_path: PathBuf,
+        log_store: &LogStore,
+    ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         let (gc_tasks_tx, _) = broadcast::channel(100);
 
@@ -430,9 +433,29 @@ impl StateMachineStore {
             .map_err(|e| {
                 StorageIOError::read_state_machine(anyhow!("failed to read version: {}", e))
             })?;
-        if store_version != Some(CURRENT_STORE_VERSION.to_be_bytes().to_vec()) {
+        if let Some(store_version) = store_version {
+            let mut cursor = Cursor::new(store_version);
+            let store_version = cursor.read_u64::<BigEndian>().map_err(|e| {
+                StorageIOError::read_state_machine(anyhow!("failed to read version: {}", e))
+            })?;
+            if store_version > CURRENT_STORE_VERSION {
+                return Err(StorageIOError::read_state_machine(anyhow!(
+                    "Store version {} mismatch, current {}",
+                    store_version,
+                    CURRENT_STORE_VERSION
+                ))
+                .into());
+            } else if store_version == 2 {
+                compat::convert_v2(&db, &log_store.db)?;
+            } else if store_version == 1 {
+                return Err(StorageIOError::read_state_machine(anyhow!(
+                    "Store version 1 is not supported"
+                ))
+                .into());
+            }
+        } else {
             return Err(
-                StorageIOError::read_state_machine(anyhow!("Store version mismatch")).into(),
+                StorageIOError::read_state_machine(anyhow!("Store version not found")).into(),
             );
         }
 
@@ -1146,7 +1169,7 @@ fn store_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
 }
 
 fn logs_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
-    db.cf_handle("logs").unwrap()
+    db.cf_handle(LOG_STORE_LOGS_COLUMN).unwrap()
 }
 
 impl LogStore {
@@ -1387,8 +1410,8 @@ pub(crate) fn open_db(path: &Path) -> Result<OptimisticTransactionDB, StorageErr
 }
 
 pub(crate) fn open_logs(path: &Path) -> Result<OptimisticTransactionDB, StorageError<NodeId>> {
-    let store = ColumnFamilyDescriptor::new("store", Options::default());
-    let logs = ColumnFamilyDescriptor::new("logs", Options::default());
+    let store = ColumnFamilyDescriptor::new(LOG_STORE_STORE_COLUMN, Options::default());
+    let logs = ColumnFamilyDescriptor::new(LOG_STORE_LOGS_COLUMN, Options::default());
 
     open_db_with_columns(path, [store, logs])
 }
@@ -1710,7 +1733,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<St
 
     fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
-    let sm_store = StateMachineStore::new(db_path).await.unwrap();
+    let sm_store = StateMachineStore::new(db_path, &log_store).await.unwrap();
 
     (log_store, Arc::new(sm_store))
 }
