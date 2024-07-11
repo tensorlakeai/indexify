@@ -33,7 +33,11 @@ use tokio::{
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
-use utoipa::OpenApi;
+use utoipa::{
+    openapi::{self, InfoBuilder, OpenApiBuilder},
+    OpenApi,
+    ToSchema,
+};
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
@@ -172,6 +176,10 @@ impl Server {
             .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
             .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
             .route("/", get(root))
+            .route(
+                "/namespaces/:namespace/openapi.json",
+                get(namespace_open_api).with_state(namespace_endpoint_state.clone()),
+            )
             .route(
                 "/namespaces/:namespace/extraction_graphs",
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
@@ -518,6 +526,84 @@ async fn list_namespaces(
     Ok(Json(ListNamespacesResponse {
         namespaces: data_namespaces,
     }))
+}
+
+async fn namespace_open_api(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<openapi::OpenApi>, IndexifyAPIError> {
+    let extraction_graphs = state
+        .data_manager
+        .list_extraction_graphs(&namespace)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to get namespace: {}", e),
+            )
+        })?;
+    let mut builder = OpenApiBuilder::default();
+    let info = InfoBuilder::default()
+        .title("Indexify API")
+        .version(env!("CARGO_PKG_VERSION"))
+        .build();
+    builder = builder.info(info);
+    let mut paths = utoipa::openapi::PathsBuilder::default();
+    for eg in extraction_graphs {
+        let response = utoipa::openapi::response::ResponseBuilder::default()
+            .description("content uploaded successfully")
+            .content(
+                "application/json",
+                utoipa::openapi::content::ContentBuilder::default()
+                    .schema(utoipa::openapi::Ref::from_schema_name("UploadFileResponse"))
+                    .build(),
+            )
+            .build();
+        let operation = utoipa::openapi::path::OperationBuilder::default()
+            .summary(Some(format!(
+                "upload and extract content using graph '{}'",
+                eg.name
+            )))
+            .request_body(Some(
+                utoipa::openapi::request_body::RequestBodyBuilder::default()
+                    .description(Some("content to be uploaded and extracted"))
+                    .required(Some(openapi::Required::True))
+                    .build(),
+            ))
+            .response("200", response)
+            .response(
+                "500",
+                utoipa::openapi::response::ResponseBuilder::new()
+                    .description("Internal Server Error")
+                    .build(),
+            )
+            .parameter(
+                openapi::path::ParameterBuilder::default()
+                    .name("id")
+                    .parameter_in(openapi::path::ParameterIn::Query)
+                    .description(Some("id of the content"))
+                    .required(openapi::Required::False)
+                    .build(),
+            )
+            .description(eg.description);
+        let item = utoipa::openapi::path::PathItemBuilder::default()
+            .operation(utoipa::openapi::path::PathItemType::Post, operation.build())
+            .build();
+        paths = paths.path(
+            format!(
+                "/namespaces/{}/extraction_graphs/{}/extract",
+                namespace, eg.name
+            ),
+            item,
+        );
+    }
+    let components = utoipa::openapi::ComponentsBuilder::default()
+        .schema_from::<UploadFileResponse>()
+        .schema_from::<UploadFileQueryParams>()
+        .build();
+    builder = builder.paths(paths.build()).components(Some(components));
+    let openapi = builder.build();
+    Ok(Json(openapi))
 }
 
 /// Get metadata for a specific namespace
@@ -889,7 +975,7 @@ async fn download_content(
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, ToSchema)]
 struct UploadFileQueryParams {
     id: Option<String>,
 }
@@ -1247,7 +1333,7 @@ async fn list_tasks(
         .map_err(IndexifyAPIError::internal_error)?
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
-            extraction_policy: extraction_policy,
+            extraction_policy,
             start_id: query.start_id.clone().unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),

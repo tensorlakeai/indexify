@@ -826,7 +826,7 @@ pub struct TaskAssignments {
     pub assignments: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UploadFileResponse {
     pub content_id: String,
 }
