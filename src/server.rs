@@ -81,6 +81,7 @@ pub struct NamespaceEndpointState {
             get_content_metadata,
             list_state_changes,
             list_extraction_graphs,
+            link_extraction_graphs,
             upload_file,
             list_tasks,
             index_search,
@@ -93,7 +94,7 @@ pub struct NamespaceEndpointState {
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
-            ListExtractionGraphResponse,
+            ListExtractionGraphResponse, ExtractionGraphLink,
         )
         ),
         tags(
