@@ -1,0 +1,19 @@
+{
+    "--": {
+      "type": "separator",
+      "title": "Extractors"
+    },
+    "extractors": "Introduction",
+    "develop_extractors": "Custom Extractors",
+    "---": {
+        "type":"separator",
+        "title":"Available Extractors"
+    },
+    "pdf":"PDF",
+    "image":"Image",
+    "text":"Text",
+    "audio":"Audio",
+    "video":"Video",
+    "embedding":"Embedding",
+    "web":"Web"
+}

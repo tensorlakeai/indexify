@@ -1,0 +1,10 @@
+{
+    "--": {
+      "type": "separator",
+      "title": "CLI and UI"
+    },
+    "ui": "User Interface",
+    "extractor_cli": "Extractor CLI",
+    "server_cli": "Server CLI"
+  }
+  

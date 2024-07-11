@@ -1,0 +1,11 @@
+{
+    "--": {
+      "type": "separator",
+      "title": "Use Cases"
+    },
+    "rag": "Basic RAG",
+    "audio_extraction": "Audio Extraction",
+    "pdf_extraction": "PDF Extraction",
+    "image_retrieval": "Image Retrieval",
+    "video_rag": "Video Understanding"
+}
