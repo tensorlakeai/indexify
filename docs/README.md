@@ -1,11 +1,8 @@
-# Serve Docs
+# Indexify Docs
 
-### Serve docs
-```bash
-make serve-docs
-```
+## Local Development
 
-### Build docs 
-```bash
-make build-docs
-```
+First, run `pnpm i` to install the dependencies.
+
+Then, run `pnpm dev` to start the development server and visit localhost:3000.
+
