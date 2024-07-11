@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useLoaderData } from 'react-router-dom'
 import { Typography, Stack, Breadcrumbs, Box, Tab, Tabs, TextField, FormControl, InputLabel, MenuItem, Select, Button, Alert } from '@mui/material'
 import {
@@ -293,7 +292,7 @@ const IndividualContentPage = () => {
         contentUrl={`/${namespace}/content/${contentId}/${contentMetadata.content_url}`}
         textContent={textContent}
       />
-      {/* 
+      
         <Box>
         <Box justifyContent={'space-between'} display={'flex'}>
           <Tabs
@@ -350,7 +349,7 @@ const IndividualContentPage = () => {
         </Box>
         {renderContent()}
       </Box>
-      */}
+     
       {Object.keys(groupedExtractedMetadata).map((key) => {
         const extractedMetadata = groupedExtractedMetadata[key]
         return (
@@ -360,14 +359,14 @@ const IndividualContentPage = () => {
           />
         )
       })}
-      {/* <TasksTable
+      <TasksTable
         namespace={namespace}
         extractionPolicies={client.extractionGraphs
           .map((graph) => graph.extraction_policies)
           .flat()}
         loadData={taskLoader}
         hideContentId
-      /> */}
+      />
     </Stack>
   )
 }
