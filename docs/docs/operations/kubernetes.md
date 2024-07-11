@@ -63,7 +63,7 @@ discussion on how that would look for the project.
 
 ### Vector Store
 
-We support multiple backends for vectors including `LancDb`, `Qdrant` and
+We support multiple backends for vectors including `LanceDb`, `Qdrant` and
 `PgVector`. The ephemeral example uses postgres and `PgVector` for this. The
 [database][vector-store.yaml] itself is pretty simple. Pay extra attention to
 the [patch][postgres/config.yaml] which configures the API server and collector

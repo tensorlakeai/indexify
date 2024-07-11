@@ -77,7 +77,7 @@ blob_storage:
 ```
 
 ### Vector Index Storage
-* **index_store:** (Default: LancDb): Name of the vector be, possible values: `LancdDb`, `Qdrant`, `PgVector`
+* **index_store:** (Default: LanceDb): Name of the vector be, possible values: `LanceDb`, `Qdrant`, `PgVector`
 
 #### Qdrant Config
 `addr`: Address of the Qdrant http endpoint
