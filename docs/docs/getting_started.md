@@ -469,46 +469,13 @@ Indexify's fault-tolerant design ensures reliability and scalability, making it 
 
 To continue your journey with Indexify, consider exploring the following topics in order:
 
-1. [Intermediate Use Case: Unstructured Data Extraction from a Tax PDF](https://docs.getindexify.ai/getting_started_intermediate/)
-   - Understanding the challenge of tax document processing
-   - Setting up an Indexify pipeline for PDF extraction
-   - Implementing extractors for key tax information
-   - Querying and retrieving processed tax data
-
-2. [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/)
-   - Extractors
-     - Transformation
-     - Structured Data Extraction
-     - Embedding Extraction
-     - Combined Transformation, Embedding, and Metadata Extraction
-   - Namespaces
-   - Content
-   - Extraction Graphs
-   - Vector Index and Retrieval APIs
-   - Structured Data Tables
-
-3. [Architecture of Indexify](https://docs.getindexify.ai/architecture/)
-   - Indexify Server
-     - Coordinator
-     - Ingestion Server
-   - Extractors
-   - Deployment Layouts
-     - Local Mode
-     - Production Mode
-
-4. [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/)
-   - Understanding the Extractor SDK
-   - Designing your extractor's functionality
-   - Implementing the extractor class
-   - Testing and debugging your custom extractor
-   - Integrating the custom extractor into your Indexify pipeline
-
-5. [Examples and Use Cases](https://docs.getindexify.ai/examples_index/)
-   - Document processing and analysis
-   - Image and video content extraction
-   - Audio transcription and analysis
-   - Multi-modal data processing
-   - Large-scale data ingestion and retrieval systems
+| Topics | Subtopics |
+|--------|-----------|
+| [Intermediate Use Case: Unstructured Data Extraction from a Tax PDF](https://docs.getindexify.ai/getting_started_intermediate/) | - Understanding the challenge of tax document processing<br>- Setting up an Indexify pipeline for PDF extraction<br>- Implementing extractors for key tax information<br>- Querying and retrieving processed tax data |
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br>  • Transformation<br>  • Structured Data Extraction<br>  • Embedding Extraction<br>  • Combined Transformation, Embedding, and Metadata Extraction<br>- Namespaces<br>- Content<br>- Extraction Graphs<br>- Vector Index and Retrieval APIs<br>- Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Indexify Server<br>  • Coordinator<br>  • Ingestion Server<br>- Extractors<br>- Deployment Layouts<br>  • Local Mode<br>  • Production Mode |
+| [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK<br>- Designing your extractor's functionality<br>- Implementing the extractor class<br>- Testing and debugging your custom extractor<br>- Integrating the custom extractor into your Indexify pipeline |
+| [Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Document processing and analysis<br>- Image and video content extraction<br>- Audio transcription and analysis<br>- Multi-modal data processing<br>- Large-scale data ingestion and retrieval systems |
 
 Each section builds upon the previous ones, providing a logical progression from practical application to deeper technical understanding and finally to customization and real-world examples.
 
