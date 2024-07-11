@@ -79,6 +79,22 @@ impl DataManager {
         self.coordinator_client.get().await
     }
 
+    pub async fn list_extraction_graphs(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<api::ExtractionGraph>> {
+        let graphs = self
+            .coordinator_client
+            .list_extraction_graphs(namespace)
+            .await?;
+        let mut api_graphs = Vec::new();
+        for graph in graphs {
+            let api_graph: api::ExtractionGraph = graph.try_into()?;
+            api_graphs.push(api_graph);
+        }
+        return Ok(api_graphs);
+    }
+
     #[tracing::instrument]
     pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
         let req = indexify_coordinator::ListNamespaceRequest {};
@@ -87,17 +103,7 @@ impl DataManager {
 
         let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|r| {
-                let graphs: Result<Vec<api::ExtractionGraph>, anyhow::Error> = r
-                    .extraction_graphs
-                    .into_iter()
-                    .map(|g| g.try_into())
-                    .collect();
-                Ok(api::DataNamespace {
-                    name: r.name,
-                    extraction_graphs: graphs?,
-                })
-            })
+            .map(|r| Ok(api::DataNamespace { name: r.name }))
             .collect();
         Ok(data_namespaces?)
     }
@@ -504,17 +510,22 @@ impl DataManager {
 
     pub async fn get_content_tree_metadata(
         &self,
-        _namespace: &str,
-        content_id: String,
+        namespace: &str,
+        content_id: &str,
+        extraction_graph_name: &str,
+        extraction_policy: &str,
     ) -> Result<Vec<api::ContentMetadata>> {
-        let req = indexify_coordinator::GetContentTreeMetadataRequest { content_id };
         let response = self
-            .get_coordinator_client()
-            .await?
-            .get_content_tree_metadata(req)
+            .coordinator_client
+            .get_content_metadata_tree(
+                namespace,
+                extraction_graph_name,
+                extraction_policy,
+                content_id,
+            )
             .await?;
         let mut content_list: Vec<api::ContentMetadata> = vec![];
-        for content in response.into_inner().content_list {
+        for content in response.content_list {
             let content: api::ContentMetadata = content.try_into()?;
             content_list.push(content);
         }

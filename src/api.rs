@@ -97,26 +97,13 @@ impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataNamespace {
     pub name: String,
-    pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
 impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
-        let extraction_graphs = {
-            let mut graphs = vec![];
-            for graph in value.extraction_graphs {
-                let graph: ExtractionGraph = graph.try_into()?;
-                graphs.push(graph);
-            }
-            graphs
-        };
-
-        Ok(Self {
-            name: value.name,
-            extraction_graphs,
-        })
+        Ok(Self { name: value.name })
     }
 }
 
@@ -327,7 +314,6 @@ pub struct ListIndexesResponse {
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct SearchRequest {
-    pub index: String,
     pub query: String,
     pub k: Option<u64>,
     #[serde(default)]
@@ -354,13 +340,13 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListExtractionGraphResponse {
+    pub extraction_graphs: Vec<ExtractionGraph>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
 pub struct ListContent {
-    #[serde(
-        deserialize_with = "api_utils::deserialize_none_to_empty_string",
-        default
-    )]
-    pub graph: String,
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default

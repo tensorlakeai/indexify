@@ -297,6 +297,10 @@ impl Coordinator {
         self.shared_state.list_namespaces().await
     }
 
+    pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
+        self.shared_state.list_extraction_graphs(namespace).await
+    }
+
     pub async fn get_namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
         self.shared_state.namespace(namespace).await
     }

@@ -54,6 +54,8 @@ use indexify_proto::indexify_coordinator::{
     ListActiveContentsResponse,
     ListContentRequest,
     ListContentResponse,
+    ListExtractionGraphRequest,
+    ListExtractionGraphResponse,
     ListExtractionPoliciesRequest,
     ListExtractionPoliciesResponse,
     ListExtractorsRequest,
@@ -226,6 +228,28 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ExtractionGraphLinksResponse { links }))
+    }
+
+    async fn list_extraction_graphs(
+        &self,
+        request: tonic::Request<ListExtractionGraphRequest>,
+    ) -> Result<Response<ListExtractionGraphResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let graphs = self
+            .coordinator
+            .list_extraction_graphs(&request.namespace)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let mut proto_graphs = vec![];
+        for graph in graphs {
+            let proto_graph = graph.try_into().map_err(|e| {
+                tonic::Status::aborted(format!("unable to convert extraction graph: {}", e))
+            })?;
+            proto_graphs.push(proto_graph);
+        }
+        Ok(Response::new(ListExtractionGraphResponse {
+            graphs: proto_graphs,
+        }))
     }
 
     async fn link_extraction_graphs(

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -24,6 +24,7 @@ use indexify_proto::indexify_coordinator::{
     ListTasksRequest,
 };
 use indexify_ui::Assets as UiAssets;
+use mime::Mime;
 use prometheus::Encoder;
 use tokio::{
     signal,
@@ -43,7 +44,6 @@ use crate::{
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
-    extractor_router::ExtractorRouter,
     ingest_extracted_content::IngestExtractedContentState,
     metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
     metrics,
@@ -70,16 +70,16 @@ pub struct NamespaceEndpointState {
             create_namespace,
             list_namespaces,
             get_namespace,
-            add_texts,
             list_indexes,
-            index_search,
             list_extractors,
             list_executors,
             list_content,
             get_content_metadata,
+            list_state_changes,
+            list_extraction_graphs,
             upload_file,
             list_tasks,
-            extract_content
+            index_search,
         ),
         components(
             schemas(CreateNamespace, CreateNamespaceResponse, IndexDistance,
@@ -176,6 +176,30 @@ impl Server {
                 post(create_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/extraction_graphs",
+                get(list_extraction_graphs).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract",
+                post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
+                post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
+                get(list_content).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
+                get(list_tasks).with_state(namespace_endpoint_state.clone()),
+            )
+            .route("/namespaces/:namespace/content/:content_id/download",
+                get(download_content).with_state(namespace_endpoint_state.clone()))
+            .route("/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/content/:content_id",
+                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()))
+            .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 post(link_extraction_graphs).with_state(namespace_endpoint_state.clone()),
             )
@@ -183,28 +207,23 @@ impl Server {
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 get(extraction_graph_links).with_state(namespace_endpoint_state.clone()),
             )
+            .route("/namespaces/:namespace/sql_query",
+                post(run_sql_query).with_state(namespace_endpoint_state.clone()),
+            )
             .route(
                 "/namespaces/:namespace/indexes",
                 get(list_indexes).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/add_texts",
-                post(add_texts).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/ingest_remote_file",
-                post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content",
-                get(list_content).with_state(namespace_endpoint_state.clone()),
+                "/namespaces/:namespace/indexes/:index/search",
+                post(index_search).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/active_content",
                 get(active_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/content/:content_id",
+                "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -216,22 +235,6 @@ impl Server {
                 get(wait_content_extraction).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/content/:content_id/metadata",
-                get(get_extracted_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id/download",
-                get(download_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id/content-tree",
-                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/upload_file",
-                post(upload_file).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/content/:content_id",
                 put(update_content)
                     .with_state(namespace_endpoint_state.clone())
@@ -240,14 +243,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content",
                 delete(delete_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/search",
-                post(index_search).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/sql_query",
-                post(run_sql_query).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/schemas",
@@ -280,14 +275,6 @@ impl Server {
             .route(
                 "/state_changes",
                 get(list_state_changes).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/tasks",
-                get(list_tasks).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/extractors/extract",
-                post(extract_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/task_assignments",
@@ -324,7 +311,6 @@ impl Server {
         while let Err(err) = data_manager
             .create_namespace(&DataNamespace {
                 name: "default".to_string(),
-                extraction_graphs: vec![],
             })
             .await
         {
@@ -474,13 +460,14 @@ async fn root() -> &'static str {
     "Indexify Server"
 }
 
+/// Create a new namespace
 #[tracing::instrument]
 #[axum::debug_handler]
 #[utoipa::path(
     post,
     path = "/namespaces",
     request_body = CreateNamespace,
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "Namespace synced successfully", body = CreateNamespaceResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
@@ -492,7 +479,6 @@ async fn create_namespace(
 ) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
     let data_namespace = api::DataNamespace {
         name: payload.name.clone(),
-        extraction_graphs: payload.extraction_graphs.clone(),
     };
     state
         .data_manager
@@ -507,11 +493,12 @@ async fn create_namespace(
     Ok(Json(CreateNamespaceResponse {}))
 }
 
+/// List all namespaces registered on the server
 #[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/namespaces",
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "List of Data Namespaces registered on the server", body = ListNamespacesResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
@@ -532,11 +519,12 @@ async fn list_namespaces(
     }))
 }
 
+/// Get metadata for a specific namespace
 #[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}",
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "namespace with a given name", body=GetNamespaceResponse),
         (status = 404, description = "Namespace not found"),
@@ -558,11 +546,12 @@ async fn get_namespace(
     }))
 }
 
+// Create a new extraction graph in the namespace
 #[utoipa::path(
     post,
     path = "/namespace/{namespace}/extraction_graph",
     request_body = ExtractionGraphRequest,
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to add extraction graph to namespace")
@@ -590,7 +579,7 @@ async fn create_extraction_graph(
     post,
     path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
     request_body = ExtractionGraphLink,
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "Extraction graphs linked successfully"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to link extraction graphs")
@@ -612,7 +601,7 @@ async fn link_extraction_graphs(
 #[utoipa::path(
     get,
     path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "List of extraction graph links", body = ExtractionGraphLinksResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list links")
@@ -629,79 +618,6 @@ async fn extraction_graph_links(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(res))
-}
-
-#[tracing::instrument(skip(state, payload))]
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/add_texts",
-    request_body = TextAddRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Texts were successfully added to the namespace", body = TextAdditionResponse),
-        (status = BAD_REQUEST, description = "Unable to add texts")
-    ),
-)]
-#[axum::debug_handler]
-async fn add_texts(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<TextAddRequest>,
-) -> Result<Json<TextAdditionResponse>, IndexifyAPIError> {
-    if payload.extraction_graph_names.is_empty() {
-        return Err(IndexifyAPIError::new(
-            StatusCode::BAD_REQUEST,
-            "extraction_graph_names must not be empty",
-        ));
-    }
-    for document in &payload.documents {
-        if let Some(id) = &document.id {
-            if !DataManager::is_hex_string(id) {
-                return Err(IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("Invalid ID format: {}, ID must be a hex string", id),
-                ));
-            }
-            let retrieved_content = state
-                .data_manager
-                .get_content_metadata(&namespace, vec![id.clone()])
-                .await
-                .map_err(IndexifyAPIError::internal_error)?;
-            if !retrieved_content.is_empty() {
-                return Err(IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("content with the provided id {} already exists", id),
-                ));
-            }
-        }
-    }
-
-    let content: Vec<api::ContentWithId> = payload
-        .documents
-        .iter()
-        .map(|d| api::ContentWithId {
-            id: d.id.clone().unwrap_or_else(DataManager::make_id),
-            content: api::Content {
-                content_type: mime::TEXT_PLAIN.to_string(),
-                bytes: d.text.as_bytes().to_vec(),
-                labels: d.labels.clone(),
-                features: vec![],
-            },
-            extraction_graph_names: payload.extraction_graph_names.clone(),
-        })
-        .collect();
-    let content_ids = content.iter().map(|c| c.id.clone()).collect();
-    state
-        .data_manager
-        .add_texts(&namespace, content, payload.extraction_graph_names)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::BAD_REQUEST,
-                &format!("failed to add text: {}", e),
-            )
-        })?;
-    Ok(Json(TextAdditionResponse { content_ids }))
 }
 
 #[axum::debug_handler]
@@ -755,11 +671,12 @@ async fn update_labels(
     Ok(())
 }
 
+/// List all the content ingested into an extraction graph
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/content",
-    tag = "indexify",
+    path= "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content",
+    tag = "retrieval",
     responses(
         (status = 200, description = "Lists the contents in the namespace", body = ListContentResponse),
         (status = BAD_REQUEST, description = "Unable to list contents")
@@ -767,7 +684,7 @@ async fn update_labels(
 )]
 #[axum::debug_handler]
 async fn list_content(
-    Path(namespace): Path<String>,
+    Path((namespace, extraction_graph)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
     filter: Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
@@ -775,7 +692,7 @@ async fn list_content(
         .data_manager
         .list_content(
             &namespace,
-            &filter.graph,
+            &extraction_graph,
             &filter.source,
             &filter.parent_id,
             filter.labels_eq.as_ref(),
@@ -831,11 +748,12 @@ async fn delete_content(
     Ok(Json(()))
 }
 
+/// Get content metadata for a specific content id
 #[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/content/{content_id}",
-    tag = "indexify",
+    tag = "retrieval",
     responses(
         (status = 200, description = "Reads a specific content in the namespace", body = GetContentMetadataResponse),
         (status = BAD_REQUEST, description = "Unable to read content")
@@ -906,8 +824,8 @@ async fn active_content(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/content/{content_id}/content-tree",
-    tag = "indexify",
+    path = "/namespaces/{namespace}/{extraction_graph}/content/{content_id}/{extraction_policy}",
+    tag = "retrieval",
     responses(
         (status = 200, description = "Gets a content tree rooted at a specific content id in the namespace"),
         (status = BAD_REQUEST, description = "Unable to read content tree")
@@ -915,12 +833,22 @@ async fn active_content(
 )]
 #[axum::debug_handler]
 async fn get_content_tree_metadata(
-    Path((namespace, content_id)): Path<(String, String)>,
+    Path((namespace, extraction_graph, extraction_policy, content_id)): Path<(
+        String,
+        String,
+        String,
+        String,
+    )>,
     State(state): State<NamespaceEndpointState>,
 ) -> Result<Json<GetContentTreeMetadataResponse>, IndexifyAPIError> {
     let content_tree_metadata = state
         .data_manager
-        .get_content_tree_metadata(&namespace, content_id)
+        .get_content_tree_metadata(
+            &namespace,
+            &content_id,
+            &extraction_graph,
+            &extraction_policy,
+        )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(GetContentTreeMetadataResponse {
@@ -963,15 +891,45 @@ async fn download_content(
 #[derive(Debug, serde::Deserialize)]
 struct UploadFileQueryParams {
     id: Option<String>,
-    extraction_graph_names: Option<String>,
 }
 
+/// List all extraction graphs in a namespace
 #[tracing::instrument]
 #[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/extraction_graphs",
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "List of Extraction Graphs registered on the server", body = ListExtractionGraphResponse),
+        (status = BAD_REQUEST, description = "Unable to list extraction graphs")
+    ),
+)]
+async fn list_extraction_graphs(
+    Path(namespace): Path<String>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<Json<ListExtractionGraphResponse>, IndexifyAPIError> {
+    let graphs = state
+        .data_manager
+        .list_extraction_graphs(&namespace)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to list extraction graphs: {}", e),
+            )
+        })?;
+    Ok(Json(ListExtractionGraphResponse {
+        extraction_graphs: graphs,
+    }))
+}
+
+/// Upload a file to an extraction graph in a namespace
+#[tracing::instrument(skip(state))]
+#[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/upload_file",
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract",
     request_body(content_type = "multipart/form-data", content = Vec<u8>),
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "Uploads a file to the namespace"),
         (status = BAD_REQUEST, description = "Unable to upload file")
@@ -979,25 +937,12 @@ struct UploadFileQueryParams {
 )]
 #[axum::debug_handler]
 async fn upload_file(
-    Path(namespace): Path<String>,
+    Path((namespace, extraction_graph)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
     Query(params): Query<UploadFileQueryParams>,
     mut files: Multipart,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels: HashMap<String, serde_json::Value> = HashMap::new();
-
-    let extraction_graph_names = params
-        .extraction_graph_names
-        .clone()
-        .ok_or_else(|| {
-            IndexifyAPIError::new(
-                StatusCode::BAD_REQUEST,
-                "extraction_graph_names parameter is required",
-            )
-        })?
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
 
     let id = params.id.clone().unwrap_or_else(DataManager::make_id);
     if !DataManager::is_hex_string(&id) {
@@ -1034,7 +979,10 @@ async fn upload_file(
             } else {
                 name
             };
-            let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
+            let content_mime = labels.get("mime_type").map(|v| v.as_str()).flatten();
+            let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
+            let content_mime =
+                content_mime.unwrap_or(mime_guess::from_ext(ext).first_or_octet_stream());
             info!("writing to blob store, file name = {:?}", name);
 
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
@@ -1047,7 +995,7 @@ async fn upload_file(
                     content_mime,
                     labels,
                     Some(&id),
-                    extraction_graph_names,
+                    vec![extraction_graph],
                 )
                 .await
                 .map_err(|e| {
@@ -1096,7 +1044,7 @@ async fn upload_file(
 #[utoipa::path(
     put,
     path = "/namespaces/{namespace}/content/:content_id",
-    tag = "indexify",
+    tag = "ingestion",
     responses(
         (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
         (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
@@ -1196,11 +1144,12 @@ async fn ingest_extracted_content(
     ws.on_upgrade(|socket| IngestExtractedContentState::new(state).run(socket))
 }
 
+/// List all executors running extractors in the cluster
 #[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/executors",
-    tag = "indexify",
+    tag = "operations",
     responses(
         (status = 200, description = "List of currently running executors", body = ListExecutorsResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to load executors")
@@ -1213,11 +1162,12 @@ async fn list_executors(
     Ok(Json(ListExecutorsResponse { executors: vec![] }))
 }
 
+/// List all extractors available in the cluster
 #[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/extractors",
-    tag = "indexify",
+    tag = "operations",
     responses(
         (status = 200, description = "List of extractors available", body = ListExtractorsResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
@@ -1237,11 +1187,11 @@ async fn list_extractors(
     Ok(Json(ListExtractorsResponse { extractors }))
 }
 
+/// List the state changes in the system
 #[utoipa::path(
-    post,
-    path = "/extractors/extract",
-    tag = "indexify",
-    request_body = ExtractRequest,
+    get,
+    path = "/state_changes",
+    tag = "operations",
     responses(
         (status = 200, description = "Extract content from an extractor", body = ExtractResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
@@ -1272,19 +1222,19 @@ async fn list_state_changes(
     Ok(Json(ListStateChangesResponse { state_changes }))
 }
 
+/// List Tasks generated for a given content and a given extraction policy
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/tasks",
-    path = "/tasks",
-    tag = "indexify",
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extraction_policies/{extraction_policy}/tasks",
+    tag = "operations",
     responses(
         (status = 200, description = "Lists tasks", body = ListTasksResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
     ),
 )]
 async fn list_tasks(
-    Path(namespace): Path<String>,
+    Path((namespace, extraction_graph, extraction_policy)): Path<(String, String, String)>,
     State(state): State<NamespaceEndpointState>,
     Query(query): Query<ListTasks>,
 ) -> Result<Json<ListTasksResponse>, IndexifyAPIError> {
@@ -1296,7 +1246,7 @@ async fn list_tasks(
         .map_err(IndexifyAPIError::internal_error)?
         .list_tasks(ListTasksRequest {
             namespace: namespace.clone(),
-            extraction_policy: query.extraction_policy.unwrap_or("".to_string()),
+            extraction_policy: extraction_policy,
             start_id: query.start_id.clone().unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
@@ -1307,35 +1257,6 @@ async fn list_tasks(
         .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, e.message()))?
         .into_inner();
     Ok(Json(resp.try_into()?))
-}
-
-#[utoipa::path(
-    post,
-    path = "/extractors/extract",
-    request_body = ExtractRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Extract content from extractors", body = ExtractResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
-    ),
-)]
-#[axum::debug_handler]
-async fn extract_content(
-    State(namespace_endpoint): State<NamespaceEndpointState>,
-    Json(request): Json<ExtractRequest>,
-) -> Result<Json<ExtractResponse>, IndexifyAPIError> {
-    let extractor_router = ExtractorRouter::new(namespace_endpoint.coordinator_client.clone())
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    let response = extractor_router
-        .extract_content(&request.name, request.content, request.input_params)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to extract content: {}", e),
-            )
-        })?;
-    Ok(Json(response.into()))
 }
 
 #[axum::debug_handler]
@@ -1350,11 +1271,12 @@ async fn list_task_assignments(
     Ok(Json(response))
 }
 
+/// List all the indexes in a given namespace
 #[tracing::instrument]
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/indexes",
-    tag = "indexify",
+    tag = "retrieval",
     responses(
         (status = 200, description = "List of indexes in a namespace", body = ListIndexesResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in namespace")
@@ -1375,10 +1297,11 @@ async fn list_indexes(
     Ok(Json(ListIndexesResponse { indexes }))
 }
 
+/// Search a vector index in a namespace
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/search",
-    tag = "indexify",
+    path = "/namespaces/{namespace}/indexes/{index}/search",
+    tag = "retrieval",
     responses(
         (status = 200, description = "Index search results", body = IndexSearchResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
@@ -1386,7 +1309,7 @@ async fn list_indexes(
 )]
 #[axum::debug_handler]
 async fn index_search(
-    Path(namespace): Path<String>,
+    Path((namespace, index)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
     Json(query): Json<SearchRequest>,
 ) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
@@ -1394,7 +1317,7 @@ async fn index_search(
         .data_manager
         .search(
             &namespace,
-            &query.index,
+            &index,
             &query.query,
             query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
             query.filters,
@@ -1496,32 +1419,6 @@ async fn list_schemas(
     }
 
     Ok(Json(GetStructuredDataSchemasResponse { schemas, ddls }))
-}
-
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/namespace/{namespace}/content/{content_id}/metadata",
-    tag = "indexify",
-    params(MetadataRequest),
-    responses(
-        (status = 200, description = "List of Events in a namespace", body = MetadataResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list events in namespace")
-    ),
-)]
-#[tracing::instrument]
-async fn get_extracted_metadata(
-    Path((namespace, content_id)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<MetadataResponse>, IndexifyAPIError> {
-    let extracted_metadata = state
-        .data_manager
-        .metadata_lookup(&namespace, &content_id)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    Ok(Json(MetadataResponse {
-        metadata: extracted_metadata.into_iter().map(|r| r.into()).collect(),
-    }))
 }
 
 #[axum::debug_handler]

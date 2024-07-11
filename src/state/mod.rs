@@ -769,6 +769,18 @@ impl App {
         Ok(())
     }
 
+    pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
+        let graphs: Vec<ExtractionGraph> = self
+            .state_machine
+            .get_all_rows_from_cf::<ExtractionGraph>(StateMachineColumns::ExtractionGraphs)
+            .await?
+            .into_iter()
+            .filter(|(_, graph)| graph.namespace.eq(namespace))
+            .map(|(_, graph)| graph)
+            .collect();
+        Ok(graphs)
+    }
+
     pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
         //  Fetch the namespaces from the db
         let namespaces: Vec<String> = self
