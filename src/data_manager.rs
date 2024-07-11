@@ -103,17 +103,7 @@ impl DataManager {
 
         let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|r| {
-                let graphs: Result<Vec<api::ExtractionGraph>, anyhow::Error> = r
-                    .extraction_graphs
-                    .into_iter()
-                    .map(|g| g.try_into())
-                    .collect();
-                Ok(api::DataNamespace {
-                    name: r.name,
-                    extraction_graphs: graphs?,
-                })
-            })
+            .map(|r| Ok(api::DataNamespace { name: r.name }))
             .collect();
         Ok(data_namespaces?)
     }

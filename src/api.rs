@@ -97,26 +97,13 @@ impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataNamespace {
     pub name: String,
-    pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
 impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
-        let extraction_graphs = {
-            let mut graphs = vec![];
-            for graph in value.extraction_graphs {
-                let graph: ExtractionGraph = graph.try_into()?;
-                graphs.push(graph);
-            }
-            graphs
-        };
-
-        Ok(Self {
-            name: value.name,
-            extraction_graphs,
-        })
+        Ok(Self { name: value.name })
     }
 }
 
