@@ -8,7 +8,6 @@ client_openai = OpenAI(api_key="YOUR_OPENAI_API_KEY")
 def process_pdf(pdf_path):
     content_id = client.upload_file("rag_pipeline", pdf_path)
     client.wait_for_extraction(content_id)
-    client.create_index(name="pdfqa.pdfembedding.embedding", policy_name="chunks_to_embeddings")
 
 def get_context(question: str, index: str, top_k=3):
     results = client.search_index(name=index, query=question, top_k=top_k)
