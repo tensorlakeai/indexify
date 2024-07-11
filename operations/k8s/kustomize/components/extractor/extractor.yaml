@@ -37,5 +37,6 @@ spec:
               indexify-extractor join-server \
               --coordinator-addr coordinator:8950 \
               --ingestion-addr api:8900 \
+              --download-method direct \
               --advertise-addr $(hostname | cut -d"-" -f1):9501 \
               --listen-port 9501
