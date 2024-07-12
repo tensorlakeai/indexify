@@ -26,6 +26,17 @@ This extractor uses EasyOCR to generate searchable PDF content from a regular PD
 ["application/pdf", "image/jpeg", "image/png"]
 ```
 
+### Class Name
+```
+OCRExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/easyocr
+```
+
 ## [PDFExtractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/pdfextractor)
 
 ### Description
@@ -38,6 +49,17 @@ Extract text, images, and tables as strings, bytes, and JSON respectively using 
 ### Input Data Types
 ```
 ["application/pdf"]
+```
+
+### Class Name
+```
+PDFExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/pdfextractor
 ```
 
 ## [OCRMyPDF](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf)
@@ -58,6 +80,17 @@ Extract text content from image-based PDF files using this OCRMyPDF-based extrac
 ["application/pdf"]
 ```
 
+### Class Name
+```
+OCRMyPDFExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/ocrmypdf
+```
+
 ## [UnstructuredIO](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/unstructuredio)
 
 ### Description
@@ -74,6 +107,17 @@ This extractor uses unstructured.io to extract pieces of PDF document into separ
 ["application/pdf"]
 ```
 
+### Class Name
+```
+UnstructuredIOExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/unstructuredio
+```
+
 ## [LayoutLM Document QA](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/layoutlm_document_qa)
 
 ### Description
@@ -87,6 +131,17 @@ This is a fine-tuned version of the multi-modal [LayoutLM](https://aka.ms/layout
 ### Input Data Types
 ```
 ["application/pdf", "image/jpeg", "image/png"]
+```
+
+### Class Name
+```
+LayoutLMDocumentQA
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/layoutlm-document-qa-extractor
 ```
 
 ## [Marker Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/marker)
@@ -106,6 +161,17 @@ Markdown extractor converts PDF, EPUB, and MOBI to markdown. It's 10x faster tha
 ["application/pdf"]
 ```
 
+### Class Name
+```
+MarkdownExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/marker
+```
+
 ## [PaddleOCR Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/paddleocr)
 
 ### Description
@@ -120,6 +186,17 @@ PDF Extractor for Texts using PaddleOCR.
 ["application/pdf"]
 ```
 
+### Class Name
+```
+PaddleOCRExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/paddleocr_extractor
+```
+
 ## [PPT Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ppt)
 
 ### Description
@@ -132,4 +209,15 @@ An extractor that lets you extract information from presentations.
 ### Input Data Types
 ```
 ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"]
+```
+
+### Class Name
+```
+PPTExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/ppt
 ```

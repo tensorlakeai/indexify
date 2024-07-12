@@ -24,6 +24,17 @@ FlorenceImageExtractor is a powerful image analysis tool leveraging the Microsof
 ["image/jpeg", "image/png", "image/gif"]
 ```
 
+### Class Name
+```
+FlorenceImageExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/florence
+```
+
 ## [Yolo](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/yolo)
 
 ### Description
@@ -37,6 +48,17 @@ Extract bounding boxes and class names from Ultralytics YOLOv9 model.
 ### Input Data Types
 ```
 ["image/jpeg", "image/png"]
+```
+
+### Class Name
+```
+YoloExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/yolo-extractor
 ```
 
 ## [GroundingDino](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/groundingdino)
@@ -54,6 +76,17 @@ This extractor uses Grounding DINO model and accepts an (image, text prompt) pai
 ["image/jpeg", "image/png"]
 ```
 
+### Class Name
+```
+GroundingDinoExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/groundingdino
+```
+
 ## [Moondream](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/moondream) ![Static Badge](https://img.shields.io/badge/GPU%20Accelerated-green?logo=nvidia&logoColor=ffffff)
 
 ### Description
@@ -65,4 +98,15 @@ Moondream2 is a 1.86B parameter tiny vision language model initialized with weig
 ### Input Data Types
 ```
 ["image/bmp", "image/gif", "image/jpeg", "image/png", "image/tiff"]
+```
+
+### Class Name
+```
+MoondreamExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/moondream
 ```

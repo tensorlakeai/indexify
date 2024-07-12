@@ -29,6 +29,17 @@ The Gemini extractors supports various Gemini models like 1.5 Pro and 1.5 Flash.
 ##### Input Data Types
 ```["text/plain", "application/pdf", "image/jpeg", "image/png"]```
 
+### Class Name
+```
+GeminiExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/gemini
+```
+
 #### [Mistral AI Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/mistralai)
 This Mistral extractor supports various Mistral AI models like mistral-large-latest. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended into the user prompt.
 
@@ -44,6 +55,17 @@ This Mistral extractor supports various Mistral AI models like mistral-large-lat
 ##### Input Data Types
 ```["text/plain"]```
 
+### Class Name
+```
+MistralExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/mistral
+```
+
 #### [Ollama Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/ollama)
 The extractor provides access to local LLMs using the Ollama API. It is Llama3 by default. The system and user prompts can be configured using the input parameter configuration. The input to the extractor is appended to the user prompt.
 
@@ -57,6 +79,17 @@ The extractor provides access to local LLMs using the Ollama API. It is Llama3 b
 
 ##### Input Data Types
 ```["text/plain"]```
+
+### Class Name
+```
+OllamaExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/ollama
+```
 
 ## [OpenAI Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/openai)
 
@@ -74,6 +107,17 @@ This extractor supports multiple types of input documents like text, PDF, and im
 ["text/plain", "application/pdf", "image/jpeg", "image/png"]
 ```
 
+### Class Name
+```
+OAIExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/openai
+```
+
 ## [NER Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/ner)
 
 ### Description
@@ -85,6 +129,17 @@ This is a bert-base-NER (Named-Entity-Recognition) model. It is a fine-tuned BER
 ### Input Data Types
 ```
 ["text/plain"]
+```
+
+### Class Name
+```
+NERExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/ner
 ```
 
 ## [Summarization Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/summarization)
@@ -102,6 +157,17 @@ This BART-based Summary Extractor can convert text from Audio, PDF, and other fi
 ["text/plain"]
 ```
 
+### Class Name
+```
+SummaryExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/summarization
+```
+
 ## [LLM-Summary Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/llm-summary)
 
 ### Description
@@ -114,6 +180,17 @@ This LLM-based Summary Extractor converts text from Audio, PDF, and other files 
 ### Input Data Types
 ```
 ["text/plain"]
+```
+
+### Class Name
+```
+SummaryExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/llm-summary
 ```
 
 ## [Chunking Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/chunking)
@@ -130,6 +207,17 @@ ChunkExtractor splits text into smaller chunks. It can handle input from any sou
 ### Input Data Types
 ```
 ["text/plain"]
+```
+
+### Class Name
+```
+ChunkExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/chunk-extractor
 ```
 
 ## [Schema Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/text/schema)
@@ -149,4 +237,15 @@ The Schema Extractor enables structured extraction using LLMs. It accepts a user
 ### Input Data Types
 ```
 ["text/plain"]
+```
+
+### Class Name
+```
+SchemaExtractor
+```
+
+### Download Command
+=== "Bash"
+```bash
+indexify-extractor download tensorlake/schema
 ```
