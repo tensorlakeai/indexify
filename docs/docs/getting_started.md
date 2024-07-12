@@ -6,7 +6,7 @@ Hello and welcome to this Getting Started guide. We do not assume anything other
 
 ![Indexify Wikipedia Information Retrieval System](https://github.com/user-attachments/assets/29687901-db6f-4d22-b4cc-c9e609515e7d)
 
-Again, welcome to this beginner-friendly tutorial on Indexify! In this guide, we'll walk you through creating an online ingestion pipeline for Wikipedia pages. This pipeline will demonstrate how to:
+In this guide, we'll walk you through creating an online ingestion pipeline for Wikipedia pages. This pipeline will demonstrate how to:
 
 1. Extract structured information (Named Entity Recognition) from web pages using Large Language Models (LLMs)
 2. Break down (chunk) the text, create embeddings, and store them in a vector database (LanceDB in this example)
@@ -65,21 +65,6 @@ indexify-tutorial/
 │
 └── indexify               # Indexify server executable (downloaded by curl command)
 ```
-Here's what the directory structure corresponds to:
-
-1. `indexify-tutorial/`: This is the root directory of our project.
-
-2. `venv/`: This directory contains the virtual environment. It's created when you run `python3 -m venv venv` and contains all the installed dependencies.
-
-3. `graph.yaml`: This file contains the YAML definition of our extraction graph, specifying the pipeline for processing Wikipedia pages.
-
-4. `setup.py`: This Python script reads the `graph.yaml` file and creates the extraction graph in Indexify.
-
-5. `ingest.py`: This script uses the Wikipedia API to fetch articles and ingest them into Indexify.
-
-6. `query.py`: This script demonstrates how to query the indexed data and retrieve information using Indexify and OpenAI's GPT model.
-
-7. `indexify`: This is the Indexify server executable, downloaded using the curl command in Terminal 1.
 
 To use this structure:
 
@@ -93,22 +78,9 @@ This structure keeps all the components of our tutorial project organized in one
 
 ## Step 1: Setting Up the Indexify Server
 
-To start the indexify server, we have to open up a terminal and put in the following command. 
+To start the indexify server, we have to open up a terminal and put in the download command. 
 
-<table>
-  <tr>
-    <td>
-      <img src="https://github.com/tensorlakeai/indexify-extractors/assets/44690292/d06ba9c0-a0c6-43d2-90e2-037e537c0f1b" alt="description of image" width="500"/>
-    </td>
-    <td>
-      <pre><code>
-# ( Terminal 1 ) Download Indexify Server
-curl https://getindexify.ai | sh
-./indexify server -d
-      </code></pre>
-    </td>
-  </tr>
-</table>
+![Indexify Terminal 1](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/d06ba9c0-a0c6-43d2-90e2-037e537c0f1b)
 
 Let's start by downloading and running the Indexify server:
 
@@ -140,31 +112,14 @@ The next step is of course setting up extractors to extract data reliably at sca
 
 For the purpose of this tutorial we will be using extractors that have already been created. You can find the full list [here](https://docs.getindexify.ai/apis/develop_extractors/)
 
-<table>
-  <tr>
-    <td>
-      <img src="https://github.com/tensorlakeai/indexify-extractors/assets/44690292/b8ace065-fe57-475a-8b51-643d63f31c99" alt="description of image" width="500"/>
-    </td>
-    <td>
-      <pre><code>
-# ( Terminal 2 ) Download Indexify Extractors
-source venv/bin/activate
-indexify-extractor download tensorlake/openai
-indexify-extractor download tensorlake/minilm-l6
-indexify-extractor download tensorlake/chunk-extractor
-
-      </code></pre>
-    </td>
-  </tr>
-</table>
-
+![Indexify Terminal 2](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/d06ba9c0-a0c6-43d2-90e2-037e537c0f1b)
 
 
 Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them.
 
 ![Indexify Extractors Presentation](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/6976cdc7-5ab3-4a13-b153-39a50304f5f1)
 
-If you want to read and understand how to build a custom extractor for your own use case, go through the following section. However, if you want to use a built-in available extractor jump to the next section. 
+If you want to read and understand how to build a custom extractor for your own use case, go through the following section. However, if you want to use a built-in available extractor jump to the [next section](#using-available-extractors). 
 
 ### Using Custom Extractors
 
@@ -339,20 +294,7 @@ python3 ./setup.py
 
 Now that we have our extraction graph set up, let's create (or open) a script to load the Wikipedia data into our pipeline.
 
-<table>
-  <tr>
-    <td>
-      <img src="https://github.com/tensorlakeai/indexify-extractors/assets/44690292/c0185f07-5033-4e7c-9040-7854b996d430" alt="description of image" width="500"/>
-    </td>
-    <td>
-      <pre><code>
-# ( Terminal 3) Ingest Data
-source venv/bin/activate
-python3 ./ingest.py
-      </code></pre>
-    </td>
-  </tr>
-</table>
+![Indexify Terminal 3](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/c0185f07-5033-4e7c-9040-7854b996d430)
 
 
 Create a file named `ingest.py` with the following content:
@@ -450,7 +392,7 @@ OPENAI_API_KEY=your_api_key_here python3 ./query.py
 
 You should see a response summarizing Kevin Durant's career accomplishments based on the indexed Wikipedia data.
 
-```plaintext
+```plaintext title="Output"
 During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
 ```
 
