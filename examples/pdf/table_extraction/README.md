@@ -62,6 +62,7 @@ Before we begin, ensure you have the following:
    ```bash
    python upload_and_retreive.py
    ```
+   ![](Screenshot.png)
 
    This script will:
    - Download a sample PDF from arXiv
