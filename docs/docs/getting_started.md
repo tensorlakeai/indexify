@@ -4,7 +4,7 @@ Hello and welcome to this Getting Started guide. We do not assume anything other
 
 ## Beginner's Guide to Indexify: Building a Wikipedia Information Retrieval System
 
-![Indexify Wikipedia Information Retrieval System](https://github.com/user-attachments/assets/29687901-db6f-4d22-b4cc-c9e609515e7d)
+![Getting-Started-Cover-Image](https://github.com/user-attachments/assets/1ec01ede-9da0-4483-adcd-3ee5c583595b)
 
 In this guide, we'll walk you through creating an online ingestion pipeline for Wikipedia pages. This pipeline will demonstrate how to:
 
@@ -117,7 +117,7 @@ For the purpose of this tutorial we will be using extractors that have already b
 
 Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them.
 
-![Indexify Extractors Presentation](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/6976cdc7-5ab3-4a13-b153-39a50304f5f1)
+![Extractor_working](https://github.com/user-attachments/assets/ac12fc76-3043-485f-9a8b-6bbffa7d878d)
 
 If you want to read and understand how to build a custom extractor for your own use case, go through the following section. However, if you want to use a built-in available extractor jump to the [next section](#using-available-extractors). 
 
