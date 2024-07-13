@@ -1,12 +1,10 @@
-import { isAxiosError } from 'axios'
-import { IndexifyClient, IExtractedMetadata } from 'getindexify'
+import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
   getExtractionPolicyTaskCounts,
   getIndexifyServiceURL,
-  groupMetadataByExtractor,
 } from './helpers'
-import { TaskCounts, TaskCountsMap } from '../types'
+import { IHash, TaskCounts } from '../types'
 
 async function createClient(namespace: string | undefined) {
   if (!namespace) throw new Error('Namespace is required')
@@ -28,85 +26,35 @@ export async function ExtractionGraphsPageLoader({
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
   const extractors = await client.extractors()
-
-  const counts = await Promise.all(
-    client.extractionGraphs.map(async (graph) => {
-      return Promise.all(
-        graph.extraction_policies
-          .map(async (policy) => {
-            if (!policy.id) return null
-            return {
-              id: policy.id,
-              counts: await getExtractionPolicyTaskCounts(policy.id, client),
-            }
-          })
-          .filter((result) => result !== null)
-      )
-    })
-  )
-  const countsArray = counts.flat()
-  const taskCountsMap: TaskCountsMap = new Map<
-    string,
-    { totalSuccess: number; totalFailed: number; totalUnknown: number }
-  >()
-  countsArray.forEach((policyCounts) => {
-    if (policyCounts && policyCounts.id) {
-      taskCountsMap.set(policyCounts.id, policyCounts.counts)
-    }
-  })
+  const extractionGraphs = await client.getExtractionGraphs();
 
   return {
     namespace: client.namespace,
-    extractionGraphs: client.extractionGraphs,
+    extractionGraphs: extractionGraphs,
     extractors,
-    taskCountsMap,
   }
 }
 
 export async function IndividualExtractionGraphPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, extractorName } = params
+  const { namespace, extraction_graph } = params
+  const extractorName = extraction_graph
   if (!namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const counts = await Promise.all(
-    client.extractionGraphs.map(async (graph) => {
-      return Promise.all(
-        graph.extraction_policies
-          .map(async (policy) => {
-            if (!policy.id) return null
-            return {
-              id: policy.id,
-              counts: await getExtractionPolicyTaskCounts(policy.id, client),
-            }
-          })
-          .filter((result) => result !== null)
-      )
-    })
-  )
-  const countsArray = counts.flat()
-  const taskCountsMap: TaskCountsMap = new Map<
-    string,
-    { totalSuccess: number; totalFailed: number; totalUnknown: number }
-  >()
-  countsArray.forEach((policyCounts) => {
-    if (policyCounts && policyCounts.id) {
-      taskCountsMap.set(policyCounts.id, policyCounts.counts)
-    }
-  })
+  const extractionGraphs = await client.getExtractionGraphs()
 
-  const [extractors, contentList, tasks] = await Promise.all([
+  const extractionGraph = extractionGraphs.filter(extractionGraph => extractionGraph.name === extractorName)[0];
+  const contentList = await client.listContent(extractionGraph.name);
+  const [extractors] = await Promise.all([
     client.extractors(),
-    (await client.getExtractedContent()).contentList,
-    client.getTasks(
-      {
-        returnTotal: true
-      }
-    )
   ])
-  const extractionGraph = client.extractionGraphs.filter(extractionGraph => extractionGraph.name === extractorName)[0];
+  let tasks_by_policies: IHash = {}
+  extractionGraph.extraction_policies.forEach(async (extractionPolicy) => {
+    tasks_by_policies[extractionPolicy.name] = await client.getTasks(extractionGraph.name, extractionPolicy.name)
+  })
   return {
-    tasks,
+    tasks: tasks_by_policies,
     extractors,
     extractionGraph: extractionGraph,
     contentList,
@@ -122,10 +70,11 @@ export async function ExtractionPolicyPageLoader({
   if (!namespace || !policyname) return redirect('/')
 
   const client = await createClient(namespace)
-  const extractionGraph = client.extractionGraphs.find(
+  const extractionGraphs = await client.getExtractionGraphs()
+  const extractionGraph = extractionGraphs.find(
     (graph) => graph.name === graphname
   )
-  const policy = client.extractionGraphs
+  const policy = extractionGraphs
     .map((graph) => graph.extraction_policies)
     .flat()
     .find(
@@ -134,7 +83,7 @@ export async function ExtractionPolicyPageLoader({
   
   let taskCounts:TaskCounts | undefined = undefined
   if (policy?.id) {
-    taskCounts = await getExtractionPolicyTaskCounts(policy.id, client)
+    taskCounts = await getExtractionPolicyTaskCounts(graphname!, policy.name, namespace, client )
   }
     
   return { policy, namespace, extractionGraph, client, taskCounts }
@@ -150,75 +99,48 @@ export async function ExtractorsPageLoader({ params }: LoaderFunctionArgs) {
 export async function IndexesPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
+  const extractionGraphs = await client.getExtractionGraphs();
   const indexes = await client.indexes()
   return {
     indexes,
     namespace: params.namespace,
-    extractionGraphs: client.extractionGraphs,
+    extractionGraphs: extractionGraphs,
   }
 }
 
 export async function IndividualContentPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, contentId, extractorName } = params
+  const { namespace, extractorName, contentId } = params
   if (!namespace || !contentId) return redirect('/')
 
   const client = await createClient(namespace)
-  const errors: string[] = []
-
-  const tasks = await client
-    .getTasks({ returnTotal: false })
-    .then(({ tasks }) =>
-      tasks.filter((t) => t.content_metadata.id === contentId)
-    )
-    .catch((e) => {
-      if (isAxiosError(e)) {
-        errors.push(`getTasks: ${e.message}`)
-      }
-      return null
-    })
+  const extractionGraphs = await client.getExtractionGraphs();
 
   const contentMetadata = await client.getContentMetadata(contentId)
-  const extractedMetadataList = await client
-    .getStructuredMetadata(contentId)
-    .catch((e) => {
-      if (isAxiosError(e)) {
-        errors.push(
-          `getExtractedMetadata: ${e.message} - ${
-            e.response?.data || 'unknown'
-          }`
-        )
-      }
-      return [] as IExtractedMetadata[]
-    })
 
   return {
     client,
     namespace,
-    tasks,
     contentId,
     contentMetadata,
-    groupedExtractedMetadata: groupMetadataByExtractor(extractedMetadataList),
-    errors,
-    extractorName
+    extractorName,
+    extractionGraphs
   }
 }
 
 export async function NamespacePageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const [extractors, indexes, contentList, schemas] = await Promise.all([
+  const [extractors, indexes, schemas] = await Promise.all([
     client.extractors(),
     client.indexes(),
-    client.getExtractedContent(),
     client.getSchemas(),
   ])
   return {
     client,
     extractors,
     indexes,
-    contentList,
     schemas,
     namespace: params.namespace,
   }

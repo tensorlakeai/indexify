@@ -1,4 +1,4 @@
-import { IContentMetadata } from 'getindexify'
+import { IContentMetadata, ITask } from 'getindexify'
 
 export interface IExtractionGraphCol {
   displayName: string
@@ -27,3 +27,7 @@ export type TaskCountsMap = Map<
   string,
   TaskCounts
 >
+
+export interface IHash {
+  [key: string]: ITask[];
+}

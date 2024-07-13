@@ -83,7 +83,7 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/extraction-graphs/:extractorName",
+          path: "/:namespace/extraction-graphs/:extraction_graph",
           element: <IndividualExtractionGraphPage />,
           loader: IndividualExtractionGraphPageLoader,
           errorElement: <ErrorPage />

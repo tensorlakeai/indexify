@@ -19,6 +19,18 @@ const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
     return {};
   }
 
+  if (contentList.length === 1) {
+    console.log('true')
+    const content = contentList[0];
+    if (content && Array.isArray(content.extraction_graph_names)) {
+      return content.extraction_graph_names.reduce((acc, graphName) => {
+        acc[graphName] = [content];
+        return acc;
+      }, {} as Record<string, IContentMetadata[]>);
+    }
+    return {};
+  }
+
   return contentList.reduce((acc, content) => {
     if (content && Array.isArray(content.extraction_graph_names)) {
       content.extraction_graph_names.forEach(graphName => {
@@ -51,6 +63,8 @@ const IndividualExtractionGraphPage = () => {
     const groupedContent = useMemo(() => {
       return groupContentByGraphs(contentList)
   }, [contentList])
+
+  console.log('tasks', tasks);
 
   const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  

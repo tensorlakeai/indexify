@@ -170,7 +170,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
               </Typography>
               <Typography variant="subtitle2">
                 <Link
-                  to={`/${namespace}/content/${parentID}`}
+                  to={`content/${parentID}`}
                   target="_blank"
                   style={{ color: "inherit", textDecoration: "underline" }}
                 >

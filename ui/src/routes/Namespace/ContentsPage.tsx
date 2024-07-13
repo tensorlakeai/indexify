@@ -1,44 +1,39 @@
 import { Box } from '@mui/material'
-import { IndexifyClient } from 'getindexify'
+import { ExtractionGraph, IndexifyClient } from 'getindexify'
 import { useLoaderData } from 'react-router-dom'
 import ContentTable from '../../components/tables/ContentTable'
 import { IContentMetadataExtended } from '../../types'
 
 const ContentsPage = () => {
-  const { client } = useLoaderData() as {
+  const { client, contentId, extractorName, policyName, extractionGraphs } = useLoaderData() as {
+    contentId: string,
+    extractorName: string;
+    policyName: string,
     client: IndexifyClient
+    extractionGraphs: ExtractionGraph[]
   }
 
   const contentLoader = async ({
-    parentId,
-    startId,
-    pageSize,
+    contentId,
+    graphName,
+    policyName
   }: {
-    parentId?: string
-    startId?: string
-    pageSize: number
+    contentId: string
+    graphName: string
+    policyName: string
   }): Promise<IContentMetadataExtended[]> => {
     const { contentList } = await client.getExtractedContent({
-      parentId,
-      startId,
-      limit: pageSize + 1,
+      contentId,
+      graphName,
+      policyName,
     })
 
-    //count children
-    return Promise.all(
-      contentList.map(async (content) => {
-        const tree = await client.getContentTree(content.id)
-        return {
-          ...content,
-          children: tree.filter((c) => c.parent_id === content.id).length,
-        }
-      })
-    )
+    return contentList
   }
 
   return (
     <Box>
-      <ContentTable loadData={contentLoader} client={client} />
+      <ContentTable extractionGraphs={extractionGraphs} extractorName={extractorName} contentId={contentId} policyName={policyName} loadData={contentLoader} client={client} />
     </Box>
   )
 }

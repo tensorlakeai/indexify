@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IContentMetadata, IndexifyClient } from 'getindexify'
+import { ExtractionGraph, IContentMetadata, IndexifyClient } from 'getindexify'
 import {
   Alert,
   Button,
@@ -23,16 +23,24 @@ import { splitLabels } from '../../utils/helpers';
 const ContentTable = ({
   loadData,
   client,
+  contentId,
+  extractorName,
+  policyName,
+  extractionGraphs,
 }: {
+  contentId: string,
+  extractorName: string,
+  policyName: string,
   client: IndexifyClient,
+  extractionGraphs: ExtractionGraph[],
   loadData: ({
-    pageSize,
-    parentId,
-    startId,
+    contentId,
+    graphName,
+    policyName
   }: {
-    pageSize: number
-    parentId?: string
-    startId?: string
+    contentId: string
+    graphName: string
+    policyName: string
   }) => Promise<IContentMetadataExtended[]>
 }) => {
   const [rowCountState, setRowCountState] = useState(0)
@@ -43,7 +51,7 @@ const ContentTable = ({
     page: 0,
     pageSize: 10,
   })
-  const [currentTab, setCurrentTab] = useState<string | undefined>(undefined)
+  const [currentTab, setCurrentTab] = useState<string>('ingested')
   const [searchFilter, setSearchFilter] = useState<{
     contentId: string
     policyName: string
@@ -58,14 +66,9 @@ const ContentTable = ({
 
       // load tasks for a given page
       const newContent = await loadData({
-        pageSize: paginationModel.pageSize,
-        startId: paginationModel.page
-          ? startIds[paginationModel.page - 1]
-          : undefined,
-        parentId:
-          currentTab !== 'ingested' && currentTab !== 'search'
-            ? currentTab
-            : undefined,
+        contentId: contentId,
+        graphName: extractorName,
+        policyName: policyName, 
       })
       setContent(newContent)
 
@@ -271,7 +274,7 @@ const ContentTable = ({
             </IconButton>
           </Typography>
         </div>
-        <UploadButton client={client} />
+        <UploadButton client={client} extractionGraphs={extractionGraphs} />
       </Stack>
       <Box justifyContent={'space-between'} display={'flex'}>
         <Tabs
