@@ -53,21 +53,25 @@ Before we begin, ensure you have the following:
 
 ## Usage
 
-1. First, run the [`setup.py`](setup.py) script to set up the extraction graph:
+1. First, run the [`setup.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/setup.py) script to set up the extraction graph:
    ```bash
    python setup.py
    ```
 
-2. Then, run the [`upload_and_retrieve.py`](upload_and_retrieve.py) script to process a PDF and extract images:
+2. Then, run the [`upload_and_retrieve.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/upload_and_retrieve.py) script to process a PDF and extract images:
    ```bash
    python upload_and_retrieve.py
    ```
+   ![](Screenshot.png)
 
    This script will:
    - Download a sample PDF from arXiv
    - Upload the PDF to Indexify
    - Extract images from the PDF
    - Print the extracted image content
+   ![](9baf878b63b8e57f.png)
+   ![](5561f24377d1c264.png)
+   ![](f0da4e9b06419116.png)
 
 ## Customization
 
