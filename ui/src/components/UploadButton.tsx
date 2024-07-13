@@ -16,6 +16,7 @@ import FileDropZone from './Inputs/DropZone';
 
 interface Props {
   client: IndexifyClient;
+  extractionGraphs: ExtractionGraph[]
 }
 
 const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
@@ -23,14 +24,14 @@ const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, 
     await Promise.all(uploadPromises);
   };
 
-const UploadButton = ({ client }: Props) => {
+const UploadButton = ({ client, extractionGraphs }: Props) => {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [extractionGraphName, setExtractionGraphName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>(
-    client.extractionGraphs
+  const [localExtractionGraphs, setLocalExtractionGraphs] = useState<ExtractionGraph[]>(
+    extractionGraphs
   );
 
   const handleFileSelect = (selectedFiles: File[]) => {
@@ -65,7 +66,7 @@ const UploadButton = ({ client }: Props) => {
 
   const updateExtractionGraphs = async () => {
     const graphs = await client.getExtractionGraphs();
-    setExtractionGraphs(graphs);
+    setLocalExtractionGraphs(graphs);
   };
 
   const isUploadButtonDisabled = files.length === 0 || !extractionGraphName || loading;
@@ -99,7 +100,7 @@ const UploadButton = ({ client }: Props) => {
             <MenuItem value="" disabled>
               Select Extraction Graph
             </MenuItem>
-            {extractionGraphs.map((graph) => (
+            {localExtractionGraphs.map((graph) => (
               <MenuItem key={graph.name} value={graph.name}>
                 {graph.name}
               </MenuItem>

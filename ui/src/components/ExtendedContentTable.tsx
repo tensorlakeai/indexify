@@ -85,7 +85,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
 ];
 
 
-  const [tabValue, setTabValue] = useState<string>("search");
+  const [tabValue, setTabValue] = useState<string>("ingested");
   const [policy, setPolicy] = useState("any");
   const [contentId, setContentId] = useState("");
 

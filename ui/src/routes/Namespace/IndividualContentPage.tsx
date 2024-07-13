@@ -46,18 +46,13 @@ const IndividualContentPage = () => {
     namespace,
     contentId,
     contentMetadata,
-    groupedExtractedMetadata,
-    errors,
     extractionGraph,
     extractorName,
   } = useLoaderData() as {
     namespace: string
-    tasks: ITask[]
     contentId: string
     contentMetadata: IContentMetadata
-    groupedExtractedMetadata: Record<string, IExtractedMetadata[]>
     client: IndexifyClient
-    errors: string[]
     extractionGraph: ExtractionGraph
     extractorName: string
   }
@@ -91,19 +86,6 @@ const IndividualContentPage = () => {
       })
     }
   }, [client, contentId, contentMetadata.mime_type])
-
-  const taskLoader = async (
-    pageSize: number,
-    startId?: string
-  ): Promise<ITask[]> => {
-    const { tasks } = await client.getTasks({
-      contentId,
-      limit: pageSize + 1,
-      startId,
-      returnTotal: false,
-    })
-    return tasks
-  }
 
   const onClickChildren = (selectedContent: IContentMetadata) => {
     setGraphTabIds([...graphTabIds, selectedContent.id])
@@ -279,7 +261,6 @@ const IndividualContentPage = () => {
         </Link>
         <Typography color="text.primary">{contentId}</Typography>
       </Breadcrumbs>
-      <Errors errors={errors} />
       <Typography variant="h2">{contentId}</Typography>
       <DetailedContent
         filename={contentMetadata.name}
@@ -290,7 +271,7 @@ const IndividualContentPage = () => {
         parentID={contentMetadata.parent_id}
         namespace={namespace}
         mimeType={contentMetadata.mime_type}
-        contentUrl={`/${namespace}/content/${contentId}/${contentMetadata.content_url}`}
+        contentUrl={`${contentMetadata.content_url}`}
         textContent={textContent}
       />
       {/* 
@@ -351,15 +332,9 @@ const IndividualContentPage = () => {
         {renderContent()}
       </Box>
       */}
-      {Object.keys(groupedExtractedMetadata).map((key) => {
-        const extractedMetadata = groupedExtractedMetadata[key]
-        return (
-          <ExtractedMetadataTable
-            key={key}
-            extractedMetadata={extractedMetadata}
-          />
-        )
-      })}
+      {/* <ExtractedMetadataTable
+        extractedMetadata={contentMetadata}
+      /> */}
       {/* <TasksTable
         namespace={namespace}
         extractionPolicies={client.extractionGraphs

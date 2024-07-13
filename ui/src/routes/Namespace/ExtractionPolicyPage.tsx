@@ -11,7 +11,6 @@ import {
   ExtractionGraph,
   IExtractionPolicy,
   IndexifyClient,
-  ITask,
 } from 'getindexify'
 import TasksTable from '../../components/TasksTable'
 import { Link } from 'react-router-dom'
@@ -31,13 +30,8 @@ const ExtractionPolicyPage = () => {
   const taskLoader = async (
     pageSize: number,
     startId?: string
-  ): Promise<ITask[]> => {
-    const { tasks } = await client.getTasks({
-      returnTotal: false,
-      extractionPolicyId: policy.id,
-      limit: pageSize + 1,
-      startId,
-    })
+  ): Promise<any> => {
+    const  tasks  = await client.getTasks(extractionGraph.name, policy.name)
     return tasks
   }
 
