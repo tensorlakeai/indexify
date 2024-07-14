@@ -169,6 +169,7 @@ You can run the Python script to extract schema-based information from PDF files
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/pdf/structured_extraction/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

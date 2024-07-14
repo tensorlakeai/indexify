@@ -62,7 +62,7 @@ Before we begin, ensure you have the following:
    ```bash
    python upload_and_retreive.py
    ```
-   ![](Screenshot.png)
+   <img src="https://docs.getindexify.ai/example_code/pdf/table_extraction/carbon.png" width="600"/>
 
    This script will:
    - Download a sample PDF from arXiv

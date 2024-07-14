@@ -62,16 +62,13 @@ Before we begin, ensure you have the following:
    ```bash
    python upload_and_retrieve.py
    ```
-   ![](Screenshot.png)
+   <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="600"/>
 
    This script will:
    - Download a sample PDF from arXiv
    - Upload the PDF to Indexify
    - Extract images from the PDF
    - Print the extracted image content
-   ![](9baf878b63b8e57f.png)
-   ![](5561f24377d1c264.png)
-   ![](f0da4e9b06419116.png)
 
 ## Customization
 

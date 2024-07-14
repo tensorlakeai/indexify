@@ -159,6 +159,7 @@ You can run the Python script to process a PDF and answer questions:
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

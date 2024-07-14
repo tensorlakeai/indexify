@@ -148,16 +148,14 @@ if __name__ == "__main__":
     extracted_entities = extract_entities_from_pdf(pdf_path)
     
     print("Extracted Entities:")
-    for category, entities in extracted_entities.items():
-        print(f"\n{category.capitalize()}:")
-        for entity in entities:
-            print(f"- {entity}")
+    print(extracted_entities)
 ```
 
 You can run the Python script as many times, or use this in an application to continue generating summaries:
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/llm_integrations/mistral/pdf-entity-extraction/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

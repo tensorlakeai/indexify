@@ -148,6 +148,7 @@ You can run the Python script to process a PDF and generate chunks:
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/pdf/chunking/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 
