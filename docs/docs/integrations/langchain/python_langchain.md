@@ -7,7 +7,7 @@ Indexify complements LangChain by providing a robust platform for indexing large
 pip install indexify-langchain
 ```
 
-Add some raw text or documents in Indexify following the [Getting Started Guide](https://getindexify.ai/getting_started/)
+Add some raw text or documents in Indexify following the [Getting Started Guide](https://docs.getindexify.ai/getting_started/)
 
 ### Instantiate the Retriever
 
