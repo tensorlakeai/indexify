@@ -238,7 +238,9 @@ indexify-extractor join-server
 
 ## Step 4: Defining Our Data Pipeline
 
-We'll use a YAML file to define our data pipeline. This pipeline will take text documents, split them into small chunks, extract entities, and embed the chunks in parallel.
+We'll use a YAML file to define our data pipeline. This pipeline will take text documents, split them into small chunks, extract entities, and embed the chunks in parallel. The following diagram describes the Indexify end-to-end pipeline
+
+![Extraction Policy Graph](https://github.com/user-attachments/assets/5d4d7a4e-b7c3-401e-965a-e43b22f539a8)
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
@@ -263,6 +265,16 @@ This YAML file defines three extraction policies:
 1. `entity-extractor`: Extracts named entities from the text
 2. `chunker`: Splits the text into smaller chunks
 3. `wikiembedding`: Creates embeddings for the chunks
+
+These are the three key extractors are utilized to process and analyze the input content from Wikipedia:
+
+1. OpenAI Extractor (`tensorlake/openai`): This extractor supports various input types including text, PDF, and images. It leverages OpenAI's language models (such as GPT-3.5 Turbo or GPT-4) to perform entity extraction from the input content. The extractor can be customized with specific system and user prompts to tailor its output.
+
+2. Chunk Extractor (`tensorlake/chunk-extractor`): This extractor is responsible for breaking down the input text into smaller, manageable chunks. It offers flexibility in chunk size and overlap, and can use different text splitting strategies (e.g., recursive, markdown, or HTML-based splitting).
+
+3. MiniLM-L6 Extractor (`tensorlake/minilm-l6`): This extractor is likely used for generating embeddings of the text chunks. MiniLM-L6 is a compact and efficient language model that can create high-quality vector representations of text, which are crucial for semantic search and similarity-based retrieval.
+
+These extractors work in concert to transform raw, unstructured input into processed, indexed, and easily retrievable information, forming the backbone of the Indexify pipeline for tasks such as entity recognition, text segmentation, and semantic embedding. You can learn more about different types of available extractors and their usage [here](https://docs.getindexify.ai/apis/extractors/).
 
 ## Step 5: Creating the Extraction Graph
 
