@@ -25,8 +25,8 @@ Here are some of examples of use-cases you could accomplish with Indexify
 
 ## **LLM Integrations**
 #### Mistral
-- [Summarization](../example_code/pdf/mistral/pdf-summarization)
-- [Entity Extraction](../example_code/pdf/mistral/pdf-entity-extraction)
+- [Summarization](../example_code/llm_integrations/mistral/pdf-summarization)
+- [Entity Extraction](../example_code/llm_integrations/mistral/pdf-entity-extraction)
 
 #### OpenAI
-- [PDF Translation](../example_code/pdf/openai_pdf_translation)
+- [PDF Translation](../example_code/llm_integrations/openai_pdf_translation)
