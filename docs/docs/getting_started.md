@@ -138,15 +138,7 @@ An extractor in Indexify is designed to process unstructured data. It receives d
 
 Building a custom extractor is an easy 4 step process. We will walk through this while laying down each step in a sequential manner. To read a full guide on building custom extractors, read the official [documentation for developing extractors](https://docs.getindexify.ai/apis/develop_extractors/).
 
-##### Step 1 of 4: Install the Extractor SDK
-
-First, install the Indexify Extractor SDK:
-
-```bash title="( Terminal 2 ) Install Indexify Server"
-pip install indexify-extractor-sdk
-```
-
-##### Step 2 of 4: Create a Template
+##### Step 1: Clone from Template
 
 Use the following command to create a template for your new extractor:
 
@@ -154,7 +146,7 @@ Use the following command to create a template for your new extractor:
 curl https://codeload.github.com/tensorlakeai/indexify-extractor-template/tar.gz/main | tar -xz  indexify-extractor-template-main
 ```
 
-##### Step 3 of 4: Implement the Extractor
+##### Step 2: Implement the Extractor
 
 In the template, you'll find a `MyExtractor` class in the `custom_extractor.py` file. Implement the `extract` method, which takes a `Content` object and returns a list of `Content` objects.
 
@@ -178,7 +170,7 @@ def extract(self, content: Content) -> List[Content]:
     return output
 ```
 
-##### Step 4 of 4: Define Extractor Properties
+##### Step 3: Define Extractor Properties
 
 Add the following properties to your extractor class:
 
@@ -187,7 +179,7 @@ Add the following properties to your extractor class:
 - `system_dependencies`: List of dependencies for packaging in a Docker container
 - `input_mime_types`: List of input data types your extractor can handle (default is `["text/plain"]`)
 
-##### Step 5: List Dependencies
+##### Step 4: List Dependencies
 
 Create a `requirements.txt` file in your extractor's folder to list any Python dependencies.
 
@@ -240,7 +232,7 @@ indexify-extractor join-server
 
 We'll use a YAML file to define our data pipeline. This pipeline will take text documents, split them into small chunks, extract entities, and embed the chunks in parallel. The following diagram describes the Indexify end-to-end pipeline
 
-![Extraction Policy Graph](https://github.com/user-attachments/assets/03edf611-149c-4387-a1a8-bfe48ca58d6c)
+![Extraction Policy Graph](images/extraction_graph_getting_started.jpg){: style="height:300px"}
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
