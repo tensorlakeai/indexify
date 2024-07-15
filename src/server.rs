@@ -77,6 +77,7 @@ pub struct NamespaceEndpointState {
             list_extractors,
             list_executors,
             list_content,
+            update_content,
             get_content_metadata,
             list_state_changes,
             create_extraction_graph,
@@ -1109,6 +1110,8 @@ async fn upload_file(
     ))
 }
 
+// Update a content. All the extraction graphs associated with the content will be run
+// if the content has changed.
 #[tracing::instrument]
 #[utoipa::path(
     put,
