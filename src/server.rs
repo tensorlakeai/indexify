@@ -774,8 +774,9 @@ async fn update_labels(
 async fn list_content(
     Path((namespace, extraction_graph)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-    filter: Query<super::api::ListContent>,
+    axum_extra::extract::Query(filter): axum_extra::extract::Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
+    println!("filter: {:?}", filter.labels_filter);
     let response = state
         .data_manager
         .list_content(
@@ -783,7 +784,7 @@ async fn list_content(
             &extraction_graph,
             &filter.source,
             &filter.parent_id,
-            filter.labels_eq.as_ref(),
+            &filter::LabelsFilter(filter.labels_filter),
             filter.start_id.clone().unwrap_or_default(),
             filter.limit.unwrap_or(10),
             filter.return_total,

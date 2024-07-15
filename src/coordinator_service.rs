@@ -189,15 +189,17 @@ impl CoordinatorServiceServer {
                 return Err(anyhow!(message));
             }
 
-            let filters = internal_api::utils::convert_map_prost_to_serde_json(
-                policy_request.filters.clone(),
-            )?;
+            let expressions: Result<Vec<_>> = policy_request
+                .filter
+                .iter()
+                .map(|e| filter::Expression::from_str(e))
+                .collect();
 
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
                 .name(policy_request.name.clone())
                 .extractor(policy_request.extractor.clone())
-                .filters(filters)
+                .filter(filter::LabelsFilter(expressions?))
                 .input_params(input_params)
                 .content_source(content_source)
                 .build(&extraction_graph.name, extractor.clone())
@@ -342,9 +344,13 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<ListContentRequest>,
     ) -> Result<tonic::Response<ListContentResponse>, tonic::Status> {
         let req = request.into_inner();
-
-        let labels_eq = internal_api::utils::convert_map_prost_to_serde_json(req.labels_eq)
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let expressions: Result<Vec<_>> = req
+            .labels_filter
+            .iter()
+            .map(|e| filter::Expression::from_str(e))
+            .collect();
+        let labels_filter =
+            filter::LabelsFilter(expressions.map_err(|e| tonic::Status::aborted(e.to_string()))?);
 
         let start_id = if req.start_id.is_empty() {
             None
@@ -363,7 +369,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 (req.graph.is_empty() || c.extraction_graph_names.contains(&req.graph)) &&
                 (req.parent_id.is_empty() ||
                     Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
-                content_filter(c, &source_filter, &labels_eq)
+                content_filter(c, &source_filter, &labels_filter)
         };
         let response = self
             .coordinator

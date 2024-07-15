@@ -807,7 +807,7 @@ mod tests {
             name: "extraction_policy_name".to_string(),
             extractor: "extractor_name".to_string(),
             graph_name: "extraction_graph_id".to_string(),
-            filters: HashMap::new(),
+            filter: filter::LabelsFilter::default(),
             content_source: ContentSource::Ingestion,
             output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
                 .into_iter()
@@ -937,7 +937,6 @@ mod tests {
             name: "extraction_policy_name".to_string(),
             extractor: "extractor_name".to_string(),
             graph_name: "extraction_graph_id".to_string(),
-            filters: HashMap::new(),
             content_source: ContentSource::Ingestion,
             output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
                 .into_iter()

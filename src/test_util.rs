@@ -2,6 +2,7 @@
 pub mod db_utils {
     use std::collections::HashMap;
 
+    use filter::LabelsFilter;
     use indexify_internal_api as internal_api;
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{
@@ -67,7 +68,7 @@ pub mod db_utils {
                 name: policy_name.to_string(),
                 extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
                 input_params: json!({}),
-                filters: HashMap::new(),
+                filter: LabelsFilter::default(),
                 output_table_mapping: HashMap::from([(
                     "test_output".to_string(),
                     "test_table".to_string(),
@@ -108,7 +109,7 @@ pub mod db_utils {
                 name: policy_name.to_string(),
                 extractor: DEFAULT_TEST_EXTRACTOR.to_string(),
                 input_params: json!({}),
-                filters: HashMap::new(),
+                filter: LabelsFilter::default(),
                 output_table_mapping: HashMap::from([(
                     "test_output".to_string(),
                     "test_table".to_string(),

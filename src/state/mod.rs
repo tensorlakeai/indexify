@@ -446,12 +446,7 @@ impl App {
             .await?;
         let mut matched_policies = Vec::new();
         for extraction_policy in all_extraction_policies {
-            if !extraction_policy.filters.iter().all(|(name, value)| {
-                content_metadata
-                    .labels
-                    .get(name)
-                    .map_or(false, |v| v == value)
-            }) {
+            if !extraction_policy.filter.matches(&content_metadata.labels) {
                 continue;
             }
             let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
@@ -1469,6 +1464,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
+    use filter::{Expression, LabelsFilter, Operator};
     use indexify_internal_api::{
         ContentMetadata,
         ContentMetadataId,
@@ -1787,10 +1783,22 @@ mod tests {
 
         let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
 
-        eg.extraction_policies[0].filters = HashMap::from([
-            ("label1".to_string(), serde_json::json!("value1")),
-            ("label2".to_string(), serde_json::json!("value2")),
-            ("label3".to_string(), serde_json::json!("value3")),
+        eg.extraction_policies[0].filter = LabelsFilter(vec![
+            Expression {
+                key: "label1".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value1"),
+            },
+            Expression {
+                key: "label2".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value2"),
+            },
+            Expression {
+                key: "label3".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value3"),
+            },
         ]);
 
         node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
@@ -1911,8 +1919,11 @@ mod tests {
 
         //  Create the extraction graph
         let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
-        eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
+        eg.extraction_policies[0].filter = LabelsFilter(vec![Expression {
+            key: "label1".to_string(),
+            operator: Operator::Eq,
+            value: serde_json::json!("value1"),
+        }]);
         let _structured_data_schema = StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),

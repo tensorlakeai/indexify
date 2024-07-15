@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use filter::LabelsFilter;
 use futures::{Stream, StreamExt};
 use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
@@ -201,13 +202,17 @@ impl DataManager {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
 
-            let filters = ep.filters_eq.clone().unwrap_or_default();
-            let filters = internal_api::utils::convert_map_serde_to_prost_json(filters)?;
+            let filter = ep
+                .filter
+                .0
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>();
             let req = indexify_coordinator::ExtractionPolicyRequest {
                 namespace: namespace.to_string(),
                 extractor: ep.extractor.clone(),
                 name: ep.name.clone(),
-                filters,
+                filter,
                 input_params: input_params_serialized,
                 content_source: ep.content_source.clone().unwrap_or_default(),
                 created_at: SystemTime::now()
@@ -287,21 +292,22 @@ impl DataManager {
         graph: &str,
         source_filter: &str,
         parent_id_filter: &str,
-        labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
+        labels_filter: &LabelsFilter,
         start_id: String,
         limit: u64,
         return_total: bool,
     ) -> Result<api::ListContentResponse> {
-        let default_labels_eq = HashMap::new();
-        let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
-            labels_eq_filter.unwrap_or(&default_labels_eq).clone(),
-        )?;
+        let labels_filter = labels_filter
+            .0
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>();
         let req = indexify_coordinator::ListContentRequest {
             graph: graph.to_string(),
             namespace: namespace.to_string(),
             source: Some(source_filter.to_string().into()),
             parent_id: parent_id_filter.to_string(),
-            labels_eq,
+            labels_filter,
             start_id,
             limit,
             return_total,
@@ -943,7 +949,7 @@ impl DataManager {
         index_name: &str,
         query: &str,
         k: u64,
-        filters: Vec<String>,
+        filter: LabelsFilter,
         include_content: bool,
     ) -> Result<Vec<ScoredText>> {
         let req = indexify_coordinator::GetIndexRequest {
@@ -959,7 +965,7 @@ impl DataManager {
             .index
             .ok_or(anyhow!("Index not found"))?;
         self.vector_index_manager
-            .search(index, query, k as usize, filters, include_content)
+            .search(index, query, k as usize, filter, include_content)
             .await
     }
 

@@ -767,8 +767,9 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fs, sync::Arc, time::Duration, vec};
+    use std::{fs, sync::Arc, time::Duration, vec};
 
+    use filter::{Expression, LabelsFilter, Operator};
     use indexify_internal_api::{self as internal_api, ExtractionGraphLink, ExtractionGraphNode};
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{ContentMetadataId, ContentSource, TaskOutcome};
@@ -2047,8 +2048,11 @@ mod tests {
         //  Create the extraction policy under the namespace of the content
         let mut eg =
             create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
-        eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
+        eg.extraction_policies[0].filter = LabelsFilter(vec![Expression {
+            key: "label1".to_string(),
+            value: serde_json::json!("value1"),
+            operator: Operator::Eq,
+        }]);
         coordinator.create_extraction_graph(eg.clone()).await?;
 
         //  Create some content
