@@ -1,4 +1,5 @@
-import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient } from 'getindexify'
+import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient, TaskStatus } from 'getindexify'
+import { IHash } from '../types'
 
 export const stringToColor = (str: string) => {
   let hash = 0
@@ -54,13 +55,11 @@ export const formatBytes = (bytes: number, decimals: number = 2): string => {
 export const getExtractionPolicyTaskCounts = async (
   extractionGraph: string,
   extractionPolicyName: string,
-  namespace: string,
   client: IndexifyClient
 ): Promise<any> => {
   const tasks = client.getTasks(
       extractionGraph,
       extractionPolicyName,
-      namespace,
     );
     return tasks;
 }
@@ -86,7 +85,7 @@ export const mapExtractionPoliciesToRows = (
   extractionGraph: ExtractionGraph,
   extractors: Extractor[],
   graphName: string,
-  tasks: any
+  tasks: IHash
 ): Row[] => {
   const extractorMap = new Map(extractors.map(e => [e.name, e]));
   
@@ -103,26 +102,50 @@ export const mapExtractionPoliciesToRows = (
     return [];
   }
 
-  console.log('Tasks', tasks)
+  console.log('Tasks', tasks);
   
   const rows: Row[] = targetGraph.extraction_policies.map((policy, index) => {
     const extractor = extractorMap.get(policy.extractor);
-    // const filterTasks = tasks.tasks.filter(task => task.extraction_policy_id === policy.id)
-    // const pendingTaskCount = filterTasks.filter(task => task.outcome === 0).length
-    // const failedTaskCount = filterTasks.filter(task => task.outcome === 1).length
-    // const completedTaskCount = filterTasks.filter(task => task.outcome === 2).length
+    const policyTasks = tasks[policy.name] || [];
+    const pendingTaskCount = policyTasks.filter(task => task.outcome === TaskStatus.Unknown).length;
+    const failedTaskCount = policyTasks.filter(task => task.outcome === TaskStatus.Failure).length;
+    const completedTaskCount = policyTasks.filter(task => task.outcome === TaskStatus.Success).length;
+    
     const finalRows = {
       id: index + 1,
       name: policy.name,
       extractor: policy.extractor,
       inputTypes: extractor ? extractor.input_mime_types : ['Unknown'],
       inputParameters: policy.input_params ? JSON.stringify(policy.input_params) : 'None',
-      pending: 0,
-      failed: 0,
-      completed: 0,
+      pending: pendingTaskCount,
+      failed: failedTaskCount,
+      completed: completedTaskCount,
     };
     return finalRows;
   });
 
   return rows;
 };
+
+export async function getTasksForExtractionGraph(
+  extractionGraph: ExtractionGraph,
+  client: any,
+): Promise<IHash> {
+  const tasks_by_policies: IHash = {};
+
+  for (const extractionPolicy of extractionGraph.extraction_policies) {
+    tasks_by_policies[extractionPolicy.name] = await client.getTasks(
+      extractionGraph.name,
+      extractionPolicy.name
+    );
+  }
+  return tasks_by_policies;
+}
+
+export const formatTimestamp = (value: string | number | null | undefined): string => {
+    if (value == null) return 'N/A';
+    const timestamp = typeof value === 'string' ? parseInt(value, 10) : value;
+    if (isNaN(timestamp)) return 'Invalid Date';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+  };

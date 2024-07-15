@@ -5,6 +5,7 @@ import {
   getIndexifyServiceURL,
 } from './helpers'
 import { IHash, TaskCounts } from '../types'
+import axios from 'axios'
 
 async function createClient(namespace: string | undefined) {
   if (!namespace) throw new Error('Namespace is required')
@@ -49,12 +50,17 @@ export async function IndividualExtractionGraphPageLoader({
   const [extractors] = await Promise.all([
     client.extractors(),
   ])
-  let tasks_by_policies: IHash = {}
-  extractionGraph.extraction_policies.forEach(async (extractionPolicy) => {
-    tasks_by_policies[extractionPolicy.name] = await client.getTasks(extractionGraph.name, extractionPolicy.name)
-  })
+
+  const tasksByPolicies: IHash = {};
+
+  for (const extractionPolicy of extractionGraph.extraction_policies) {
+    tasksByPolicies[extractionPolicy.name] = await client.getTasks(
+      extractionGraph.name,
+      extractionPolicy.name,
+    );
+  }
   return {
-    tasks: tasks_by_policies,
+    tasks: tasksByPolicies,
     extractors,
     extractionGraph: extractionGraph,
     contentList,
@@ -83,7 +89,7 @@ export async function ExtractionPolicyPageLoader({
   
   let taskCounts:TaskCounts | undefined = undefined
   if (policy?.id) {
-    taskCounts = await getExtractionPolicyTaskCounts(graphname!, policy.name, namespace, client )
+    taskCounts = await getExtractionPolicyTaskCounts(graphname!, policy.name, client )
   }
     
   return { policy, namespace, extractionGraph, client, taskCounts }
@@ -167,3 +173,11 @@ export async function SqlTablesPageLoader({ params }: LoaderFunctionArgs) {
   const schemas = await client.getSchemas()
   return { schemas }
 }
+
+export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
+  if (!params.namespace) return redirect('/')
+  const response = await axios.get(`${getIndexifyServiceURL()}/state_changes`);
+  const stateChanges = response.data.state_changes
+    return { stateChanges };
+}
+
