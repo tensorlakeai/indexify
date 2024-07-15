@@ -3,8 +3,8 @@
 Hello and welcome to the Intermediate Getting Started guide. Please go through the [Getting Started Basic](https://docs.getindexify.ai/getting_started/) guide for Indexify if you haven't already.
 
 ## California Tax Calculation Example
-What if one could go through a 26-page complex tax document and understand it without a lawyer, an accountant, or the geek from college? What if 5 easy-to-follow steps was all you need to do reliable QnA on a complex and layered document like a tax invoice?
-Indexify enables you to just that.
+What if one could go through a 26-page complex tax document and understand it without a lawyer, an accountant, or the geek from college? What if 5 easy-to-follow steps were all you need to do reliable QnA on a complex and layered document like a tax invoice?
+Indexify enables you to do just that.
 
 
 ![indexify-header-intermediate](https://github.com/user-attachments/assets/ae0c2dfe-b144-41f4-ba87-0795bef538ec)
@@ -419,13 +419,13 @@ The key strengths of this approach include:
 To scale this pipeline for hundreds of PDFs, one may consider the following aspects of the existing design:
 
 1. **Modular Extraction Graph**: 
-   The current design allows for easy addition of **new extractors**. This modularity means you can process different types of PDFs by adding specialized extractors to the graph.
+   The current design allows for easy addition of *new extractors*. This modularity means you can process different types of PDFs by adding specialized extractors to the graph.
 
 2. **Indexing and Retrieval**:
-   The current system uses **vector index** for retrieval. This approach is inherently scalable and can handle **large volumes of data** efficiently.
+   The current system uses **vector index** for retrieval. This approach is inherently scalable and can handle *large volumes of data* efficiently.
 
 3. **Stateless Processing**:
-   Each stage of the pipeline (PDF ingestion, extraction, querying) is essentially **stateless**. This design naturally lends itself to parallel processing.
+   Each stage of the pipeline (PDF ingestion, extraction, querying) is essentially *stateless*. This design naturally lends itself to parallel processing.
 
 To handle hundreds of PDFs, you could:
 
@@ -434,7 +434,7 @@ To handle hundreds of PDFs, you could:
 3. Implement a queueing system for managing the ingestion of large numbers of PDFs.
 4. Consider using a caching layer in the querying phase to store frequent queries and their results.
 
-The current design, with its modular and flexible approach, provides a solid foundation for these scalability enhancements. The separation of concerns between extraction graph setup, document ingestion, and querying allows each component to be scaled independently as needed.
+The present example design, with its modular and flexible approach, provides a solid foundation for these scalability enhancements. The separation of concerns between extraction graph setup, document ingestion, and querying allows each component to be scaled independently as needed.
 
 By following this guide, you've taken a significant step in leveraging Indexify's capabilities for real-world applications. As you continue to explore, consider how you might apply these techniques to other domains or expand the system to handle more diverse types of queries and documents
 
