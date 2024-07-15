@@ -3,6 +3,11 @@
 Hello and welcome to the Intermediate Getting Started guide. Please go through the [Getting Started Basic](https://docs.getindexify.ai/getting_started/) guide for Indexify if you haven't already.
 
 ## California Tax Calculation Example
+What if one could go through a 26-page complex tax document and understand it without a lawyer, an accountant, or the geek from college? What if 5 easy-to-follow steps was all you need to do reliable QnA on a complex and layered document like a tax invoice?
+Indexify enables you to just that.
+
+
+![indexify-header-intermediate](https://github.com/user-attachments/assets/ae0c2dfe-b144-41f4-ba87-0795bef538ec)
 
 In this example, we will make an LLM (Large Language Model) answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
 
@@ -202,9 +207,27 @@ This extraction graph, named 'pdfqa', defines a three-step process:
 2. The `tensorlake/chunk-extractor` splits the Markdown text into chunks of 1000 characters with a 100-character overlap.
 3. The `tensorlake/minilm-l6` extractor generates embeddings for each chunk, enabling semantic search capabilities.
 
+Run this script to create the extraction graph:
+
+```bash title="( Terminal 3) Create Extraction Graph"
+source venv/bin/activate
+python3 ./setup_extraction_graph.py
+```
+
 The following diagram expresses the pipeline in detail.
 
 ![Indexify Extractors Presentation](https://github.com/user-attachments/assets/80149ab7-e698-47a3-b853-7add9a7b60d6)
+
+The `setup_extraction_graph.py` script is responsible for defining and creating the extraction graph that will process our PDF documents. Its design incorporates several key patterns:
+
+1. **Configuration Management**: 
+   The script uses a YAML-based configuration approach. This allows for easy modification of extraction graph parameters without changing the code. It's flexible because you can easily switch between different configurations for various use cases.
+
+2. **Extraction Graph Definition**:
+   The script defines the extraction graph using a declarative YAML structure. This approach makes it easy to understand and modify the pipeline structure. Each extractor in the graph is defined with its name, type, and any specific parameters it needs.
+
+3. **Extractor Chaining**:
+   The script sets up a chain of extractors, where the output of one becomes the input of the next. This is done by specifying the 'content_source' for each extractor after the first one. This pattern allows for flexible pipeline creation, where you can easily add, remove, or reorder processing steps.
 
 ## Stage 5: Document Ingestion
 
@@ -249,6 +272,12 @@ This code does the following:
 1. Downloads the California tax law PDF from a public URL
 2. Saves the PDF locally as "taxes.pdf"
 3. Uploads the PDF to Indexify, associating it with our 'pdfqa' extraction graph
+
+Run the following code to ingest the tax document
+
+```bash title="( Terminal 3) Ingest Documents"
+python3 ./ingest_document.py
+```
 
 Once uploaded, Indexify will automatically process the PDF through our defined extraction graph.
 
@@ -331,12 +360,28 @@ We can use the same prompting and context retrieval function defined above to ge
       }))
     })()
     ```
-This code does the following:
+This will allow you to do the following:
 
 1. Defines a `get_context` function that retrieves relevant passages from our processed PDF based on the question.
 2. Creates a `create_prompt` function that formats the question and context for the LLM.
 3. Uses OpenAI's GPT-3.5-turbo model to generate an answer based on the provided context.
 
+The `query_tax_info.py` script handles the querying of processed tax information. Its design incorporates these patterns:
+
+1. **Context Retrieval**:
+   The script includes a function to retrieve relevant context based on the input question. This separates the concern of finding relevant information from the actual question-answering process.
+
+2. **Prompt Creation**:
+   There's a dedicated function for creating the prompt that will be sent to the language model. This separation allows for easy modification of how the prompt is structured.
+
+3. **Language Model Integration**:
+   The script uses OpenAI's API to generate answers. This is abstracted into a separate call, making it possible to switch to a different language model (like Mistral) if needed.
+
+Run the following code to query the tax document
+
+```bash title="( Terminal 3) Query from Document"
+python3 ./query_tax_info.py
+```
 The example question asks about California tax brackets and calculates taxes for a $24,000 income. The LLM uses the context provided by our Indexify pipeline to formulate an accurate response as shown below.
 
 !!! note "Response"
@@ -368,6 +413,28 @@ The key strengths of this approach include:
 2. Efficient chunking and embedding of text for quick retrieval
 3. Use of up-to-date, specific information for answer generation
 4. Scalability to handle multiple documents or more complex queries
+
+### Scaling for Hundreds of PDFs
+
+To scale this pipeline for hundreds of PDFs, one may consider the following aspects of the existing design:
+
+1. **Modular Extraction Graph**: 
+   The current design allows for easy addition of **new extractors**. This modularity means you can process different types of PDFs by adding specialized extractors to the graph.
+
+2. **Indexing and Retrieval**:
+   The current system uses **vector index** for retrieval. This approach is inherently scalable and can handle **large volumes of data** efficiently.
+
+3. **Stateless Processing**:
+   Each stage of the pipeline (PDF ingestion, extraction, querying) is essentially **stateless**. This design naturally lends itself to parallel processing.
+
+To handle hundreds of PDFs, you could:
+
+1. Implement parallel processing in the document ingestion phase.
+2. Use a distributed storage system for the indexed data.
+3. Implement a queueing system for managing the ingestion of large numbers of PDFs.
+4. Consider using a caching layer in the querying phase to store frequent queries and their results.
+
+The current design, with its modular and flexible approach, provides a solid foundation for these scalability enhancements. The separation of concerns between extraction graph setup, document ingestion, and querying allows each component to be scaled independently as needed.
 
 By following this guide, you've taken a significant step in leveraging Indexify's capabilities for real-world applications. As you continue to explore, consider how you might apply these techniques to other domains or expand the system to handle more diverse types of queries and documents
 
