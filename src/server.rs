@@ -770,8 +770,8 @@ async fn update_labels(
         ("source" = Option<String>, Query, description = "Filter by source, either extraction policy name or 'ingestion' for top level content"),
         ("parent_id" = Option<String>, Query, description = "Filter by parent ID"),
         ("labels_filter" = Option<Vec<String>>, Query, description = "Filter by labels. 
-        Filter expression is the name of the label, comparison operator, and desired value, e.g. &filter=key>=value. 
-        Multiple expressions can be specified as separate query parameters.", example="&filter=key1%3Dvalue1,&filter=key2%3Dvalue2"),
+        Filter expression is the name of the label, comparison operator, and desired value, e.g. &labels_filter=key>=value. 
+        Multiple expressions can be specified as separate query parameters."),
         ("start_id" = Option<String>, Query, description = "Pagination start ID. 
         Omit to start from beginning. To continue iteration, 
         specify id of the last content in the previous response"),
