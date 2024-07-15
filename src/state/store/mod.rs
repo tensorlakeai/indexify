@@ -173,6 +173,8 @@ pub struct StateMachineData {
     state_change_tx: Arc<tokio::sync::watch::Sender<StateChangeId>>,
 
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
+
+    content_stream_events_tx: broadcast::Sender<String>,
 }
 
 pub struct FilterResponse<T> {
@@ -381,6 +383,8 @@ impl StateMachineStore {
         let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         let (gc_tasks_tx, _) = broadcast::channel(100);
 
+        let (content_stream_events_tx, _) = broadcast::channel(100);
+
         delete_incomplete_snapshots(&db_path).map_err(|e| {
             StorageError::from_io_error(ErrorSubject::Snapshot(None), ErrorVerb::Delete, e)
         })?;
@@ -443,6 +447,7 @@ impl StateMachineStore {
                 indexify_state: IndexifyState::default(),
                 state_change_tx: Arc::new(tx),
                 gc_tasks_tx,
+                content_stream_events_tx
             },
             db: Arc::new(std::sync::RwLock::new(db)),
             state_change_rx: rx,
@@ -556,7 +561,7 @@ impl StateMachineStore {
 
                 //  if the payload is a GC task, send it via channel
                 if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
-                    req.payload
+                    &req.payload
                 {
                     let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
                     for gc_task in gc_tasks {
@@ -574,6 +579,17 @@ impl StateMachineStore {
                         }
                     }
                 }
+                if let RequestPayload::CreateOrUpdateContent { entries } = &req.payload {
+                    for entry in entries {
+                        let content_id = entry.content.id_key();
+                        match self.data.content_stream_events_tx.send(content_id) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::error!("Failed to send content event: {}", e);
+                            }
+                        }
+                    }
+                } 
             }
             EntryPayload::Membership(membership) => {
                 let membership = StoredMembership::new(Some(entry.log_id), membership);
@@ -588,6 +604,10 @@ impl StateMachineStore {
         &self,
     ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
         self.data.gc_tasks_tx.subscribe()
+    }
+
+    pub fn subscribe_to_content_stream(&self) -> broadcast::Receiver<String> {
+        self.data.content_stream_events_tx.subscribe()
     }
 
     //  START FORWARD INDEX READER METHODS INTERFACES

@@ -1418,6 +1418,12 @@ impl App {
         self.state_machine.subscribe_to_gc_task_events().await
     }
 
+    pub fn subscribe_to_content_stream(
+        &self,
+    ) -> broadcast::Receiver<String> {
+        self.state_machine.subscribe_to_content_stream()
+    }
+
     pub async fn ensure_leader(&self) -> Result<Option<typ::ForwardToLeader>> {
         self.forwardable_raft.ensure_leader().await
     }

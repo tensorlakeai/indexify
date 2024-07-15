@@ -715,6 +715,10 @@ impl Coordinator {
         self.shared_state.subscribe_to_gc_task_events().await
     }
 
+    pub fn subscribe_to_content_stream(&self) -> broadcast::Receiver<String> {
+        self.shared_state.subscribe_to_content_stream()
+    }
+
     pub fn get_state_watcher(&self) -> Receiver<StateChangeId> {
         self.shared_state.get_state_change_watcher()
     }

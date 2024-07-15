@@ -16,73 +16,7 @@ use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_internal_api::{self as internal_api, ContentSourceFilter, ExtractionGraphLink};
 use indexify_proto::indexify_coordinator::{
-    self,
-    coordinator_service_server::CoordinatorService,
-    CoordinatorCommand,
-    CreateContentRequest,
-    CreateContentResponse,
-    CreateExtractionGraphRequest,
-    CreateExtractionGraphResponse,
-    CreateGcTasksRequest,
-    CreateGcTasksResponse,
-    ExecutorsHeartbeatRequest,
-    ExecutorsHeartbeatResponse,
-    ExtractionGraphLinksRequest,
-    ExtractionGraphLinksResponse,
-    GcTask,
-    GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
-    GetAllTaskAssignmentRequest,
-    GetContentMetadataRequest,
-    GetContentTreeMetadataRequest,
-    GetExtractionPolicyRequest,
-    GetExtractionPolicyResponse,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
-    GetIngestionInfoRequest,
-    GetIngestionInfoResponse,
-    GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
-    GetTaskRequest,
-    GetTaskResponse,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    ListActiveContentsRequest,
-    ListActiveContentsResponse,
-    ListContentRequest,
-    ListContentResponse,
-    ListExtractionGraphRequest,
-    ListExtractionGraphResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
-    ListStateChangesRequest,
-    ListTasksRequest,
-    ListTasksResponse,
-    RaftMetricsSnapshotResponse,
-    RegisterExecutorRequest,
-    RegisterExecutorResponse,
-    RegisterIngestionServerRequest,
-    RegisterIngestionServerResponse,
-    RemoveIngestionServerRequest,
-    RemoveIngestionServerResponse,
-    TaskAssignments,
-    TaskOutcomeFilter,
-    TombstoneContentRequest,
-    TombstoneContentResponse,
-    Uint64List,
-    UpdateIndexesStateRequest,
-    UpdateIndexesStateResponse,
-    UpdateTaskRequest,
-    UpdateTaskResponse,
-    WaitContentExtractionRequest,
-    WaitContentExtractionResponse,
+    self, coordinator_service_server::CoordinatorService, ContentExtractionEvent, CoordinatorCommand, CreateContentRequest, CreateContentResponse, CreateExtractionGraphRequest, CreateExtractionGraphResponse, CreateGcTasksRequest, CreateGcTasksResponse, ExecutorsHeartbeatRequest, ExecutorsHeartbeatResponse, ExtractionGraphLinksRequest, ExtractionGraphLinksResponse, GcTask, GcTaskAcknowledgement, GetAllSchemaRequest, GetAllSchemaResponse, GetAllTaskAssignmentRequest, GetContentMetadataRequest, GetContentTreeMetadataRequest, GetExtractionPolicyRequest, GetExtractionPolicyResponse, GetExtractorCoordinatesRequest, GetIndexRequest, GetIndexResponse, GetIngestionInfoRequest, GetIngestionInfoResponse, GetRaftMetricsSnapshotRequest, GetSchemaRequest, GetSchemaResponse, GetTaskRequest, GetTaskResponse, HeartbeatRequest, HeartbeatResponse, ListActiveContentsRequest, ListActiveContentsResponse, ListContentRequest, ListContentResponse, ListExtractionGraphRequest, ListExtractionGraphResponse, ListExtractionPoliciesRequest, ListExtractionPoliciesResponse, ListExtractorsRequest, ListExtractorsResponse, ListIndexesRequest, ListIndexesResponse, ListStateChangesRequest, ListTasksRequest, ListTasksResponse, RaftMetricsSnapshotResponse, RegisterExecutorRequest, RegisterExecutorResponse, RegisterIngestionServerRequest, RegisterIngestionServerResponse, RemoveIngestionServerRequest, RemoveIngestionServerResponse, RequestContentExtractionEventStream, TaskAssignments, TaskOutcomeFilter, TombstoneContentRequest, TombstoneContentResponse, Uint64List, UpdateIndexesStateRequest, UpdateIndexesStateResponse, UpdateTaskRequest, UpdateTaskResponse, WaitContentExtractionRequest, WaitContentExtractionResponse
 };
 use internal_api::{
     ExtractionGraph,
@@ -128,6 +62,7 @@ use crate::{
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
 type GCTasksResponseStream =
     Pin<Box<dyn tokio_stream::Stream<Item = Result<CoordinatorCommand, Status>> + Send + Sync>>;
+type ContentExtractionEventStream = Pin<Box<dyn tokio_stream::Stream<Item = Result<ContentExtractionEvent, Status>> + Send + Sync>>;
 
 pub struct ExtractionPolicyCreationResult {
     extraction_policies: Vec<internal_api::ExtractionPolicy>,
@@ -216,6 +151,7 @@ impl CoordinatorServiceServer {
 impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+    type StreamContentExtractionStatusStream = ContentExtractionEventStream;
 
     async fn extraction_graph_links(
         &self,
@@ -228,6 +164,30 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ExtractionGraphLinksResponse { links }))
+    }
+
+    async fn stream_content_extraction_status(
+        &self,
+        request: tonic::Request<RequestContentExtractionEventStream>,
+    ) -> Result<tonic::Response<Self::StreamContentExtractionStatusStream>, Status> {
+        let mut watcher = self.coordinator.get_state_watcher();
+        let (tx, rx) = mpsc::channel(100);
+        let mut shutdown_rx = self.shutdown_rx.clone(); 
+        loop {
+        tokio::select! {
+            state_change_id = watcher.changed() => {
+            },
+            _ = shutdown_rx.changed() => {
+                break;
+            }
+        }
+    }
+    
+    let response_stream = ReceiverStream::new(rx).map(Ok);
+        Ok(tonic::Response::new(
+            Box::pin(response_stream) as Self::StreamContentExtractionStatusStream
+        ))
+
     }
 
     async fn list_extraction_graphs(

@@ -185,6 +185,10 @@ impl Server {
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract",
+                put(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
                 post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
             )
@@ -196,9 +200,7 @@ impl Server {
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
                 get(list_tasks).with_state(namespace_endpoint_state.clone()),
             )
-            .route("/namespaces/:namespace/content/:content_id/download",
-                get(download_content).with_state(namespace_endpoint_state.clone()))
-            .route("/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/content/:content_id",
+           .route("/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/content/:content_id",
                 get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()))
             .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
@@ -222,6 +224,9 @@ impl Server {
             .route(
                 "/namespaces/:namespace/active_content",
                 get(active_content).with_state(namespace_endpoint_state.clone()),
+            )
+            .route("/namespaces/:namespace/content/:content_id/download",
+                get(download_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/content/:content_id/metadata",

@@ -68,6 +68,8 @@ service CoordinatorService {
 
     rpc GetIngestionInfo(GetIngestionInfoRequest) returns (GetIngestionInfoResponse) {}
 
+    rpc StreamContentExtractionStatus(RequestContentExtractionEventStream) returns (stream ContentExtractionEvent) {}
+
     rpc WaitContentExtraction(WaitContentExtractionRequest) returns (WaitContentExtractionResponse) {}
 
     rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
@@ -556,6 +558,16 @@ message GetTaskResponse {
 
 message GetIngestionInfoRequest {
     string task_id = 1;
+}
+
+message RequestContentExtractionEventStream {
+    string namespace = 1;
+    string extraction_graph_name = 2;
+    string extraction_policy = 3;
+}
+
+message ContentExtractionEvent {
+    string content_id = 1;
 }
 
 message GetIngestionInfoResponse {
