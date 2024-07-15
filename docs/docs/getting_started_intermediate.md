@@ -1,8 +1,18 @@
 # Getting Started - Intermediate
 
+## California Tax Calculation Example
+
 In this example, we will make an LLM answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
 
-While this example is simple, if you were building a production application on tax laws, you can ingest and extract information from 100s of state specific documents.
+This example, while seemingly simple, demonstrates the power and flexibility of Indexify. In a real-world scenario, you could easily scale this approach to ingest and extract information from hundreds of state-specific documents, creating a robust tax consultation system.
+
+## Prerequisites
+Before we begin, ensure you have the following:
+
+- Python 3.11 or older installed (Indexify currently requires this version)
+- Basic familiarity with Python or TypeScript programming
+- An OpenAI API key (for using GPT models)
+- Command-line interface experience
 
 ## Indexify Server
 
@@ -12,8 +22,19 @@ Download the indexify server and run it
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
+Once running, the server provides two key endpoints:
+
+- `http://localhost:8900` - The main API endpoint for data ingestion and retrieval
+- `http://localhost:8900/ui` - A user interface for monitoring and debugging your Indexify pipelines
 
 ## Download the Extractors
+
+Extractors are specialized components in Indexify that process and transform data. For our tax law application, we'll need three specific extractors:
+
+- Marker Extractor: Converts PDF documents to Markdown format
+- Chunk Extractor: Splits text into manageable chunks
+- MiniLM-L6 Extractor: Generates embeddings for text chunks
+
 
 ??? note "Want the Source Code?"
 
@@ -64,7 +85,7 @@ Don't forget to install the necessary dependencies before running the rest of th
 
 ## Extraction Graph Setup
 
-Set up an extraction graph to process the PDF documents
+Set up an extraction graph to process the PDF documents. The extraction graph defines the sequence of operations that will be performed on our input data (the tax law PDF). Let's set it up:
 
 === "Python"
 
@@ -121,7 +142,11 @@ Set up an extraction graph to process the PDF documents
       })()
     ```
 
-The process begins by setting the name of the extraction graph to "pdfqa". Next, the `tensorlake/marker` extractor is used to convert the PDF document into a Markdown format. Following this, the text extracted by the `tensorlake/marker` extractor is chunked by specifying a `content_source` of `mdextract`. Finally, an embedding step is added to the pipeline, allowing each chunk to be embedded and searchable through semantic search.
+This extraction graph, named 'pdfqa', defines a three-step process:
+
+The `tensorlake/marker` extractor converts the PDF into Markdown format.
+The `tensorlake/chunk-extractor` splits the Markdown text into chunks of 1000 characters with a 100-character overlap.
+The `tensorlake/minilm-l6` extractor generates embeddings for each chunk, enabling semantic search capabilities.
 
 ## Document Ingestion
 
@@ -161,6 +186,13 @@ Add the PDF document to the "pdfqa" extraction graph:
         await client.uploadFile("pdfqa", filePath);
     })();
     ```
+This code does the following:
+
+1. Downloads the California tax law PDF from a public URL
+2. Saves the PDF locally as "taxes.pdf"
+3. Uploads the PDF to Indexify, associating it with our 'pdfqa' extraction graph
+
+Once uploaded, Indexify will automatically process the PDF through our defined extraction graph.
 
 ## Prompting and Context Retrieval Function
 
@@ -241,6 +273,13 @@ We can use the same prompting and context retrieval function defined above to ge
       }))
     })()
     ```
+This code does the following:
+
+1. Defines a `get_context` function that retrieves relevant passages from our processed PDF based on the question.
+2. Creates a `create_prompt` function that formats the question and context for the LLM.
+3. Uses OpenAI's GPT-3.5-turbo model to generate an answer based on the provided context.
+
+The example question asks about California tax brackets and calculates taxes for a $24,000 income. The LLM uses the context provided by our Indexify pipeline to formulate an accurate response as shown below.
 
 !!! note "Response"
 
@@ -261,3 +300,26 @@ We can use the same prompting and context retrieval function defined above to ge
     - Tax on next $12,550 ($24,000 - $11,450): $12,550 x 15% = $1,882.50
 
     Therefore, your total tax liability would be $1,145 + $1,882.50 = $3,027.50.
+
+## Conclusion
+
+This intermediate guide demonstrates how to use Indexify to create a sophisticated question-answering system for California tax laws. By ingesting a PDF, extracting and processing its content, and using an LLM for answer generation, we've created a flexible and powerful tool that could be easily expanded to cover more complex scenarios or multiple documents.
+
+The key strengths of this approach include:
+1. Automatic processing of complex documents (PDFs)
+2. Efficient chunking and embedding of text for quick retrieval
+3. Use of up-to-date, specific information for answer generation
+4. Scalability to handle multiple documents or more complex queries
+
+By following this guide, you've taken a significant step in leveraging Indexify's capabilities for real-world applications. As you continue to explore, consider how you might apply these techniques to other domains or expand the system to handle more diverse types of queries and documents
+
+## Next Steps
+
+| Topics | Subtopics |
+|--------|-----------|
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br>  • Transformation techniques<br>  • Structured Data Extraction methods<br>  • Advanced Embedding Extraction<br>  • Combining Transformation, Embedding, and Metadata Extraction<br>- Namespaces and data organization<br>- Content management strategies<br>- Designing complex Extraction Graphs<br>- Advanced Vector Index and Retrieval API usage<br>- Optimizing Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server<br>  • Coordinator functionality and optimization<br>  • Ingestion Server scalability<br>- Advanced Extractor configurations<br>- Deployment Layouts<br>  • Optimizing Local Mode for development<br>  • Scaling Production Mode for high-volume applications |
+| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth<br>- Designing extractors for specific data types or industries<br>- Implementing advanced extractor classes<br>- Strategies for testing and debugging complex extractors<br>- Integrating custom extractors into large-scale Indexify pipelines |
+| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis<br>- Real-time image and video content extraction systems<br>- Audio transcription and sentiment analysis pipelines<br>- Creating multi-modal data processing systems<br>- Implementing large-scale, distributed data ingestion and retrieval systems<br>- Building domain-specific question-answering systems (e.g., legal, medical, financial) |
+| Indexify in Production Environments | - Performance tuning and optimization techniques<br>- Implementing security best practices<br>- Monitoring and logging strategies<br>- Disaster recovery and high availability setups<br>- Integration with existing data ecosystems |
+| Advanced Integrations | - Combining Indexify with other AI and ML platforms<br>- Integrating Indexify into CI/CD pipelines<br>- Using Indexify with distributed computing frameworks<br>- Connecting Indexify to streaming data sources |
