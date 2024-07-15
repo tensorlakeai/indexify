@@ -23,8 +23,8 @@ import {
   ListItemText,
 } from '@mui/material'
 import { Link } from 'react-router-dom'
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { Cpu, Data, Grid7, MobileProgramming, SliderVertical1 } from 'iconsax-react'
+import HistoryIcon from '@mui/icons-material/History';
+import { Cpu, Data, Grid7, MobileProgramming } from 'iconsax-react'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
@@ -142,6 +142,15 @@ export default function Dashboard() {
               >
                 <Grid7 size="20" className="drawer-logo" variant="Outline"/>
                 <ListItemText primary={'SQL Tables'} />
+              </ListItemButton>
+            <ListItemButton
+                to={`/${namespace}/state-changes`}
+                component={Link}
+                selected={location.pathname.startsWith(`/${namespace}/state-changes`)}
+                className={location.pathname.startsWith(`/${namespace}/state-changes`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+              >
+                <HistoryIcon className="drawer-logo" />
+                <ListItemText primary={'System Changes'} />
               </ListItemButton>
             </List>
           </Box>
