@@ -10,7 +10,6 @@ use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
-use smart_default::SmartDefault;
 use strum::{Display, EnumString};
 use utoipa::{openapi, IntoParams, ToSchema};
 
@@ -112,16 +111,6 @@ impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
         Ok(Self { name: value.name })
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
-pub struct CreateNamespace {
-    pub name: String,
-    pub extraction_graphs: Vec<ExtractionGraph>,
-    pub labels: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateNamespaceResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetNamespaceResponse {
