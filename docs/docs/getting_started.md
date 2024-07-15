@@ -128,9 +128,10 @@ An extractor in Indexify is designed to process unstructured data. It receives d
 #### Key Concepts
 
 1. **Content**: Represents unstructured data with properties:
-   - `data`: Raw bytes of the unstructured data
-   - `content_type`: MIME type of the data (e.g., `text/plain`, `image/png`)
-   - `Feature`: Optional associated feature (embedding or JSON metadata)
+
+    - `data`: Raw bytes of the unstructured data
+    - `content_type`: MIME type of the data (e.g., `text/plain`, `image/png`)
+    - `Feature`: Optional associated feature (embedding or JSON metadata)
 
 2. **Feature**: Extracted information from unstructured data, such as embeddings or JSON metadata.
 
@@ -230,7 +231,7 @@ indexify-extractor join-server
 
 ## Step 4: Defining Our Data Pipeline
 
-We'll use a YAML file to define our data pipeline. This pipeline will take text documents, split them into small chunks, extract entities, and embed the chunks in parallel. The following diagram describes the Indexify end-to-end pipeline
+We’ll define our data pipeline using a YAML file to process text documents by splitting them into chunks, extracting entities, and embedding the chunks in parallel. The following diagram outlines the Indexify end-to-end pipeline.
 
 ![Extraction Policy Graph](images/extraction_graph_getting_started.jpg){: style="height:300px"}
 
@@ -260,11 +261,11 @@ This YAML file defines three extraction policies:
 
 These are the three key extractors are utilized to process and analyze the input content from Wikipedia:
 
-1. OpenAI Extractor (`tensorlake/openai`): This extractor supports various input types including text, PDF, and images. It leverages OpenAI's language models (such as GPT-3.5 Turbo or GPT-4) to perform entity extraction from the input content. The extractor can be customized with specific system and user prompts to tailor its output.
+1. OpenAI Extractor (`tensorlake/openai`): Uses OpenAI’s language models for entity extraction from various input types (text, PDF, images). The extractor can be customized with specific system and user prompts to tailor its output.
 
-2. Chunk Extractor (`tensorlake/chunk-extractor`): This extractor is responsible for breaking down the input text into smaller, manageable chunks. It offers flexibility in chunk size and overlap, and can use different text splitting strategies (e.g., recursive, markdown, or HTML-based splitting).
+2. Chunk Extractor (`tensorlake/chunk-extractor`): Breaks down text into chunks, offering flexibility in chunk size and overlap.
 
-3. MiniLM-L6 Extractor (`tensorlake/minilm-l6`): This extractor is likely used for generating embeddings of the text chunks. MiniLM-L6 is a compact and efficient language model that can create high-quality vector representations of text, which are crucial for semantic search and similarity-based retrieval.
+3. MiniLM-L6 Extractor (`tensorlake/minilm-l6`): Generates embeddings of the text chunks for semantic search and retrieval.
 
 These extractors work in concert to transform raw, unstructured input into processed, indexed, and easily retrievable information, forming the backbone of the Indexify pipeline for tasks such as entity recognition, text segmentation, and semantic embedding. You can learn more about different types of available extractors and their usage [here](https://docs.getindexify.ai/apis/extractors/).
 
