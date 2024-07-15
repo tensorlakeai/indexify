@@ -72,7 +72,6 @@ pub struct NamespaceEndpointState {
 #[openapi(
         paths(
             create_namespace,
-            create_extraction_graph,
             list_namespaces,
             get_namespace,
             list_indexes,
@@ -81,8 +80,10 @@ pub struct NamespaceEndpointState {
             list_content,
             get_content_metadata,
             list_state_changes,
+            create_extraction_graph,
             list_extraction_graphs,
             link_extraction_graphs,
+            extraction_graph_links,
             upload_file,
             list_tasks,
             index_search,
@@ -95,7 +96,7 @@ pub struct NamespaceEndpointState {
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
-            ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse
+            ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
         )
         ),
         tags(
@@ -638,7 +639,7 @@ async fn get_namespace(
 // Create a new extraction graph in the namespace
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/extraction_graph",
+    path = "/namespace/{namespace}/extraction_graphs",
     request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/json"),
     tag = "ingestion",
     responses(
@@ -692,7 +693,7 @@ async fn link_extraction_graphs(
     path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
     tag = "ingestion",
     responses(
-        (status = 200, description = "List of extraction graph links", body = ExtractionGraphLinksResponse),
+        (status = 200, description = "List of extraction graph links", body = Vec<ExtractionGraphLink>),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list links")
     ),
 )]
