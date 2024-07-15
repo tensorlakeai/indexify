@@ -764,6 +764,20 @@ async fn update_labels(
 #[utoipa::path(
     get,
     path= "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("source" = Option<String>, Query, description = "Filter by source, either extraction policy name or 'ingestion' for top level content"),
+        ("parent_id" = Option<String>, Query, description = "Filter by parent ID"),
+        ("labels_filter" = Option<Vec<String>>, Query, description = "Filter by labels. 
+        Filter expression is the name of the label, comparison operator, and desired value, e.g. &filter=key>=value. 
+        Multiple expressions can be specified as separate query parameters.", example="&filter=key1%3Dvalue1,&filter=key2%3Dvalue2"),
+        ("start_id" = Option<String>, Query, description = "Pagination start ID. 
+        Omit to start from beginning. To continue iteration, 
+        specify id of the last content in the previous response"),
+        ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
+        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
+    ),
     tag = "retrieval",
     responses(
         (status = 200, description = "Lists the contents in the namespace", body = ListContentResponse),
@@ -776,7 +790,6 @@ async fn list_content(
     State(state): State<NamespaceEndpointState>,
     axum_extra::extract::Query(filter): axum_extra::extract::Query<super::api::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
-    println!("filter: {:?}", filter.labels_filter);
     let response = state
         .data_manager
         .list_content(
