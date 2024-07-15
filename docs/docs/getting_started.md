@@ -240,7 +240,7 @@ indexify-extractor join-server
 
 We'll use a YAML file to define our data pipeline. This pipeline will take text documents, split them into small chunks, extract entities, and embed the chunks in parallel. The following diagram describes the Indexify end-to-end pipeline
 
-![Extraction Policy Graph](https://github.com/user-attachments/assets/5d4d7a4e-b7c3-401e-965a-e43b22f539a8)
+![Extraction Policy Graph](https://github.com/user-attachments/assets/03edf611-149c-4387-a1a8-bfe48ca58d6c)
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
