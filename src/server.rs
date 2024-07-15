@@ -1330,6 +1330,18 @@ async fn list_state_changes(
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extraction_policies/{extraction_policy}/tasks",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("extraction_policy" = String, Path, description = "Extraction policy name"),
+        ("content_id" = Option<String>, Query, description = "Filter by content ID"),
+        ("outcome" = Option<String>, Query, description = "Filter by task outcome"),
+        ("start_id" = Option<String>, Query, description = "Pagination start ID. 
+        Omit to start from beginning. To continue iteration, 
+        specify id of the last task in the previous response"),
+        ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
+        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
+    ),
     tag = "operations",
     responses(
         (status = 200, description = "Lists tasks", body = ListTasksResponse),
@@ -1348,9 +1360,10 @@ async fn list_tasks(
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .list_tasks(ListTasksRequest {
-            namespace: namespace.clone(),
+            extraction_graph,
+            namespace,
             extraction_policy,
-            start_id: query.start_id.clone().unwrap_or_default(),
+            start_id: query.start_id.unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
             return_total: query.return_total,

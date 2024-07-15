@@ -742,7 +742,6 @@ pub struct GetExtractedMetadataResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListTasks {
-    pub extraction_policy: Option<String>,
     pub content_id: Option<String>,
     pub start_id: Option<String>,
     pub limit: Option<u64>,
