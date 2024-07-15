@@ -4,7 +4,7 @@ Hello and welcome to this Getting Started guide. We do not assume anything other
 
 ## Beginner's Guide to Indexify: Building a Wikipedia Information Retrieval System
 
-![Getting-Started-Cover-Image](https://github.com/user-attachments/assets/1ec01ede-9da0-4483-adcd-3ee5c583595b)
+![Getting-Started-Cover-Image](https://github.com/user-attachments/assets/bce022db-3586-4cac-81ba-eb4426cdd90c)
 
 In this guide, we'll walk you through creating an online ingestion pipeline for Wikipedia pages. This pipeline will demonstrate how to:
 
