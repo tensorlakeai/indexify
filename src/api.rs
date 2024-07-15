@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::{openapi, IntoParams, ToSchema};
 
 use crate::{api_utils, metadata_storage, vectordbs};
 
@@ -72,6 +72,7 @@ pub struct ExtractionPolicy {
     pub extractor: String,
     pub name: String,
     #[serde(default)]
+    #[schema(schema_with = filter_schema)]
     pub filter: filter::LabelsFilter,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
@@ -169,12 +170,28 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
     }
 }
 
+fn filter_schema() -> openapi::Array {
+    openapi::ArrayBuilder::new()
+        .description(Some("Filter for content labels, list of expressions."))
+        .items(
+            openapi::ObjectBuilder::new()
+                .schema_type(openapi::SchemaType::String)
+                .description(Some(
+                    "filter expression in format key/operator/value, e.g. key>=value",
+                ))
+                .build(),
+        )
+        .example(Some(serde_json::json!(vec!["key1=value1", "key2>=value2"])))
+        .build()
+}
+
 /// Request payload for creating a new vector index.
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct ExtractionPolicyRequest {
     pub extractor: String,
     pub name: String,
     #[serde(default)]
+    #[schema(schema_with = filter_schema)]
     pub filter: LabelsFilter,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
@@ -322,6 +339,7 @@ pub struct SearchRequest {
     pub query: String,
     pub k: Option<u64>,
     #[serde(default)]
+    #[schema(schema_with = filter_schema)]
     pub filters: LabelsFilter,
     pub include_content: Option<bool>,
 }
@@ -836,14 +854,14 @@ pub struct UploadFileResponse {
     pub content_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphRequest {
     pub name: String,
     pub description: Option<String>,
     pub extraction_policies: Vec<ExtractionPolicyRequest>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphResponse {
     pub indexes: Vec<String>,
 }
