@@ -62,6 +62,10 @@ interface ExtendedContentTableProps {
 
 const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph, graphName, namespace }) => {
 
+  const [tabValue, setTabValue] = useState<string>("ingested");
+  const [policy, setPolicy] = useState("any");
+  const [contentId, setContentId] = useState("");
+
   const columns: GridColDef[] = [
   {
     field: "id",
@@ -78,16 +82,11 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
       </Box>
   },
   { field: "children", headerName: "Children", width: 130, type: "number" },
-  { field: "source", headerName: "Source", flex: 1 },
+  ...(tabValue === "search" ? [{ field: "source", headerName: "Source", flex: 1 }] : []),
   { field: "parentId", headerName: "Parent ID", flex: 1 },
   { field: "labels", headerName: "Labels", flex: 1 },
   { field: "createdAt", headerName: "Created At", width: 200 }
 ];
-
-
-  const [tabValue, setTabValue] = useState<string>("ingested");
-  const [policy, setPolicy] = useState("any");
-  const [contentId, setContentId] = useState("");
 
   const handleTabChange = (
     event: React.MouseEvent<HTMLElement>,
@@ -120,7 +119,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
         (policy !== "any" ? row.source === policy : true)
       );
     } else if (tabValue === "ingested") {
-      return rows.filter(row => row.source === "ingested");
+      return rows.filter(row => row.source === "ingested" || row.source === "");
     }
     return rows;
   }, [rows, tabValue, contentId, policy]);

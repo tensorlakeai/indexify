@@ -14,6 +14,7 @@ import { ExtractionGraph, Extractor, IContentMetadata, IndexifyClient } from 'ge
 import { mapExtractionPoliciesToRows } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
 import { IHash } from '../../types';
+import CopyText from '../../components/CopyText';
 
 const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
   if (!contentList || !Array.isArray(contentList) || contentList.length === 0) {
@@ -65,8 +66,6 @@ const IndividualExtractionGraphPage = () => {
       return groupContentByGraphs(contentList)
   }, [contentList])
 
-  console.log('tasks', tasks);
-
   const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  
   const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName, tasks);
@@ -89,8 +88,8 @@ const IndividualExtractionGraphPage = () => {
             <div className="heading-icon-container">
               <TableDocument size="25" className="heading-icons" variant="Outline"/>
             </div>
-            <Typography variant="h4">
-              {extractorName}
+            <Typography variant="h4" display={'flex'} flexDirection={'row'}>
+              {extractorName} <CopyText text={extractorName} />
             </Typography>
           </div>
           <ExtractorGraphTable rows={mappedRows} graphName={extractorName} />

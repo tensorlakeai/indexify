@@ -1,6 +1,7 @@
 import React from 'react';
 import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Box, Chip } from '@mui/material';
 import { Row } from '../../utils/helpers';
+import CopyText from '../../components/CopyText';
 
 interface ExtractorTableProps {
   rows: Row[];
@@ -32,7 +33,10 @@ const ExtractorGraphTable: React.FC<ExtractorTableProps> = ({ rows, graphName })
                       <Box key={i} sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#6FA8EA', mr: 0.5 }} />
                     ))}
                   </Box>
+                  <Box display={'flex'} flexDirection={'row'} alignItems={'center'}>
                   {row.name}
+                  <CopyText text={row.name} />
+                  </Box>
                 </Box>
               </TableCell>
               <TableCell sx={{ pt: 2}}>{row.extractor}</TableCell>
