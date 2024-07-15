@@ -119,7 +119,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
         (policy !== "any" ? row.source === policy : true)
       );
     } else if (tabValue === "ingested") {
-      return rows.filter(row => row.source === "ingested" || row.source === "");
+      return rows.filter(row => row.source === "ingestion" || row.source === "");
     }
     return rows;
   }, [rows, tabValue, contentId, policy]);
