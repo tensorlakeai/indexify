@@ -114,14 +114,16 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
   }, [filteredContent]);
 
   const filteredRows = useMemo(() => {
-   if (tabValue === "search") {
-    return rows.filter(row => 
-      (contentId ? row.id.includes(contentId) : true) &&
-      (policy !== "any" ? row.source === policy : true)
-    );
-  }
-   return rows;
-  }, [rows, tabValue, contentId , policy]);
+    if (tabValue === "search") {
+      return rows.filter(row => 
+        (contentId ? row.id.includes(contentId) : true) &&
+        (policy !== "any" ? row.source === policy : true)
+      );
+    } else if (tabValue === "ingested") {
+      return rows.filter(row => row.source === "ingested");
+    }
+    return rows;
+  }, [rows, tabValue, contentId, policy]);
 
   const extractionPolicyOptions = useMemo(() => {
     const extractionPolicies = extractionGraph?.extraction_policies || [];
