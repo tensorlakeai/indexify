@@ -1,8 +1,10 @@
+/* eslint-disable react/jsx-no-undef */
 import React, { useMemo } from 'react';
-import { Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { useLoaderData } from 'react-router-dom';
 import { StateChange } from '../../types';
+import { Cpu } from 'iconsax-react';
 
 const StateChangesPage = () => {
   const { stateChanges } = useLoaderData() as {
@@ -31,30 +33,45 @@ const StateChangesPage = () => {
   };
 
   return (
-    <Paper style={{ height: '100vh', width: '100%' }}>
-      <TableVirtuoso
-        data={rows}
-        components={VirtuosoTableComponents}
-        fixedHeaderContent={() => (
-          <TableRow>
-            {columns.map((column) => (
-              <TableCell key={column.key} style={{ fontWeight: 'bold' }}>
-                {column.label}
-              </TableCell>
-            ))}
-          </TableRow>
-        )}
-        itemContent={(_index, row) => (
-          <>
-            {columns.map((column) => (
-              <TableCell key={column.key}>
-                {row[column.key as keyof StateChange]?.toString() ?? 'N/A'}
-              </TableCell>
-            ))}
-          </>
-        )}
-      />
-    </Paper>
+    <>
+      <Stack
+        display={'flex'}
+        direction={'row'}
+        alignItems={'center'}
+        spacing={2}
+      >
+        <div className="heading-icon-container">
+          <Cpu size="25" className="heading-icons" variant="Outline" />
+        </div>
+        <Typography variant="h4">
+          System Changes
+        </Typography>
+      </Stack>
+      <Paper style={{ height: '100vh', width: '100%', marginTop: 10, boxShadow: "0px 0px 3px -1px #6FA8EA inset" }} elevation={0}>
+        <TableVirtuoso
+          data={rows}
+          components={VirtuosoTableComponents}
+          fixedHeaderContent={() => (
+            <TableRow>
+              {columns.map((column) => (
+                <TableCell key={column.key} style={{ fontWeight: 500 }}>
+                  {column.label}
+                </TableCell>
+              ))}
+            </TableRow>
+          )}
+          itemContent={(_index, row) => (
+            <>
+              {columns.map((column) => (
+                <TableCell key={column.key}>
+                  {row[column.key as keyof StateChange]?.toString() ?? 'N/A'}
+                </TableCell>
+              ))}
+            </>
+          )}
+        />
+      </Paper>
+    </>
   );
 };
 
