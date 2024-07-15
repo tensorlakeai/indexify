@@ -20,6 +20,7 @@
     "@types/react-router-dom": "^5.3.3",
     "axios": "^1.6.7",
     "crypto": "^1.0.1",
+    "date-fns": "^3.6.0",
     "getindexify": "^0.0.51",
     "iconsax-react": "^0.0.8",
     "moment": "^2.30.1",

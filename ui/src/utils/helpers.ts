@@ -141,3 +141,11 @@ export async function getTasksForExtractionGraph(
   }
   return tasks_by_policies;
 }
+
+export const formatTimestamp = (value: string | number | null | undefined): string => {
+    if (value == null) return 'N/A';
+    const timestamp = typeof value === 'string' ? parseInt(value, 10) : value;
+    if (isNaN(timestamp)) return 'Invalid Date';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+  };

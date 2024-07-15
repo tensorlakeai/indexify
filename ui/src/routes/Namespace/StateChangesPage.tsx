@@ -1,10 +1,10 @@
-/* eslint-disable react/jsx-no-undef */
 import React, { useMemo } from 'react';
 import { Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { useLoaderData } from 'react-router-dom';
 import { StateChange } from '../../types';
 import { Cpu } from 'iconsax-react';
+import { formatTimestamp } from '../../utils/helpers';
 
 const StateChangesPage = () => {
   const { stateChanges } = useLoaderData() as {
@@ -15,9 +15,16 @@ const StateChangesPage = () => {
     { key: 'id', label: 'ID' },
     { key: 'change_type', label: 'Change Type' },
     { key: 'object_id', label: 'Object ID' },
-    { key: 'created_at', label: 'Created At' },
-    { key: 'processed_at', label: 'Processed At' },
-    // { key: 'refcnt_object_id', label: 'Refcnt Object ID' },
+    { 
+      key: 'created_at', 
+      label: 'Created At',
+      format: formatTimestamp
+    },
+    { 
+      key: 'processed_at', 
+      label: 'Processed At',
+      format: formatTimestamp
+    },
   ], []);
 
   const rows = useMemo(() => stateChanges, [stateChanges]);
@@ -64,7 +71,9 @@ const StateChangesPage = () => {
             <>
               {columns.map((column) => (
                 <TableCell key={column.key}>
-                  {row[column.key as keyof StateChange]?.toString() ?? 'N/A'}
+                  {column.format
+                    ? column.format(row[column.key as keyof StateChange])
+                    : row[column.key as keyof StateChange]?.toString() ?? 'N/A'}
                 </TableCell>
               ))}
             </>
