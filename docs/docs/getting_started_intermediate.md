@@ -1,10 +1,15 @@
 # Getting Started - Intermediate
 
+Hello and welcome to the Intermediate Getting Started guide. Please go through the [Getting Started Basic](https://docs.getindexify.ai/getting_started/) guide for Indexify if you haven't already.
+
 ## California Tax Calculation Example
 
-In this example, we will make an LLM answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
+In this example, we will make an LLM (Large Language Model) answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
 
-This example, while seemingly simple, demonstrates the power and flexibility of Indexify. In a real-world scenario, you could easily scale this approach to ingest and extract information from hundreds of state-specific documents, creating a robust tax consultation system.
+<img src="https://github.com/user-attachments/assets/79839395-3a42-49a7-86a6-1bc9c4e407f9" alt="Image description" height="1024">
+
+
+This seemingly simple example demonstrates the power and flexibility of Indexify. In a real-world scenario, you could easily scale this approach to ingest and extract information from hundreds of state-specific documents, creating a robust tax consultation system.
 
 ## Prerequisites
 Before we begin, ensure you have the following:
@@ -144,9 +149,13 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
 
 This extraction graph, named 'pdfqa', defines a three-step process:
 
-The `tensorlake/marker` extractor converts the PDF into Markdown format.
-The `tensorlake/chunk-extractor` splits the Markdown text into chunks of 1000 characters with a 100-character overlap.
-The `tensorlake/minilm-l6` extractor generates embeddings for each chunk, enabling semantic search capabilities.
+1. The `tensorlake/marker` extractor converts the PDF into Markdown format.
+2. The `tensorlake/chunk-extractor` splits the Markdown text into chunks of 1000 characters with a 100-character overlap.
+3. The `tensorlake/minilm-l6` extractor generates embeddings for each chunk, enabling semantic search capabilities.
+
+The following diagram expresses the pipeline in detail.
+
+![Indexify Extractors Presentation](https://github.com/user-attachments/assets/80149ab7-e698-47a3-b853-7add9a7b60d6)
 
 ## Document Ingestion
 
@@ -321,5 +330,4 @@ By following this guide, you've taken a significant step in leveraging Indexify'
 | [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server<br>  • Coordinator functionality and optimization<br>  • Ingestion Server scalability<br>- Advanced Extractor configurations<br>- Deployment Layouts<br>  • Optimizing Local Mode for development<br>  • Scaling Production Mode for high-volume applications |
 | [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth<br>- Designing extractors for specific data types or industries<br>- Implementing advanced extractor classes<br>- Strategies for testing and debugging complex extractors<br>- Integrating custom extractors into large-scale Indexify pipelines |
 | [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis<br>- Real-time image and video content extraction systems<br>- Audio transcription and sentiment analysis pipelines<br>- Creating multi-modal data processing systems<br>- Implementing large-scale, distributed data ingestion and retrieval systems<br>- Building domain-specific question-answering systems (e.g., legal, medical, financial) |
-| Indexify in Production Environments | - Performance tuning and optimization techniques<br>- Implementing security best practices<br>- Monitoring and logging strategies<br>- Disaster recovery and high availability setups<br>- Integration with existing data ecosystems |
-| Advanced Integrations | - Combining Indexify with other AI and ML platforms<br>- Integrating Indexify into CI/CD pipelines<br>- Using Indexify with distributed computing frameworks<br>- Connecting Indexify to streaming data sources |
+
