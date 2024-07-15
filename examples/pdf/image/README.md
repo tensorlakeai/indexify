@@ -62,6 +62,9 @@ Before we begin, ensure you have the following:
    ```bash
    python upload_and_retrieve.py
    ```
+   Sample Page to extract image from:
+   <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/>
+   Sample Image extracted from page:
    <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="600"/>
 
    This script will:
