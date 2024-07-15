@@ -408,7 +408,8 @@ The example question asks about California tax brackets and calculates taxes for
 
 This intermediate guide demonstrates how to use Indexify to create a sophisticated question-answering system for California tax laws. By ingesting a PDF, extracting and processing its content, and using an LLM for answer generation, we've created a flexible and powerful tool that could be easily expanded to cover more complex scenarios or multiple documents.
 
-The key strengths of this approach include:
+The key strengths of this pipeline would be:
+
 1. Automatic processing of complex documents (PDFs)
 2. Efficient chunking and embedding of text for quick retrieval
 3. Use of up-to-date, specific information for answer generation
