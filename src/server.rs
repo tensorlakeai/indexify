@@ -72,6 +72,7 @@ pub struct NamespaceEndpointState {
 #[openapi(
         paths(
             create_namespace,
+            create_extraction_graph,
             list_namespaces,
             get_namespace,
             list_indexes,
@@ -94,7 +95,7 @@ pub struct NamespaceEndpointState {
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
-            ListExtractionGraphResponse, ExtractionGraphLink,
+            ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse
         )
         ),
         tags(
@@ -638,7 +639,7 @@ async fn get_namespace(
 #[utoipa::path(
     post,
     path = "/namespace/{namespace}/extraction_graph",
-    request_body = ExtractionGraphRequest,
+    request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/json"),
     tag = "ingestion",
     responses(
         (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
