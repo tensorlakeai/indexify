@@ -19,7 +19,56 @@ Before we begin, ensure you have the following:
 - An OpenAI API key (for using GPT models)
 - Command-line interface experience
 
-## Indexify Server
+## Setup
+
+You'll need three separate terminal windows open for this tutorial:
+
+1. Terminal 1: For downloading and running the Indexify Server
+2. Terminal 2: For running Indexify extractors (handling structured extraction, chunking, and embedding)
+3. Terminal 3: For running Python scripts to load and query data from the Indexify server
+
+We'll use the following notation to indicate which terminal to use:
+
+```bash title="( Terminal X ) Description of Command"
+<command goes here>
+```
+
+### Understanding Indexify Components
+
+Before we dive in, let's briefly explain the key components of Indexify:
+
+1. **Indexify Server**: The central coordinator and data ingestion API.
+2. **Extractors**: Specialized workers designed to perform specific data processing tasks (e.g., embedding data, generating summaries, or extracting features from unstructured data).
+3. **Extraction Graph**: A declarative YAML file that chains together extractors into a complex pipeline.
+
+
+Also before we look into creating pipelines for ingestion and query, it is best to lay out the directory structure of our project.
+
+```plaintext title="Directory Structure"
+indexify-tax-calculator/
+│
+├── venv/                      # Virtual environment (created by python3 -m venv venv)
+│
+├── setup_extraction_graph.py  # Script to set up the extraction graph
+├── ingest_document.py         # Script to download and ingest the PDF
+├── query_tax_info.py          # Script for question-answering functionality
+│
+├── taxes.pdf                  # Downloaded California tax law PDF
+│
+└── indexify                   # Indexify server executable (downloaded by curl command)
+```
+
+To use this structure:
+
+1. Create a new directory called `indexify-tax-calculator`.
+2. Navigate into this directory in your terminal.
+3. Create the virtual environment and activate it (discussed below).
+4. Create each of the `.py` and `.yaml` files in the root of this directory (discussed below).
+5. Run the curl command to download the Indexify executable into this directory (discussed below).
+
+This structure keeps all the components of our tutorial project organized in one place, making it easy to manage and run the different scripts.
+
+## Stage 1: Setting Up the Indexify Server
 
 Download the indexify server and run it
 
@@ -32,7 +81,7 @@ Once running, the server provides two key endpoints:
 - `http://localhost:8900` - The main API endpoint for data ingestion and retrieval
 - `http://localhost:8900/ui` - A user interface for monitoring and debugging your Indexify pipelines
 
-## Download the Extractors
+## Stage 2: Downloading and Setting Up Extractors
 
 Extractors are specialized components in Indexify that process and transform data. For our tax law application, we'll need three specific extractors:
 
@@ -45,7 +94,8 @@ Extractors are specialized components in Indexify that process and transform dat
 
     The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/intermediate) in our example folder
 
-Before we begin, let's download the extractors
+
+Before we begin, let's setup a virtual environment for Python projects and download the extractors
 
 !!! note "Python Versions"
 
@@ -72,29 +122,28 @@ You'll be able to verify that the three extractors are available by going to
 the [dashboard](http://localhost:8900/ui/default) and looking at the extractors
 section.
 
-## Install the libraries
+## Stage 3: Installing Required Libraries
 
 Don't forget to install the necessary dependencies before running the rest of this tutorial.
 
 === "Python"
 
-    ```bash
+    ```bash title="( Terminal 2 ) Install libraries"
     pip3 install indexify openai
     ```
 
 === "Typescript"
 
-    ```bash
+    ```bash title="( Terminal 2 ) Install libraries"
     npm install axios getindexify openai
     ```
-
-## Extraction Graph Setup
+## Stage 4: Setting Up the Extraction Graph
 
 Set up an extraction graph to process the PDF documents. The extraction graph defines the sequence of operations that will be performed on our input data (the tax law PDF). Let's set it up:
 
 === "Python"
 
-    ``` python
+    ``` python title="setup_extraction_graph.py"
     from indexify import ExtractionGraph, IndexifyClient
 
     client = IndexifyClient()
@@ -121,7 +170,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
 
 === "Typescript"
 
-    ```javascript
+    ```javascript title="setup_extraction_graph.ts"
     import { ExtractionGraph, IndexifyClient } from "getindexify"
 
     (async () => {
@@ -157,13 +206,13 @@ The following diagram expresses the pipeline in detail.
 
 ![Indexify Extractors Presentation](https://github.com/user-attachments/assets/80149ab7-e698-47a3-b853-7add9a7b60d6)
 
-## Document Ingestion
+## Stage 5: Document Ingestion
 
 Add the PDF document to the "pdfqa" extraction graph:
 
 === "Python"
 
-    ```python
+    ```python title="ingest_document.py"
     import requests
     from indexify import IndexifyClient
 
@@ -178,7 +227,7 @@ Add the PDF document to the "pdfqa" extraction graph:
 
 === "TypeScript"
 
-    ```typescript
+    ```typescript title="ingest_document.ts"
     import axios from 'axios';
     import { promises as fs } from 'fs';
     import { IndexifyClient } from "getindexify";
@@ -203,7 +252,7 @@ This code does the following:
 
 Once uploaded, Indexify will automatically process the PDF through our defined extraction graph.
 
-## Prompting and Context Retrieval Function
+## Stage 6: Implementing Question-Answering Functionality
 
 We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
 
@@ -213,7 +262,7 @@ We can use the same prompting and context retrieval function defined above to ge
 
 === "Python"
 
-    ```python
+    ```python title="query_tax_info.py"
     from openai import OpenAI
     from indexify import IndexifyClient
 
@@ -248,9 +297,9 @@ We can use the same prompting and context retrieval function defined above to ge
     print(chat_completion.choices[0].message.content)
     ```
 
-=== "Typescript"
+=== "Typescript" 
 
-    ```typescript
+    ```typescript title="query_tax_info.ts"
     import { ExtractionGraph, IndexifyClient } from "getindexify";
     import { OpenAI } from "openai";
 
