@@ -13,6 +13,7 @@ import { Link, useLoaderData } from 'react-router-dom';
 import { ExtractionGraph, Extractor, IContentMetadata, IndexifyClient } from 'getindexify';
 import { mapExtractionPoliciesToRows } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
+import { IHash } from '../../types';
 
 const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
   if (!contentList || !Array.isArray(contentList) || contentList.length === 0) {
@@ -56,7 +57,7 @@ const IndividualExtractionGraphPage = () => {
       namespace: string
       client: IndexifyClient
       extractionGraph: ExtractionGraph
-      tasks: any,
+      tasks: IHash,
       extractors: Extractor[],
       contentList: IContentMetadata[],
     }

@@ -31,3 +31,12 @@ export type TaskCountsMap = Map<
 export interface IHash {
   [key: string]: ITask[];
 }
+
+export interface StateChange {
+  id: number;
+  object_id: string;
+  change_type: string;
+  created_at: number;
+  processed_at: number;
+  refcnt_object_id: string | null;
+}
