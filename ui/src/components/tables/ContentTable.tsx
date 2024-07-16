@@ -244,7 +244,12 @@ const ContentTable = ({
           onPaginationModelChange={setPaginationModel}
           paginationMode="server"
           loading={loading}
-          pageSizeOptions={[5]}
+          pageSizeOptions={[5, 10, 20]}
+          initialState={{
+            pagination: {
+              paginationModel: { page: 0, pageSize: 5 }
+            }
+          }}
           className="custom-data-grid"
         />
       </Box>

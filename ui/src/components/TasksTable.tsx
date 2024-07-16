@@ -169,7 +169,12 @@ const TasksTable = ({
           onPaginationModelChange={setPaginationModel}
           paginationMode="server"
           loading={loading}
-          pageSizeOptions={[20]}
+          pageSizeOptions={[5, 10, 20]}
+          initialState={{
+            pagination: {
+              paginationModel: { page: 0, pageSize: 5 }
+            }
+          }}
         />
       </Box>
     )

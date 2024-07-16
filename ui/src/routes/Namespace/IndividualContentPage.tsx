@@ -129,21 +129,6 @@ const IndividualContentPage = () => {
 
   const columns: GridColDef[] = [
   {
-    field: 'view',
-    headerName: '',
-    width: 100,
-    renderCell: (params: GridRenderCellParams) => (
-      <Link
-        to={`/${params.row.namespace}/content/${params.row.id}`}
-        target="_blank"
-      >
-        <Button sx={{ py: 0.5, px: 2 }} variant="outlined">
-          View
-        </Button>
-      </Link>
-    ),
-  },
-  {
     field: 'id',
     headerName: 'ID',
     width: 200,
@@ -240,7 +225,7 @@ const IndividualContentPage = () => {
           columns={columns}
           paginationModel={paginationModel}
           onPaginationModelChange={setPaginationModel}
-          pageSizeOptions={[5, 10]}
+          pageSizeOptions={[5, 10, 20]}
         />
       </Box>
     )
@@ -274,8 +259,7 @@ const IndividualContentPage = () => {
         contentUrl={`${contentMetadata.content_url}`}
         textContent={textContent}
       />
-      {/* 
-        <Box>
+      {/* <Box>
         <Box justifyContent={'space-between'} display={'flex'}>
           <Tabs
             value={currentTab}
@@ -330,8 +314,7 @@ const IndividualContentPage = () => {
           )}
         </Box>
         {renderContent()}
-      </Box>
-      */}
+      </Box> */}
       {/* <ExtractedMetadataTable
         extractedMetadata={contentMetadata}
       /> */}
