@@ -43,7 +43,7 @@ use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    api::{self, *},
+    api::*,
     blob_storage::{BlobStorage, ContentReader},
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
@@ -73,28 +73,30 @@ pub struct NamespaceEndpointState {
         paths(
             create_namespace,
             list_namespaces,
-            get_namespace,
             list_indexes,
             list_extractors,
             list_executors,
             list_content,
+            update_content,
             get_content_metadata,
             list_state_changes,
+            create_extraction_graph,
             list_extraction_graphs,
             link_extraction_graphs,
+            extraction_graph_links,
             upload_file,
             list_tasks,
             index_search,
         ),
         components(
-            schemas(CreateNamespace, CreateNamespaceResponse, IndexDistance,
+            schemas(IndexDistance,
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
             , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
-            ListExtractionGraphResponse, ExtractionGraphLink,
+            ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
         )
         ),
         tags(
@@ -265,10 +267,6 @@ impl Server {
             .route(
                 "/namespaces",
                 get(list_namespaces).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace",
-                get(get_namespace).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/executors",
@@ -476,31 +474,28 @@ async fn root() -> &'static str {
 #[utoipa::path(
     post,
     path = "/namespaces",
-    request_body = CreateNamespace,
+    request_body = DataNamespace,
     tag = "ingestion",
     responses(
-        (status = 200, description = "Namespace synced successfully", body = CreateNamespaceResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
+        (status = 200, description = "Namespace created successfully"),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to create namespace")
     ),
 )]
 async fn create_namespace(
     State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<CreateNamespace>,
-) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
-    let data_namespace = api::DataNamespace {
-        name: payload.name.clone(),
-    };
+    Json(payload): Json<DataNamespace>,
+) -> Result<(), IndexifyAPIError> {
     state
         .data_manager
-        .create_namespace(&data_namespace)
+        .create_namespace(&payload)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to sync namespace: {}", e),
+                &format!("failed to create namespace: {}", e),
             )
         })?;
-    Ok(Json(CreateNamespaceResponse {}))
+    Ok(())
 }
 
 /// List all namespaces registered on the server
@@ -607,38 +602,11 @@ async fn namespace_open_api(
     Ok(Json(openapi))
 }
 
-/// Get metadata for a specific namespace
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/namespaces/{namespace}",
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "namespace with a given name", body=GetNamespaceResponse),
-        (status = 404, description = "Namespace not found"),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to get namespace")
-    ),
-)]
-async fn get_namespace(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<GetNamespaceResponse>, IndexifyAPIError> {
-    let data_namespace = state.data_manager.get(&namespace).await.map_err(|e| {
-        IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to get namespace: {}", e),
-        )
-    })?;
-    Ok(Json(GetNamespaceResponse {
-        namespace: data_namespace,
-    }))
-}
-
 // Create a new extraction graph in the namespace
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/extraction_graph",
-    request_body = ExtractionGraphRequest,
+    path = "/namespace/{namespace}/extraction_graphs",
+    request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/json"),
     tag = "ingestion",
     responses(
         (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
@@ -691,7 +659,7 @@ async fn link_extraction_graphs(
     path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
     tag = "ingestion",
     responses(
-        (status = 200, description = "List of extraction graph links", body = ExtractionGraphLinksResponse),
+        (status = 200, description = "List of extraction graph links", body = Vec<ExtractionGraphLink>),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list links")
     ),
 )]
@@ -1142,6 +1110,8 @@ async fn upload_file(
     ))
 }
 
+// Update a content. All the extraction graphs associated with the content will
+// be run if the content has changed.
 #[tracing::instrument]
 #[utoipa::path(
     put,
@@ -1329,6 +1299,18 @@ async fn list_state_changes(
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extraction_policies/{extraction_policy}/tasks",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("extraction_policy" = String, Path, description = "Extraction policy name"),
+        ("content_id" = Option<String>, Query, description = "Filter by content ID"),
+        ("outcome" = Option<String>, Query, description = "Filter by task outcome"),
+        ("start_id" = Option<String>, Query, description = "Pagination start ID. 
+        Omit to start from beginning. To continue iteration, 
+        specify id of the last task in the previous response"),
+        ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
+        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
+    ),
     tag = "operations",
     responses(
         (status = 200, description = "Lists tasks", body = ListTasksResponse),
@@ -1347,9 +1329,10 @@ async fn list_tasks(
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .list_tasks(ListTasksRequest {
-            namespace: namespace.clone(),
+            extraction_graph,
+            namespace,
             extraction_policy,
-            start_id: query.start_id.clone().unwrap_or_default(),
+            start_id: query.start_id.unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
             return_total: query.return_total,

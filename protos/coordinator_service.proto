@@ -142,6 +142,8 @@ message ListTasksRequest {
     uint64 limit = 5;
     bool return_total = 6;
     TaskOutcomeFilter outcome = 7;
+
+    string extraction_graph = 8;
 }
 
 message ListTasksResponse {

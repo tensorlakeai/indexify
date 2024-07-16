@@ -79,6 +79,8 @@ pub struct ListTasksRequest {
     pub return_total: bool,
     #[prost(enumeration = "TaskOutcomeFilter", tag = "7")]
     pub outcome: i32,
+    #[prost(string, tag = "8")]
+    pub extraction_graph: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
