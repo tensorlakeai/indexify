@@ -9,8 +9,7 @@ Indexify is a powerful data framework designed for building ingestion and extrac
 Indexify has the following core concepts:
 
 * **Extractors**: Functions that take data from upstream sources and output transformed data, embeddings, or structured data.
-* **Extraction Policies**: Definitions of how extractors should be applied to ingested data.
-* **Extraction Graphs**: Multi-step workflows created by chaining extraction policies.
+* **Extraction Graphs**: Multi-step workflows created by chaining extraction graphs.
 * **Namespaces**: Logical abstractions for storing related content, allowing data partitioning based on security and organizational boundaries.
 * **Content**: Representation of raw unstructured data (documents, video, images).
 * **Vector Indexes**: Automatically created from extractors that return embeddings, enabling semantic search capabilities.
@@ -61,7 +60,7 @@ for file in files:
 
 ### Step 3: Retrieve Data
 
-Retrieve extracted data from extraction policies:
+Retrieve extracted data from extractors:
 
 ```python
 content_ids = [content.id for content in client.list_content("pdf-ingestion-pipeline")]
@@ -83,7 +82,7 @@ To understand usage of indexify for various use cases we recommend the following
 | Guide | What You'll Build | Key Concepts Covered |
 |-------|-------------------|----------------------|
 | [Getting Started - Basic](https://docs.getindexify.ai/getting_started/) | A Wikipedia information retrieval system | - Indexify Server setup<br>- Extraction Graphs<br>- Basic Extractors<br>- Data Ingestion<br>- Vector Search |
-| [Getting Started - Intermediate](https://docs.getindexify.ai/getting_started_intermediate/) | A tax document processing and Q&A system | - PDF processing<br>- Custom Extraction Policies<br>- Structured Data Extraction<br>- Advanced Querying |
+| [Getting Started - Intermediate](https://docs.getindexify.ai/getting_started_intermediate/) | A tax document processing and Q&A system | - PDF processing<br>- Custom Extractors<br>- Structured Data Extraction<br>- Advanced Querying |
 | [Video RAG Application](https://docs.getindexify.ai/usecases/video_rag/) | A video content analysis and retrieval system | - Multi-modal data processing<br>- Video frame extraction<br>- Speech-to-text conversion<br>- Cross-modal retrieval |
 
 
@@ -150,7 +149,7 @@ extraction_policies:
     content_source: "chunker"
 ```
 
-This YAML file defines three extraction policies:
+This YAML file defines three extractors:
 
 1. `entity-extractor`: Uses OpenAI's language models to extract named entities from the text.
 2. `chunker`: Splits the text into smaller chunks of 1000 characters with a 100-character overlap.
