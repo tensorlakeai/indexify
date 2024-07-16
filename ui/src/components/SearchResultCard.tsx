@@ -43,7 +43,7 @@ const SearchResultCard = ({
       <Box display={"flex"} flexDirection={"column"} ml={2} mr={2} mb={2}>
         <Typography variant="overline">CONTENT ID: </Typography>
         <Link
-          to={`/${namespace}/content/${data.content_id}`}
+          to={`/${namespace}/extraction-graphs/${data.root_content_metadata?.extraction_graph_names[0]}/content/${data.content_id}`}
           target="_blank"
           style={{ color: "#1C2026", fontWeight: 500 }}
         >

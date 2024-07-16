@@ -148,7 +148,7 @@ const UploadButton = ({ client, extractionGraphs }: Props) => {
           </Box>
         </Paper>
       </Modal>
-      <Button onClick={handleOpen} size="small" variant="contained" color="primary" startIcon={<UploadIcon />}>
+       <Button onClick={handleOpen} size="small" variant="outlined" startIcon={<UploadIcon />} sx={{ color: "#3296FE"}}>
         Upload
       </Button>
     </>
