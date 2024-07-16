@@ -1,70 +1,36 @@
-import { useMemo } from 'react';
 import {
   Box,
   Breadcrumbs,
   Typography,
   Stack,
-  Alert,
 } from '@mui/material';
 import ExtendedContentTable from '../../components/ExtendedContentTable';
 import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom';
-import { ExtractionGraph, Extractor, IContentMetadata, IndexifyClient } from 'getindexify';
+import { ExtractionGraph, Extractor, IndexifyClient } from 'getindexify';
 import { mapExtractionPoliciesToRows } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
 import { IHash } from '../../types';
 import CopyText from '../../components/CopyText';
 
-const groupContentByGraphs = (contentList: IContentMetadata[] | undefined) => {
-  if (!contentList || !Array.isArray(contentList) || contentList.length === 0) {
-    return {};
-  }
-
-  if (contentList.length === 1) {
-    console.log('true')
-    const content = contentList[0];
-    if (content && Array.isArray(content.extraction_graph_names)) {
-      return content.extraction_graph_names.reduce((acc, graphName) => {
-        acc[graphName] = [content];
-        return acc;
-      }, {} as Record<string, IContentMetadata[]>);
-    }
-    return {};
-  }
-
-  return contentList.reduce((acc, content) => {
-    if (content && Array.isArray(content.extraction_graph_names)) {
-      content.extraction_graph_names.forEach(graphName => {
-        if (!acc[graphName]) {
-          acc[graphName] = [];
-        }
-        acc[graphName].push(content);
-      });
-    }
-    return acc;
-  }, {} as Record<string, IContentMetadata[]>);
-};
-
 const IndividualExtractionGraphPage = () => {
-  const { tasks,
-    extractorName,
+  const { 
+    tasks,
     extractors,
     extractionGraph,
-    contentList,
-    namespace } =
+    client,
+    namespace,
+    extractorName
+   } =
     useLoaderData() as {
-      extractorName: string
-      namespace: string
-      client: IndexifyClient
-      extractionGraph: ExtractionGraph
       tasks: IHash,
       extractors: Extractor[],
-      contentList: IContentMetadata[],
+      extractionGraph: ExtractionGraph
+      client: IndexifyClient
+      namespace: string
+      extractorName: string
     }
-    const groupedContent = useMemo(() => {
-      return groupContentByGraphs(contentList)
-  }, [contentList])
 
   const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  
@@ -94,16 +60,12 @@ const IndividualExtractionGraphPage = () => {
           </div>
           <ExtractorGraphTable rows={mappedRows} graphName={extractorName} />
         </Box>
-        {groupedContent[extractorName] ? (
-          <ExtendedContentTable
-            content={contentList}
+        <ExtendedContentTable
+            client={client}
             extractionGraph={extractionGraph}
             graphName={extractorName}
             namespace={namespace}
           />
-        ) : (
-          <Alert severity="info">No content found</Alert>
-        )}
       </Box>
     </Stack>
   );

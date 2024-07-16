@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   TextField,
@@ -11,9 +11,9 @@ import {
 } from "@mui/material";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { DataGrid, GridColDef, GridPaginationModel } from "@mui/x-data-grid";
 import InfoIcon from "@mui/icons-material/Info";
-import { ExtractionGraph, IContentMetadata } from "getindexify";
+import { ExtractionGraph, IContentMetadata, IndexifyClient } from "getindexify";
 import CopyText from "./CopyText";
 import { Link } from "react-router-dom";
 
@@ -53,18 +53,78 @@ const StyledToggleButton = styled(ToggleButton)(({ theme }) => ({
   }
 }));
 
+type ContentList = {
+    contentList: IContentMetadata[];
+    total?: number;
+}
+
 interface ExtendedContentTableProps {
-  content: IContentMetadata[];
+  client: IndexifyClient;
   extractionGraph: ExtractionGraph;
   graphName: string;
   namespace: string;
 }
 
-const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, extractionGraph, graphName, namespace }) => {
+const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, extractionGraph, graphName, namespace }) => {
 
   const [tabValue, setTabValue] = useState<string>("ingested");
   const [policy, setPolicy] = useState("any");
   const [contentId, setContentId] = useState("");
+  const [contentList, setContentList] = useState<ContentList | undefined>(undefined)
+  const [ingestedContentList, setIngestedContentList] = useState<ContentList | undefined>(undefined)
+  const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
+    page: 0,
+    pageSize:5
+  })
+
+  const contentStartId: string | undefined = useMemo(() => {
+    const length  = contentList?.contentList.length ?? 1
+    return contentList?.contentList[length - 1]?.id ?? undefined
+  }, [contentList])
+
+  const ingestedContentStartId: string | undefined = useMemo(() => {
+    const length  = ingestedContentList?.contentList.length ?? 1
+    return ingestedContentList?.contentList[length - 1]?.id ?? undefined
+  }, [ingestedContentList])
+
+  const totalRows = useMemo(() => {
+    return tabValue === "search" ? contentList?.total : ingestedContentList?.total
+  }, [contentList?.total, ingestedContentList?.total, tabValue])
+
+  useEffect(() => {
+      let isMounted = true;
+     const loadContentList = async() => {
+      await client.listContent(extractionGraph.name, undefined, {
+      namespace: namespace,
+      extractionGraph: extractionGraph.name,
+      returnTotal: true ,
+      limit: paginationModel.pageSize,
+        startId: contentStartId
+    }).then((value) => {
+      if(!isMounted) return;
+      setContentList(value)
+    })
+    }
+
+    const loadIngestedContentList = async () => {
+      await client.listContent(extractionGraph.name, undefined, {
+      namespace: namespace,
+      extractionGraph: extractionGraph.name,
+      source: "ingestion",
+      returnTotal: true,
+      limit: paginationModel.pageSize ,
+      startId: ingestedContentStartId
+    }).then((value) => {
+      if(!isMounted) return;
+      setIngestedContentList(value)
+    })
+    }
+    loadContentList();
+    loadIngestedContentList()
+    return () => {
+      isMounted = false;
+    }
+  }, [client, contentStartId, extractionGraph.name, ingestedContentStartId, namespace, paginationModel.pageSize])
 
   const columns: GridColDef[] = [
   {
@@ -98,11 +158,17 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
   };
 
   const filteredContent = useMemo(() => {
-    return Array.isArray(content) ? filterContentByGraphName(content, graphName) : [];
-  }, [content, graphName]);
+    if(tabValue === 'search') {
+      return contentList ? filterContentByGraphName(contentList.contentList, graphName) : [];
+    } else if (tabValue === "ingested"){
+      return ingestedContentList ? filterContentByGraphName(ingestedContentList.contentList, graphName): [];
+    }
+  }, [contentList, graphName, ingestedContentList, tabValue]);
+
+  console.log('Filtered Content', contentList)
 
   const rows = useMemo(() => {
-    return filteredContent.map(item => ({
+    return filteredContent?.map(item => ({
       id: item.id,
       children: 0,
       labels: JSON.stringify(item.labels),
@@ -114,14 +180,13 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
 
   const filteredRows = useMemo(() => {
     if (tabValue === "search") {
-      return rows.filter(row => 
+      return rows?.filter(row => 
         (contentId ? row.id.includes(contentId) : true) &&
         (policy !== "any" ? row.source === policy : true)
       );
     } else if (tabValue === "ingested") {
-      return rows.filter(row => row.source === "ingestion" || row.source === "");
+      return rows?.filter(row => row.source === "ingestion" || row.source === "");
     }
-    return rows;
   }, [rows, tabValue, contentId, policy]);
 
   const extractionPolicyOptions = useMemo(() => {
@@ -211,19 +276,37 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ content, ex
       </Box>
 
       <DataGrid
-        rows={filteredRows}
+        rows={filteredRows!}
         columns={columns}
         initialState={{
           pagination: {
-            paginationModel: { page: 0, pageSize: 5 }
+            paginationModel: {
+              page: 0,
+              pageSize: 5
+            }
+
           }
         }}
+        pagination = {true}
+        paginationModel={paginationModel}
         pageSizeOptions={[5, 10, 20]}
+        rowCount={totalRows}
         sx={{
           "& .MuiDataGrid-cell:focus": {
             outline: "none"
           },
           mt: 2
+        }}
+        onPaginationModelChange={(model, details) => {
+          setPaginationModel((prev) => {
+            if(prev.pageSize !== model.pageSize){
+              return {
+                page: 0,
+                pageSize: model.pageSize
+              }
+            }
+            return model;
+          })
         }}
       />
     </Box>
