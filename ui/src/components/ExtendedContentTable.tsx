@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   TextField,
@@ -76,33 +76,35 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const contentStartId: string | undefined = useMemo(() => {
+  const contentStartId = (): string | undefined => {
     const length = contentList?.contentList.length ?? 0;
-    return length > 0 ? contentList?.contentList[length - 1]?.id : undefined;
-  }, [contentList]);
-
-  const loadContentList = useCallback(async (newPaginationModel: GridPaginationModel, newStartId?: string) => {
-    setIsLoading(true);
-    try {
-      const result = await client.listContent(extractionGraph.name, undefined, {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        returnTotal: true,
-        limit: newPaginationModel.pageSize,
-        startId: newStartId,
-        source: tabValue === "ingested" ? "ingestion" : undefined
-      });
-      setContentList(result);
-    } catch (error) {
-      console.error("Error loading content:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [client, extractionGraph.name, namespace, tabValue]);
+    const startID = length > 0 ? contentList?.contentList[length - 1]?.id : undefined;
+    return startID;
+  }
 
   useEffect(() => {
-    loadContentList(paginationModel);
-  }, [loadContentList, paginationModel]);
+    const loadContentList = async () => {
+      setIsLoading(true);
+      try {
+        const result = await client.listContent(extractionGraph.name, undefined, {
+          namespace: namespace,
+          extractionGraph: extractionGraph.name,
+          limit: paginationModel.pageSize,
+          startId: contentStartId(),
+          source: tabValue === "ingested" ? "ingestion" : undefined,
+          returnTotal: true
+        });
+        setContentList(result);
+      } catch (error) {
+        console.error("Error loading content:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadContentList();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, extractionGraph.name, namespace, paginationModel, tabValue]);
 
   const filteredContent = useMemo(() => {
     if (!contentList) return [];
@@ -113,19 +115,22 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
   }, [contentList, graphName, contentId, policy]);
 
   const handlePaginationModelChange = (newModel: GridPaginationModel) => {
-    if (newModel.page > paginationModel.page) {
-      loadContentList(newModel, contentStartId);
-    } else {
-      loadContentList(newModel);
-    }
-    setPaginationModel(newModel);
+    setPaginationModel((prev)=> {
+      if(prev.pageSize !== newModel.pageSize){
+        return {
+          page: 0,
+          pageSize: newModel.pageSize
+        }
+      } else {
+        return newModel
+      }
+    });
   };
 
   const handleTabChange = (event: React.MouseEvent<HTMLElement>, newTab: string | null) => {
     if (newTab !== null) {
       setTabValue(newTab);
       setPaginationModel({ page: 0, pageSize: paginationModel.pageSize });
-      loadContentList({ page: 0, pageSize: paginationModel.pageSize });
     }
   };
 
@@ -254,16 +259,35 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
         rows={filteredContent}
         columns={columns}
         paginationModel={paginationModel}
+        initialState={{
+          pagination: {
+            paginationModel: {
+              page: 0,
+              pageSize: 5
+            }
+          }
+        }}
+        pagination
+        paginationMode="server"
         onPaginationModelChange={handlePaginationModelChange}
         pageSizeOptions={[5, 10, 20]}
-        rowCount={contentList?.total || 0}
         loading={isLoading}
         sx={{
           "& .MuiDataGrid-cell:focus": {
             outline: "none"
           },
-          mt: 2
+          mt: 2,
+          '.MuiTablePagination-displayedRows': {
+            display: 'none',
+          },
+          '.MuiTablePagination-actions': {
+            marginLeft: '0px !important'
+          },
+          '.MuiTablePagination-input': {
+            marginRight: '10px !important'
+          }
         }}
+        rowCount={-1}
       />
     </Box>
   );
