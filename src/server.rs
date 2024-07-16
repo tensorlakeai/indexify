@@ -822,7 +822,7 @@ async fn delete_content(
 #[tracing::instrument]
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/content/{content_id}",
+    path = "/namespaces/{namespace}/content/{content_id}/metadata",
     tag = "retrieval",
     responses(
         (status = 200, description = "Reads a specific content in the namespace", body = GetContentMetadataResponse),
@@ -1115,7 +1115,8 @@ async fn upload_file(
 #[tracing::instrument]
 #[utoipa::path(
     put,
-    path = "/namespaces/{namespace}/content/:content_id",
+    path = "/namespaces/{namespace}/content/{content_id}",
+    request_body(content_type = "multipart/form-data", content = Vec<u8>),
     tag = "ingestion",
     responses(
         (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
