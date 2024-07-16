@@ -141,9 +141,31 @@ export async function getTasksForExtractionGraph(
 }
 
 export const formatTimestamp = (value: string | number | null | undefined): string => {
-    if (value == null) return 'N/A';
-    const timestamp = typeof value === 'string' ? parseInt(value, 10) : value;
-    if (isNaN(timestamp)) return 'Invalid Date';
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString();
-  };
+  if (value == null) return 'N/A';
+  
+  let timestamp: number;
+  
+  if (typeof value === 'string') {
+    timestamp = parseInt(value, 10);
+  } else if (typeof value === 'number') {
+    timestamp = value;
+  } else {
+    return 'Invalid Date';
+  }
+  
+  if (isNaN(timestamp)) return 'Invalid Date';
+
+  const milliseconds = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+  
+  const date = new Date(milliseconds);
+  
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+};

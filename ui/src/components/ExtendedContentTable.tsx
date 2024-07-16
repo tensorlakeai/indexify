@@ -66,126 +66,108 @@ interface ExtendedContentTableProps {
 }
 
 const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, extractionGraph, graphName, namespace }) => {
-
   const [tabValue, setTabValue] = useState<string>("ingested");
   const [policy, setPolicy] = useState("any");
   const [contentId, setContentId] = useState("");
-  const [contentList, setContentList] = useState<ContentList | undefined>(undefined)
-  const [ingestedContentList, setIngestedContentList] = useState<ContentList | undefined>(undefined)
+  const [contentList, setContentList] = useState<ContentList | undefined>(undefined);
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     page: 0,
-    pageSize:5
-  })
+    pageSize: 5
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
-  const contentStartId: string | undefined = useMemo(() => {
-    const length  = contentList?.contentList.length ?? 1
-    return contentList?.contentList[length - 1]?.id ?? undefined
-  }, [contentList])
-
-  const ingestedContentStartId: string | undefined = useMemo(() => {
-    const length  = ingestedContentList?.contentList.length ?? 1
-    return ingestedContentList?.contentList[length - 1]?.id ?? undefined
-  }, [ingestedContentList])
-
-  const totalRows = useMemo(() => {
-    return tabValue === "search" ? contentList?.total : ingestedContentList?.total
-  }, [contentList?.total, ingestedContentList?.total, tabValue])
+  const contentStartId = (): string | undefined => {
+    const length = contentList?.contentList.length ?? 0;
+    const startID = length > 0 ? contentList?.contentList[length - 1]?.id : undefined;
+    return startID;
+  }
 
   useEffect(() => {
-      let isMounted = true;
-     const loadContentList = async() => {
-      await client.listContent(extractionGraph.name, undefined, {
-      namespace: namespace,
-      extractionGraph: extractionGraph.name,
-      returnTotal: true ,
-      limit: paginationModel.pageSize,
-        startId: contentStartId
-    }).then((value) => {
-      if(!isMounted) return;
-      setContentList(value)
-    })
+    const loadContentList = async () => {
+      setIsLoading(true);
+      try {
+        const result = await client.listContent(extractionGraph.name, undefined, {
+          namespace: namespace,
+          extractionGraph: extractionGraph.name,
+          limit: paginationModel.pageSize,
+          startId: contentStartId(),
+          source: tabValue === "ingested" ? "ingestion" : undefined,
+          returnTotal: true
+        });
+        setContentList(result);
+      } catch (error) {
+        console.error("Error loading content:", error);
+      } finally {
+        setIsLoading(false);
+      }
     }
 
-    const loadIngestedContentList = async () => {
-      await client.listContent(extractionGraph.name, undefined, {
-      namespace: namespace,
-      extractionGraph: extractionGraph.name,
-      source: "ingestion",
-      returnTotal: true,
-      limit: paginationModel.pageSize ,
-      startId: ingestedContentStartId
-    }).then((value) => {
-      if(!isMounted) return;
-      setIngestedContentList(value)
-    })
-    }
     loadContentList();
-    loadIngestedContentList()
-    return () => {
-      isMounted = false;
-    }
-  }, [client, contentStartId, extractionGraph.name, ingestedContentStartId, namespace, paginationModel.pageSize])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, extractionGraph.name, namespace, paginationModel, tabValue]);
 
-  const columns: GridColDef[] = [
-  {
-    field: "id",
-    headerName: "ID",
-    flex: 1,
-    renderCell: params =>
-      <Box sx={{ display: "flex", alignItems: "center" }}>
-        <Link to={`/${namespace}/extraction-graphs/${graphName}/content/${params.value}`}>
-          {params.value}
-        </Link>
-        <Tooltip title="Copy">
-          <CopyText text={params.value}/>
-        </Tooltip>
-      </Box>
-  },
-  { field: "children", headerName: "Children", width: 130, type: "number" },
-  ...(tabValue === "search" ? [{ field: "source", headerName: "Source", flex: 1 }] : []),
-  { field: "parentId", headerName: "Parent ID", flex: 1 },
-  { field: "labels", headerName: "Labels", flex: 1 },
-  { field: "createdAt", headerName: "Created At", width: 200 }
-];
+  const filteredContent = useMemo(() => {
+    if (!contentList) return [];
+    return filterContentByGraphName(contentList.contentList, graphName).filter(content => 
+      (contentId ? content.id.includes(contentId) : true) &&
+      (policy !== "any" ? content.source === policy : true)
+    );
+  }, [contentList, graphName, contentId, policy]);
 
-  const handleTabChange = (
-    event: React.MouseEvent<HTMLElement>,
-    newTab: string | null
-  ) => {
+  const handlePaginationModelChange = (newModel: GridPaginationModel) => {
+    setPaginationModel((prev)=> {
+      if(prev.pageSize !== newModel.pageSize){
+        return {
+          page: 0,
+          pageSize: newModel.pageSize
+        }
+      } else {
+        return newModel
+      }
+    });
+  };
+
+  const handleTabChange = (event: React.MouseEvent<HTMLElement>, newTab: string | null) => {
     if (newTab !== null) {
       setTabValue(newTab);
+      setPaginationModel({ page: 0, pageSize: paginationModel.pageSize });
     }
   };
 
-  const filteredContent = useMemo(() => {
-    if(tabValue === 'search') {
-      return contentList ? filterContentByGraphName(contentList.contentList, graphName) : [];
-    } else if (tabValue === "ingested"){
-      return ingestedContentList ? filterContentByGraphName(ingestedContentList.contentList, graphName): [];
-    }
-  }, [contentList, graphName, ingestedContentList, tabValue]);
-
-  const rows = useMemo(() => {
-    return filteredContent?.map(item => ({
-      id: item.id,
-      children: 0,
-      labels: JSON.stringify(item.labels),
-      parentId: item.parent_id,
-      source: item.source,
-      createdAt: new Date(item.created_at).toLocaleString()
-    }));
-  }, [filteredContent]);
-
-  const filteredRows = useMemo(() => {
-    if (tabValue === "search") {
-      return rows?.filter(row => 
-        (contentId ? row.id.includes(contentId) : true) &&
-        (policy !== "any" ? row.source === policy : true)
-      );
-    } else if (tabValue === "ingested") {
-      return rows?.filter(row => row.source === "ingestion" || row.source === "");
-    }
-  }, [rows, tabValue, contentId, policy]);
+  const columns: GridColDef[] = [
+    {
+      field: "id",
+      headerName: "ID",
+      flex: 1,
+      renderCell: params =>
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <Link to={`/${namespace}/extraction-graphs/${graphName}/content/${params.value}`}>
+            {params.value}
+          </Link>
+          <Tooltip title="Copy">
+            <CopyText text={params.value}/>
+          </Tooltip>
+        </Box>
+    },
+    { field: "mime_type", headerName: "Mime Type", width: 130, type: "number" },
+    { field: "source", headerName: "Source", flex: 1 },
+    { field: "parent_id", headerName: "Parent ID", flex: 1 },
+    { field: "labels", headerName: "Labels", flex: 1, valueGetter: (params) => {
+      if (typeof params.value === 'object' && params.value !== null) {
+        return Object.entries(params.value)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ');
+      }
+      return String(params.value);
+    } },
+    { field: "created_at", headerName: "Created At", width: 200, valueGetter: (params) => {
+      if (params.value) {
+        const date = new Date(params.value * 1000);
+        return date.toLocaleString();
+      }
+      return '';
+    } }
+  ];
 
   const extractionPolicyOptions = useMemo(() => {
     const extractionPolicies = extractionGraph?.extraction_policies || [];
@@ -267,45 +249,45 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
                 <MenuItem key={index} value={policy.value}>
                   {policy.label}
                 </MenuItem>
-              )) || null}
+              ))}
             </Select>
           </Box>
         )}
       </Box>
 
       <DataGrid
-        rows={filteredRows!}
+        rows={filteredContent}
         columns={columns}
+        paginationModel={paginationModel}
         initialState={{
           pagination: {
             paginationModel: {
               page: 0,
               pageSize: 5
             }
-
           }
         }}
-        pagination = {true}
-        paginationModel={paginationModel}
+        pagination
+        paginationMode="server"
+        onPaginationModelChange={handlePaginationModelChange}
         pageSizeOptions={[5, 10, 20]}
-        rowCount={totalRows}
+        loading={isLoading}
         sx={{
           "& .MuiDataGrid-cell:focus": {
             outline: "none"
           },
-          mt: 2
+          mt: 2,
+          '.MuiTablePagination-displayedRows': {
+            display: 'none',
+          },
+          '.MuiTablePagination-actions': {
+            marginLeft: '0px !important'
+          },
+          '.MuiTablePagination-input': {
+            marginRight: '10px !important'
+          }
         }}
-        onPaginationModelChange={(model, details) => {
-          setPaginationModel((prev) => {
-            if(prev.pageSize !== model.pageSize){
-              return {
-                page: 0,
-                pageSize: model.pageSize
-              }
-            }
-            return model;
-          })
-        }}
+        rowCount={-1}
       />
     </Box>
   );
