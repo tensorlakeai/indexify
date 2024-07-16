@@ -43,7 +43,7 @@ use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    api::{self, *},
+    api::*,
     blob_storage::{BlobStorage, ContentReader},
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
@@ -73,7 +73,6 @@ pub struct NamespaceEndpointState {
         paths(
             create_namespace,
             list_namespaces,
-            get_namespace,
             list_indexes,
             list_extractors,
             list_executors,
@@ -89,7 +88,7 @@ pub struct NamespaceEndpointState {
             index_search,
         ),
         components(
-            schemas(CreateNamespace, CreateNamespaceResponse, IndexDistance,
+            schemas(IndexDistance,
                 TextAddRequest, TextAdditionResponse, Text, IndexSearchResponse,
                 DocumentFragment, ListIndexesResponse, ExtractorOutputSchema, Index, SearchRequest, ListNamespacesResponse, ListExtractorsResponse
             , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
@@ -267,10 +266,6 @@ impl Server {
             .route(
                 "/namespaces",
                 get(list_namespaces).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace",
-                get(get_namespace).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/executors",
@@ -478,31 +473,28 @@ async fn root() -> &'static str {
 #[utoipa::path(
     post,
     path = "/namespaces",
-    request_body = CreateNamespace,
+    request_body = DataNamespace,
     tag = "ingestion",
     responses(
-        (status = 200, description = "Namespace synced successfully", body = CreateNamespaceResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
+        (status = 200, description = "Namespace created successfully"),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to create namespace")
     ),
 )]
 async fn create_namespace(
     State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<CreateNamespace>,
-) -> Result<Json<CreateNamespaceResponse>, IndexifyAPIError> {
-    let data_namespace = api::DataNamespace {
-        name: payload.name.clone(),
-    };
+    Json(payload): Json<DataNamespace>,
+) -> Result<(), IndexifyAPIError> {
     state
         .data_manager
-        .create_namespace(&data_namespace)
+        .create_namespace(&payload)
         .await
         .map_err(|e| {
             IndexifyAPIError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to sync namespace: {}", e),
+                &format!("failed to create namespace: {}", e),
             )
         })?;
-    Ok(Json(CreateNamespaceResponse {}))
+    Ok(())
 }
 
 /// List all namespaces registered on the server
@@ -607,33 +599,6 @@ async fn namespace_open_api(
     builder = builder.paths(paths.build()).components(Some(components));
     let openapi = builder.build();
     Ok(Json(openapi))
-}
-
-/// Get metadata for a specific namespace
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/namespaces/{namespace}",
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "namespace with a given name", body=GetNamespaceResponse),
-        (status = 404, description = "Namespace not found"),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to get namespace")
-    ),
-)]
-async fn get_namespace(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<GetNamespaceResponse>, IndexifyAPIError> {
-    let data_namespace = state.data_manager.get(&namespace).await.map_err(|e| {
-        IndexifyAPIError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to get namespace: {}", e),
-        )
-    })?;
-    Ok(Json(GetNamespaceResponse {
-        namespace: data_namespace,
-    }))
 }
 
 // Create a new extraction graph in the namespace
