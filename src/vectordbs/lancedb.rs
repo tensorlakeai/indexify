@@ -470,9 +470,14 @@ impl VectorDb for LanceDb {
                 .unwrap()
                 .values()
                 .iter();
-            let vector_chunks = vector_chunk_from_batch(rb.clone(), tbl.schema().await.unwrap())
+
+            let table_schema = tbl
+                .schema()
                 .await
-                .unwrap();
+                .map_err(|e| anyhow!("unable to get schema of table: {}", e))?;
+            let vector_chunks = vector_chunk_from_batch(rb.clone(), table_schema)
+                .await
+                .map_err(|e| anyhow!("unable to get vector chunks from batch: {}", e))?;
 
             for (chunk, distance) in izip!(vector_chunks, distance_values) {
                 results.push(SearchResult {
