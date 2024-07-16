@@ -218,11 +218,6 @@ pub struct UpdateContentRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateContentResponse {}
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TombstoneContentRequest {
-    pub content_ids: Vec<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
 

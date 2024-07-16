@@ -78,6 +78,7 @@ pub struct NamespaceEndpointState {
             list_executors,
             list_content,
             update_content,
+            delete_content,
             get_content_metadata,
             list_state_changes,
             create_extraction_graph,
@@ -253,7 +254,7 @@ impl Server {
                     .clone(),
             )
             .route(
-                "/namespaces/:namespace/content",
+                "/namespaces/:namespace/content/:content_id",
                 delete(delete_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
@@ -475,7 +476,7 @@ async fn root() -> &'static str {
     post,
     path = "/namespaces",
     request_body = DataNamespace,
-    tag = "ingestion",
+    tag = "operations",
     responses(
         (status = 200, description = "Namespace created successfully"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to create namespace")
@@ -503,7 +504,7 @@ async fn create_namespace(
 #[utoipa::path(
     get,
     path = "/namespaces",
-    tag = "ingestion",
+    tag = "operations",
     responses(
         (status = 200, description = "List of Data Namespaces registered on the server", body = ListNamespacesResponse),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
@@ -602,7 +603,7 @@ async fn namespace_open_api(
     Ok(Json(openapi))
 }
 
-// Create a new extraction graph in the namespace
+/// Create a new extraction graph in the namespace
 #[utoipa::path(
     post,
     path = "/namespace/{namespace}/extraction_graphs",
@@ -631,11 +632,13 @@ async fn create_extraction_graph(
     Ok(Json(ExtractionGraphResponse { indexes }))
 }
 
+
+/// Create a link with a given extraction graph
 #[utoipa::path(
     post,
     path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
     request_body = ExtractionGraphLink,
-    tag = "ingestion",
+    tag = "operations",
     responses(
         (status = 200, description = "Extraction graphs linked successfully"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to link extraction graphs")
@@ -654,10 +657,11 @@ async fn link_extraction_graphs(
         .map_err(IndexifyAPIError::internal_error)
 }
 
+/// Get all the extraction graph links for a given extraction graph
 #[utoipa::path(
     get,
     path = "/namespace/{namespace}/extraction_graphs/{graph}/links",
-    tag = "ingestion",
+    tag = "operations",
     responses(
         (status = 200, description = "List of extraction graph links", body = Vec<ExtractionGraphLink>),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to list links")
@@ -775,25 +779,29 @@ async fn list_content(
     Ok(Json(response))
 }
 
+/// Deletes the content with a given id and also all the extracted content by extraction graphs.
 #[tracing::instrument]
 #[utoipa::path(
     delete,
-    path = "/namespaces/{namespace}/content",
-    tag = "indexify",
+    path = "/namespaces/{namespace}/content/{content_id}",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("content_id" = String, Path, description = "ID of the content to delete")
+    ),
+    tag = "ingestion",
     responses(
-        (status = 200, description = "Deletes specified pieces of content", body = DeleteContentResponse),
+        (status = 200, description = "Deletes specified pieces of content", body = ()),
         (status = BAD_REQUEST, description = "Unable to find a piece of content to delete")
     ),
 )]
 #[axum::debug_handler]
 async fn delete_content(
-    Path(namespace): Path<String>,
+    Path((namespace, content_id)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-    Json(body): Json<super::api::TombstoneContentRequest>,
 ) -> Result<Json<()>, IndexifyAPIError> {
     let request = indexify_coordinator::TombstoneContentRequest {
         namespace: namespace.clone(),
-        content_ids: body.content_ids.clone(),
+        content_ids: vec![content_id],
     };
 
     state
@@ -1110,8 +1118,7 @@ async fn upload_file(
     ))
 }
 
-// Update a content. All the extraction graphs associated with the content will
-// be run if the content has changed.
+/// Update a content. All the extraction graphs associated with the content will be run if the content has changed.
 #[tracing::instrument]
 #[utoipa::path(
     put,
