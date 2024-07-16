@@ -1,8 +1,5 @@
 # Extraction Graphs 
-Extraction Graphs are rules to instruct Indexify to run a particular extractor on content. Graphs are evaluated when new content is added, and the corresponding extractors are automatically run.
-Additionally, filters can be added to specifically restrict the content being extracted and added to the index.
-
-For ex, the example below adds graph with a policy `minilml6` to all the content in the namespace `default` which has labels `source` as `google`. Anytime any text is added to the namespace with labels that matches the content they are indexed.
+Extraction Graphs can be setup declaritively on a namespace, using the HTTP API or any of the clients
 
 === "python"
 
@@ -48,10 +45,17 @@ For ex, the example below adds graph with a policy `minilml6` to all the content
     }'
     ```
 
+
+This creates an extraction graph - 
+
+1. **name** - myextractiongraph
+2. **extraction_policies** - List of extractors that the pipeline runs when data is uploaded into it from external sources -
+   1. **extractor** - Name of the extractor function
+   2. **name** - Give it a unique name, since the same extractor can be repeated multiple times.
+   3. **filter_eq** - The filters to evaluate to decide whether content ingested into the graph should be processed by the extractor.
+
 ## Chained Extraction Graph Policies
-Within your Extraction Graph you can chain policies together to enable transformation and extraction of content by multiple extractors. 
-For example, you can create a policy that triggers a PDF extractor to extract text, images and tables, and then another policy to trigger an extractor which produces embedding and populates indexes to search through text extracted by the upstream extractor.
-Specify a `content_source` in a policy for creating such chains.
+Mulitple extractors can be chained together in a single graph. Specify a `content_source` in a policy to send content from an upstream extractor to downstream.
 
 For ex -
 === "Python"
@@ -60,11 +64,11 @@ For ex -
     extraction_graph_spec = """
     name: 'myextractiongraph'
     extraction_policies:
-      - extractor: 'tensorlake/wikipedia'
-        name: 'wikipedia'
+      - extractor: 'tensorlake/chunk-extractor'
+        name: 'chunked-text'
       - extractor: 'tensorlake/minilm-l6'
         name: 'minilml6'
-        content_source: 'wikipedia'
+        content_source: 'chunked-text'
     """
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
@@ -76,10 +80,12 @@ For ex -
     name: 'myextractiongraph'
     extraction_policies:
       - extractor: 'tensorlake/wikipedia'
-        name: 'wikipedia'
+        name: 'chunked-text'
       - extractor: 'tensorlake/minilm-l6'
         name: 'minilml6'
-        content_source: 'wikipedia'
+        content_source: 'chunked-text'
     `);
     await client.createExtractionGraph(graph);
     ```
+    
+In this example any text uploaded into the graph is chunked using the chunking extractor, the chunked text is then passed into the embedding extractor to generate text embeddings from the chunks.
