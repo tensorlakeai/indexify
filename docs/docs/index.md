@@ -9,7 +9,7 @@ Indexify is a powerful data framework designed for building ingestion and extrac
 Indexify has the following core concepts:
 
 * **Extractors**: Functions that take data from upstream sources and output transformed data, embeddings, or structured data.
-* **Extraction Graphs**: Multi-step workflows created by chaining extraction graphs.
+* **Extraction Graphs**: Multi-step workflows created by chaining extractors.
 * **Namespaces**: Logical abstractions for storing related content, allowing data partitioning based on security and organizational boundaries.
 * **Content**: Representation of raw unstructured data (documents, video, images).
 * **Vector Indexes**: Automatically created from extractors that return embeddings, enabling semantic search capabilities.
