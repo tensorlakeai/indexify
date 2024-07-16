@@ -165,8 +165,6 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
     }
   }, [contentList, graphName, ingestedContentList, tabValue]);
 
-  console.log('Filtered Content', contentList)
-
   const rows = useMemo(() => {
     return filteredContent?.map(item => ({
       id: item.id,
