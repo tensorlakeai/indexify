@@ -93,8 +93,8 @@ async fn vector_chunk_from_batch(
             // so we are just doing empty Vec to make the structs happy
         } else if field_name == "content_metadata" {
             for row in as_string_array(batch.column_by_name(field_name).unwrap()) {
-                let row = row.ok_or(anyhow!("content_metadata is null"))?;
-                content_metadatas.push(row.to_string());
+                let row = row.map(|s| s.to_string()).unwrap_or_default();
+                content_metadatas.push(row);
             }
         } else if field_name == "root_content_metadata" {
             for row in as_string_array(batch.column_by_name(field_name).unwrap()) {
@@ -470,9 +470,14 @@ impl VectorDb for LanceDb {
                 .unwrap()
                 .values()
                 .iter();
-            let vector_chunks = vector_chunk_from_batch(rb.clone(), tbl.schema().await.unwrap())
+
+            let table_schema = tbl
+                .schema()
                 .await
-                .unwrap();
+                .map_err(|e| anyhow!("unable to get schema of table: {}", e))?;
+            let vector_chunks = vector_chunk_from_batch(rb.clone(), table_schema)
+                .await
+                .map_err(|e| anyhow!("unable to get vector chunks from batch: {}", e))?;
 
             for (chunk, distance) in izip!(vector_chunks, distance_values) {
                 results.push(SearchResult {
@@ -560,7 +565,7 @@ fn from_arrow_column_to_json_values(column: &Arc<dyn Array>) -> Result<Vec<serde
     match column.data_type() {
         DataType::Utf8 => {
             for row in as_string_array(column).iter() {
-                let row = row.ok_or(anyhow!("metadata is null"))?;
+                let row = row.unwrap_or_default();
                 values.push(row.into());
             }
         }
@@ -584,7 +589,7 @@ fn from_arrow_column_to_json_values(column: &Arc<dyn Array>) -> Result<Vec<serde
         }
         DataType::Boolean => {
             for row in as_boolean_array(column).iter() {
-                let row = row.ok_or(anyhow!("metadata is null"))?;
+                let row = row.unwrap_or_default();
                 values.push(serde_json::json!(row));
             }
         }
