@@ -101,8 +101,6 @@ export const mapExtractionPoliciesToRows = (
     console.error(`No graph found with name: ${graphName}`);
     return [];
   }
-
-  console.log('Tasks', tasks);
   
   const rows: Row[] = targetGraph.extraction_policies.map((policy, index) => {
     const extractor = extractorMap.get(policy.extractor);
