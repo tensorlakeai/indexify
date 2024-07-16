@@ -975,20 +975,32 @@ impl IndexifyState {
         &self,
         db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_ids: Vec<ContentMetadataId>,
+        content_id: ContentMetadataId,
+        latest: bool,
     ) -> Result<(), StateMachineError> {
-        for content_id in content_ids {
-            txn.delete_cf(
-                StateMachineColumns::ContentTable.cf(db),
-                &format!("{}::v{}", content_id.id, content_id.version),
-            )
+        let key = if latest {
+            content_id.id.clone()
+        } else {
+            format!("{}::v{}", content_id.id.clone(), content_id.version)
+        };
+        let res = txn
+            .get_cf(StateMachineColumns::ContentTable.cf(db), &key)
             .map_err(|e| {
                 StateMachineError::TransactionError(format!(
                     "error in txn while trying to delete content: {}",
                     e
                 ))
             })?;
+        if !res.is_some() {
+            warn!("Content with id {} not found", content_id);
         }
+        txn.delete_cf(StateMachineColumns::ContentTable.cf(db), &key)
+            .map_err(|e| {
+                StateMachineError::TransactionError(format!(
+                    "error in txn while trying to delete content: {}",
+                    e
+                ))
+            })?;
         Ok(())
     }
 
@@ -1250,7 +1262,7 @@ impl IndexifyState {
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
-                    self.delete_content(db, &txn, vec![gc_task.content_id.clone()])?;
+                    self.delete_content(db, &txn, gc_task.content_id.clone(), gc_task.latest)?;
                 }
             }
             RequestPayload::AssignTask { assignments } => {
