@@ -1,6 +1,6 @@
 FROM --platform=linux/arm64/v8 python:3.11 AS python
 
-FROM ubuntu:22.04
+FROM ubuntu:20.04
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
