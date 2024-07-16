@@ -767,7 +767,12 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::Arc, time::Duration, vec};
+    use std::{
+        fs,
+        sync::Arc,
+        time::{Duration, Instant},
+        vec,
+    };
 
     use filter::{Expression, LabelsFilter, Operator};
     use indexify_internal_api::{self as internal_api, ExtractionGraphLink, ExtractionGraphNode};
@@ -1261,10 +1266,10 @@ mod tests {
         //  Check that content has been correctly tombstoned
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id.id)?;
+            .get_content_tree_metadata_with_version(&parent_content.id)?;
         let content_tree_2 = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content_2.id.id)?;
+            .get_content_tree_metadata_with_version(&parent_content_2.id)?;
         for content in &content_tree {
             assert!(
                 content.tombstoned,
@@ -1272,13 +1277,55 @@ mod tests {
                 content.id.id
             );
         }
-        for content in content_tree_2 {
+        for content in &content_tree_2 {
             assert!(
                 content.tombstoned,
                 "Content {} is not tombstoned",
                 content.id.id
             );
         }
+
+        coordinator.run_scheduler().await?;
+
+        // Check that gc tasks are created.
+        let gc_tasks = coordinator.garbage_collector.gc_tasks.read().await;
+        assert_eq!(gc_tasks.len(), content_tree.len() + content_tree_2.len());
+        let gc_task_ids: Vec<_> = gc_tasks.iter().map(|(id, _)| id.clone()).collect();
+        drop(gc_tasks);
+
+        // Check that content is deleted when tasks are completed.
+        for task_id in gc_task_ids {
+            coordinator
+                .update_gc_task(&task_id, TaskOutcome::Success)
+                .await?;
+        }
+
+        let start = Instant::now();
+        let timeout = Duration::new(2, 0);
+        let mut success = false;
+
+        while Instant::now().duration_since(start) < timeout {
+            let contents = coordinator
+                .shared_state
+                .state_machine
+                .get_content_namespace_table()?;
+            match contents.get(DEFAULT_TEST_NAMESPACE) {
+                Some(contents) => {
+                    if contents.len() == 0 {
+                        success = true;
+                        break;
+                    }
+                }
+                None => {
+                    success = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        assert!(success, "content was not deleted");
+
         Ok(())
     }
 
