@@ -1262,7 +1262,9 @@ impl IndexifyState {
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
-                    self.delete_content(db, &txn, gc_task.content_id.clone(), gc_task.latest)?;
+                    if gc_task.task_type == ServerTaskType::Delete {
+                        self.delete_content(db, &txn, gc_task.content_id.clone(), gc_task.latest)?;
+                    }
                 }
             }
             RequestPayload::AssignTask { assignments } => {

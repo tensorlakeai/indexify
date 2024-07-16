@@ -632,7 +632,6 @@ async fn create_extraction_graph(
     Ok(Json(ExtractionGraphResponse { indexes }))
 }
 
-
 /// Create a link with a given extraction graph
 #[utoipa::path(
     post,
@@ -779,7 +778,8 @@ async fn list_content(
     Ok(Json(response))
 }
 
-/// Deletes the content with a given id and also all the extracted content by extraction graphs.
+/// Deletes the content with a given id and also all the extracted content by
+/// extraction graphs.
 #[tracing::instrument]
 #[utoipa::path(
     delete,
@@ -1118,7 +1118,8 @@ async fn upload_file(
     ))
 }
 
-/// Update a content. All the extraction graphs associated with the content will be run if the content has changed.
+/// Update a content. All the extraction graphs associated with the content will
+/// be run if the content has changed.
 #[tracing::instrument]
 #[utoipa::path(
     put,
