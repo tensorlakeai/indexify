@@ -5,11 +5,15 @@ import { useState } from "react";
 const CopyText = ({
   text,
   color,
-  className
+  className,
+  tooltipTitle = "Copy to clipboard",
+  copiedTooltipTitle = "Copied!"
 }: {
   text: string;
   color?: string;
   className?: string;
+  tooltipTitle?: string;
+  copiedTooltipTitle?: string;
 }) => {
   const [showAlert, setShowAlert] = useState(false);
   const handleCopy = () => {
@@ -18,7 +22,7 @@ const CopyText = ({
   };
   return (
     <Box className={className}>
-      <Tooltip title={showAlert ? "Copied!" : "Copy to clipboard"}>
+      <Tooltip title={showAlert ? copiedTooltipTitle : tooltipTitle}>
         <IconButton onClick={handleCopy}>
           <ContentCopy sx={{ height: "20px" }} />
         </IconButton>
