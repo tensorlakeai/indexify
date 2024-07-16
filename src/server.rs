@@ -1110,8 +1110,8 @@ async fn upload_file(
     ))
 }
 
-// Update a content. All the extraction graphs associated with the content will be run
-// if the content has changed.
+// Update a content. All the extraction graphs associated with the content will
+// be run if the content has changed.
 #[tracing::instrument]
 #[utoipa::path(
     put,
