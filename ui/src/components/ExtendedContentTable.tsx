@@ -82,27 +82,38 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [isLoading, setIsLoading] = useState(false);
   const [pageHistory, setPageHistory] = useState<{id: string, content: IContentMetadata[]}[]>([]);
+  const [isLastPage, setIsLastPage] = useState(false);
 
   const loadContentList = async (startId?: string) => {
-    setIsLoading(true);
-    try {
-      const result = await client.listContent(extractionGraph.name, undefined, {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        limit: rowsPerPage,
-        startId: startId,
-        source: tabValue === "ingested" ? "ingestion" : undefined,
-        returnTotal: true
-      });
-      setContentList(result);
-      return result.contentList;
-    } catch (error) {
-      console.error("Error loading content:", error);
-      return [];
-    } finally {
-      setIsLoading(false);
+  setIsLoading(true);
+  try {
+    const result = await client.listContent(extractionGraph.name, undefined, {
+      namespace: namespace,
+      extractionGraph: extractionGraph.name,
+      limit: rowsPerPage + 1, // Request one extra item to check if there's a next page
+      startId: startId,
+      source: tabValue === "ingested" ? "ingestion" : undefined,
+      returnTotal: true
+    });
+    
+    // Check if we've reached the last page
+    if (result.contentList.length <= rowsPerPage) {
+      setIsLastPage(true);
+    } else {
+      // Remove the extra item we requested
+      result.contentList.pop();
+      setIsLastPage(false);
     }
-  };
+    
+    setContentList(result);
+    return result.contentList;
+  } catch (error) {
+    console.error("Error loading content:", error);
+    return [];
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   useEffect(() => {
     if (tabValue === "ingested") {
@@ -134,24 +145,27 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
   }, [contentList, graphName, tabValue, searchResult]);
 
   const handleChangePage = async (event: unknown, newPage: number) => {
-    if (tabValue === "search") return;
-    if (newPage > page) {
+  if (tabValue === "search") return;
+  if (newPage > page) {
+    if (!isLastPage) {
       const lastId = contentList?.contentList[contentList.contentList.length - 1]?.id;
       if (lastId) {
         setPageHistory(prev => [...prev, {id: lastId, content: contentList.contentList}]);
         const newContent = await loadContentList(lastId);
         setContentList(prev => ({ ...prev, contentList: newContent }));
       }
-    } else if (newPage < page && pageHistory.length > 0) {
-      const newPageHistory = [...pageHistory];
-      const prevPage = newPageHistory.pop();
-      if (prevPage) {
-        setPageHistory(newPageHistory);
-        setContentList(prev => ({ ...prev, contentList: prevPage.content }));
-      }
     }
-    setPage(newPage);
-  };
+  } else if (newPage < page && pageHistory.length > 0) {
+    const newPageHistory = [...pageHistory];
+    const prevPage = newPageHistory.pop();
+    if (prevPage) {
+      setPageHistory(newPageHistory);
+      setContentList(prev => ({ ...prev, contentList: prevPage.content }));
+      setIsLastPage(false);
+    }
+  }
+  setPage(newPage);
+};
 
   const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
     setRowsPerPage(parseInt(event.target.value, 10));
@@ -303,12 +317,19 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           onPageChange={handleChangePage}
           onRowsPerPageChange={handleChangeRowsPerPage}
           labelDisplayedRows={() => ''}
+          nextIconButtonProps={{
+            disabled: isLastPage
+          }}
+          backIconButtonProps={{
+            disabled: page === 0
+          }}
           sx={{ display: "flex", ".MuiTablePagination-toolbar": {
             paddingLeft: "10px"
           }, ".MuiTablePagination-actions": {
-              marginLeft: "0px !important"
+            marginLeft: "0px !important"
           }}}
         />
+
       )}
     </Box>
   );
