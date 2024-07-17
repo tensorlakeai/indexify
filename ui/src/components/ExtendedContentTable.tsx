@@ -90,17 +90,15 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
     const result = await client.listContent(extractionGraph.name, undefined, {
       namespace: namespace,
       extractionGraph: extractionGraph.name,
-      limit: rowsPerPage + 1, // Request one extra item to check if there's a next page
+      limit: rowsPerPage + 1,
       startId: startId,
       source: tabValue === "ingested" ? "ingestion" : undefined,
       returnTotal: true
     });
     
-    // Check if we've reached the last page
     if (result.contentList.length <= rowsPerPage) {
       setIsLastPage(true);
     } else {
-      // Remove the extra item we requested
       result.contentList.pop();
       setIsLastPage(false);
     }
@@ -317,12 +315,19 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           onPageChange={handleChangePage}
           onRowsPerPageChange={handleChangeRowsPerPage}
           labelDisplayedRows={() => ''}
-          nextIconButtonProps={{
-            disabled: isLastPage
-          }}
-          backIconButtonProps={{
-            disabled: page === 0
-          }}
+          slotProps={
+            {
+              actions: 
+              {
+                nextButton: {
+                  disabled: isLastPage
+                }, 
+                previousButton: {
+                  disabled: page === 0
+                }
+              }
+            }
+          }
           sx={{ display: "flex", ".MuiTablePagination-toolbar": {
             paddingLeft: "10px"
           }, ".MuiTablePagination-actions": {
