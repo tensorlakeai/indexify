@@ -120,8 +120,6 @@ const IndividualContentPage = () => {
         newIds.splice(index + 1)
         return newIds
       })
-      // In this case, we would need to fetch child content for the current tab
-      // This is just a placeholder, you'll need to implement the actual fetching logic
       setFilteredContent([])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,7 +257,7 @@ const IndividualContentPage = () => {
         contentUrl={`${contentMetadata.content_url}`}
         textContent={textContent}
       />
-      {/* <Box>
+      <Box>
         <Box justifyContent={'space-between'} display={'flex'}>
           <Tabs
             value={currentTab}
@@ -314,7 +312,7 @@ const IndividualContentPage = () => {
           )}
         </Box>
         {renderContent()}
-      </Box> */}
+      </Box>
       {/* <ExtractedMetadataTable
         extractedMetadata={contentMetadata}
       /> */}
@@ -325,7 +323,7 @@ const IndividualContentPage = () => {
           .flat()}
         loadData={taskLoader}
         hideContentId
-      /> */}
+      />  */}
     </Stack>
   )
 }

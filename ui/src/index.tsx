@@ -20,7 +20,8 @@ import {
   IndexesPageLoader,
   SqlTablesPageLoader,
   IndividualExtractionGraphPageLoader,
-  StateChangesPageLoader
+  StateChangesPageLoader,
+  ExtractionPoliciesContentPageLoader
 } from "./utils/loaders";
 import {
   ExtractionPolicyPage,
@@ -30,7 +31,8 @@ import {
   ExtractionGraphsPage,
   IndexesPage,
   SqlTablesPage,
-  StateChangesPage
+  StateChangesPage,
+  ExtractionPoliciesContentPage
 } from "./routes/Namespace";
 import IndividualExtractionGraphPage from "./routes/Namespace/IndividualExtractionGraphPage";
 
@@ -103,6 +105,12 @@ const router = createBrowserRouter(
           path: "/:namespace/state-changes",
           element: <StateChangesPage />,
           loader: StateChangesPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/extraction-graphs/:extractorName/extraction-policies-content",
+          element: <ExtractionPoliciesContentPage />,
+          loader: ExtractionPoliciesContentPageLoader,
           errorElement: <ErrorPage />
         }
       ]

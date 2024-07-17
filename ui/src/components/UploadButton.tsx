@@ -9,6 +9,7 @@ import {
   Select,
   Paper,
   CircularProgress,
+  OutlinedInput,
 } from '@mui/material';
 import { ExtractionGraph, IndexifyClient } from 'getindexify';
 import LabelsInput from './Inputs/LabelsInput';
@@ -19,17 +20,13 @@ interface Props {
   extractionGraphs: ExtractionGraph[]
 }
 
-const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
-    const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels));
-    await Promise.all(uploadPromises);
-  };
-
 const UploadButton = ({ client, extractionGraphs }: Props) => {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [extractionGraphName, setExtractionGraphName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [newContentId, setNewContentId] = useState("");
   const [localExtractionGraphs, setLocalExtractionGraphs] = useState<ExtractionGraph[]>(
     extractionGraphs
   );
@@ -59,7 +56,8 @@ const UploadButton = ({ client, extractionGraphs }: Props) => {
   const upload = async () => {
     if (files.length > 0 && extractionGraphName) {
       setLoading(true);
-      await uploadFiles(client, extractionGraphName, files, labels);
+      const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels, newContentId));
+      await Promise.all(uploadPromises);
       window.location.reload();
     }
   };
@@ -106,6 +104,16 @@ const UploadButton = ({ client, extractionGraphs }: Props) => {
               </MenuItem>
             ))}
           </Select>
+          <OutlinedInput
+            label="Content Id"
+            value={newContentId}
+            onChange={(event) => setNewContentId(event.target.value)}
+            fullWidth
+            notched={false}
+            placeholder="Content Id"
+            sx={{ backgroundColor: "white", mt: 2 }}
+            size="small"
+          />
           <FileDropZone onFileSelect={handleFileSelect} />
           <LabelsInput
             disabled={loading}

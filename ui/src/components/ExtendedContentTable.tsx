@@ -22,8 +22,8 @@ import InfoIcon from "@mui/icons-material/Info";
 import { ExtractionGraph, IContentMetadata, IndexifyClient } from "getindexify";
 import CopyText from "./CopyText";
 import { Link } from "react-router-dom";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import UploadButton from "./UploadButton";
+import { Link as RouterLink } from 'react-router-dom';
 
 const filterContentByGraphName = (contentList: IContentMetadata[], graphName: string): IContentMetadata[] => {
   return contentList.filter(content => content.extraction_graph_names.includes(graphName));
@@ -184,21 +184,21 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
     }
   };
 
-  // const [allExtractionGraphs, setAllExtractionGraphs] = useState<ExtractionGraph[]>([]);
+  const [allExtractionGraphs, setAllExtractionGraphs] = useState<ExtractionGraph[]>([]);
 
-  // useEffect(() => {
-  //   const fetchExtractionGraphs = async () => {
-  //     try {
-  //       const graphs = await client.getExtractionGraphs();
-  //       setAllExtractionGraphs(graphs);
-  //     } catch (error) {
-  //       console.error("Error fetching extraction graphs:", error);
-  //       setAllExtractionGraphs([]);
-  //     }
-  //   };
+  useEffect(() => {
+    const fetchExtractionGraphs = async () => {
+      try {
+        const graphs = await client.getExtractionGraphs();
+        setAllExtractionGraphs(graphs);
+      } catch (error) {
+        console.error("Error fetching extraction graphs:", error);
+        setAllExtractionGraphs([]);
+      }
+    };
 
-  //   fetchExtractionGraphs();
-  // }, [client]);
+    fetchExtractionGraphs();
+  }, [client]);
 
   return (
     <Box sx={{
@@ -232,12 +232,22 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           <StyledToggleButton value="search" aria-label="search">
             Search
           </StyledToggleButton>
-          <StyledToggleButton value="ingested" aria-label="ingested">
+          <StyledToggleButton value="ingested" aria-label="search">
             Ingested
           </StyledToggleButton>
         </StyledToggleButtonGroup>
+        <RouterLink to="extraction-policies-content" style={{ textDecoration: 'none' }}>
+          <Button
+            value="ingestedPage"
+            aria-label="ingestedPage"
+            variant="contained"
+            size="small"
+          >
+            Extraction Policies Content
+          </Button>
+        </RouterLink>
         </Box>
-        {/* <UploadButton client={client} extractionGraphs={allExtractionGraphs} /> */}
+        <UploadButton client={client} extractionGraphs={allExtractionGraphs} />
       </Box>
 
       {tabValue === "search" && (

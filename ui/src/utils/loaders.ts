@@ -180,3 +180,11 @@ export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
     return { stateChanges };
 }
 
+export async function ExtractionPoliciesContentPageLoader({ params }: LoaderFunctionArgs) {
+  if (!params.namespace) return redirect('/')
+  const response = await axios.get(`${getIndexifyServiceURL()}/state_changes`);
+  const stateChanges = response.data.state_changes
+    return { stateChanges };
+}
+
+
