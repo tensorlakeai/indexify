@@ -182,9 +182,22 @@ export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
 
 export async function ExtractionPoliciesContentPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
-  const response = await axios.get(`${getIndexifyServiceURL()}/state_changes`);
-  const stateChanges = response.data.state_changes
-    return { stateChanges };
+  const { namespace, extractorName } = params
+  if (!params.namespace) return redirect('/')
+
+  const client = await createClient(params.namespace)
+  const extractionGraphs = await client.getExtractionGraphs();
+  const extractionGraph = extractionGraphs.find(
+    (graph) => graph.name === extractorName
+  )
+
+  return {
+    client,
+    extractorName,
+    extractionGraph,
+    extractionGraphs,
+    namespace
+  }
 }
 
 
