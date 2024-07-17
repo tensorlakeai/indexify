@@ -1,67 +1,147 @@
-# Key Concepts
+# Key Concepts 
 
-A typical workflow using Indexify involves uploading unstructured data(documents, videos, images, audio), wait for vector indexes or structured stores to be updated as extractors are applied on the content. As indexes are updated continuously, you could retrieve updated information from them, via semantic search on vector indexes and SQL queries from structured data tables.
+## Overview
 
-![Block Diagram](images/key_concepts_block_diagram.png)
+Indexify is a powerful and versatile data framework designed to revolutionize the way we handle unstructured data for AI applications. It offers a seamless solution for building ingestion and extraction pipelines that can process various types of unstructured data, including documents, videos, images, and audio files.  A typical workflow involves:
 
-### Extractor
-A python class that can -
+1. Uploading unstructured data (documents, videos, images, audio)
+2. Applying extractors to process the content
+3. Updating vector indexes and structured stores
+4. Retrieving information via semantic search on vector indexes and SQL queries on structured data tables
 
-1. Transform unstructured data into intermediate forms. For example, a PDF document transformed into text, images, structured data if it contains tabular data.
-2. Extract features like embedding or metadata(JSON) that can be retrieved by LLM applications.
 
-###### Transformation
-Extractors can transform a source by simply returning a list of `Content`. Examples - Returning an audio file from a video. Returning chunks of text from a PDF. Returning audio segments based on presence of speech in an audio file.
+![Block Diagram](https://github.com/user-attachments/assets/c7715cc0-875c-4799-bb79-79b2f1cecd27)
 
-```
-Extractor(Content) -> List[Content]
-```
+## Core Components
 
-![Content Transformation](images/key_concepts_transform.png)
+To fully grasp the power and flexibility of Indexify, it's essential to understand its core concepts:
 
-###### Structured Data Extraction
-An extractor can enrich an ingested content by associating structured data to the content. For example, adding bounding boxes of detected objects and their labels to an image. Structured Data is made queryable using SQL queries.
+1. **Extractors**: These are the workhorses of Indexify. Extractors are functions that take data from upstream sources and produce three types of output:
+   - Transformed data: For example, converting a PDF to plain text.
+   - Embeddings: Vector representations of the data, useful for semantic search.
+   - Structured data: Extracted metadata or features in a structured format.
 
-```
-Extractor(Content) -> List[Feature(Type=Metadata)]
-```
+2. **Extraction Graphs**: These are multi-step workflows created by chaining multiple extractors together. They allow you to define complex data processing pipelines that can handle various transformations and extractions in a single, cohesive flow.
 
-![Feature Extraction](images/key_concepts_feature_extraction.png)
+3. **Namespaces**: Indexify uses namespaces as logical abstractions for storing related content. This feature allows for effective data partitioning based on security requirements or organizational boundaries, making it easier to manage large-scale data operations.
 
-###### Embedding Extraction
-An extractor can return embeddings for any ingested content. Indexify automatically creates Indexes from extracted embeddings. 
-```
-Extractor(Content) -> List[Feature(Type=Embedding)]
-```
+4. **Content**: In Indexify, 'Content' represents raw unstructured data. This could be documents, videos, images, or any other form of unstructured data. Content objects contain the raw bytes of the data along with metadata like MIME types.
 
-![Embedding Extraction](images/key_concepts_embeddings.png)
+5. **Vector Indexes**: These are automatically created from extractors that return embeddings. Vector indexes enable powerful semantic search capabilities, allowing you to find similar content based on meaning rather than just keywords.
 
-###### Transformation, Embedding and Metadata Extraction Combined
-An extractor can transform, and extract embedding/metadata at the same time. Just return a list of new Content, along with the features of the transformed content, and a list of features at the same time. Indexify assumes that the features returned without any content belong to the ingested content and the list of new content are transformed content.
-```
-Extractor(Content) -> List[Feature... Content ...]
-```
+6. **Structured Data Tables**: Metadata extracted from content is exposed via SQL queries. This allows for easy querying and analysis of the structured information derived from your unstructured data.
 
-### Namespaces
-Namespaces are logical abstractions for storing related content. Namespaces allow partitioning data based on security and organizational boundaries.
 
-### Content
-Unstructured data(documents, video, images) is represented as Content. 
 
-### Extraction Graphs
-Extraction Graphs apply a sequence of extractors on ingested content in a streaming manner. Individual steps in an Extraction Graph is known as Extraction Policy. 
-Indexify tracks lineage of transformed content and extracted features from source. This allows deleting all the transformed content and features when the sources are deleted.
+### 1. Extractor
 
-![Extraction Policy](images/key_concepts_extraction_policy.png)
+An Extractor is essentially a Python class that can:
 
-### Vector Index and Retrieval APIs
-Vector Indexes are automatically created from extractors that returns embeddings. You can use any of the supported vector databases(Qdrant, Elastic Search, Open Search, PostgreSQL and LanceDB). They can be looked up using semantic/KNN search. 
+a) Transform unstructured data into intermediate forms
+b) Extract features like embeddings or metadata (JSON) for LLM applications
 
-### Structured Data Tables
-Metadata extracted from content is exposed using SQL Queries. Every Extraction Graph exposes a virtual SQL table, and any metadata added to content can be queried by SQL Queries on the virtual table.
+Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them.
 
-Example - If you create a policy named `object_detector` which runs the YOLO object detector against all images ingested, you can query all the images which has a ball like this -
+![Image 4: Extractor_working](https://github.com/user-attachments/assets/ac12fc76-3043-485f-9a8b-6bbffa7d878d)
 
-```
+#### Types of Extraction:
+
+1. **Transformation**
+   - Converts a source into a list of `Content`
+   - Example: PDF to text, video to audio
+   - `Extractor(Content) -> List[Content]`
+   
+   ![Content Transformation](https://github.com/user-attachments/assets/f75ffbe4-fb8e-421f-be6b-ddc8d0e9d977)
+
+2. **Structured Data Extraction**
+   - Enriches content with structured data
+   - Example: Adding bounding boxes to detected objects in an image
+   - `Extractor(Content) -> List[Feature(Type=Metadata)]`
+   
+   ![Feature Extraction](https://github.com/user-attachments/assets/d60e6fff-9913-4033-8209-7200289b6ac9)
+
+3. **Embedding Extraction**
+   - Generates embeddings for ingested content
+   - Indexify automatically creates indexes from these embeddings
+   - `Extractor(Content) -> List[Feature(Type=Embedding)]`
+   
+   ![Embedding Extraction](https://github.com/user-attachments/assets/3797236a-7361-403d-a5ea-86230d21be47)
+
+4. **Combined Extraction**
+   - Performs transformation, embedding, and metadata extraction simultaneously
+   - `Extractor(Content) -> List[Feature... Content ...]`
+
+   ![Combined Extraction](https://github.com/user-attachments/assets/c704d6e8-9dd6-45b8-b770-b0092373fa5a)
+
+Indexify allows you to have the freedom to either build custom extractors yourself, or make use of a wide array of pre-existing extractors.
+
+| Modality | Extractor Name | Use Case | Supported Input Types |
+|----------|----------------|----------|------------------------|
+| Text | OpenAI | General-purpose text processing | `text/plain`, `application/pdf` |
+| Text | Chunking | Text splitting into smaller chunks | `text/plain` |
+| Image | Gemini | General-purpose image processing | `image/jpeg`, `image/png` |
+| Image | EasyOCR | Text extraction from images using OCR | `image/jpeg`, `image/png` |
+| PDF | PDFExtractor | Text, image, and table extraction from PDFs | `application/pdf` |
+| PDF | Marker | PDF to markdown conversion | `application/pdf` |
+| Audio | Whisper | Audio transcription | `audio`, `audio/mpeg` |
+| Audio | ASR Diarization | Speech recognition and speaker diarization | `audio`, `audio/mpeg` |
+| Presentation | PPT | Information extraction from presentations | `application/vnd.ms-powerpoint`, `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
+
+For an exhaustive list of all extractors and a guide on building custom extractors visit the official extractor [docs](https://docs.getindexify.ai/apis/extractors/).
+
+
+
+### 2. Namespaces
+
+- Logical abstractions for storing related content
+- Allow data partitioning based on security and organizational boundaries
+
+### 3. Content
+
+- Representation of unstructured data (documents, video, images)
+
+### 4. Extraction Graphs
+
+- Apply a sequence of extractors on ingested content in a streaming manner
+- Individual steps in an Extraction Graph are known as Extractors
+- Track lineage of transformed content and extracted features
+- Enable deletion of all transformed content and features when sources are deleted
+
+![Extraction Policy](https://github.com/user-attachments/assets/e7649bd7-bb26-4873-8372-fb6367d3e5d8)
+
+### 5. Vector Index and Retrieval APIs
+
+- Automatically created from extractors that return embeddings
+- Support various vector databases (Qdrant, Elastic Search, Open Search, PostgreSQL, LanceDB)
+- Enable semantic/KNN search
+
+### 6. Structured Data Tables
+
+- Expose metadata extracted from content using SQL Queries
+- Each Extraction Graph has a virtual SQL table
+- Allow querying of metadata added to content
+
+Example Usage:
+```sql
 select * from object_detector where object_name='ball'
 ```
+This query retrieves all images with a detected ball, assuming an `object_detector` policy using YOLO object detection.
+
+## Next Steps
+
+To continue your journey with Indexify, consider exploring the following topics in order:
+
+| Topics | Subtopics |
+|--------|-----------|
+| [Getting Started - Basic](https://docs.getindexify.ai/getting_started/) | - Setting up the Indexify Server<br>- Creating a Virtual Environment<br>- Downloading and Setting Up Extractors<br>- Defining Data Pipeline with YAML<br>- Loading Wikipedia Data<br>- Querying Indexed Data<br>- Building a Simple RAG Application |
+| [Intermediate Use Case: Unstructured Data Extraction from a Tax PDF](https://docs.getindexify.ai/getting_started_intermediate/) | - Understanding the challenge of tax document processing<br>- Setting up an Indexify pipeline for PDF extraction<br>- Implementing extractors for key tax information<br>- Querying and retrieving processed tax data |
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br>  • Transformation<br>  • Structured Data Extraction<br>  • Embedding Extraction<br>  • Combined Transformation, Embedding, and Metadata Extraction<br>- Namespaces<br>- Content<br>- Extraction Graphs<br>- Vector Index and Retrieval APIs<br>- Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Indexify Server<br>  • Coordinator<br>  • Ingestion Server<br>- Extractors<br>- Deployment Layouts<br>  • Local Mode<br>  • Production Mode |
+| [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK<br>- Designing your extractor's functionality<br>- Implementing the extractor class<br>- Testing and debugging your custom extractor<br>- Integrating the custom extractor into your Indexify pipeline |
+| [Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Document processing and analysis<br>- Image and video content extraction<br>- Audio transcription and analysis<br>- Multi-modal data processing<br>- Large-scale data ingestion and retrieval systems |
+
+Each section builds upon the previous ones, providing a logical progression from practical application to deeper technical understanding and finally to customization and real-world examples.
+
+For more information on how to use Indexify, refer to the [official documentation](https://docs.getindexify.ai/).
+
+Happy coding!
