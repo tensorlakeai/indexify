@@ -1001,12 +1001,25 @@ async fn list_extraction_graphs(
     }))
 }
 
+#[allow(dead_code)]
+#[derive(ToSchema)]
+struct UploadType {
+    labels: Option<HashMap<String, serde_json::Value>>,
+    #[schema(format = "binary")]
+    file: String,
+}
+
 /// Upload a file to an extraction graph in a namespace
 #[tracing::instrument(skip(state))]
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract",
-    request_body(content_type = "multipart/form-data", content = Vec<u8>),
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("id" = Option<String>, Query, description = "id of content to create, if not provided a random id will be generated"),
+    ),
+    request_body(content_type = "multipart/form-data", content = inline(UploadType)),
     tag = "ingestion",
     responses(
         (status = 200, description = "Uploads a file to the namespace"),
