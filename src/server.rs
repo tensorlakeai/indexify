@@ -901,7 +901,8 @@ async fn active_content(
     Ok(Json(res))
 }
 
-/// Get extracted content metadata for a specific content id and extraction graph
+/// Get extracted content metadata for a specific content id and extraction
+/// graph
 #[tracing::instrument]
 #[utoipa::path(
     get,
