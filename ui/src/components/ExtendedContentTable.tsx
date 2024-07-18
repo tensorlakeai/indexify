@@ -252,7 +252,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
             onChange={(e) => setContentId(e.target.value)}
             sx={{ flexGrow: 1 }}
           />
-          <Button variant="contained" onClick={handleSearch} disabled={isLoading}>
+          <Button variant="contained" onClick={handleSearch} disabled={isLoading || !contentId}>
             Search
           </Button>
         </Box>
@@ -316,7 +316,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           ) : null
         )}
       </TableContainer>
-      {tabValue === "ingested" && (
+      {filteredContent.length > 0 && tabValue === "ingested" && (
         <TablePagination
           rowsPerPageOptions={[5, 10, 20]}
           component="div"
