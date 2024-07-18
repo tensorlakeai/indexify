@@ -179,25 +179,3 @@ export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
   const stateChanges = response.data.state_changes
     return { stateChanges };
 }
-
-export async function ExtractionPoliciesContentPageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const { namespace, extractorName } = params
-  if (!params.namespace) return redirect('/')
-
-  const client = await createClient(params.namespace)
-  const extractionGraphs = await client.getExtractionGraphs();
-  const extractionGraph = extractionGraphs.find(
-    (graph) => graph.name === extractorName
-  )
-
-  return {
-    client,
-    extractorName,
-    extractionGraph,
-    extractionGraphs,
-    namespace
-  }
-}
-
-
