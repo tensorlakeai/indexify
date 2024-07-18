@@ -7,4 +7,3 @@ export { default as IndexesPage } from "./IndexesPage";
 export { default as SqlTablesPage } from "./SqlTablesPage";
 export { default as ContentsPage } from "./ContentsPage";
 export { default as StateChangesPage } from "./StateChangesPage";
-export { default as ExtractionPoliciesContentPage } from "./ExtractionPoliciesContentPage";
