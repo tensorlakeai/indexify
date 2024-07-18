@@ -142,7 +142,7 @@ For an exhaustive list of all extractors and a guide on building custom extracto
 - Track lineage of transformed content and extracted features
 - Enable deletion of all transformed content and features when sources are deleted
 
-![Extraction Policy](https://github.com/user-attachments/assets/fb24fde3-a4c1-418a-93a4-a002e741d594)
+![Extraction Policy](https://github.com/user-attachments/assets/e7649bd7-bb26-4873-8372-fb6367d3e5d8)
 
 ### 5. Vector Index and Retrieval APIs
 
