@@ -1229,6 +1229,56 @@ impl IndexifyState {
         );
     }
 
+    fn add_graph_to_content(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        content_ids: &Vec<String>,
+        namespace: &str,
+        extraction_graph: &str,
+    ) -> Result<(), StateMachineError> {
+        let res =
+            self.get_extraction_graphs_by_name(namespace, &[extraction_graph.to_string()], db)?;
+        if res.first().is_none() {
+            warn!(
+                "extraction graph {} not found in namespace {}",
+                extraction_graph, namespace
+            );
+            return Ok(());
+        };
+        for content_id in content_ids {
+            let content = self.get_latest_version_of_content(&content_id, db, txn)?;
+            match content {
+                Some(content) if !content.tombstoned => {
+                    if content.namespace != namespace {
+                        warn!(
+                            "content {} does not belong to namespace {}",
+                            content_id, namespace
+                        );
+                        continue;
+                    }
+                    let mut content = content;
+                    content
+                        .extraction_graph_names
+                        .push(extraction_graph.to_string());
+                    let serialized_content = JsonEncoder::encode(&content)?;
+                    txn.put_cf(
+                        StateMachineColumns::ContentTable.cf(db),
+                        content.id_key(),
+                        &serialized_content,
+                    )
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("error writing content: {}", e))
+                    })?;
+                }
+                _ => {
+                    warn!("Content with id {} not found", content_id);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// This method will make all state machine forward index writes to RocksDB
     pub fn apply_state_machine_updates(
         &self,
@@ -1241,6 +1291,13 @@ impl IndexifyState {
             self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
+            RequestPayload::AddGraphToContent {
+                content_ids,
+                extraction_graph,
+                namespace,
+            } => {
+                self.add_graph_to_content(db, &txn, content_ids, namespace, extraction_graph)?;
+            }
             RequestPayload::SetIndex { indexes } => {
                 for index in indexes {
                     self.set_index(db, &txn, index, &index.id)?;
@@ -1449,6 +1506,7 @@ impl IndexifyState {
             self.mark_state_changes_processed(&change, change.processed_at);
         }
         match request.payload {
+            RequestPayload::AddGraphToContent { .. } => Ok(()),
             RequestPayload::RegisterExecutor {
                 addr,
                 executor_id,
@@ -1499,7 +1557,6 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks: _ } => Ok(()),
             RequestPayload::UpdateGarbageCollectionTask {
                 gc_task,
                 mark_finished,
@@ -1540,11 +1597,6 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateExtractionGraphLink {
-                extraction_graph_link: _,
-            } => Ok(()),
-
-            RequestPayload::CreateNamespace { name: _ } => Ok(()),
             RequestPayload::UpdateTask {
                 task,
                 executor_id,
@@ -1575,7 +1627,13 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            _ => Ok(()),
+            RequestPayload::CreateOrAssignGarbageCollectionTask { .. } |
+            RequestPayload::CreateExtractionGraphLink { .. } |
+            RequestPayload::CreateNamespace { .. } |
+            RequestPayload::JoinCluster { .. } |
+            RequestPayload::RemoveExecutor { .. } |
+            RequestPayload::SetIndex { .. } |
+            RequestPayload::TombstoneContentTree { .. } => Ok(()),
         }
     }
 

@@ -416,12 +416,14 @@ impl App {
     pub async fn match_extraction_policies_for_content(
         &self,
         content_metadata: &internal_api::ContentMetadata,
+        graph_names: &[String],
     ) -> Result<Vec<ExtractionPolicy>> {
         if content_metadata.tombstoned {
             return Ok(Vec::new());
         }
+
         let mut policy_ids = Vec::new();
-        for graph_name in &content_metadata.extraction_graph_names {
+        for graph_name in graph_names {
             let graph_links = self
                 .state_machine
                 .data
@@ -562,6 +564,42 @@ impl App {
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
+        Ok(())
+    }
+
+    pub async fn add_graph_to_content(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        content_ids: Vec<String>,
+    ) -> Result<()> {
+        // Take a reference on the contents until the new graph change is processed.
+        let new_state_changes = content_ids
+            .iter()
+            .map(|id| {
+                StateChange::new_with_refcnt(
+                    id.to_string(),
+                    internal_api::ChangeType::AddGraphToContent {
+                        extraction_graph: extraction_graph.clone(),
+                    },
+                    timestamp_secs(),
+                    id.to_string(),
+                )
+            })
+            .collect();
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::AddGraphToContent {
+                extraction_graph,
+                namespace,
+                content_ids,
+            },
+            new_state_changes,
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to add graph to content: {}", e.to_string()))?;
         Ok(())
     }
 
@@ -1827,7 +1865,10 @@ mod tests {
         //  Fetch the policy based on the content id and check that the retrieved policy
         // is correct
         let matched_policies = node
-            .match_extraction_policies_for_content(&content_metadata)
+            .match_extraction_policies_for_content(
+                &content_metadata,
+                &content_metadata.extraction_graph_names,
+            )
             .await?;
         assert_eq!(matched_policies.len(), 1);
         assert_eq!(
@@ -1948,7 +1989,10 @@ mod tests {
             .get_latest_version_of_content("content_id_1")?
             .unwrap();
         let policies = node
-            .match_extraction_policies_for_content(&content_metadata1)
+            .match_extraction_policies_for_content(
+                &content_metadata1,
+                &content_metadata1.extraction_graph_names,
+            )
             .await?;
         assert_eq!(policies.len(), 1);
 
@@ -1957,7 +2001,10 @@ mod tests {
             .get_latest_version_of_content("content_id_2")?
             .unwrap();
         let policies = node
-            .match_extraction_policies_for_content(&content_metadata2)
+            .match_extraction_policies_for_content(
+                &content_metadata2,
+                &content_metadata2.extraction_graph_names,
+            )
             .await?;
         assert_eq!(policies.len(), 0);
 

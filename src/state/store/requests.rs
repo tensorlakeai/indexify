@@ -59,6 +59,11 @@ pub enum RequestPayload {
         gc_task: internal_api::GarbageCollectionTask,
         mark_finished: bool,
     },
+    AddGraphToContent {
+        content_ids: Vec<String>,
+        namespace: String,
+        extraction_graph: String,
+    },
     CreateExtractionGraph {
         extraction_graph: internal_api::ExtractionGraph,
         structured_data_schema: internal_api::StructuredDataSchema,

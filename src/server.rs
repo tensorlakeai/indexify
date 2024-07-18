@@ -86,6 +86,7 @@ pub struct NamespaceEndpointState {
             link_extraction_graphs,
             extraction_graph_links,
             upload_file,
+            add_graph_to_content,
             list_tasks,
             index_search,
         ),
@@ -98,6 +99,7 @@ pub struct NamespaceEndpointState {
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
             ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
+            AddGraphToContent,
         )
         ),
         tags(
@@ -203,6 +205,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
+                post(add_graph_to_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
@@ -1236,6 +1242,40 @@ async fn ingest_extracted_content(
     State(state): State<NamespaceEndpointState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| IngestExtractedContentState::new(state).run(socket))
+}
+
+/// Run extraction graph for a list of existing content
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+    ),
+    request_body = AddGraphToContent,
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Content extraction started successfully"),
+        (status = BAD_REQUEST, description = "Unable to start content extraction")
+    ),
+)]
+#[axum::debug_handler]
+async fn add_graph_to_content(
+    Path((namespace, extraction_graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Json(payload): Json<AddGraphToContent>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .add_graph_to_content(namespace, extraction_graph, payload.content_ids)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to extract content: {}", e),
+            )
+        })?;
+    Ok(())
 }
 
 /// List all executors running extractors in the cluster

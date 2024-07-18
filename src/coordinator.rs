@@ -70,6 +70,17 @@ impl Coordinator {
         })
     }
 
+    pub async fn add_graph_to_content(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        content_ids: Vec<String>,
+    ) -> Result<()> {
+        self.shared_state
+            .add_graph_to_content(namespace, extraction_graph, content_ids)
+            .await
+    }
+
     pub async fn get_extraction_graph_links(
         &self,
         namespace: &str,
@@ -698,6 +709,9 @@ impl Coordinator {
                     self.scheduler.redistribute_tasks(&change).await?
                 }
                 indexify_internal_api::ChangeType::NewContent => {
+                    self.scheduler.create_new_tasks(change).await?
+                }
+                indexify_internal_api::ChangeType::AddGraphToContent { .. } => {
                     self.scheduler.create_new_tasks(change).await?
                 }
                 indexify_internal_api::ChangeType::ExecutorRemoved => {
@@ -1380,7 +1394,7 @@ mod tests {
             .unwrap();
         let policies_matching_content = coordinator
             .shared_state
-            .match_extraction_policies_for_content(&content)
+            .match_extraction_policies_for_content(&content, &content.extraction_graph_names)
             .await?;
         assert_eq!(policies_matching_content.len(), 1);
 
@@ -1398,7 +1412,7 @@ mod tests {
             .unwrap();
         let policies_matching_content = coordinator
             .shared_state
-            .match_extraction_policies_for_content(&content)
+            .match_extraction_policies_for_content(&content, &content.extraction_graph_names)
             .await?;
         assert_eq!(policies_matching_content.len(), 0);
 
@@ -1873,6 +1887,81 @@ mod tests {
             ))?;
         assert_eq!(prev_tree.len(), 0);
 
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_graph_to_content() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg_1 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_1",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_1.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let eg_2 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_2",
+            vec![
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_2.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let parent_content = test_mock_content_metadata("test_parent_id", "", &eg_1.name);
+        let create_res = coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+
+        let mut child_id = 1;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 4);
+
+        coordinator
+            .add_graph_to_content(
+                DEFAULT_TEST_NAMESPACE.to_string(),
+                eg_2.name.clone(),
+                vec!["test_parent_id".to_string()],
+            )
+            .await?;
+
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
         let tree = coordinator
             .shared_state
             .get_content_tree_metadata(&parent_content.id.id)?;

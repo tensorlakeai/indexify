@@ -101,9 +101,16 @@ impl Scheduler {
                     .await
             }
         };
+        let graph_names = match &state_change.change_type {
+            indexify_internal_api::ChangeType::AddGraphToContent { extraction_graph } => {
+                vec![extraction_graph.clone()]
+            }
+            indexify_internal_api::ChangeType::NewContent => content.extraction_graph_names.clone(),
+            _ => return Err(anyhow!("unexpected state change type")),
+        };
         let extraction_policies = self
             .shared_state
-            .match_extraction_policies_for_content(&content)
+            .match_extraction_policies_for_content(&content, &graph_names)
             .await?;
         let tables = self.tables_for_policies(&extraction_policies).await?;
         for extraction_policy in extraction_policies {
