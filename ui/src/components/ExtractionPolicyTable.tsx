@@ -27,7 +27,6 @@ interface ExtractionPolicyProps {
 }
 
 const ExtractionPolicyTable: React.FC = () => {
-  // This would typically come from your data source
   const policies: ExtractionPolicyProps[] = [
     {
       id: '1',
@@ -40,7 +39,6 @@ const ExtractionPolicyTable: React.FC = () => {
       completed: 24,
       depth: 0,
     },
-    // ... add more policies here
   ];
 
   const renderName = (name: string, depth: number) => (
