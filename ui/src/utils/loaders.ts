@@ -179,4 +179,3 @@ export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
   const stateChanges = response.data.state_changes
     return { stateChanges };
 }
-

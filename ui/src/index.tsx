@@ -104,7 +104,7 @@ const router = createBrowserRouter(
           element: <StateChangesPage />,
           loader: StateChangesPageLoader,
           errorElement: <ErrorPage />
-        }
+        },
       ]
     }
   ],

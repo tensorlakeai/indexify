@@ -5,7 +5,7 @@ import CopyText from '../../components/CopyText';
 
 interface ExtractorTableProps {
   rows: Row[];
-  graphName?: string; // Added this prop for the table title
+  graphName?: string;
 }
 
 const ExtractorGraphTable: React.FC<ExtractorTableProps> = ({ rows, graphName }) => {
