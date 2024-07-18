@@ -7,7 +7,7 @@ Indexify provides several extractors that extract text, images, and tables from 
 
 With Indexify, you can accomplish the following with your PDFs:
 
-1. 🔍 **Data Extraction:** Extract specific information from PDFs such as text, images and tables.
+1. 🔍 **Data Extraction:** Extract specific information from PDFs such as text, images, and tables.
 2. 📚 **Document Indexing:** Build searchable indexes on vector stores and structured stores by combining PDF extractors with chunking, embedding, and structured data extractors. 
 3. 🤖 **Document Q&A:** Get Answers to specific Questions from Documents directly. 
 
