@@ -23,7 +23,6 @@ jobs:
   build-linux-amd64-package:
     name: Build x86_64 Linux Package
     runs-on: ubuntu-latest-xlarge
-    container: quay.io/pypa/manylinux2010_x86_64
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --component rustfmt
