@@ -6,12 +6,12 @@ import {
   IconButton,
   Tooltip,
   styled,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  Table as MuiTable,
+  TableBody as MuiTableBody,
+  TableCell as MuiTableCell,
+  TableContainer as MuiTableContainer,
+  TableHead as MuiTableHead,
+  TableRow as MuiTableRow,
   Button,
   Paper,
   TablePagination,
@@ -271,63 +271,63 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           </Button>
         </Box>
       )}
-      <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
+      <MuiTableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
         {filteredContent.length > 0 ? (
-          <Table>
+          <MuiTable>
             {(tabValue !== "search" || (tabValue === "search" && hasSearched)) && (
-              <TableHead>
-                <TableRow>
-                  <TableCell>Content ID</TableCell>
-                  <TableCell>Mime Type</TableCell>
+              <MuiTableHead>
+                <MuiTableRow>
+                  <MuiTableCell>Content ID</MuiTableCell>
+                  <MuiTableCell>Mime Type</MuiTableCell>
                   {tabValue !== "ingested" && (
-                    <TableCell>Source</TableCell>
+                    <MuiTableCell>Source</MuiTableCell>
                   )}
                   {tabValue !== "ingested" && (
-                    <TableCell>Parent ID</TableCell>
+                    <MuiTableCell>Parent ID</MuiTableCell>
                   )}
-                  <TableCell>Labels</TableCell>
-                  <TableCell>Created At</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
+                  <MuiTableCell>Labels</MuiTableCell>
+                  <MuiTableCell>Created At</MuiTableCell>
+                  <MuiTableCell>Actions</MuiTableCell>
+                </MuiTableRow>
+              </MuiTableHead>
             )}
-            <TableBody>
+            <MuiTableBody>
               {filteredContent.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
+                <MuiTableRow key={row.id}>
+                  <MuiTableCell>
                     <Box sx={{ display: "flex", alignItems: "center" }}>
                       <Link to={`/${namespace}/extraction-graphs/${graphName}/content/${row.id}`}>
                         {row.id}
                       </Link>
                       <CopyText text={row.id}/>
                     </Box>
-                  </TableCell>
-                  <TableCell>{row.mime_type}</TableCell>
+                  </MuiTableCell>
+                  <MuiTableCell>{row.mime_type}</MuiTableCell>
                   {tabValue !== "ingested" && (
-                    <TableCell>{row.source}</TableCell>
+                    <MuiTableCell>{row.source}</MuiTableCell>
                   )}
                   {tabValue !== "ingested" && (
-                    <TableCell>{row.parent_id}</TableCell>
+                    <MuiTableCell>{row.parent_id}</MuiTableCell>
                   )}
-                  <TableCell>
+                  <MuiTableCell>
                     {typeof row.labels === 'object' && row.labels !== null
                       ? Object.entries(row.labels)
                           .map(([key, value]) => `${key}: ${value}`)
                           .join(', ')
                       : String(row.labels)}
-                  </TableCell>
-                  <TableCell>
+                  </MuiTableCell>
+                  <MuiTableCell>
                     {row.created_at ? new Date(row.created_at * 1000).toLocaleString() : ''}
-                  </TableCell>
-                  <TableCell>
+                  </MuiTableCell>
+                  <MuiTableCell>
                     <IconButton onClick={() => handleDelete(row.id)} aria-label="delete">
                       <DeleteIcon />
                     </IconButton>
-                  </TableCell>
-                </TableRow>
+                  </MuiTableCell>
+                </MuiTableRow>
               ))}
-            </TableBody>
-          </Table>
+            </MuiTableBody>
+          </MuiTable>
         ) : (
           (tabValue === "search" && hasSearched) || (tabValue === "ingested" && !isLoading) ? (
             <Alert variant="standard" severity="info">
@@ -335,7 +335,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
             </Alert>
           ) : null
         )}
-      </TableContainer>
+      </MuiTableContainer>
       {filteredContent.length > 0 && tabValue === "ingested" && (
         <TablePagination
           rowsPerPageOptions={[5, 10, 20]}
