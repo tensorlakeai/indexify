@@ -62,17 +62,35 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
+def process_pdf_url(url, index):
+    pdf_path = f"reference_document_{index}.pdf"
+    try:
+        download_pdf(url, pdf_path)
+        process_pdf(pdf_path)
+        print(f"Successfully processed: {url}")
+    except Exception as exc:
+        print(f"Error processing {url}: {exc}")
+
 # Example usage
 if __name__ == "__main__":
-    pdf_url = "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf"
-    pdf_path = "reference_document.pdf"
+    pdf_urls = [
+        "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
+        "https://arxiv.org/pdf/1810.04805.pdf"
+    ]
     
-    # Download the PDF
-    download_pdf(pdf_url, pdf_path)
+    # Download and process PDFs sequentially
+    for i, url in enumerate(pdf_urls):
+        process_pdf_url(url, i)
 
-    process_pdf(pdf_path)
-    
-    question = "What was the hardware the model was trained on and how long it was trained?"
-    answer = answer_question(question)
-    print(f"Question: {question}")
-    print(f"Answer: {answer}")
+    # Ask questions
+    questions = [
+        "What does the architecture diagram show?",
+        "Explain the attention mechanism in transformers.",
+        "What are the key contributions of BERT?"
+    ]
+
+    for question in questions:
+        answer = answer_question(question)
+        print(f"\nQuestion: {question}")
+        print(f"Answer: {answer}")
+        print("-" * 50)
