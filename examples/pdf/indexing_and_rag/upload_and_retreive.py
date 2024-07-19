@@ -1,9 +1,16 @@
 import os
 from indexify import IndexifyClient
+import requests
 from openai import OpenAI
 
 client = IndexifyClient()
 client_openai = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
 
 def process_pdf(pdf_path):
     content_id = client.upload_file("rag_pipeline", pdf_path)
@@ -20,7 +27,7 @@ def create_prompt(question, context):
     return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
 
 def answer_question(question):
-    context = get_context(question, "pdfqa.pdfembedding.embedding")
+    context = get_context(question, "rag_pipeline.chunks_to_embeddings.embedding")
     prompt = create_prompt(question, context)
     
     chat_completion = client_openai.chat.completions.create(
@@ -36,10 +43,15 @@ def answer_question(question):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = "your_document.pdf"
+    pdf_url = "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf"
+    pdf_path = "reference_document.pdf"
+    
+    # Download the PDF
+    download_pdf(pdf_url, pdf_path)
+
     process_pdf(pdf_path)
     
-    question = "Who is the greatest player of all time and what is his record?"
+    question = "What was the hardware the model was trained on and how long it was trained?"
     answer = answer_question(question)
     print(f"Question: {question}")
     print(f"Answer: {answer}")
