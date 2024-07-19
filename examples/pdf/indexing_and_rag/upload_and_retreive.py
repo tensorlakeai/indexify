@@ -4,7 +4,8 @@ import requests
 from openai import OpenAI
 
 client = IndexifyClient()
-client_openai = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+
+client_openai = OpenAI()
 
 def download_pdf(url, save_path):
     response = requests.get(url)
