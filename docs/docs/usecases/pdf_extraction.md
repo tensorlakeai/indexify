@@ -31,24 +31,36 @@ Indexify is a powerful tool designed to simplify the process of extracting and i
 
 ## Getting Started with Indexify
 
+### Prerequisites
+
+Before we begin, ensure you have the following:
+
+- Python 3.11 or older installed (Indexify currently requires this version)
+- Basic familiarity with Python programming
+- An OpenAI API key (for using GPT models in the question-answering part)
+- Command-line interface experience
+
+### Setup
+
+You'll need three separate terminal windows open for this tutorial:
+
+1. Terminal 1: For downloading and running the Indexify Server
+2. Terminal 2: For running Indexify extractors
+3. Terminal 3: For running Python scripts to load and query data from the Indexify server
+
+We'll use the following notation to indicate which terminal to use:
+
+```bash title="( Terminal X ) Description of Command"
+<command goes here>
+```
+
 To start using Indexify, follow these steps:
 
-1. Install Indexify:
-   ```bash
-   curl https://getindexify.ai | sh
-   ```
+1. Install Indexify
+2. Start the Indexify server
+3. Install the Indexify Python client
 
-2. Start the Indexify server:
-   ```bash
-   ./indexify server -d
-   ```
-
-3. Install the Indexify Python client:
-   ```bash
-   pip install indexify
-   ```
-
-Now you're ready to start using Indexify in your projects!
+We will look at these steps in much more detail in the End-to-End guide section
 
 ## Understanding PDF Extraction
 
@@ -65,25 +77,13 @@ Extracting this information can be challenging due to the complex structure of P
 
 Indexify offers several extractors specifically designed for PDF documents. Here's an overview of the main ones:
 
-1. **tensorlake/pdfextractor**: 
-   - Extracts text, images, and tables
-   - Best for scientific papers with tabular information
-
-2. **tensorlake/ocrmypdf**: 
-   - Focuses on text extraction
-   - Ideal for photocopied or scanned PDFs (CPU-based)
-
-3. **tensorlake/easyocr**: 
-   - Also focuses on text extraction
-   - Optimized for photocopied or scanned PDFs (GPU-based)
-
-4. **tensorlake/marker**: 
-   - Extracts text and tables
-   - Best for detailed, structured, and formatted PDFs
-
-5. **tensorlake/layoutlm-document-qa-extractor**: 
-   - Specialized for question-answering tasks
-   - Particularly useful for invoices and structured documents
+| Extractor Class Name | Features | Best Use Case |
+|----------------------|----------|---------------|
+| tensorlake/pdfextractor | - Extracts text, images, and tables | Best for scientific papers with tabular information |
+| tensorlake/ocrmypdf | - Focuses on text extraction | Ideal for photocopied or scanned PDFs (CPU-based) |
+| tensorlake/easyocr | - Focuses on text extraction | Optimized for photocopied or scanned PDFs (GPU-based) |
+| tensorlake/marker | - Extracts text and tables | Best for detailed, structured, and formatted PDFs |
+| tensorlake/layoutlm-document-qa-extractor | - Specialized for question-answering tasks | Particularly useful for invoices and structured documents |
 
 Let's visualize how these extractors fit into an extraction pipeline:
 
@@ -111,87 +111,234 @@ This diagram shows how a PDF document can be processed by different Indexify ext
 
 Let's walk through a complete example of how to use Indexify to build a PDF knowledge base. This example will demonstrate how to extract text, images, and tables from a set of PDF documents and store the extracted information for later use.
 
-### Step 1: Set Up the Environment
+###  Directory Structure
 
-First, make sure you have Indexify installed and the server running. Then, create a new Python script and import the necessary libraries:
+```plaintext
+indexify-pdf-extractor/
+│
+├── venv/                      # Virtual environment
+│
+├── image_extraction.py        # Script for image extraction
+├── table_extraction.py        # Script for table extraction
+├── continuous_extraction.py   # Script for continuous PDF extraction
+│
+└── indexify                   # Indexify server executable
+```
 
-```python
+### Setup
+
+First, set up your environment:
+
+```bash title="( Terminal 1 ) Setup Indexify"
+curl https://getindexify.ai | sh
+./indexify server -d
+```
+
+```bash title="( Terminal 2 ) Setup Python Environment"
+python3 -m venv venv
+source venv/bin/activate
+pip install indexify-extractor-sdk indexify requests
+indexify-extractor download tensorlake/pdfextractor
+indexify-extractor join-server
+```
+
+### Image Extraction
+
+Create a file named `image_extraction.py` with the following content:
+
+```python title="image_extraction.py"
 from indexify import IndexifyClient, ExtractionGraph
 import os
+import requests
 
-# Initialize the Indexify client
+# Set up the extraction graph
 client = IndexifyClient()
-```
-
-### Step 2: Define the Extraction Graph
-
-Now, let's define an extraction graph that uses the `tensorlake/pdfextractor` to extract text, images, and tables from our PDFs:
-
-```python
 extraction_graph_spec = """
-name: 'pdf_knowledge_base'
+name: 'image_extractor'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
-    name: 'pdf_extractor'
+    name: 'pdf_to_image'
     input_params:
-      output_types: ["text", "image", "table"]
+      output_types: ["image"]
 """
-
-# Create the extraction graph
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
-```
 
-This graph will extract text, images, and tables from each PDF we process.
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
 
-### Step 3: Process PDF Documents
-
-Now, let's process a directory of PDF documents:
-
-```python
-pdf_directory = "/path/to/your/pdf/files"
-
-for filename in os.listdir(pdf_directory):
-    if filename.endswith(".pdf"):
-        file_path = os.path.join(pdf_directory, filename)
-        content_id = client.upload_file("pdf_knowledge_base", file_path)
-        print(f"Uploaded {filename} with content ID: {content_id}")
-
-        # Wait for extraction to complete
-        client.wait_for_extraction(content_id)
-```
-
-### Step 4: Retrieve Extracted Content
-
-After processing, we can retrieve the extracted content:
-
-```python
-def print_extracted_content(content_id):
-    extracted_content = client.get_extracted_content(
-        content_id=content_id, 
-        graph_name="pdf_knowledge_base", 
-        policy_name="pdf_extractor"
+def get_images(pdf_path):
+    client = IndexifyClient()
+    
+    # Upload the PDF file
+    content_id = client.upload_file("image_extractor", pdf_path)
+    
+    # Wait for the extraction to complete
+    client.wait_for_extraction(content_id)
+    
+    # Retrieve the images content
+    images = client.get_extracted_content(
+        content_id=content_id,
+        graph_name="image_extractor",
+        policy_name="pdf_to_image"
     )
     
-    for content in extracted_content:
-        if content.content_type == "text/plain":
-            print("Extracted Text:")
-            print(content.data.decode('utf-8')[:500] + "...")  # Print first 500 characters
-        elif content.content_type.startswith("image/"):
-            print(f"Extracted Image: {content.features[0].name}")
-        elif "table" in content.features[0].name:
-            print("Extracted Table:")
-            print(content.features[0].value)
+    return images
 
-# Retrieve and print extracted content for each processed PDF
-for content_id in client.list_content_ids("pdf_knowledge_base"):
-    print(f"\nContent ID: {content_id}")
-    print_extracted_content(content_id)
+if __name__ == "__main__":
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    pdf_path = "reference_document.pdf"
+    
+    # Download the PDF
+    download_pdf(pdf_url, pdf_path)
+    
+    # Get images from the PDF
+    images = get_images(pdf_path)
+    for image in images:
+        content_id = image.features[0].name
+        with open(f"{content_id}.png", 'wb') as f:
+            print("writing image ", content_id)
+            f.write(image.data)
 ```
 
-This script will print out a summary of the extracted content for each PDF, including the first 500 characters of text, names of extracted images, and any extracted tables.
+Run the script:
 
-### Step 5: Visualize the Extraction Process
+```bash title="( Terminal 3 ) Run Image Extraction"
+python3 image_extraction.py
+```
+
+### Table Extraction
+
+Create a file named `table_extraction.py` with the following content:
+
+```python title="table_extraction.py"
+from indexify import IndexifyClient, ExtractionGraph
+import os
+import requests
+
+# Set up the extraction graph
+client = IndexifyClient()
+extraction_graph_spec = """
+name: 'table_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_table'
+    input_params:
+      output_types: ["table"]
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
+
+def get_tables(pdf_path):
+    client = IndexifyClient()
+    
+    # Upload the PDF file
+    content_id = client.upload_file("table_extractor", pdf_path)
+    
+    # Wait for the extraction to complete
+    client.wait_for_extraction(content_id)
+    
+    # Retrieve the tables content
+    tables = client.get_extracted_content(
+        content_id=content_id,
+        graph_name="table_extractor",
+        policy_name="pdf_to_table"
+    )
+    
+    return tables[0].features[0].value if tables else None
+
+if __name__ == "__main__":
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    pdf_path = "reference_document.pdf"
+    
+    # Download the PDF
+    download_pdf(pdf_url, pdf_path)
+    
+    # Get tables from the PDF
+    tables = get_tables(pdf_path)
+    print("Tables from the PDF:")
+    print(tables)
+```
+
+Run the script:
+
+```bash title="( Terminal 3 ) Run Table Extraction"
+python3 table_extraction.py
+```
+
+### Continuous PDF Extraction
+
+For continuous PDF extraction, follow these steps:
+
+1. Create a file named `continuous_extraction.py` with the following content:
+
+```python title="continuous_extraction.py"
+from indexify import IndexifyClient, ExtractionGraph
+import requests
+
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'pdfknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/pdfextractor'
+     name: 'pdf_to_text'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+
+def process_pdf(url):
+    # Download the PDF
+    response = requests.get(url)
+    pdf_content = response.content
+    filename = url.split("/")[-1]
+
+    # Upload and process the PDF
+    content_id = client.upload_bytes("pdfknowledgebase", pdf_content, filename)
+    
+    # Wait for the extraction to complete
+    client.wait_for_extraction(content_id)
+    
+    # Retrieve and print extracted content
+    extracted_content = client.get_extracted_content(
+        content_id=content_id,
+        graph_name="pdfknowledgebase",
+        policy_name="pdf_to_text"
+    )
+    print(f"Extracted content from {filename}:")
+    print(extracted_content)
+
+if __name__ == "__main__":
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    process_pdf(pdf_url)
+```
+
+4. Run the continuous extraction script:
+
+```bash title="( Terminal 3 ) Run Continuous Extraction"
+python3 continuous_extraction.py
+```
+
+This guide demonstrates how to use Indexify for PDF extraction, closely aligning with the provided examples. Key points:
+
+1. Separate scripts for image extraction, table extraction, and continuous extraction.
+2. PDFs are downloaded from URLs instead of using local file paths.
+3. Extraction graphs are set up for each specific task.
+4. The continuous extraction script can be extended to process multiple PDFs in sequence.
+
+You can further extend these scripts to include additional processing steps or to handle multiple PDFs as needed for your specific use case.
+
+### Visualize the Extraction Process
 
 Let's visualize our PDF knowledge base extraction process:
 
@@ -285,34 +432,6 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 | tensorlake/marker           | Very High| Slow  | Detailed, structured PDFs           |
 | layoutlm-document-qa        | High     | Medium| Question-answering tasks            |
 
-
-### Accuracy Comparison
-
-| PDF Document          | Marker Score | Unstructured IO Score | EasyOCR Score | OCRmyPDF Score | OpenAI GPT-4o Score |
-|-----------------------|--------------|----------------------|----------------|-----------------|---------------------|
-| crowd.pdf             | 0.5391       | 0.5224               | 0.5486         | 0.5792          | 0.5556              |
-| multicolcnn.pdf       | 0.5409       | 0.5213               | 0.5333         | 0.5627          | 0.3981              |
-| switch_trans.pdf      | 0.5191       | 0.4730               | 0.5198         | 0.5198          | 0.4358              |
-| thinkdsp.pdf          | 0.6810       | 0.6625               | 0.6755         | 0.6740          | 0.6818              |
-| thinkos.pdf           | 0.7368       | 0.6855               | 0.6781         | 0.7050          | 0.6813              |
-| thinkpython.pdf       | 0.6910       | 0.6822               | 0.6875         | 0.6161          | 0.6666              |
-
-### Time Taken Comparison
-
-| PDF Document          | Marker Time (s) | Unstructured IO Time (s) | EasyOCR Time (s) | OCRmyPDF Time (s) | OpenAI GPT-4o Time (s) |
-|-----------------------|-----------------|--------------------------|------------------|-------------------|------------------------|
-| crowd.pdf             | 21.65           | 2.44                     | 14.18            | 5.44              | 722.21                 |
-| multicolcnn.pdf       | 17.91           | 1.64                     | 31.00            | 22.40             | 182.97                 |
-| switch_trans.pdf      | 45.90           | 5.35                     | 0.14             | 4.10              | 484.94                 |
-| thinkdsp.pdf          | 139.80          | 29.10                    | 17.37            | 20.59             | 1256.39                |
-| thinkos.pdf           | 84.04           | 4.88                     | 0.13             | 5.70              | 914.21                 |
-| thinkpython.pdf       | 217.60          | 21.00                    | 4.03             | 13.96             | 4991.86                |
-
-### Visual Comparison
-
-| Accuracy Comparison | Time Taken Comparison |
-|---------------------|------------------------|
-| ![Accuracy Comparison](benchmark/accuracy.png) | ![Time Taken Comparison](benchmark/time.png) |
 
 Here's a quadrant chart diagram of the performance:
 
