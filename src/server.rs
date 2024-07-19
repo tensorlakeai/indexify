@@ -98,7 +98,7 @@ pub struct NamespaceEndpointState {
             , ExtractorDescription, DataNamespace, ExtractionPolicy, ExtractionPolicyRequest, ExtractionPolicyResponse, Executor,
             MetadataResponse, ExtractedMetadata, ListExecutorsResponse, EmbeddingSchema, ExtractResponse, ExtractRequest,
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
-            Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse,
+            Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse, ListTasks,
             ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
         )
         ),

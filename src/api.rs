@@ -724,7 +724,7 @@ pub struct GetExtractedMetadataResponse {
     pub extracted_metadata: Vec<ExtractedMetadata>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasks {
     pub content_id: Option<String>,
     pub start_id: Option<String>,
