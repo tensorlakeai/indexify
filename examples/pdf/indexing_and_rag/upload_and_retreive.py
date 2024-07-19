@@ -1,5 +1,6 @@
 import os
 from indexify import IndexifyClient
+import requests
 from openai import OpenAI
 
 client = IndexifyClient()
