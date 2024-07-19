@@ -3,12 +3,12 @@ import {
   Typography, 
   Box, 
   Paper, 
-  TableContainer, 
-  Table, 
-  TableHead, 
-  TableRow, 
-  TableCell, 
-  TableBody,
+  Table as MuiTable, 
+  TableContainer as MuiTableContainer, 
+  TableHead as MuiTableHead, 
+  TableRow as MuiTableRow, 
+  TableCell as MuiTableCell, 
+  TableBody as MuiTableBody,
   Alert
 } from '@mui/material'
 import {
@@ -73,22 +73,22 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   }
 
   return (
-    <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Content ID</TableCell>
-            <TableCell>Mime Type</TableCell>
-            <TableCell>Source</TableCell>
-            <TableCell>Parent ID</TableCell>
-            <TableCell>Labels</TableCell>
-            <TableCell>Created At</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
+    <MuiTableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
+      <MuiTable>
+        <MuiTableHead>
+          <MuiTableRow>
+            <MuiTableCell>Content ID</MuiTableCell>
+            <MuiTableCell>Mime Type</MuiTableCell>
+            <MuiTableCell>Source</MuiTableCell>
+            <MuiTableCell>Parent ID</MuiTableCell>
+            <MuiTableCell>Labels</MuiTableCell>
+            <MuiTableCell>Created At</MuiTableCell>
+          </MuiTableRow>
+        </MuiTableHead>
+        <MuiTableBody>
           {content.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>
+            <MuiTableRow key={row.id}>
+              <MuiTableCell>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography
                     onClick={() => onContentClick(row)}
@@ -98,25 +98,25 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
                   </Typography>
                   <CopyText text={row.id}/>
                 </Box>
-              </TableCell>
-              <TableCell>{row.mime_type}</TableCell>
-              <TableCell>{row.source}</TableCell>
-              <TableCell>{row.parent_id}</TableCell>
-              <TableCell>
+              </MuiTableCell>
+              <MuiTableCell>{row.mime_type}</MuiTableCell>
+              <MuiTableCell>{row.source}</MuiTableCell>
+              <MuiTableCell>{row.parent_id}</MuiTableCell>
+              <MuiTableCell>
                 {typeof row.labels === 'object' && row.labels !== null
                   ? Object.entries(row.labels)
                       .map(([key, value]) => `${key}: ${value}`)
                       .join(', ')
                   : String(row.labels)}
-              </TableCell>
-              <TableCell>
+              </MuiTableCell>
+              <MuiTableCell>
                 {row.created_at ? new Date(row.created_at * 1000).toLocaleString() : ''}
-              </TableCell>
-            </TableRow>
+              </MuiTableCell>
+            </MuiTableRow>
           ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+        </MuiTableBody>
+      </MuiTable>
+    </MuiTableContainer>
   );
 };
 

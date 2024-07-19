@@ -107,13 +107,13 @@ const IndividualContentPage = () => {
           <CopyText text={policy.name} />
           </Box>
           <PolicyContentTable 
-              client={client}
-              namespace={namespace}
-              contentId={contentId}
-              extractorName={extractorName}
-              policyName={policy.name}
-              onContentClick={handleContentClick}
-            />
+            client={client}
+            namespace={namespace}
+            contentId={contentId}
+            extractorName={extractorName}
+            policyName={policy.name}
+            onContentClick={handleContentClick}
+          />
         </Box>
       ))}
 

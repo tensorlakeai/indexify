@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Paper, Stack, Table as MuiTable, TableBody as MuiTableBody, TableCell as MuiTableCell, TableContainer as MuiTableContainer, TableHead as MuiTableHead, TableRow as MuiTableRow, Typography } from '@mui/material';
 import { TableVirtuoso, TableComponents } from 'react-virtuoso';
 import { useLoaderData } from 'react-router-dom';
 import { StateChange } from '../../types';
@@ -31,12 +31,12 @@ const StateChangesPage = () => {
 
   const VirtuosoTableComponents: TableComponents<StateChange> = {
     Scroller: React.forwardRef<HTMLDivElement>((props, ref) => (
-      <TableContainer component={Paper} {...props} ref={ref} />
+      <MuiTableContainer component={Paper} {...props} ref={ref} />
     )),
-    Table: (props) => <Table {...props} style={{ borderCollapse: 'separate', tableLayout: 'fixed' }} />,
-    TableHead,
-    TableRow: ({ item: _item, ...props }) => <TableRow {...props} />,
-    TableBody: React.forwardRef<HTMLTableSectionElement>((props, ref) => <TableBody {...props} ref={ref} />),
+    Table: (props) => <MuiTable {...props} style={{ borderCollapse: 'separate', tableLayout: 'fixed' }} />,
+    TableHead: MuiTableHead,
+    TableRow: ({ item: _item, ...props }) => <MuiTableRow {...props} />,
+    TableBody: React.forwardRef<HTMLTableSectionElement>((props, ref) => <MuiTableBody {...props} ref={ref} />),
   };
 
   return (
@@ -59,22 +59,22 @@ const StateChangesPage = () => {
           data={rows}
           components={VirtuosoTableComponents}
           fixedHeaderContent={() => (
-            <TableRow>
+            <MuiTableRow>
               {columns.map((column) => (
-                <TableCell key={column.key} style={{ fontWeight: 500 }}>
+                <MuiTableCell key={column.key} style={{ fontWeight: 500 }}>
                   {column.label}
-                </TableCell>
+                </MuiTableCell>
               ))}
-            </TableRow>
+            </MuiTableRow>
           )}
           itemContent={(_index, row) => (
             <>
               {columns.map((column) => (
-                <TableCell key={column.key}>
+                <MuiTableCell key={column.key}>
                   {column.format
                     ? column.format(row[column.key as keyof StateChange])
                     : row[column.key as keyof StateChange]?.toString() ?? 'N/A'}
-                </TableCell>
+                </MuiTableCell>
               ))}
             </>
           )}
