@@ -20,6 +20,7 @@ import {
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import InfoIcon from "@mui/icons-material/Info";
+import DeleteIcon from '@mui/icons-material/Delete';
 import { ExtractionGraph, IContentMetadata, IndexifyClient } from "getindexify";
 import CopyText from "./CopyText";
 import { Link } from "react-router-dom";
@@ -202,6 +203,19 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
     fetchExtractionGraphs();
   }, [client]);
 
+  const handleDelete = async (contentId: string) => {
+    try {
+      await client.deleteContent(namespace, contentId);
+      if (tabValue === "ingested") {
+        loadContentList();
+      } else {
+        setSearchResult((prev) => prev ? prev.filter(item => item.id !== contentId) : null);
+      }
+    } catch (error) {
+      console.error("Error deleting content:", error);
+    }
+  };
+
   return (
     <Box sx={{
         width: "100%",
@@ -273,6 +287,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
                   )}
                   <TableCell>Labels</TableCell>
                   <TableCell>Created At</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
             )}
@@ -303,6 +318,11 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
                   </TableCell>
                   <TableCell>
                     {row.created_at ? new Date(row.created_at * 1000).toLocaleString() : ''}
+                  </TableCell>
+                  <TableCell>
+                    <IconButton onClick={() => handleDelete(row.id)} aria-label="delete">
+                      <DeleteIcon />
+                    </IconButton>
                   </TableCell>
                 </TableRow>
               ))}
