@@ -29,7 +29,14 @@ export type TaskCountsMap = Map<
 >
 
 export interface IHash {
-  [key: string]: ITask[];
+  [key: string]: {
+    tasks: ITask[],
+    totalTasks?: {
+      unknown?: number,
+      success?: number,
+      failure?: number,
+    },
+  };
 }
 
 export interface StateChange {

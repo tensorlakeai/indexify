@@ -53,10 +53,58 @@ export async function IndividualExtractionGraphPageLoader({
   const tasksByPolicies: IHash = {};
 
   for (const extractionPolicy of extractionGraph.extraction_policies) {
-    tasksByPolicies[extractionPolicy.name] = await client.getTasks(
+    const tasksNoTotal = await client.getTasks(
       extractionGraph.name,
       extractionPolicy.name,
-    );
+      {
+        namespace: namespace,
+        extractionGraph: extractionGraph.name,
+        extractionPolicy: extractionPolicy.name,
+        returnTotal: true
+      }
+    )
+    const unknown = await client.getTasks(
+      extractionGraph.name,
+      extractionPolicy.name,
+      {
+        namespace: namespace,
+        extractionGraph: extractionGraph.name,
+        extractionPolicy: extractionPolicy.name,
+        outcome: 'Unknown',
+        returnTotal: true
+      }
+    )
+    const success = await client.getTasks(
+      extractionGraph.name,
+      extractionPolicy.name,
+      {
+        namespace: namespace,
+        extractionGraph: extractionGraph.name,
+        extractionPolicy: extractionPolicy.name,
+        outcome: 'Success',
+        returnTotal: true
+      }
+    )
+    const failure = await client.getTasks(
+      extractionGraph.name,
+      extractionPolicy.name,
+      {
+        namespace: namespace,
+        extractionGraph: extractionGraph.name,
+        extractionPolicy: extractionPolicy.name,
+        outcome: 'Failed',
+        returnTotal: true
+      }
+    )
+    tasksByPolicies[extractionPolicy.name] = {
+      tasks: tasksNoTotal.tasks,
+      totalTasks:{
+        unknown: unknown.totalTasks,
+        success: success.totalTasks,
+        failure: failure.totalTasks,
+      }
+
+    }
   }
   return {
     tasks: tasksByPolicies,

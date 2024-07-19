@@ -1,4 +1,4 @@
-import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient, TaskStatus } from 'getindexify'
+import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient } from 'getindexify'
 import { IHash } from '../types'
 
 export const stringToColor = (str: string) => {
@@ -105,9 +105,9 @@ export const mapExtractionPoliciesToRows = (
   const rows: Row[] = targetGraph.extraction_policies.map((policy, index) => {
     const extractor = extractorMap.get(policy.extractor);
     const policyTasks = tasks[policy.name] || [];
-    const pendingTaskCount = policyTasks.filter(task => task.outcome === TaskStatus.Unknown).length;
-    const failedTaskCount = policyTasks.filter(task => task.outcome === TaskStatus.Failure).length;
-    const completedTaskCount = policyTasks.filter(task => task.outcome === TaskStatus.Success).length;
+    const pendingTaskCount = policyTasks.totalTasks?.unknown ?? 0;
+    const failedTaskCount = policyTasks.totalTasks?.failure ?? 0;
+    const completedTaskCount = policyTasks.totalTasks?.success ?? 0;
     
     const finalRows = {
       id: index + 1,
