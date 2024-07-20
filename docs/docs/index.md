@@ -83,7 +83,7 @@ To understand usage of indexify for various use cases we recommend the following
 |-------|-------------------|----------------------|
 | [Getting Started - Basic](https://docs.getindexify.ai/getting_started/) | A Wikipedia information retrieval system | - Indexify Server setup<br>- Extraction Graphs<br>- Basic Extractors<br>- Data Ingestion<br>- Vector Search |
 | [Getting Started - Intermediate](https://docs.getindexify.ai/getting_started_intermediate/) | A tax document processing and Q&A system | - PDF processing<br>- Custom Extractors<br>- Structured Data Extraction<br>- Advanced Querying |
-| [Video RAG Application](https://docs.getindexify.ai/usecases/video_rag/) | A video content analysis and retrieval system | - Multi-modal data processing<br>- Video frame extraction<br>- Speech-to-text conversion<br>- Cross-modal retrieval |
+| [Multi-Modal RAG on PDF](https://docs.getindexify.ai/example_code/pdf/indexing_and_rag) | A video content analysis and retrieval system | - Multi-modal data processing<br>- Video frame extraction<br>- Speech-to-text conversion<br>- Cross-modal retrieval |
 
 
 ## Features of Indexify
