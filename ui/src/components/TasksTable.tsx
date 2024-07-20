@@ -77,9 +77,12 @@ const TasksTable = ({
       headerName: 'Content ID',
       flex: 1,
       valueGetter: (params) => params.row.content_metadata.id,
-      renderCell: (params) => (
-        <Link to={`/${namespace}/content/${params.value}`}>{params.value}</Link>
-      ),
+      renderCell: (params) => {
+        const policy = extractionPolicies.find(
+          (policy) => policy.id === params.value
+        )
+        return (<Link to={`/${namespace}/extraction-graphs/${policy?.name}/content/${params.value}`}>{params.value}</Link>);
+    },
     },
     {
       field: 'extraction_policy_id',
