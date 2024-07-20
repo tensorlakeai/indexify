@@ -1,28 +1,14 @@
 # Retrieval-Augmented Generation (RAG) with Indexify
 
-In this cookbook, we'll explore how to create a Retrieval-Augmented Generation (RAG) system using Indexify. We'll use tensorlake/pdfextractor for PDF text extraction, tensorlake/chunk-extractor for text chunking, and tensorlake/minilm-l6 for generating embeddings. Finally, we'll use OpenAI's GPT-3.5-turbo for generating answers based on the retrieved context.
-
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractors](#install-required-extractors)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the RAG Pipeline](#implementing-the-rag-pipeline)
-6. [Running the RAG System](#running-the-rag-system)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
+In this cookbook, we'll explore how to create a Retrieval-Augmented Generation (RAG) system using Indexify. We'll cover two approaches: a text-based RAG system and a multimodal RAG system.
 
 ## Introduction
 
-The RAG pipeline will be composed of several steps:
-1. PDF to Text extraction using the `tensorlake/pdfextractor`.
-2. Text chunking using the `tensorlake/chunk-extractor`.
-3. Embedding generation using `tensorlake/minilm-l6`.
-4. Retrieval of relevant chunks based on a question.
-5. Answer generation using OpenAI's GPT-3.5-turbo.
+We'll explore two RAG pipelines:
+
+
+1. A text-based RAG system using `tensorlake/pdfextractor`, `tensorlake/chunk-extractor`, and `tensorlake/minilm-l6`.
+2. A multimodal RAG system that includes image processing using `tensorlake/clip-extractor` and GPT-4o mini for answer generation.
 
 ## Prerequisites
 
@@ -57,6 +43,7 @@ pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/clip-extractor
 ```
 
 Start the extractors:
@@ -64,7 +51,9 @@ Start the extractors:
 indexify-extractor join-server
 ```
 
-## Creating the Extraction Graph
+## Part 1: Text-based RAG
+
+### Creating the Extraction Graph
 
 Create a new Python file called `rag_extraction_graph.py` and add the following code:
 
@@ -77,17 +66,17 @@ extraction_graph_spec = """
 name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
-    name: 'pdf_to_text'
+    name: 'text_extractor'
   - extractor: 'tensorlake/chunk-extractor'
-    name: 'text_to_chunks'
+    name: 'text_chunker
     input_params:
       text_splitter: 'recursive'
       chunk_size: 1000
       overlap: 200
-    content_source: 'pdf_to_text'
+    content_source: 'text_extractor'
   - extractor: 'tensorlake/minilm-l6'
-    name: 'chunks_to_embeddings'
-    content_source: 'text_to_chunks'
+    name: 'chunk_embedding'
+    content_source: 'text_chunker'
 """
 
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
@@ -99,9 +88,9 @@ Run this script to set up the pipeline:
 python rag_extraction_graph.py
 ```
 
-## Ingestion and RAG from the Pipeline
+### Implementing the RAG Pipeline
 
-Create a file `upload_and_retreive.py`:
+Create a file `upload_and_retrieve.py`:
 
 ```python
 import os
@@ -133,7 +122,7 @@ def create_prompt(question, context):
     return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
 
 def answer_question(question):
-    context = get_context(question, "rag_pipeline.chunks_to_embeddings.embedding")
+    context = get_context(question, "rag_pipeline.chunk_embedding.embedding")
     prompt = create_prompt(question, context)
     
     chat_completion = client_openai.chat.completions.create(
@@ -165,7 +154,7 @@ if __name__ == "__main__":
 
 Replace `"YOUR_OPENAI_API_KEY"` with your actual OpenAI API key.
 
-## Running the RAG System
+### Running the RAG System
 
 Reference from PDF file from which answer should be generated:
 
@@ -177,9 +166,170 @@ python upload_and_retreive.py
 ```
 <img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/carbon.png" width="600"/>
 
+## Part 2: Multimodal RAG with GPT-4o mini
+
+### Creating the Multimodal Extraction Graph
+
+Create a new Python file called `mm_extraction_graph.py` and add the following code:
+
+```python
+from indexify import IndexifyClient, ExtractionGraph
+
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'rag_pipeline'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'text_extractor'
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'image_extractor'
+    input_params:
+      output_types: ["image"]
+  - extractor: 'tensorlake/chunk-extractor'
+    name: 'text_chunker'
+    input_params:
+      text_splitter: 'recursive'
+      chunk_size: 1000
+      overlap: 200
+    content_source: 'text_extractor'
+  - extractor: 'tensorlake/minilm-l6'
+    name: 'chunk_embeddings'
+    content_source: 'text_chunker'
+  - extractor: 'tensorlake/clip-extractor'
+    name: 'image_embeddings'
+    content_source: 'image_extractor'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+```
+
+Run this script to set up the multimodal pipeline:
+```bash
+python mm_extraction_graph.py
+```
+
+### Implementing the Multimodal RAG Pipeline
+
+Create a file `mm_upload_and_retrieve.py`:
+
+```python
+import os
+from indexify import IndexifyClient
+import requests
+import base64
+from openai import OpenAI
+
+client = IndexifyClient()
+client_openai = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
+
+def process_pdf(pdf_path):
+    content_id = client.upload_file("rag_pipeline", pdf_path)
+    client.wait_for_extraction(content_id)
+
+def get_context(question: str, index: str, top_k=3):
+    results = client.search_index(name=index, query=question, top_k=top_k)
+    context = ""
+    for result in results:
+        context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
+    return context
+
+def create_prompt(question, context):
+    return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
+
+# Function to encode the image
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def answer_question(question):
+    text_context = get_context(question, "rag_pipeline.chunk_embeddings.embedding")
+    image_context = client.search_index(name="rag_pipeline.image_embeddings.embedding", query=question, top_k=1)
+    image_path = image_context[0]['content_metadata']['storage_url']
+    image_path = image_path.replace('file://', '')
+    base64_image = encode_image(image_path)
+    prompt = create_prompt(question, text_context)
+    
+    chat_completion = client_openai.chat.completions.create(
+        messages=[
+            {
+            "role": "user",
+            "content": [
+                {
+                "type": "text",
+                "text": prompt
+                },
+                {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+                }
+            ]
+            }
+        ],
+        model="gpt-4o-mini",
+    )
+    return chat_completion.choices[0].message.content
+
+def process_pdf_url(url, index):
+    pdf_path = f"reference_document_{index}.pdf"
+    try:
+        download_pdf(url, pdf_path)
+        process_pdf(pdf_path)
+        print(f"Successfully processed: {url}")
+    except Exception as exc:
+        print(f"Error processing {url}: {exc}")
+
+# Example usage
+if __name__ == "__main__":
+    pdf_urls = [
+        "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
+        "https://arxiv.org/pdf/1810.04805.pdf"
+    ]
+    
+    # Download and process PDFs sequentially
+    for i, url in enumerate(pdf_urls):
+        process_pdf_url(url, i)
+
+    # Ask questions
+    questions = [
+        "What does the architecture diagram show?",
+        "Explain the attention mechanism in transformers.",
+        "What are the key contributions of BERT?"
+    ]
+
+    for question in questions:
+        answer = answer_question(question)
+        print(f"\nQuestion: {question}")
+        print(f"Answer: {answer}")
+        print("-" * 50)
+```
+
+Replace `"YOUR_OPENAI_API_KEY"` with your actual OpenAI API key.
+
+### Running the Multimodal RAG System
+
+Reference from PDF file from which answer should be generated:
+
+<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/image.png" width="600"/>
+
+You can run the Python script to process a PDF, including both text and images, and answer questions:
+```bash
+python mm_upload_and_retrieve.py
+```
+<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/mm_carbon.png" width="600"/>
+
 ## Customization and Advanced Usage
 
-You can customize the RAG system in several ways:
+You can customize both RAG systems in several ways:
 
 1. Adjust chunking parameters in the extraction graph:
    ```yaml
@@ -189,7 +339,7 @@ You can customize the RAG system in several ways:
      overlap: 50
    ```
 
-2. Use a different embedding model by changing `tensorlake/minilm-l6` to another compatible model.
+2. Use different embedding models by changing `tensorlake/minilm-l6` or `tensorlake/clip-extractor` to other compatible models.
 
 3. Modify the `get_context` function to retrieve more or fewer chunks:
    ```python
@@ -199,16 +349,20 @@ You can customize the RAG system in several ways:
 
 4. Experiment with different OpenAI models or adjust the prompt structure in the `create_prompt` function.
 
+5. For the multimodal RAG, you can adjust the number of images retrieved or how they are incorporated into the prompt.
+
 ## Conclusion
 
-This RAG system demonstrates the power of combining Indexify with large language models:
+These RAG systems demonstrate the power of combining Indexify with large language models:
 
-1. **Scalability**: Indexify can process and index large numbers of PDFs efficiently.
+1. **Scalability**: Indexify can process and index large numbers of PDFs efficiently, including both text and images.
 2. **Flexibility**: You can easily swap out components or adjust parameters to suit your specific needs.
-3. **Integration**: The system seamlessly integrates PDF processing, embedding generation, and text generation.
+3. **Integration**: The systems seamlessly integrate PDF processing, embedding generation, and text generation.
+4. **Multimodal Capabilities**: The second system shows how to incorporate both text and image data for more comprehensive question answering.
 
 ## Next Steps
 
 - Learn more about Indexify on our docs - https://docs.getindexify.ai
 - Explore ways to evaluate and improve the quality of retrieved contexts and generated answers.
-- Consider implementing a user interface for easier interaction with your RAG system.
+- Consider implementing a user interface for easier interaction with your RAG systems.
+- Experiment with different multimodal models and ways of combining text and image data for more sophisticated question answering.
