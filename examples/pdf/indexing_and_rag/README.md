@@ -23,6 +23,8 @@ In this cookbook, we'll explore how to create a Retrieval-Augmented Generation (
 ## Introduction
 
 We'll explore two RAG pipelines:
+
+
 1. A text-based RAG system using `tensorlake/pdfextractor`, `tensorlake/chunk-extractor`, and `tensorlake/minilm-l6`.
 2. A multimodal RAG system that includes image processing using `tensorlake/clip-extractor` and GPT-4o mini for answer generation.
 
