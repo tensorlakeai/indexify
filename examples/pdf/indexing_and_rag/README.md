@@ -84,17 +84,17 @@ extraction_graph_spec = """
 name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
-    name: 'pdf_to_text'
+    name: 'text_extractor'
   - extractor: 'tensorlake/chunk-extractor'
-    name: 'text_to_chunks'
+    name: 'text_chunker
     input_params:
       text_splitter: 'recursive'
       chunk_size: 1000
       overlap: 200
-    content_source: 'pdf_to_text'
+    content_source: 'text_extractor'
   - extractor: 'tensorlake/minilm-l6'
-    name: 'chunks_to_embeddings'
-    content_source: 'text_to_chunks'
+    name: 'chunk_embedding'
+    content_source: 'text_chunker'
 """
 
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
@@ -140,7 +140,7 @@ def create_prompt(question, context):
     return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
 
 def answer_question(question):
-    context = get_context(question, "rag_pipeline.chunks_to_embeddings.embedding")
+    context = get_context(question, "rag_pipeline.chunk_embedding.embedding")
     prompt = create_prompt(question, context)
     
     chat_completion = client_openai.chat.completions.create(
@@ -199,24 +199,24 @@ extraction_graph_spec = """
 name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
-    name: 'pdf_to_text'
+    name: 'text_extractor'
   - extractor: 'tensorlake/pdfextractor'
-    name: 'pdf_to_image'
+    name: 'image_extractor'
     input_params:
       output_types: ["image"]
   - extractor: 'tensorlake/chunk-extractor'
-    name: 'text_to_chunks'
+    name: 'text_chunker'
     input_params:
       text_splitter: 'recursive'
       chunk_size: 1000
       overlap: 200
-    content_source: 'pdf_to_text'
+    content_source: 'text_extractor'
   - extractor: 'tensorlake/minilm-l6'
-    name: 'chunks_to_embeddings'
-    content_source: 'text_to_chunks'
+    name: 'chunk_embeddings'
+    content_source: 'text_chunker'
   - extractor: 'tensorlake/clip-extractor'
-    name: 'image_to_embeddings'
-    content_source: 'pdf_to_image'
+    name: 'image_embeddings'
+    content_source: 'image_extractor'
 """
 
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
@@ -268,8 +268,8 @@ def encode_image(image_path):
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 def answer_question(question):
-    text_context = get_context(question, "rag_pipeline.chunks_to_embeddings.embedding")
-    image_context = client.search_index(name="rag_pipeline.image_to_embeddings.embedding", query=question, top_k=1)
+    text_context = get_context(question, "rag_pipeline.chunk_embeddings.embedding")
+    image_context = client.search_index(name="rag_pipeline.image_embeddings.embedding", query=question, top_k=1)
     image_path = image_context[0]['content_metadata']['storage_url']
     image_path = image_path.replace('file://', '')
     base64_image = encode_image(image_path)
