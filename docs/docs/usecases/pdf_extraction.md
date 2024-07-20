@@ -2,10 +2,9 @@
 
 ## Introduction
 
-PDF (Portable Document Format) is a widely used file format for sharing documents. However, extracting useful information from PDFs can be challenging. This is where Indexify comes in. Indexify is a powerful tool that provides various extractors to help you extract text, images, and tables from PDF documents efficiently.
+PDF (Portable Document Format) is a widely used file format for sharing documents. However, extracting useful information from PDFs can be immensely challenging. This is where Indexify comes in. Indexify is a powerful tool that provides various extractors to help you extract text, images, and tables from PDF documents efficiently.
 
 ### Sample Input
-
 
 | Sample PDF Page |
 |:---------------:|
@@ -13,7 +12,7 @@ PDF (Portable Document Format) is a widely used file format for sharing document
 | *A Sample page from a PDF document* |
 | *Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)* |
 
-Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)
+Let us see how Indexify performs on a page like this.
 
 ### Sample Output
 
@@ -21,7 +20,7 @@ Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.
 |------------------|------------------|---------------------|
 | <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="800"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
 
-This guide will walk you through the process of using Indexify for PDF extraction, from basic concepts to advanced use cases. Whether you're a beginner just starting with PDF extraction or an experienced developer looking to optimize your workflow, this guide has something for you.
+This guide will walk you through using Indexify for PDF extraction, from basic concepts to advanced use cases. Although this guide doesn't make any assumptions about your familiarity with Indexify or its components, we highly recommend you go through the [Getting Started](https://docs.getindexify.ai/getting_started/) and [Key Concepts](https://docs.getindexify.ai/concepts/) guide.
 
 ## Table of Contents
 
@@ -106,11 +105,11 @@ Let's visualize how these extractors fit into an extraction pipeline:
 
 ![extractor_types](https://github.com/user-attachments/assets/98d4a8f2-07dd-46db-ba1d-d1a24e58aaa1)
 
-This diagram shows how different Indexify extractors can process a PDF document, each producing specific types of output.
+This diagram shows how different Indexify extractors can process a PDF document, each producing specific types of output. To learn more about various types of extractors or the guide to creating your own extractor, read the official docs [here](https://docs.getindexify.ai/apis/extractors/#extractor-input-and-output).
 
 ## End-to-End Example: Building a PDF Knowledge Base
 
-Let's walk through a complete example of how to use Indexify to build a PDF knowledge base. This example will demonstrate how to extract text, images, and tables from a set of PDF documents and store the extracted information for later use.
+Let's walk through a complete example of how to use Indexify to build a PDF knowledge base. This example will demonstrate how to extract text, images, and tables from a set of PDF documents and store the extracted information for later use. The PDF we will be using for this example is the technical report for Mistral, found [here](https://arxiv.org/pdf/2310.06825.pdf).
 
 ###  Directory Structure
 
@@ -210,6 +209,8 @@ Run the script:
 ```bash title="( Terminal 3 ) Run Image Extraction"
 python3 image_extraction.py
 ```
+Following is the output of the extraction process. 
+
 | Sample Page to extract image from | Sample Image extracted from page |
 |-----------------------------------|----------------------------------|
 | <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="600"/> |
@@ -278,6 +279,8 @@ Run the script:
 ```bash title="( Terminal 3 ) Run Table Extraction"
 python3 table_extraction.py
 ```
+Following is the output of the extraction process. 
+
 | Sample Page to extract table from | Sample Extracted Table |
 |-----------------------------------|------------------------|
 | <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` |
@@ -335,11 +338,11 @@ if __name__ == "__main__":
 ```bash title="( Terminal 3 ) Run Content Extraction"
 python3 content_extraction.py
 ```
+Following is the output of the extraction process. 
 
 | Sample Page to extract content from | Sample Extracted Content |
 |-------------------------------------|--------------------------|
 | <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
-
 
 This guide demonstrates how to use Indexify for PDF extraction, closely aligning with the provided examples. Key points:
 
@@ -400,9 +403,17 @@ for content_id, similarity in search_results[:5]:  # Top 5 results
 
 This script implements a simple fuzzy search across all extracted text from your PDFs, returning the most relevant documents based on the search query.
 
+
 ## Extractor Performance Analysis
 
 When choosing an extractor for your PDF processing needs, it's important to consider both accuracy and speed. Here's a comparison of the performance of different Indexify PDF extractors:
+
+Here's a quadrant chart diagram of the performance:
+
+![extractor_performance](https://github.com/user-attachments/assets/ae01d495-a180-4261-b57c-fc7467000376)
+
+This chart provides a visual representation of how different extractors perform in terms of speed and accuracy. The ideal extractor would be in the top-right quadrant (Fast and Accurate).
+
 
 ### Category: Scientific Papers and Books
 
@@ -432,13 +443,6 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 | tensorlake/marker           | Very High| Slow  | Detailed, structured PDFs           |
 | layoutlm-document-qa        | High     | Medium| Question-answering tasks            |
 
-
-Here's a quadrant chart diagram of the performance:
-
-![extractor_performance](https://github.com/user-attachments/assets/ae01d495-a180-4261-b57c-fc7467000376)
-
-This chart provides a visual representation of how different extractors perform in terms of speed and accuracy. The ideal extractor would be in the top-right quadrant (Fast and Accurate).
-
 ### Reproduction Code for Comparison
 
 | Resource | Link |
@@ -450,19 +454,12 @@ This chart provides a visual representation of how different extractors perform 
 
 Note: Thanks to the Marker team for the code used in the Extractor Performance Benchmarks.
 
-## Best Practices and Tips
-
-1. **Choose the Right Extractor**: Select the extractor that best fits your specific use case and document types.
-2. **Preprocess Your PDFs**: Ensure your PDFs are of good quality. For scanned documents, consider using OCR-specific extractors.
-3. **Handle Errors Gracefully**: Some PDFs may fail to process. Implement error handling to manage these cases.
-4. **Monitor Performance**: Keep an eye on processing times and accuracy, especially when dealing with large volumes of documents.
-5. **Post-process Extracted Content**: Clean and format extracted text, validate table structures, and optimize images as needed.
-6. **Implement Caching**: For frequently accessed documents, consider caching extracted content to improve response times.
 
 ## Explore More Examples
 
 We've curated a collection of PDF extraction examples. Check out these notebooks:
 
+- [Tax Document Extraction (Uses OpenAI)](https://www.analyticsvidhya.com/blog/2024/07/seamlessly-extract-text-from-pdfs/)
 - [Translation (Uses OpenAI)](../../example_code/pdf/openai_pdf_translation)
 - [Summarization (Uses Mistral)](../../example_code/pdf/mistral/pdf-summarization)
 - [Entity Extraction (Uses Mistral)](../../example_code/pdf/mistral/pdf-entity-extraction)
@@ -492,6 +489,17 @@ Indexify provides a powerful and flexible solution for PDF extraction, enabling 
 | Recommendations | Marker | tensorlake/marker | Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction. |
 | | EasyOCR | tensorlake/easyocr | When accuracy is important, but you need faster extraction time. EasyOCR also provides training recipes to fine-tune the model on private documents. This will improve its accuracy further. |
 | | Unstructured IO | tensorlake/pdfextractor | While unstructured doesn't show any significant advantages in accuracy, it is known to handle a lot of different variations of PDFs. |
+
+While our extractors do most of the heavy lifting for you, there are some practical developer considerations that one needs to take while building with Indexify.
+
+### Best Practices and Tips
+
+1. **Choose the Right Extractor**: Select the extractor that best fits your specific use case and document types.
+2. **Preprocess Your PDFs**: Ensure your PDFs are of good quality. For scanned documents, consider using OCR-specific extractors.
+3. **Handle Errors Gracefully**: Some PDFs may fail to process. Implement error handling to manage these cases.
+4. **Monitor Performance**: Keep an eye on processing times and accuracy, especially when dealing with large volumes of documents.
+5. **Post-process Extracted Content**: Clean and format extracted text, validate table structures, and optimize images as needed.
+6. **Implement Caching**: For frequently accessed documents, consider caching extracted content to improve response times.
 
 Remember, the key to successful PDF extraction is choosing the right tools for your specific needs and continuously refining your process. Experiment with different extractors and configurations to find the optimal setup for your use case.
 
