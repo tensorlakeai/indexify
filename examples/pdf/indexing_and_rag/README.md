@@ -2,24 +2,6 @@
 
 In this cookbook, we'll explore how to create a Retrieval-Augmented Generation (RAG) system using Indexify. We'll cover two approaches: a text-based RAG system and a multimodal RAG system.
 
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractors](#install-required-extractors)
-4. [Part 1: Text-based RAG](#part-1-text-based-rag)
-   - [Creating the Extraction Graph](#creating-the-extraction-graph)
-   - [Implementing the RAG Pipeline](#implementing-the-rag-pipeline)
-   - [Running the RAG System](#running-the-rag-system)
-5. [Part 2: Multimodal RAG with GPT-4o mini](#part-2-multimodal-rag-with-gpt-4o-mini)
-   - [Creating the Multimodal Extraction Graph](#creating-the-multimodal-extraction-graph)
-   - [Implementing the Multimodal RAG Pipeline](#implementing-the-multimodal-rag-pipeline)
-   - [Running the Multimodal RAG System](#running-the-multimodal-rag-system)
-6. [Customization and Advanced Usage](#customization-and-advanced-usage)
-7. [Conclusion](#conclusion)
-
 ## Introduction
 
 We'll explore two RAG pipelines:
