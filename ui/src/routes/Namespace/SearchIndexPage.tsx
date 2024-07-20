@@ -135,6 +135,7 @@ const SearchIndexPage = () => {
                     key={result.content_id}
                     namespace={namespace}
                     data={result}
+                    client={client}
                   />
                 )
               })
