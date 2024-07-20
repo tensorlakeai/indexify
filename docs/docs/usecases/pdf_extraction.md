@@ -4,6 +4,23 @@
 
 PDF (Portable Document Format) is a widely used file format for sharing documents. However, extracting useful information from PDFs can be challenging. This is where Indexify comes in. Indexify is a powerful tool that provides various extractors to help you extract text, images, and tables from PDF documents efficiently.
 
+### Sample Input
+
+
+| Sample PDF Page |
+|:---------------:|
+| ![Sample PDF Page](https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg) |
+| *A Sample page from a PDF document* |
+| *Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)* |
+
+Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)
+
+### Sample Output
+
+| Image Extraction | Table Extraction | Content Extraction |
+|------------------|------------------|---------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="800"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
+
 This guide will walk you through the process of using Indexify for PDF extraction, from basic concepts to advanced use cases. Whether you're a beginner just starting with PDF extraction or an experienced developer looking to optimize your workflow, this guide has something for you.
 
 ## Table of Contents
@@ -87,25 +104,9 @@ Indexify offers several extractors specifically designed for PDF documents. Here
 
 Let's visualize how these extractors fit into an extraction pipeline:
 
-```mermaid
-graph TD
-    A[PDF Document] --> B[Indexify]
-    B --> C[tensorlake/pdfextractor]
-    B --> D[tensorlake/ocrmypdf]
-    B --> E[tensorlake/easyocr]
-    B --> F[tensorlake/marker]
-    B --> G[tensorlake/layoutlm-document-qa-extractor]
-    C --> H[Text]
-    C --> I[Images]
-    C --> J[Tables]
-    D --> K[Text OCR CPU]
-    E --> L[Text OCR GPU]
-    F --> M[Structured Text]
-    F --> N[Tables]
-    G --> O[Q&A Metadata]
-```
+![extractor_types](https://github.com/user-attachments/assets/98d4a8f2-07dd-46db-ba1d-d1a24e58aaa1)
 
-This diagram shows how a PDF document can be processed by different Indexify extractors, each producing specific types of output.
+This diagram shows how different Indexify extractors can process a PDF document, each producing specific types of output.
 
 ## End-to-End Example: Building a PDF Knowledge Base
 
@@ -120,7 +121,7 @@ indexify-pdf-extractor/
 │
 ├── image_extraction.py        # Script for image extraction
 ├── table_extraction.py        # Script for table extraction
-├── continuous_extraction.py   # Script for continuous PDF extraction
+├── content_extraction.py      # Script for content extraction
 │
 └── indexify                   # Indexify server executable
 ```
@@ -209,6 +210,9 @@ Run the script:
 ```bash title="( Terminal 3 ) Run Image Extraction"
 python3 image_extraction.py
 ```
+| Sample Page to extract image from | Sample Image extracted from page |
+|-----------------------------------|----------------------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="600"/> |
 
 ### Table Extraction
 
@@ -274,12 +278,15 @@ Run the script:
 ```bash title="( Terminal 3 ) Run Table Extraction"
 python3 table_extraction.py
 ```
+| Sample Page to extract table from | Sample Extracted Table |
+|-----------------------------------|------------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` |
 
-### Continuous PDF Extraction
+### Content Extraction
 
-For continuous PDF extraction, follow these steps:
+For simple content (or text) extraction, follow these steps:
 
-1. Create a file named `continuous_extraction.py` with the following content:
+1. Create a file named `content_extraction.py` with the following content:
 
 ```python title="continuous_extraction.py"
 from indexify import IndexifyClient, ExtractionGraph
@@ -325,16 +332,21 @@ if __name__ == "__main__":
 
 4. Run the continuous extraction script:
 
-```bash title="( Terminal 3 ) Run Continuous Extraction"
-python3 continuous_extraction.py
+```bash title="( Terminal 3 ) Run Content Extraction"
+python3 content_extraction.py
 ```
+
+| Sample Page to extract content from | Sample Extracted Content |
+|-------------------------------------|--------------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
+
 
 This guide demonstrates how to use Indexify for PDF extraction, closely aligning with the provided examples. Key points:
 
 1. Separate scripts for image extraction, table extraction, and continuous extraction.
 2. PDFs are downloaded from URLs instead of using local file paths.
 3. Extraction graphs are set up for each specific task.
-4. The continuous extraction script can be extended to process multiple PDFs in sequence.
+4. The extraction scrips can be extended to process multiple PDFs in sequence.
 
 You can further extend these scripts to include additional processing steps or to handle multiple PDFs as needed for your specific use case.
 
@@ -342,19 +354,7 @@ You can further extend these scripts to include additional processing steps or t
 
 Let's visualize our PDF knowledge base extraction process:
 
-```mermaid
-graph TD
-    A[PDF Documents] --> B[Indexify Server]
-    B --> C[Extraction Graph]
-    C --> D[tensorlake/pdfextractor]
-    D --> E[Extracted Text]
-    D --> F[Extracted Images]
-    D --> G[Extracted Tables]
-    E --> H[Knowledge Base]
-    F --> H
-    G --> H
-    H --> I[Query and Retrieve]
-```
+![extractor_flow](https://github.com/user-attachments/assets/31da97c4-f81f-4388-bfe8-ec7c0a962bd6)
 
 This diagram illustrates how PDF documents are processed through Indexify, extracted using the `tensorlake/pdfextractor`, and stored in a knowledge base for later querying and retrieval.
 
@@ -435,21 +435,7 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 
 Here's a quadrant chart diagram of the performance:
 
-```mermaid
-quadrantChart
-    title Extractor Performance
-    x-axis Low Speed --> High Speed
-    y-axis Low Accuracy --> High Accuracy
-    quadrant-1 Slow but Accurate
-    quadrant-2 Fast and Accurate
-    quadrant-3 Slow and Less Accurate
-    quadrant-4 Fast but Less Accurate
-    "tensorlake/pdfextractor": [0.8, 0.85]
-    "tensorlake/ocrmypdf": [0.6, 0.7]
-    "tensorlake/easyocr": [0.3, 0.9]
-    "tensorlake/marker": [0.2, 0.95]
-    "layoutlm-document-qa": [0.5, 0.8]
-```
+![extractor_performance](https://github.com/user-attachments/assets/ae01d495-a180-4261-b57c-fc7467000376)
 
 This chart provides a visual representation of how different extractors perform in terms of speed and accuracy. The ideal extractor would be in the top-right quadrant (Fast and Accurate).
 
