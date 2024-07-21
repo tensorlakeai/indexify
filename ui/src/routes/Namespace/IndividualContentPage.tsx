@@ -39,7 +39,7 @@ const IndividualContentPage = () => {
   }
 
   const [textContent, setTextContent] = useState('')
-  const [selectedContent, setSelectedContent] = useState<IContentMetadata | null>(null);
+  const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {

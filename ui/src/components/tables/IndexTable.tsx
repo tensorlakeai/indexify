@@ -42,6 +42,25 @@ const IndexTable = ({
       },
     },
     {
+      field: 'extractionGraphName',
+      headerName: 'Extraction Graph Name',
+      flex: 2,
+      valueGetter: (params) => params.row.name,
+      renderCell: (params) => {
+        const extractionGraphName = params.value.split('.')[0] || '';
+        return (
+          <>
+            <Link
+              to={`/${namespace}/extraction-graphs/${extractionGraphName}`}
+            >
+              {extractionGraphName}
+            </Link>
+            <CopyText text={extractionGraphName} className="show-onHover" />
+          </>
+        )
+      },
+    },
+    {
       field: 'policy_name',
       headerName: 'Policy Name',
       flex: 1,

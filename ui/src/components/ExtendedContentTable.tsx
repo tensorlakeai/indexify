@@ -271,7 +271,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           </Button>
         </Box>
       )}
-      <MuiTableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
+      <MuiTableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}}>
         {filteredContent.length > 0 ? (
           <MuiTable>
             {(tabValue !== "search" || (tabValue === "search" && hasSearched)) && (

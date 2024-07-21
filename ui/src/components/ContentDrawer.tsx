@@ -30,13 +30,13 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
 interface ContentDrawerProps {
   open: boolean;
   onClose: () => void;
-  content: IContentMetadata | null;
+  content: IContentMetadata | undefined;
   client: IndexifyClient;
 }
 
 const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, client }) => {
   const [textContent, setTextContent] = useState<string>('');
-  const [downloadContent, setDownloadContent] = useState<string | Blob | null>(null);
+  const [downloadContent, setDownloadContent] = useState<string | Blob | undefined>(undefined);
 
   useEffect(() => {
     if (content) {
@@ -53,11 +53,11 @@ const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, c
       }).catch(error => {
         console.error('Error downloading content:', error);
         setTextContent('');
-        setDownloadContent(null);
+        setDownloadContent(undefined);
       });
     } else {
       setTextContent('');
-      setDownloadContent(null);
+      setDownloadContent(undefined);
     }
   }, [client, content]);
 
