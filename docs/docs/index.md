@@ -8,6 +8,8 @@ Indexify pipelines operate in real-time. They process data immediately after ing
 
 ## Multi-Stage Ingestion and Extraction Workflows
 
+Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute.
+
 **AI Native**: Use models from OpenAI, HuggingFace and Ollama in the pipeline.
 
 **Extensible**: Extend Indexify by plugging in Python modules in the pipeline.
@@ -15,11 +17,6 @@ Indexify pipelines operate in real-time. They process data immediately after ing
 **Scalable**: Handles ingestion and processing data at scale powered by a low latency and distributed scheduler.
 
 **APIs**: Pipelines are exposed as HTTP APIs, making them accessible from applications written in TypeScript, Java, Python, Go, etc.
-
-### Step 1: Define an Ingestion Pipeline 
-
-Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute.
-
 
 ```yaml title="graph.yaml"
 name: 'pdf-ingestion-pipeline'
@@ -41,24 +38,24 @@ extraction_policies:
     -H 'accept: application/json' \
     -H 'Content-Type: application/json' \
     -d '{
-    "description": "PDF To Text Extraction Pipeline",
-    "extraction_policies": [
-      {
-        "extractor": "tensorlake/marker",
-        "name": "pdf_to_markdown"
-      },
-      {
-        "extractor": "tensorlake/ner",
-        "name": "entity_extractor",
-        "content_source": "pdf_to_markdown"
-      },
-      {
-        "extractor": "tensorlake/minilm-l6",
-        "name": "embedding",
-        "content_source": "pdf_to_markdown"
-      }
-    ],
-    "name": "pdf-ingestion-pipeline1"
+        "description": "PDF To Text Extraction Pipeline",
+        "extraction_policies": [
+          {
+            "extractor": "tensorlake/marker",
+            "name": "pdf_to_markdown"
+          },
+          {
+            "extractor": "tensorlake/ner",
+            "name": "entity_extractor",
+            "content_source": "pdf_to_markdown"
+          },
+          {
+            "extractor": "tensorlake/minilm-l6",
+            "name": "embedding",
+            "content_source": "pdf_to_markdown"
+          }
+        ],
+        "name": "pdf-ingestion-pipeline"
     }'
     ```
 
@@ -74,12 +71,12 @@ extraction_policies:
     ```typescript
     ```
 
-### Step 2: Upload Data
+### Continuous Data Ingestion  
 
 === "HTTP"
     ```bash
     curl -X 'POST' \
-    'http://localhost:8900/namespaces/default/extraction_graphs/rag_pipeline/extract' \
+    'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
     -H 'accept: */*' \
     -H 'Content-Type: multipart/form-data' \
     -F 'file=@file.pdf;type=application/pdf' \
@@ -99,7 +96,7 @@ extraction_policies:
     ```Typescript
     ```
 
-### Step 3: Retrieve Extracted Data
+### Retrieve Extracted Data
 
 Retrieve extracted named entities 
 
@@ -134,11 +131,10 @@ Search vector indexes populated by embeddings
     -H 'accept: application/json' \
     -H 'Content-Type: application/json' \
     -d '{
-    "filters": [
-    ],
-    "include_content": true,
-    "k": 3,
-    "query": "wework"
+        "filters": [],
+        "include_content": true,
+        "k": 3,
+        "query": "wework"
     }'
     ```
 
