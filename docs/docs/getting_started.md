@@ -1,8 +1,4 @@
-# Getting Started
-
-Hello and welcome to this Getting Started guide. We do not assume anything other than a very fundamental knowledge of python.
-
-## Beginner's Guide to Indexify: Building a Wikipedia Information Retrieval System
+# Beginner's Guide to Indexify: Building a Wikipedia Information Retrieval System
 
 ![Getting-Started-Cover-Image](https://github.com/user-attachments/assets/bce022db-3586-4cac-81ba-eb4426cdd90c)
 
@@ -17,13 +13,11 @@ By the end of this tutorial, you'll be able to:
 2. Retrieve the Named Entities extracted from the text
 3. Use a User Interface to visually debug your pipelines and inspect how pages are broken down into chunks
 
-Let's get started!
-
 ## Prerequisites
 
 Before we begin, make sure you have:
 
-1. Python 3.7 or higher installed
+1. Python 3.9 or higher installed
 2. Basic knowledge of Python programming
 3. Familiarity with command-line interfaces
 4. An OpenAI API key (for using GPT models)
@@ -44,14 +38,14 @@ We'll use the following notation to indicate which terminal to use:
 
 ### Understanding Indexify Components
 
-Before we dive in, let's briefly explain the key components of Indexify:
+These components which you will touch while working through the example:
 
 1. **Indexify Server**: The central coordinator and data ingestion API.
 2. **Extractors**: Specialized workers designed to perform specific data processing tasks (e.g., embedding data, generating summaries, or extracting features from unstructured data).
 3. **Extraction Graph**: A declarative YAML file that chains together extractors into a complex pipeline.
 
 
-Also before we look into creating pipelines for ingestion and query, it is best to lay out the directory structure of our project.
+The directory structure of our project, will look like this 
 
 ```plaintext title="Directory Structure"
 indexify-tutorial/
@@ -66,19 +60,9 @@ indexify-tutorial/
 └── indexify               # Indexify server executable (downloaded by curl command)
 ```
 
-To use this structure:
-
-1. Create a new directory called `indexify-tutorial`.
-2. Navigate into this directory in your terminal.
-3. Create the virtual environment and activate it (discussed below).
-4. Create each of the `.py` and `.yaml` files in the root of this directory (discussed below).
-5. Run the curl command to download the Indexify executable into this directory (discussed below).
-
 This structure keeps all the components of our tutorial project organized in one place, making it easy to manage and run the different scripts. 
 
 ## Step 1: Setting Up the Indexify Server
-
-To start the indexify server, we have to open up a terminal and put in the download command. 
 
 ![Indexify Terminal 1](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/d06ba9c0-a0c6-43d2-90e2-037e537c0f1b)
 
