@@ -13,7 +13,7 @@ import {
   Box,
   Link
 } from '@mui/material';
-import { IContentMetadata, IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
+import { IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
 import moment from 'moment';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -67,6 +67,7 @@ const TasksTable: React.FC<TasksTableProps> = ({
 
   useEffect(() => {
     loadTasks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, rowsPerPage]);
 
   const handleChangePage = (event: React.MouseEvent<HTMLButtonElement> | null, newPage: number) => {
