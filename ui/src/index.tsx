@@ -52,12 +52,6 @@ const router = createBrowserRouter(
           element: <RedirectToExtractors />
         },
         {
-          path: "/:namespace/extraction-policies/:graphname/:policyname",
-          element: <ExtractionPolicyPage />,
-          loader: ExtractionPolicyPageLoader,
-          errorElement: <ErrorPage />
-        },
-        {
           path: "/:namespace/indexes/:indexName",
           element: <SearchIndexPage />,
           loader: SearchIndexPageLoader,
@@ -85,6 +79,12 @@ const router = createBrowserRouter(
           path: "/:namespace/extraction-graphs/:extraction_graph",
           element: <IndividualExtractionGraphPage />,
           loader: IndividualExtractionGraphPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/extraction-graphs/:extraction_graph/extraction-policies/:policyName",
+          element: <ExtractionPolicyPage />,
+          loader: ExtractionPolicyPageLoader,
           errorElement: <ErrorPage />
         },
         {

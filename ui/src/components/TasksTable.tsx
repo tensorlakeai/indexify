@@ -12,9 +12,8 @@ import {
   Chip, 
   Box 
 } from '@mui/material';
-import { IExtractionPolicy, ITask, TaskStatus } from 'getindexify';
+import { IContentMetadata, IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
 import moment from 'moment';
-import { Link } from 'react-router-dom';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -25,6 +24,8 @@ interface TasksTableProps {
   loadData: (pageSize: number, startId?: string) => Promise<{ tasks: ITask[]; total: number; hasNextPage: boolean }>;
   hideContentId?: boolean;
   hideExtractionPolicy?: boolean;
+  onContentClick: (content: IContentMetadata) => void;
+  client: IndexifyClient;
 }
 
 const TasksTable: React.FC<TasksTableProps> = ({
@@ -33,12 +34,18 @@ const TasksTable: React.FC<TasksTableProps> = ({
   hideContentId,
   hideExtractionPolicy,
   loadData,
+  onContentClick, 
+  client,
 }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [tasks, setTasks] = useState<ITask[]>([]);
   const [page, setPage] = useState<number>(0);
   const [rowsPerPage, setRowsPerPage] = useState<number>(20);
   const [isLastPage, setIsLastPage] = useState<boolean>(false);
+
+  const handleContentClick = (contentMetadata: IContentMetadata) => {
+    onContentClick(contentMetadata);
+  };
 
   const loadTasks = async () => {
     setLoading(true);
@@ -115,9 +122,7 @@ const TasksTable: React.FC<TasksTableProps> = ({
                 <TableCell>{task.id}</TableCell>
                 {!hideContentId && (
                   <TableCell>
-                    <Link to={`/${namespace}/extraction-graphs/${task?.output_index_table_mapping.embedding.split('.')[1]}/content/${task.content_metadata.id}`}>
-                      {task.content_metadata.id}
-                    </Link>
+                   {task.content_metadata.id}
                   </TableCell>
                 )}
                 {!hideExtractionPolicy && (

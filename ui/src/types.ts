@@ -47,3 +47,20 @@ export interface StateChange {
   processed_at: number;
   refcnt_object_id: string | null;
 }
+
+export interface ITaskContentMetadata {
+  id: string;
+  parent_id: string;
+  root_content_id: string;
+  namespace: string;
+  name: string;
+  content_type: string;
+  labels: Record<string, string>;
+  storage_url: string;
+  created_at: number;
+  source: string;
+  size_bytes: number;
+  tombstoned: boolean;
+  hash: string;
+  extraction_policy_ids: Record<string, number>;
+}

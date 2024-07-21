@@ -9,6 +9,7 @@ import {
 } from '@mui/material'
 import {
   ExtractionGraph,
+  IContentMetadata,
   IExtractionPolicy,
   IndexifyClient,
 } from 'getindexify'
@@ -17,6 +18,7 @@ import { Link } from 'react-router-dom'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { TaskCounts } from '../../types'
 import { useEffect, useMemo, useState } from 'react'
+import ContentDrawer from '../../components/ContentDrawer'
 
 const ExtractionPolicyPage = () => {
   const { policy, namespace, extractionGraph, taskCounts, client } =
@@ -127,6 +129,14 @@ const ExtractionPolicyPage = () => {
     fetchTaskCounts().then(setLocalTaskCounts);
   }, [fetchTaskCounts]);
 
+  const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const handleContentClick = (content: IContentMetadata) => {
+    setSelectedContent(content);
+    setDrawerOpen(true);
+  };
+
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs
@@ -134,14 +144,19 @@ const ExtractionPolicyPage = () => {
         separator={<NavigateNextIcon fontSize="small" />}
       >
         <Typography color="text.primary">{namespace}</Typography>
-        <Link color="inherit" to={`/${namespace}/indexes`}>
-          <Typography color="text.primary">Indexes</Typography>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
+          <Typography color="text.primary">Extraction Graphs</Typography>
         </Link>
+        <Link color="inherit" to={`/${namespace}/extraction-graphs/${extractionGraph.name}`}>
+          <Typography color="text.primary">{extractionGraph.name}</Typography>
+        </Link>
+        <Typography color="text.primary">Extraction Policies</Typography>
         <Typography color="text.primary">{policy.name}</Typography>
       </Breadcrumbs>
-      <Box display={'flex'} alignItems={'center'}>
+      <Box display="flex" flexDirection="row" alignItems="center" justifyContent="space-between">
+        <Box display={'flex'} alignItems={'center'}>
         <Typography variant="h2" component="h1">
-          Extraction Policy - {policy.name}
+          Extraction Policy Tasks - {policy.name}
         </Typography>
       </Box>
       <Box>
@@ -174,11 +189,20 @@ const ExtractionPolicyPage = () => {
           </Stack>
         )}
       </Box>
+      </Box>
       <TasksTable
         namespace={namespace}
         loadData={taskLoader}
         extractionPolicies={extractionGraph.extraction_policies}
+        onContentClick={handleContentClick}
+        client={client}
         hideExtractionPolicy
+      />
+      <ContentDrawer 
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        content={selectedContent}
+        client={client}
       />
     </Stack>
   )

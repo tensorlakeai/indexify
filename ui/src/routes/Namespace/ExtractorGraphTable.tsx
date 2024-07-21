@@ -86,7 +86,7 @@ const ExtractorGraphTable: React.FC<ExtractorTableProps> = ({ rows, namespace, e
                   pending={row.pending}
                   failed={row.failed}
                   completed={row.completed}
-                  href={`#`}
+                  href={`${extractionPolicyName}/extraction-policies/${row.name}`}
                 />
               </MuiTableCell>
             </MuiTableRow>

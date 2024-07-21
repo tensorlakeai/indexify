@@ -119,24 +119,24 @@ export async function IndividualExtractionGraphPageLoader({
 export async function ExtractionPolicyPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, policyname, graphname } = params
-  if (!namespace || !policyname) return redirect('/')
+  const { namespace, policyName, extraction_graph } = params
+  if (!namespace || !policyName) return redirect('/')
 
   const client = await createClient(namespace)
   const extractionGraphs = await client.getExtractionGraphs()
   const extractionGraph = extractionGraphs.find(
-    (graph) => graph.name === graphname
+    (graph) => graph.name === extraction_graph
   )
   const policy = extractionGraphs
     .map((graph) => graph.extraction_policies)
     .flat()
     .find(
-      (policy) => policy.name === policyname && policy.graph_name === graphname
+      (policy) => policy.name === policyName && policy.graph_name === extraction_graph
     )
   
   let taskCounts:TaskCounts | undefined = undefined
   if (policy?.id) {
-    taskCounts = await getExtractionPolicyTaskCounts(graphname!, policy.name, client )
+    taskCounts = await getExtractionPolicyTaskCounts(extraction_graph!, policy.name, client )
   }
     
   return { policy, namespace, extractionGraph, client, taskCounts }
