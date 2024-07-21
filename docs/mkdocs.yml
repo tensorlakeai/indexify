@@ -103,15 +103,11 @@ theme:
 
   palette:
     - scheme: default
-      primary: white
-      accent: gray
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
 
     - scheme: slate
-      primary: grey
-      accent: white
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
