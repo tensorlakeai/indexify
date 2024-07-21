@@ -53,6 +53,12 @@ const SearchIndexPage = () => {
       })
   }
 
+  const handleOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !loading && formData.query.length > 0) {
+      onClickSearch();
+    }
+  };
+
   return (
     <Stack direction="column" spacing={2}>
       <Breadcrumbs aria-label="breadcrumb" separator={<NavigateNextIcon fontSize="small" />}>
@@ -74,6 +80,7 @@ const SearchIndexPage = () => {
             onChange={(e) => {
               setFormData({ ...formData, query: e.currentTarget.value })
             }}
+            onKeyDown={handleOnEnter}
             notched={false}
             sx={{ width: '200px',backgroundColor: "white", height: '2rem'}}
             size="small" 
@@ -115,7 +122,7 @@ const SearchIndexPage = () => {
       )}
       {error && (
         <Alert severity="error">
-          Error: {error.message} - {String(error.response?.data || 'unknown')}
+          Error: {error.message} - {String(error.response?.data || 'Unknown error, please try again')}
         </Alert>
       )}
       {searchResults !== null && (

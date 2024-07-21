@@ -138,6 +138,12 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
     }
   };
 
+  const handleOnEnter = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' && !isLoading && contentId) {
+      handleSearch();
+    }
+  };
+
   const filteredContent = useMemo(() => {
     if (tabValue === "search") {
       return searchResult || [];
@@ -264,6 +270,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
             size="small"
             value={contentId}
             onChange={(e) => setContentId(e.target.value)}
+            onKeyDown={handleOnEnter}
             sx={{ flexGrow: 1 }}
           />
           <Button variant="contained" onClick={handleSearch} disabled={isLoading || !contentId}>
