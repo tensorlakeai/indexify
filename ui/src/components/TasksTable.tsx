@@ -110,12 +110,12 @@ const TasksTable: React.FC<TasksTableProps> = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {tasks.map((task) => (
+            {tasks?.map((task) => (
               <TableRow key={task.id}>
                 <TableCell>{task.id}</TableCell>
                 {!hideContentId && (
                   <TableCell>
-                    <Link to={`/${namespace}/extraction-graphs/${task.output_index_table_mapping.embedding.split('.')[1]}/content/${task.content_metadata.id}`}>
+                    <Link to={`/${namespace}/extraction-graphs/${task?.output_index_table_mapping.embedding.split('.')[1]}/content/${task.content_metadata.id}`}>
                       {task.content_metadata.id}
                     </Link>
                   </TableCell>

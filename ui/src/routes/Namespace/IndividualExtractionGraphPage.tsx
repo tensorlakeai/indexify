@@ -58,7 +58,7 @@ const IndividualExtractionGraphPage = () => {
               {extractorName} <CopyText text={extractorName} />
             </Typography>
           </div>
-          <ExtractorGraphTable rows={mappedRows} graphName={extractorName} />
+          <ExtractorGraphTable rows={mappedRows} namespace={namespace} extractionPolicyName={extractorName} graphName={extractorName} />
         </Box>
         <ExtendedContentTable
             client={client}

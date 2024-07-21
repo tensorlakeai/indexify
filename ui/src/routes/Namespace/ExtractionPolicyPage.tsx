@@ -46,11 +46,10 @@ const ExtractionPolicyPage = () => {
       }
     );
 
-    // Check if there's a next page
     let hasNextPage = false;
     if (tasks.tasks.length > pageSize) {
       hasNextPage = true;
-      tasks.tasks.pop();  // Remove the extra item
+      tasks.tasks.pop();
     }
 
     return {

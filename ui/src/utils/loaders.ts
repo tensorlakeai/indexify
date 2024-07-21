@@ -152,12 +152,10 @@ export async function ExtractorsPageLoader({ params }: LoaderFunctionArgs) {
 export async function IndexesPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const extractionGraphs = await client.getExtractionGraphs();
   const indexes = await client.indexes()
   return {
     indexes,
     namespace: params.namespace,
-    extractionGraphs: extractionGraphs,
   }
 }
 

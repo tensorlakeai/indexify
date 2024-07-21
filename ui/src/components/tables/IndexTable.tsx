@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IExtractionPolicy, IIndex } from 'getindexify'
+import { IIndex } from 'getindexify'
 import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { Link } from 'react-router-dom'
@@ -9,19 +9,10 @@ import { InfoCircle, MobileProgramming } from 'iconsax-react'
 const IndexTable = ({
   indexes,
   namespace,
-  extractionPolicies,
 }: {
   indexes: IIndex[]
   namespace: string
-  extractionPolicies: IExtractionPolicy[]
 }) => {
-  const getPolicyFromIndexname = (
-    indexName: string
-  ): IExtractionPolicy | undefined => {
-    return extractionPolicies.find((policy) =>
-      String(indexName).startsWith(`${policy.graph_name}.${policy.name}`)
-    )
-  }
 
   const columns: GridColDef[] = [
     {
@@ -57,24 +48,6 @@ const IndexTable = ({
             </Link>
             <CopyText text={extractionGraphName} className="show-onHover" />
           </>
-        )
-      },
-    },
-    {
-      field: 'policy_name',
-      headerName: 'Policy Name',
-      flex: 1,
-      renderCell: (params) => {
-        const policy = getPolicyFromIndexname(params.row.name)
-        if (!policy) {
-          return null
-        }
-        return (
-          <Link
-            to={`/${namespace}/extraction-policies/${policy.graph_name}/${policy.name}`}
-          >
-            {policy.name}
-          </Link>
         )
       },
     },
