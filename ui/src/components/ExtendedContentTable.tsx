@@ -328,7 +328,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
                   </MuiTableCell>
                   <MuiTableCell>
                     <IconButton onClick={() => handleDelete(row.id)} aria-label="delete">
-                      <DeleteIcon />
+                      <DeleteIcon color="error" />
                     </IconButton>
                   </MuiTableCell>
                 </MuiTableRow>

@@ -14,10 +14,10 @@ import {
   Link
 } from '@mui/material';
 import { IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
-import moment from 'moment';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { formatTimestamp } from '../utils/helpers';
 
 interface TasksTableProps {
   extractionPolicies: IExtractionPolicy[];
@@ -136,7 +136,7 @@ const TasksTable: React.FC<TasksTableProps> = ({
                 <TableCell>{renderStatusChip(task.outcome as TaskStatus)}</TableCell>
                 <TableCell>{task.content_metadata.source || 'Ingestion'}</TableCell>
                 <TableCell>
-                  {moment(task.content_metadata.created_at * 1000).format('MM/DD/YYYY h:mm A')}
+                  {formatTimestamp(task.content_metadata.created_at)}
                 </TableCell>
               </TableRow>
             ))}
