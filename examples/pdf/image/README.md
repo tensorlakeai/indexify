@@ -1,22 +1,10 @@
 # PDF Image Extraction with Indexify
 
-This project demonstrates how to extract images from PDF documents using Indexify. It includes two main components: setting up an extraction graph for image extraction and a script to process PDFs and retrieve the extracted images.
+Pipeline to extract images from PDF. The pipeline uses - 
 
-## Table of Contents
+1. `tensorlake/pdfextractor` to extract images from PDFs.
 
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-4. [File Descriptions](#file-descriptions)
-5. [Usage](#usage)
-6. [Customization](#customization)
-7. [Conclusion](#conclusion)
-
-## Introduction
-
-This project showcases the use of Indexify to create a pipeline for extracting images from PDF documents. It consists of two main parts:
-- An extraction graph that defines the process of converting PDFs to images.
-- A script that downloads a PDF, uploads it to Indexify, and retrieves the extracted images.
+We provide a script that downloads a PDF, uploads it to Indexify, and retrieves the extracted images.
 
 ## Prerequisites
 
@@ -47,15 +35,15 @@ Before we begin, ensure you have the following:
 
 ## File Descriptions
 
-1. `setup.py`: This script sets up the extraction graph for converting PDFs to images.
+1. `setup_graph.py`: This script sets up the extraction graph for converting PDFs to images.
 
 2. `upload_and_retreive.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted images.
 
 ## Usage
 
-1. First, run the [`setup.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/setup.py) script to set up the extraction graph:
+1. First, run the [`setup_graph.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/setup_graph.py) script to set up the extraction graph:
    ```bash
-   python setup.py
+   python setup_graph.py
    ```
 
 2. Then, run the [`upload_and_retrieve.py`](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/upload_and_retrieve.py) script to process a PDF and extract images:
@@ -75,7 +63,7 @@ Before we begin, ensure you have the following:
 
 ## Customization
 
-You can customize the image extraction process by modifying the `extraction_graph_spec` in `image_pipeline.py`. For example, you could add additional extraction steps or change the output format.
+You can customize the image extraction process by modifying the `extraction_graph_spec` in `setup_graph.py`. For example, you could add additional extraction steps or change the output format.
 
 In `upload_and_retrieve.py`, you can modify the `pdf_url` variable to process different PDF documents.
 

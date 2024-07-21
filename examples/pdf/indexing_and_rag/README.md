@@ -1,14 +1,9 @@
-# Retrieval-Augmented Generation (RAG) with Indexify
+# Retrieval-Augmented Generation (RAG) on PDFs with Indexify
 
-In this cookbook, we'll explore how to create a Retrieval-Augmented Generation (RAG) system using Indexify. We'll cover two approaches: a text-based RAG system and a multimodal RAG system.
-
-## Introduction
-
-We'll explore two RAG pipelines:
-
+We show how to create a Retrieval-Augmented Generation (RAG) system using Indexify. We'll cover two approaches: a text-based RAG system and a multi-modal RAG system.
 
 1. A text-based RAG system using `tensorlake/pdfextractor`, `tensorlake/chunk-extractor`, and `tensorlake/minilm-l6`.
-2. A multimodal RAG system that includes image processing using `tensorlake/clip-extractor` and GPT-4o mini for answer generation.
+2. A multi-modal RAG system that includes image processing using `tensorlake/clip-extractor` and GPT-4o mini for answer generation.
 
 ## Prerequisites
 
@@ -166,9 +161,9 @@ python upload_and_retreive.py
 ```
 <img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/carbon.png" width="600"/>
 
-## Part 2: Multimodal RAG with GPT-4o mini
+## Part 2: Multi-Modal RAG with GPT-4o mini
 
-### Creating the Multimodal Extraction Graph
+### Creating the Multi-Modal Extraction Graph
 
 Create a new Python file called `mm_extraction_graph.py` and add the following code:
 
@@ -205,7 +200,7 @@ extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
 ```
 
-Run this script to set up the multimodal pipeline:
+Run this script to set up the multi-modal pipeline:
 ```bash
 python mm_extraction_graph.py
 ```
@@ -315,7 +310,7 @@ if __name__ == "__main__":
 
 Replace `"YOUR_OPENAI_API_KEY"` with your actual OpenAI API key.
 
-### Running the Multimodal RAG System
+### Running the Multi-Modal RAG System
 
 Reference from PDF file from which answer should be generated:
 
@@ -358,11 +353,11 @@ These RAG systems demonstrate the power of combining Indexify with large languag
 1. **Scalability**: Indexify can process and index large numbers of PDFs efficiently, including both text and images.
 2. **Flexibility**: You can easily swap out components or adjust parameters to suit your specific needs.
 3. **Integration**: The systems seamlessly integrate PDF processing, embedding generation, and text generation.
-4. **Multimodal Capabilities**: The second system shows how to incorporate both text and image data for more comprehensive question answering.
+4. **Multi-Modal Capabilities**: The second system shows how to incorporate both text and image data for more comprehensive question answering.
 
 ## Next Steps
 
 - Learn more about Indexify on our docs - https://docs.getindexify.ai
 - Explore ways to evaluate and improve the quality of retrieved contexts and generated answers.
 - Consider implementing a user interface for easier interaction with your RAG systems.
-- Experiment with different multimodal models and ways of combining text and image data for more sophisticated question answering.
+- Experiment with different multi-modal models and ways of combining text and image data for more sophisticated question answering.

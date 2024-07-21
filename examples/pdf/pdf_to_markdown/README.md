@@ -1,23 +1,6 @@
 # PDF Text Extraction with Indexify and Marker
 
-This guide demonstrates how to create a PDF text extraction pipeline using Indexify and the tensorlake/marker extractor. By the end of this document, you'll have a pipeline capable of extracting text content from PDF documents for further processing or analysis.
-
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractor](#install-required-extractor)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Text Extraction Pipeline](#implementing-the-text-extraction-pipeline)
-6. [Running the Text Extraction Process](#running-the-text-extraction-process)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
-
-## Introduction
-
-The PDF text extraction pipeline will use the `tensorlake/marker` extractor to convert PDF documents into plain text.
+We show how to create a pipeline capable of extracting text content from PDF documents It uses the `tensorlake/marker` extractor to convert PDF documents into markdown.
 
 ## Prerequisites
 
