@@ -127,28 +127,19 @@ To understand usage of indexify for various use cases we recommend the following
 | [Multi-Modal RAG on PDF](https://docs.getindexify.ai/example_code/pdf/indexing_and_rag) | A video content analysis and retrieval system | - Multi-modal data processing<br>- Video frame extraction<br>- Speech-to-text conversion<br>- Cross-modal retrieval |
 
 
-## Features of Indexify
+## Why Use Indexify?
 
-* Multi-Modal: Process PDFs, Videos, Images, and Audio
-* Highly Available and Fault Tolerant: Designed for production-grade reliability
-* Local Experience: Runs locally without dependencies
-* Real-Time Extraction: Keeps indexes automatically updated
+Indexify is for continuous ingestion and extraction from unstructured data in a streaming fashion. If you are building LLM Application that need structured data from any unstructured data sources, Indexify is the tool for you.
+
+While there lies a divide in tools for prototyping and for deploying to production, Indexify runs locally on laptops for rapid prototyping, but you can also deploy a scaled up version in production for high availability and reliability.
+
+You should use Indexify if you care about -
+
+* Processing Multi-Modal Data such as PDFs, Videos, Images, and Audio
+* High Availability and Fault Tolerance
+* Local Experience for rapid prototyping
+* Automatically updating indexes whenever upstream data sources are updated
 * Incremental Extraction and Selective Deletion
-* Multi-Tenant with Namespace Isolation
-* Compatible with Various LLM Frameworks (Langchain, DSPy, etc.)
-* Scalable from Laptop to Cloud
-* Works with Multiple Blob Stores, Vector Stores, and Structured Databases
-* Open-Sourced Automation for Kubernetes Deployment
-
-
-## More Topics 
-
-To continue your journey with Indexify, consider exploring the following topics in order:
-
-| Topics | Subtopics |
-|--------|-----------|
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Indexify Server<br>  • Coordinator<br>  • Ingestion Server<br>- Extractors<br>- Deployment Layouts<br>  • Local Mode<br>  • Production Mode |
-| [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK<br>- Designing your extractor's functionality<br>- Implementing the extractor class<br>- Testing and debugging your custom extractor<br>- Integrating the custom extractor into your Indexify pipeline |
-| [Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Document processing and analysis<br>- Image and video content extraction<br>- Audio transcription and analysis<br>- Multi-modal data processing<br>- Large-scale data ingestion and retrieval systems |
-
-Each section builds upon the previous ones, providing a logical progression from practical application to deeper technical understanding and finally to customization and real-world examples.
+* Compatibility with Various LLM Frameworks (Langchain, DSPy, etc.)
+* Integration with any database, blob store or vector store.
+* Owning your data infrastructure and being able to deploy on any cloud.
