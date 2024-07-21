@@ -394,6 +394,8 @@ pub struct ListContentRequest {
     pub return_total: bool,
     #[prost(string, tag = "8")]
     pub graph: ::prost::alloc::string::String,
+    #[prost(string, tag = "9")]
+    pub ingested_content_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

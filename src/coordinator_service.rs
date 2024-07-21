@@ -369,6 +369,8 @@ impl CoordinatorService for CoordinatorServiceServer {
                 (req.graph.is_empty() || c.extraction_graph_names.contains(&req.graph)) &&
                 (req.parent_id.is_empty() ||
                     Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
+                (req.ingested_content_id.is_empty() ||
+                    Some(&req.ingested_content_id) == c.root_content_id.as_ref().map(|id| id)) &&
                 content_filter(c, &source_filter, &labels_filter)
         };
         let response = self
