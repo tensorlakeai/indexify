@@ -47,7 +47,7 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
     try {
       const result = await client.listContent(extractorName, namespace, {
         namespace: namespace,
-        parentId: contentId,
+        ingestedContentId: contentId,
         extractionGraph: extractorName,
         source: policyName,
         limit: rowsPerPage + 1,
