@@ -343,6 +343,7 @@ message ListContentRequest {
     string start_id = 6;
     bool return_total = 7;
     string graph = 8;
+    string ingested_content_id = 9;
 }
 
 message ListContentResponse {

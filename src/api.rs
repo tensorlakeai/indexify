@@ -364,6 +364,11 @@ pub struct ListContent {
         default
     )]
     pub parent_id: String,
+    #[serde(
+        deserialize_with = "api_utils::deserialize_none_to_empty_string",
+        default
+    )]
+    pub ingested_content_id: String,
     #[serde(default)]
     pub labels_filter: Vec<Expression>,
 
