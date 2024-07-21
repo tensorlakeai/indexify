@@ -100,7 +100,7 @@ extraction_policies:
 
 Retrieve extracted named entities 
 
-=== "Curl"
+=== "HTTP"
 
     ```bash
     curl -X 'GET' \
@@ -123,9 +123,9 @@ Retrieve extracted named entities
 
 Search vector indexes populated by embeddings 
 
-=== "Curl"
+=== "HTTP"
 
-    ```curl
+    ```bash
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
     -H 'accept: application/json' \
