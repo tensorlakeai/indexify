@@ -1,10 +1,6 @@
 # Comprehensive Guide to PDF Extraction with Indexify
 
-## Introduction
-
-PDF (Portable Document Format) is a widely used file format for sharing documents. However, extracting useful information from PDFs can be immensely challenging. This is where Indexify comes in. Indexify is a powerful tool that provides various extractors to help you extract text, images, and tables from PDF documents efficiently.
-
-### Sample Input
+PDF (Portable Document Format) is a widely used file format for sharing documents. However, extracting useful information from PDFs can be immensely challenging. Indexify provides various extractors to help you extract text, images, and tables from PDF documents efficiently.
 
 | Sample PDF Page |
 |:---------------:|
@@ -22,30 +18,7 @@ Let us see how Indexify performs on a page like this.
 
 This guide will walk you through using Indexify for PDF extraction, from basic concepts to advanced use cases. Although this guide doesn't make any assumptions about your familiarity with Indexify or its components, we highly recommend you go through the [Getting Started](https://docs.getindexify.ai/getting_started/) and [Key Concepts](https://docs.getindexify.ai/concepts/) guide.
 
-## Table of Contents
-
-1. [What is Indexify?](#what-is-indexify)
-2. [Getting Started with Indexify](#getting-started-with-indexify)
-3. [Understanding PDF Extraction](#understanding-pdf-extraction)
-4. [Indexify PDF Extractors](#indexify-pdf-extractors)
-5. [End-to-End Example: Building a PDF Knowledge Base](#end-to-end-example-building-a-pdf-knowledge-base)
-6. [Advanced Use Cases](#advanced-use-cases)
-7. [Extractor Performance Analysis](#extractor-performance-analysis)
-8. [Best Practices and Tips](#best-practices-and-tips)
-9. [Conclusion](#conclusion)
-
-## What is Indexify?
-
-Indexify is a powerful tool designed to simplify the process of extracting and indexing information from various document types, with a particular focus on PDFs. It provides a suite of extractors that can handle different aspects of PDF content, including text, images, and tables.
-
-### Key Features of Indexify
-
-1. **Versatile Extraction**: Indexify can extract text, images, and tables from PDFs.
-2. **Modular Architecture**: You can build complex pipelines by combining different extractors.
-3. **Scalability**: Indexify is designed to handle large volumes of documents efficiently.
-4. **Integration**: It can be easily integrated into existing workflows and applications.
-
-## Getting Started with Indexify
+## Getting Started for PDF Extraction
 
 ### Prerequisites
 
@@ -95,11 +68,11 @@ Indexify offers several extractors specifically designed for PDF documents. Here
 
 | Extractor Class Name | Features | Best Use Case |
 |----------------------|----------|---------------|
-| tensorlake/pdfextractor | - Extracts text, images, and tables | Best for scientific papers with tabular information |
-| tensorlake/ocrmypdf | - Focuses on text extraction | Ideal for photocopied or scanned PDFs (CPU-based) |
-| tensorlake/easyocr | - Focuses on text extraction | Optimized for photocopied or scanned PDFs (GPU-based) |
-| tensorlake/marker | - Extracts text and tables | Best for detailed, structured, and formatted PDFs |
-| tensorlake/layoutlm-document-qa-extractor | - Specialized for question-answering tasks | Particularly useful for invoices and structured documents |
+| tensorlake/pdfextractor | Extracts text, images, and tables | Best for scientific papers with tabular information |
+| tensorlake/ocrmypdf | Focuses on text extraction | Ideal for photocopied or scanned PDFs (CPU-based) |
+| tensorlake/easyocr | Focuses on text extraction | Optimized for photocopied or scanned PDFs (GPU-based) |
+| tensorlake/marker | Converts PDFs to Markdown | Best for detailed, structured, and formatted PDFs |
+| tensorlake/layoutlm-document-qa-extractor | Specialized for question-answering tasks | Particularly useful for invoices and structured documents |
 
 Let's visualize how these extractors fit into an extraction pipeline:
 
@@ -502,5 +475,3 @@ While our extractors do most of the heavy lifting for you, there are some practi
 6. **Implement Caching**: For frequently accessed documents, consider caching extracted content to improve response times.
 
 Remember, the key to successful PDF extraction is choosing the right tools for your specific needs and continuously refining your process. Experiment with different extractors and configurations to find the optimal setup for your use case.
-
-Happy extracting!

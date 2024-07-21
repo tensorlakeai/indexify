@@ -1,12 +1,9 @@
 # Key Concepts 
 
-## Overview
+Indexify offers a seamless solution for building ingestion and extraction pipelines that can process various types of unstructured data, including documents, videos, images, and audio files. Once a pipeline is created and deployed, a typical application workflow is:
 
-Indexify is a powerful and versatile data framework designed to revolutionize the way we handle unstructured data for AI applications. It offers a seamless solution for building ingestion and extraction pipelines that can process various types of unstructured data, including documents, videos, images, and audio files.  A typical workflow involves:
-
-1. Uploading unstructured data (documents, videos, images, audio)
-2. Applying extractors to process the content
-3. Updating vector indexes and structured stores
+1. Uploading unstructured data (documents, videos, images, audio) to pipelines
+2. Indexify pipelines automatically extracts information and updates vector indexes and structured stores
 4. Retrieving information via semantic search on vector indexes and SQL queries on structured data tables
 
 
@@ -14,9 +11,8 @@ Indexify is a powerful and versatile data framework designed to revolutionize th
 
 ## Core Components
 
-To fully grasp the power and flexibility of Indexify, it's essential to understand its core concepts:
-
 1. **Extractors**: These are the workhorses of Indexify. Extractors are functions that take data from upstream sources and produce three types of output:
+
    - Transformed data: For example, converting a PDF to plain text.
    - Embeddings: Vector representations of the data, useful for semantic search.
    - Structured data: Extracted metadata or features in a structured format.
