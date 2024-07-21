@@ -78,7 +78,7 @@ nav:
       - Index: 'examples_index.md'
 
 plugins:
-  - mkdocs-jupyter
+  #- mkdocs-jupyter
 
 theme:
   name: material

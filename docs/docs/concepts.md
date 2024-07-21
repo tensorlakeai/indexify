@@ -7,31 +7,30 @@ Indexify offers a seamless solution for building ingestion and extraction pipeli
 4. Retrieving information via semantic search on vector indexes and SQL queries on structured data tables
 
 
-![Block Diagram](https://github.com/user-attachments/assets/b5f0062d-e785-4bcf-9dcb-fffaeb3c2668)
-
 ## Core Components
 
-1. **Extractors**: These are the workhorses of Indexify. Extractors are functions that take data from upstream sources and produce three types of output:
+1. **Extraction Graphs**: These are multi-step workflows created by chaining multiple extractors together. They allow you to define complex data processing pipelines that can handle various transformations and extractions in a single, cohesive flow.
 
-   - Transformed data: For example, converting a PDF to plain text.
-   - Embeddings: Vector representations of the data, useful for semantic search.
-   - Structured data: Extracted metadata or features in a structured format.
+2. **Extractors**: Extractors are functions that take data from upstream sources and produce three types of output:
 
-2. **Extraction Graphs**: These are multi-step workflows created by chaining multiple extractors together. They allow you to define complex data processing pipelines that can handle various transformations and extractions in a single, cohesive flow.
+    - Transformed data: For example, converting a PDF to plain text, or audio to text.
+    - Embeddings: Vector representations of the data, useful for semantic search.
+    - Structured data: Extracted metadata or features in a structured format.
+
 
 3. **Namespaces**: Indexify uses namespaces as logical abstractions for storing related content. This feature allows for effective data partitioning based on security requirements or organizational boundaries, making it easier to manage large-scale data operations.
 
-4. **Content**: In Indexify, 'Content' represents raw unstructured data. This could be documents, videos, images, or any other form of unstructured data. Content objects contain the raw bytes of the data along with metadata like MIME types.
 
-5. **Vector Indexes**: These are automatically created from extractors that return embeddings. Vector indexes enable powerful semantic search capabilities, allowing you to find similar content based on meaning rather than just keywords.
+### Extraction Graphs
 
-6. **Structured Data Tables**: Metadata extracted from content is exposed via SQL queries. This allows for easy querying and analysis of the structured information derived from your unstructured data.
+- Apply a sequence of extractors on ingested content
+- Individual steps in an Extraction Graph are known as Extractors
+- Track lineage of transformed content and extracted features
+- Enable deletion of all transformed content and features when sources are deleted
 
+### Extractor
 
-
-### 1. Extractor
-
-An Extractor is essentially a Python class that can:
+An Extractor is a Python class that can:
 
 a) Transform unstructured data into intermediate forms
 b) Extract features like embeddings or metadata (JSON) for LLM applications
@@ -130,15 +129,6 @@ For an exhaustive list of all extractors and a guide on building custom extracto
 ### 3. Content
 
 - Representation of unstructured data (documents, video, images)
-
-### 4. Extraction Graphs
-
-- Apply a sequence of extractors on ingested content in a streaming manner
-- Individual steps in an Extraction Graph are known as Extractors
-- Track lineage of transformed content and extracted features
-- Enable deletion of all transformed content and features when sources are deleted
-
-![Extraction Policy](https://github.com/user-attachments/assets/e7649bd7-bb26-4873-8372-fb6367d3e5d8)
 
 ### 5. Vector Index and Retrieval APIs
 

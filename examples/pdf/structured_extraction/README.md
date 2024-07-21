@@ -3,7 +3,7 @@
 Structured Extraction from PDF involves extracting specific information from documents. We show how to create a pipeline, which accepts a schema and extracts information from PDFs into the provided schema.
 
 The pipeline is composed of two steps:
-- PDF to Text extraction using the pre-built extractor `tensorlake/marker`.
+- PDF to Text extraction using the extractor `tensorlake/marker`.
 - Schema-based information extraction using `tensorlake/schema` with OpenAI's language models.
 
 ## Prerequisites
