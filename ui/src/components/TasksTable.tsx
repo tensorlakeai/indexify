@@ -10,11 +10,11 @@ import {
   TablePagination,
   Alert, 
   Chip, 
-  Box 
+  Box,
+  Link
 } from '@mui/material';
-import { IExtractionPolicy, ITask, TaskStatus } from 'getindexify';
+import { IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
 import moment from 'moment';
-import { Link } from 'react-router-dom';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -25,6 +25,8 @@ interface TasksTableProps {
   loadData: (pageSize: number, startId?: string) => Promise<{ tasks: ITask[]; total: number; hasNextPage: boolean }>;
   hideContentId?: boolean;
   hideExtractionPolicy?: boolean;
+  onContentClick: (contentId: string) => void;
+  client: IndexifyClient;
 }
 
 const TasksTable: React.FC<TasksTableProps> = ({
@@ -33,6 +35,8 @@ const TasksTable: React.FC<TasksTableProps> = ({
   hideContentId,
   hideExtractionPolicy,
   loadData,
+  onContentClick, 
+  client,
 }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [tasks, setTasks] = useState<ITask[]>([]);
@@ -110,12 +114,16 @@ const TasksTable: React.FC<TasksTableProps> = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {tasks.map((task) => (
+            {tasks?.map((task) => (
               <TableRow key={task.id}>
                 <TableCell>{task.id}</TableCell>
                 {!hideContentId && (
                   <TableCell>
-                    <Link to={`/${namespace}/extraction-graphs/${task.output_index_table_mapping.embedding.split('.')[1]}/content/${task.content_metadata.id}`}>
+                    <Link
+                      component="button"
+                      variant="body2"
+                      onClick={() => onContentClick(task.content_metadata.id)}
+                    >
                       {task.content_metadata.id}
                     </Link>
                   </TableCell>
