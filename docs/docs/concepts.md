@@ -10,7 +10,7 @@ Indexify is a powerful and versatile data framework designed to revolutionize th
 4. Retrieving information via semantic search on vector indexes and SQL queries on structured data tables
 
 
-![Block Diagram](https://github.com/user-attachments/assets/c7715cc0-875c-4799-bb79-79b2f1cecd27)
+![Block Diagram](https://github.com/user-attachments/assets/b5f0062d-e785-4bcf-9dcb-fffaeb3c2668)
 
 ## Core Components
 
@@ -42,38 +42,73 @@ b) Extract features like embeddings or metadata (JSON) for LLM applications
 
 Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them.
 
-![Image 4: Extractor_working](https://github.com/user-attachments/assets/ac12fc76-3043-485f-9a8b-6bbffa7d878d)
+![Image 4: Extractor_working](https://github.com/user-attachments/assets/4f8ebcdf-d988-4e35-8759-35e2bde6ff4e)
 
-#### Types of Extraction:
 
-1. **Transformation**
-   - Converts a source into a list of `Content`
-   - Example: PDF to text, video to audio
-   - `Extractor(Content) -> List[Content]`
-   
-   ![Content Transformation](https://github.com/user-attachments/assets/f75ffbe4-fb8e-421f-be6b-ddc8d0e9d977)
+So we understand that an extractor is a powerful component that can process raw content, structure it into intermediate forms, and extract features into JSON. The general form of an extractor can be represented as:
 
-2. **Structured Data Extraction**
-   - Enriches content with structured data
-   - Example: Adding bounding boxes to detected objects in an image
-   - `Extractor(Content) -> List[Feature(Type=Metadata)]`
-   
-   ![Feature Extraction](https://github.com/user-attachments/assets/d60e6fff-9913-4033-8209-7200289b6ac9)
+```
+Extractor(Content) -> List[Feature... Content ...]
+```
 
-3. **Embedding Extraction**
-   - Generates embeddings for ingested content
-   - Indexify automatically creates indexes from these embeddings
-   - `Extractor(Content) -> List[Feature(Type=Embedding)]`
-   
-   ![Embedding Extraction](https://github.com/user-attachments/assets/3797236a-7361-403d-a5ea-86230d21be47)
+This means an extractor takes a Content object as input and can output a list containing Features (structured data or embeddings) and new Content objects (transformed data).
 
-4. **Combined Extraction**
-   - Performs transformation, embedding, and metadata extraction simultaneously
-   - `Extractor(Content) -> List[Feature... Content ...]`
+#### Example Output
 
-   ![Combined Extraction](https://github.com/user-attachments/assets/c704d6e8-9dd6-45b8-b770-b0092373fa5a)
+An extractor processing a tax form might produce structured JSON output like this:
 
-Indexify allows you to have the freedom to either build custom extractors yourself, or make use of a wide array of pre-existing extractors.
+```json
+{
+  "Form": "1040",
+  "Forms W-2 & W-2G Summary": {
+    "Year": 2023,
+    "Keep for your records": true,
+    "Name(s) Shown on Return": "John H & Jane K Doe",
+    "Social Security Number": "321-12-3456",
+    "Employer": {
+      "Name": "Acmeware Employer",
+      "Federal Tax": "SP",
+      "State Wages": 143433,
+      "State Tax": 1000
+    },
+  }
+}
+```
+To see the complete example of how a PDF can be converted into structured output, read our case study on the topic [here](https://www.analyticsvidhya.com/blog/2024/07/seamlessly-extract-text-from-pdfs/)
+
+This structured JSON output makes it easy to query and analyze the extracted information using Indexify's capabilities.
+
+#### Extractor Implementation
+
+An extractor in Indexify is typically implemented as a Python class. Here's a simplified structure of how an extractor.py file might look:
+
+```python
+from typing import List, Union
+from indexify_extractor_sdk import Content, Extractor, Feature
+
+class CustomExtractor(Extractor):
+    name = "custom/extractor"
+    description = "Custom extractor for specific data processing"
+    input_mime_types = ["application/pdf", "image/jpeg", "image/png"]
+
+    def __init__(self):
+        super().__init__()
+
+    def extract(self, content: Content, params = None) -> List[Union[Feature, Content]]:
+        # Process the content
+        # Extract features or transform content
+        # Return a list of Features and/or Content objects
+
+    def sample_input(self) -> Content:
+        # Provide a sample input for testing
+
+if __name__ == "__main__":
+    # Test the extractor
+```
+
+This structure allows for flexible implementation of various extraction tasks, from OCR and text processing to complex data structuring and feature extraction.
+
+Essentially Indexify allows you to have the freedom to either build custom extractors yourself or make use of a wide array of pre-existing extractors.
 
 | Modality | Extractor Name | Use Case | Supported Input Types |
 |----------|----------------|----------|------------------------|
