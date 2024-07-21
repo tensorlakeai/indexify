@@ -18,9 +18,10 @@ Indexify pipelines operate in real-time. They process data immediately after ing
 
 ### Step 1: Define an Ingestion Pipeline 
 
-Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval.
+Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute.
 
-```yaml
+
+```yaml title="graph.yaml"
 name: 'pdf-ingestion-pipeline'
 extraction_policies:
 - extractor: 'tensorlake/marker'
@@ -33,14 +34,50 @@ extraction_policies:
   content_source: 'pdf_to_markdown'
 ```
 
-1. Extractors are referenced in pipelines and can be customized or created from scratch.
-2. Extraction policies are linked using the `content_source` attribute.
-3. Indexify provides ready-to-use extractors, and custom extractors can be easily created.
+=== "HTTP"
+    ```bash
+    curl -X 'POST' \
+    'http://localhost:8900/namespace/default/extraction_graphs' \
+    -H 'accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{
+    "description": "PDF To Text Extraction Pipeline",
+    "extraction_policies": [
+      {
+        "extractor": "tensorlake/marker",
+        "name": "pdf_to_markdown"
+      },
+      {
+        "extractor": "tensorlake/ner",
+        "name": "entity_extractor",
+        "content_source": "pdf_to_markdown"
+      },
+      {
+        "extractor": "tensorlake/minilm-l6",
+        "name": "embedding",
+        "content_source": "pdf_to_markdown"
+      }
+    ],
+    "name": "pdf-ingestion-pipeline1"
+    }'
+    ```
+
+=== "Python"
+    ```python
+    from indexify import IndexifyClient, ExtractionGraph
+    graph = ExtractionGraph.from_yaml_file("graph.yaml")
+    client = IndexifyClient()
+    client.create_extraction_graph(graph)
+    ```
+
+=== "Typescript"
+    ```typescript
+    ```
 
 ### Step 2: Upload Data
 
 === "HTTP"
-    ```curl
+    ```bash
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/extraction_graphs/rag_pipeline/extract' \
     -H 'accept: */*' \
@@ -68,7 +105,7 @@ Retrieve extracted named entities
 
 === "Curl"
 
-    ```curl
+    ```bash
     curl -X 'GET' \
     'http://localhost:8900/namespaces/:namespace/extraction_graphs/pdf-ingestion-pipeline/content/585ebafdbc9dbbbe/extraction_policies/entity_extractor' \
     ```

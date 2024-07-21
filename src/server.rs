@@ -614,7 +614,7 @@ async fn namespace_open_api(
 /// Create a new extraction graph in the namespace
 #[utoipa::path(
     post,
-    path = "/namespace/{namespace}/extraction_graphs",
+    path = "/namespaces/{namespace}/extraction_graphs",
     request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/json"),
     tag = "ingestion",
     responses(
