@@ -1,24 +1,9 @@
 # Image Analysis with Indexify and Florence Extractor
 
-This cookbook demonstrates how to create an image analysis pipeline using Indexify and the tensorlake/florence extractor. By the end of this guide, you'll have a pipeline capable of performing multiple image analysis tasks, including detailed captioning, object detection, and referring expression segmentation.
+We demonstrate how to create a pipeline capable of performing multiple image analysis tasks, including detailed captioning, object detection, and referring expression segmentation.
 
-## Table of Contents
+The pipeline will consist of three main tasks:
 
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractor](#install-required-extractor)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Image Analysis Pipeline](#implementing-the-image-analysis-pipeline)
-6. [Running the Analysis Process](#running-the-analysis-process)
-7. [Results](#results)
-8. [Customization and Advanced Usage](#customization-and-advanced-usage)
-9. [Conclusion](#conclusion)
-
-## Introduction
-
-The image analysis pipeline will consist of three main tasks:
 1. Detailed Image Captioning using the `<MORE_DETAILED_CAPTION>` task.
 2. Object Detection using the `<OD>` task.
 3. Referring Expression Segmentation using the `<REFERRING_EXPRESSION_SEGMENTATION>` task.

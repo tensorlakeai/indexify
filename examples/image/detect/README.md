@@ -1,23 +1,8 @@
 # YOLO Image Object Detection with Indexify
 
-This cookbook demonstrates how to create an image object detection pipeline using Indexify and the tensorlake/yolo extractor. By the end of this guide, you'll have a pipeline capable of ingesting image files and detecting objects within them using the YOLO (You Only Look Once) model.
+We demonstrate how to create a pipeline capable of ingesting image files and detecting objects within them using the YOLO (You Only Look Once) model.
 
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractor](#install-required-extractor)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Object Detection Pipeline](#implementing-the-object-detection-pipeline)
-6. [Running the Object Detection Process](#running-the-object-detection-process)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
-
-## Introduction
-
-The image object detection pipeline will use the `tensorlake/yolo-extractor` extractor to process images and identify objects within them, providing bounding boxes, class names, and confidence scores for each detected object.
+The pipeline will use the `tensorlake/yolo-extractor` extractor to process images and identify objects within them, providing bounding boxes, class names, and confidence scores for each detected object.
 
 ## Prerequisites
 
