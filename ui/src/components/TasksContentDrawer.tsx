@@ -16,8 +16,7 @@ import { IContentMetadata, IndexifyClient } from 'getindexify';
 import PdfDisplay from "./PdfViewer";
 import ReactJson from "@microlink/react-json-view";
 import InfoBox from "./InfoBox";
-import moment from 'moment';
-import { formatBytes } from '../utils/helpers';
+import { formatBytes, formatTimestamp } from '../utils/helpers';
 import CopyText from './CopyText';
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
@@ -168,7 +167,7 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Created at:</Typography>
-                <Typography variant="subtitle2">{moment(content.created_at * 1000).format()}</Typography>
+                <Typography variant="subtitle2">{formatTimestamp(content.created_at)}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Storage URL:</Typography>

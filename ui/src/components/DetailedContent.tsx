@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import PdfDisplay from "./PdfViewer";
 import ReactJson from "@microlink/react-json-view";
 import InfoBox from "./InfoBox";
+import { formatTimestamp } from "../utils/helpers";
 
 interface DetailedContentProps {
   filename: string;
@@ -142,7 +143,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
               Created at:
             </Typography>
             <Typography variant="subtitle2">
-              {createdAt}
+              {formatTimestamp(createdAt)}
             </Typography>
           </Stack>
           <Stack
