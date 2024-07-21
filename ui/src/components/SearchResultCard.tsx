@@ -35,7 +35,7 @@ const SearchResultCard = ({
   const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
 
   const handleContentClick = () => {
-    setSelectedContent(data.root_content_metadata);
+    setSelectedContent(data.content_metadata);
     setDrawerOpen(true);
   };
 
