@@ -12,14 +12,13 @@ import {
   Chip
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { IndexifyClient } from 'getindexify';
+import { IContentMetadata, IndexifyClient } from 'getindexify';
 import PdfDisplay from "./PdfViewer";
 import ReactJson from "@microlink/react-json-view";
 import InfoBox from "./InfoBox";
 import moment from 'moment';
 import { formatBytes } from '../utils/helpers';
 import CopyText from './CopyText';
-import { ITaskContentMetadata } from '../types';
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
   padding: theme.spacing(2),
@@ -28,14 +27,14 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   borderRadius: "12px"
 }));
 
-interface TasksContentDrawerProps {
+interface ContentDrawerProps {
   open: boolean;
   onClose: () => void;
-  content: ITaskContentMetadata | undefined;
+  content: IContentMetadata | undefined;
   client: IndexifyClient;
 }
 
-const TasksContentDrawer: React.FC<TasksContentDrawerProps> = ({ open, onClose, content, client }) => {
+const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, client }) => {
   const [textContent, setTextContent] = useState<string>('');
   const [downloadContent, setDownloadContent] = useState<string | Blob | undefined>(undefined);
 
@@ -65,46 +64,46 @@ const TasksContentDrawer: React.FC<TasksContentDrawerProps> = ({ open, onClose, 
   const renderContent = () => {
     if (!content) return null;
 
-    if (content.content_type.startsWith("application/pdf")) {
-      return <PdfDisplay url={content.storage_url} />;
-    } else if (content.content_type.startsWith("image")) {
+    if (content.mime_type.startsWith("application/pdf")) {
+      return <PdfDisplay url={content.content_url}/>;
+    } else if (content.mime_type.startsWith("image")) {
       return (
         <img
           alt="content"
-          src={content.storage_url}
+          src={content.content_url}
           width="100%"
           style={{ maxWidth: "200px" }}
           height="auto"
         />
       );
-    } else if (content.content_type.startsWith("audio")) {
+    } else if (content.mime_type.startsWith("audio")) {
       return (
         <audio controls>
-          <source src={content.storage_url} type={content.content_type} />
+          <source src={content.content_url} type={content.mime_type} />
           Your browser does not support the audio element.
         </audio>
       );
-    } else if (content.content_type.startsWith("video")) {
+    } else if (content.mime_type.startsWith("video")) {
       return (
         <video
-          src={content.storage_url}
+          src={content.content_url}
           controls
           style={{ width: "100%", maxWidth: "400px", height: "auto" }}
         />
       );
-    } else if (content.content_type.startsWith("text/html")) {
+    } else if (content.mime_type.startsWith("text/html")) {
       return (
         <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
            <code lang="html">{textContent}</code>
         </Box>
       );
-    } else if (content.content_type.startsWith("text/plain") && !content.content_type.startsWith("text/html")) {
+    } else if (content.mime_type.startsWith("text/plain") && !content.mime_type.startsWith("text/html")) {
       return (
         <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
            <InfoBox text={textContent} />
         </Box>
       );
-    } else if (content.content_type.startsWith("application/json")) {
+    } else if (content.mime_type.startsWith("application/json")) {
       return (
         <Box sx={{ maxHeight: "500px", overflow: "auto" }}>
           {textContent &&
@@ -120,7 +119,7 @@ const TasksContentDrawer: React.FC<TasksContentDrawerProps> = ({ open, onClose, 
 
     const blob = downloadContent instanceof Blob 
       ? downloadContent 
-      : new Blob([downloadContent], { type: content.content_type });
+      : new Blob([downloadContent], { type: content.mime_type });
 
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -165,7 +164,7 @@ const TasksContentDrawer: React.FC<TasksContentDrawerProps> = ({ open, onClose, 
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Size:</Typography>
-                <Typography variant="subtitle2">{formatBytes(content.size_bytes)}</Typography>
+                <Typography variant="subtitle2">{formatBytes(content.size)}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Created at:</Typography>
@@ -182,33 +181,33 @@ const TasksContentDrawer: React.FC<TasksContentDrawerProps> = ({ open, onClose, 
                 </Stack>
               )}
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-                <Typography variant="caption" sx={{ color: "#757A82" }}>Content Type:</Typography>
-                <Chip label={content.content_type} sx={{ backgroundColor: "#E5EFFB" }} />
+                <Typography variant="caption" sx={{ color: "#757A82" }}>MimeType:</Typography>
+                <Chip label={content.mime_type} sx={{ backgroundColor: "#E5EFFB" }} />
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Namespace:</Typography>
                 <Typography variant="subtitle2">{content.namespace}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-                <Typography variant="caption" sx={{ color: "#757A82" }}>Root Content ID:</Typography>
-                <Typography variant="subtitle2">{content.root_content_id}</Typography>
+                <Typography variant="caption" sx={{ color: "#757A82" }}>Ingested Content ID:</Typography>
+                <Typography variant="subtitle2">{content.ingested_content_id}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Hash:</Typography>
                 <Typography variant="subtitle2">{content.hash}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-                <Typography variant="caption" sx={{ color: "#757A82" }}>Tombstoned:</Typography>
-                <Typography variant="subtitle2">{content.tombstoned ? 'Yes' : 'No'}</Typography>
+                <Typography variant="caption" sx={{ color: "#757A82" }}>Extraction Graph Names:</Typography>
+                <Typography variant="subtitle2">{content.extraction_graph_names.join(', ')}</Typography>
               </Stack>
             </Grid>
           </Grid>
           {renderContent()}
         </StyledPaper>
 
-         <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
           <Button variant="outlined" onClick={onClose} sx={{ mr: 1 }}>
-            Cancel
+            Close
           </Button>
           <Button 
             variant="contained" 

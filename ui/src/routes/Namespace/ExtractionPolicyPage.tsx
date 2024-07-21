@@ -1,4 +1,5 @@
-import { useLoaderData } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react';
+import { useLoaderData } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -6,68 +7,68 @@ import {
   Breadcrumbs,
   Tooltip,
   Chip,
-} from '@mui/material'
+} from '@mui/material';
 import {
   ExtractionGraph,
   IContentMetadata,
   IExtractionPolicy,
   IndexifyClient,
-} from 'getindexify'
-import TasksTable from '../../components/TasksTable'
-import { Link } from 'react-router-dom'
-import NavigateNextIcon from '@mui/icons-material/NavigateNext'
-import { TaskCounts } from '../../types'
-import { useEffect, useMemo, useState } from 'react'
-import ContentDrawer from '../../components/ContentDrawer'
+} from 'getindexify';
+import TasksTable from '../../components/TasksTable';
+import { Link } from 'react-router-dom';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import { TaskCounts } from '../../types';
+import TasksContentDrawer from '../../components/TasksContentDrawer';
 
 const ExtractionPolicyPage = () => {
   const { policy, namespace, extractionGraph, taskCounts, client } =
     useLoaderData() as {
-      policy: IExtractionPolicy
-      namespace: string
-      client: IndexifyClient
-      extractionGraph: ExtractionGraph
-      taskCounts?: TaskCounts
-    }
+      policy: IExtractionPolicy;
+      namespace: string;
+      client: IndexifyClient;
+      extractionGraph: ExtractionGraph;
+      taskCounts?: TaskCounts;
+    };
 
   const taskLoader = async (
-  pageSize: number,
-  startId?: string
-): Promise<any> => {
-  try {
-    const tasks = await client.getTasks(
-      extractionGraph.name,
-      policy.name,
-      {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        extractionPolicy: policy.name,
-        limit: pageSize + 1,
-        startId: startId,
-        returnTotal: true
+    pageSize: number,
+    startId?: string
+  ): Promise<any> => {
+    try {
+      const tasks = await client.getTasks(
+        extractionGraph.name,
+        policy.name,
+        {
+          namespace: namespace,
+          extractionGraph: extractionGraph.name,
+          extractionPolicy: policy.name,
+          limit: pageSize + 1,
+          startId: startId,
+          returnTotal: true
+        }
+      );
+
+      let hasNextPage = false;
+      if (tasks.tasks.length > pageSize) {
+        hasNextPage = true;
+        tasks.tasks.pop();
       }
-    );
 
-    let hasNextPage = false;
-    if (tasks.tasks.length > pageSize) {
-      hasNextPage = true;
-      tasks.tasks.pop();
+      return {
+        tasks: tasks.tasks,
+        total: tasks.totalTasks,
+        hasNextPage
+      };
+    } catch (error) {
+      console.error("Error loading tasks:", error);
+      return {
+        tasks: [],
+        total: 0,
+        hasNextPage: false
+      };
     }
+  };
 
-    return {
-      tasks: tasks.tasks,
-      total: tasks.totalTasks,
-      hasNextPage
-    };
-  } catch (error) {
-    console.error("Error loading tasks:", error);
-    return {
-      tasks: [],
-      total: 0,
-      hasNextPage: false
-    };
-  }
-};
   const [localTaskCounts, setLocalTaskCounts] = useState({
     unknown: 0,
     success: 0,
@@ -132,9 +133,14 @@ const ExtractionPolicyPage = () => {
   const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const handleContentClick = (content: IContentMetadata) => {
-    setSelectedContent(content);
-    setDrawerOpen(true);
+  const handleContentClick = async (contentId: string) => {
+    try {
+      const contentMetadata = await client.getContentMetadata(contentId);
+      setSelectedContent(contentMetadata);
+      setDrawerOpen(true);
+    } catch (error) {
+      console.error('Error fetching content metadata:', error);
+    }
   };
 
   return (
@@ -198,7 +204,7 @@ const ExtractionPolicyPage = () => {
         client={client}
         hideExtractionPolicy
       />
-      <ContentDrawer 
+      <TasksContentDrawer 
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         content={selectedContent}
@@ -208,4 +214,4 @@ const ExtractionPolicyPage = () => {
   )
 }
 
-export default ExtractionPolicyPage
+export default ExtractionPolicyPage;

@@ -10,7 +10,8 @@ import {
   TablePagination,
   Alert, 
   Chip, 
-  Box 
+  Box,
+  Link
 } from '@mui/material';
 import { IContentMetadata, IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
 import moment from 'moment';
@@ -24,7 +25,7 @@ interface TasksTableProps {
   loadData: (pageSize: number, startId?: string) => Promise<{ tasks: ITask[]; total: number; hasNextPage: boolean }>;
   hideContentId?: boolean;
   hideExtractionPolicy?: boolean;
-  onContentClick: (content: IContentMetadata) => void;
+  onContentClick: (contentId: string) => void;
   client: IndexifyClient;
 }
 
@@ -42,10 +43,6 @@ const TasksTable: React.FC<TasksTableProps> = ({
   const [page, setPage] = useState<number>(0);
   const [rowsPerPage, setRowsPerPage] = useState<number>(20);
   const [isLastPage, setIsLastPage] = useState<boolean>(false);
-
-  const handleContentClick = (contentMetadata: IContentMetadata) => {
-    onContentClick(contentMetadata);
-  };
 
   const loadTasks = async () => {
     setLoading(true);
@@ -70,7 +67,6 @@ const TasksTable: React.FC<TasksTableProps> = ({
 
   useEffect(() => {
     loadTasks();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, rowsPerPage]);
 
   const handleChangePage = (event: React.MouseEvent<HTMLButtonElement> | null, newPage: number) => {
@@ -122,7 +118,13 @@ const TasksTable: React.FC<TasksTableProps> = ({
                 <TableCell>{task.id}</TableCell>
                 {!hideContentId && (
                   <TableCell>
-                   {task.content_metadata.id}
+                    <Link
+                      component="button"
+                      variant="body2"
+                      onClick={() => onContentClick(task.content_metadata.id)}
+                    >
+                      {task.content_metadata.id}
+                    </Link>
                   </TableCell>
                 )}
                 {!hideExtractionPolicy && (
