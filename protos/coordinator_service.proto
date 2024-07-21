@@ -79,6 +79,8 @@ service CoordinatorService {
     rpc LinkExtractionGraphs(LinkExtractionGraphsRequest) returns (LinkExtractionGraphsResponse) {}
 
     rpc ExtractionGraphLinks(ExtractionGraphLinksRequest) returns (ExtractionGraphLinksResponse) {}
+
+    rpc AddGraphToContent(AddGraphToContentRequest) returns (AddGraphToContentResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -618,3 +620,11 @@ message ExtractionGraphLinksRequest {
 message ExtractionGraphLinksResponse {
     repeated ExtractionGraphLink links = 1;
 }
+
+message AddGraphToContentRequest {
+    string namespace = 1;
+    string extraction_graph = 2;
+    repeated string content_ids = 3;
+}
+
+message AddGraphToContentResponse {}

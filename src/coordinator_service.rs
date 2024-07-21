@@ -219,6 +219,25 @@ impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
 
+    async fn add_graph_to_content(
+        &self,
+        request: tonic::Request<indexify_coordinator::AddGraphToContentRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::AddGraphToContentResponse>, tonic::Status>
+    {
+        let request = request.into_inner();
+        self.coordinator
+            .add_graph_to_content(
+                request.namespace,
+                request.extraction_graph,
+                request.content_ids,
+            )
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(
+            indexify_coordinator::AddGraphToContentResponse {},
+        ))
+    }
+
     async fn extraction_graph_links(
         &self,
         request: tonic::Request<ExtractionGraphLinksRequest>,

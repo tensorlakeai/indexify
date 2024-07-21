@@ -843,6 +843,12 @@ pub struct UploadFileResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddGraphToContent {
+    /// List of existing content ids to extract from
+    pub content_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphRequest {
     pub name: String,
     pub description: Option<String>,

@@ -1164,6 +1164,7 @@ pub enum ChangeType {
     ExecutorRemoved,
     ContentUpdated,
     TaskCompleted { root_content_id: ContentMetadataId },
+    AddGraphToContent { extraction_graph: String },
 }
 
 impl fmt::Display for ChangeType {
@@ -1176,9 +1177,12 @@ impl fmt::Display for ChangeType {
             ChangeType::ContentUpdated => write!(f, "ContentUpdated"),
             ChangeType::TaskCompleted {
                 root_content_id: content_id,
-            } => {
-                write!(f, "TaskCompleted(content_id: {})", content_id)
-            }
+            } => write!(f, "TaskCompleted(content_id: {})", content_id),
+            ChangeType::AddGraphToContent { extraction_graph } => write!(
+                f,
+                "AddGraphToContent(extraction_graph: {})",
+                extraction_graph,
+            ),
         }
     }
 }
@@ -1224,19 +1228,6 @@ pub struct StateChange {
     /// If Some, this change holds a reference to an object until it is
     /// processed.
     pub refcnt_object_id: Option<String>,
-}
-
-impl Default for StateChange {
-    fn default() -> Self {
-        Self {
-            id: StateChangeId(0),
-            object_id: "".to_string(),
-            change_type: ChangeType::NewContent,
-            created_at: 0,
-            processed_at: None,
-            refcnt_object_id: None,
-        }
-    }
 }
 
 impl StateChange {

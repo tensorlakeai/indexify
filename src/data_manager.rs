@@ -80,6 +80,24 @@ impl DataManager {
         self.coordinator_client.get().await
     }
 
+    pub async fn add_graph_to_content(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        content_ids: Vec<String>,
+    ) -> Result<()> {
+        let req = indexify_coordinator::AddGraphToContentRequest {
+            namespace,
+            content_ids,
+            extraction_graph,
+        };
+        self.get_coordinator_client()
+            .await?
+            .add_graph_to_content(req)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_extraction_graphs(
         &self,
         namespace: &str,
