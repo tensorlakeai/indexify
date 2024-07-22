@@ -69,11 +69,11 @@ nav:
       - DSPy:
           - Python: 'integrations/dspy/python_dspy.md'
   - Deployment and Operation:
-      - Kubernetes: 'operations/kubernetes.md'
       - Configuration: 'configuration.md'
       - Metrics: 'metrics.md'
-      - Develop Indexify: 'develop.md'
       - Extractors on GPU: 'gpu-deployment.md'
+      - Kubernetes: 'operations/kubernetes.md'
+      - Develop Indexify: 'develop.md'
   - Examples:
       - Index: 'examples_index.md'
 
