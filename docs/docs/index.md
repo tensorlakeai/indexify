@@ -6,7 +6,7 @@ Indexify is an open-source data framework. It is designed for creating ingestion
 
 Indexify pipelines operate in real-time. They process data immediately after ingestion. This makes them ideal for interactive applications and low-latency scenarios.
 
-## Multi-Stage Ingestion and Extraction Workflows
+## Multi-Stage Data Ingestion and Extraction Workflows
 
 Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute. Some unique characteristics of Indexify workflows are -
 
