@@ -38,12 +38,11 @@ We'll use the following notation to indicate which terminal to use:
 
 ### Understanding Indexify Components
 
-These components which you will touch while working through the example:
+Here are components which you will touch while working through the example:
 
 1. **Indexify Server**: The central coordinator and data ingestion API.
 2. **Extractors**: Specialized workers designed to perform specific data processing tasks (e.g., embedding data, generating summaries, or extracting features from unstructured data).
 3. **Extraction Graph**: A declarative YAML file that chains together extractors into a complex pipeline.
-
 
 The directory structure of our project, will look like this 
 
@@ -60,11 +59,7 @@ indexify-tutorial/
 └── indexify               # Indexify server executable (downloaded by curl command)
 ```
 
-This structure keeps all the components of our tutorial project organized in one place, making it easy to manage and run the different scripts. 
-
 ## Step 1: Setting Up the Indexify Server
-
-![Indexify Terminal 1](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/d06ba9c0-a0c6-43d2-90e2-037e537c0f1b)
 
 Let's start by downloading and running the Indexify server:
 
@@ -92,14 +87,9 @@ pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_communit
 
 ## Step 3: Setting Up Indexify Extractors
 
-The next step is of course setting up extractors to extract data reliably at scale. Extractors are the very soul of the pipelines at Indexify. Extractors are used for structured extraction from un-structured data of any modality. For example, line items of an invoice as JSON, objects in a video, embedding of text in a PDF, etc.
+The next step is to set up the extractors, which are essential for structured extraction from unstructured data across different modalities. For instance, this includes using different extractors for parsing HTML and converting into text, chunking the text, and embedding it.
 
-For the purpose of this tutorial we will be using extractors that have already been created. You can find the full list [here](https://docs.getindexify.ai/apis/develop_extractors/)
-
-![Indexify Terminal 2](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/d06ba9c0-a0c6-43d2-90e2-037e537c0f1b)
-
-
-Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them.
+Extractors consume Content, which consists of raw bytes of unstructured data, and then produce a list of processed Content along with extracted features.
 
 ![Extractor_working](https://github.com/user-attachments/assets/ac12fc76-3043-485f-9a8b-6bbffa7d878d)
 
@@ -409,5 +399,3 @@ To continue your journey with Indexify, consider exploring the following topics 
 | [Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Document processing and analysis<br>- Image and video content extraction<br>- Audio transcription and analysis<br>- Multi-modal data processing<br>- Large-scale data ingestion and retrieval systems |
 
 Each section builds upon the previous ones, providing a logical progression from practical application to deeper technical understanding and finally to customization and real-world examples.
-
-Happy coding!

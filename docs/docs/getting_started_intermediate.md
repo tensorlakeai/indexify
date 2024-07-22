@@ -1,8 +1,5 @@
-# Getting Started - Intermediate
+# Getting Started - Parsing complex PDF Documents
 
-Hello and welcome to the Intermediate Getting Started guide. Please go through the [Getting Started Basic](https://docs.getindexify.ai/getting_started/) guide for Indexify if you haven't already.
-
-## California Tax Calculation Example
 What if one could go through a 26-page complex tax document and understand it without a lawyer, an accountant, or the geek from college? What if 5 easy-to-follow steps were all you need to do reliable QnA on a complex and layered document like a tax invoice?
 Indexify enables you to do just that.
 
@@ -40,14 +37,13 @@ We'll use the following notation to indicate which terminal to use:
 
 ### Understanding Indexify Components
 
-Before we dive in, let's briefly explain the key components of Indexify:
+Here are components which you will touch while working through the example:
 
 1. **Indexify Server**: The central coordinator and data ingestion API.
 2. **Extractors**: Specialized workers designed to perform specific data processing tasks (e.g., embedding data, generating summaries, or extracting features from unstructured data).
 3. **Extraction Graph**: A declarative YAML file that chains together extractors into a complex pipeline.
 
-
-Also before we look into creating pipelines for ingestion and query, it is best to lay out the directory structure of our project.
+The directory structure of our project, will look like this 
 
 ```plaintext title="Directory Structure"
 indexify-tax-calculator/
@@ -62,16 +58,6 @@ indexify-tax-calculator/
 │
 └── indexify                   # Indexify server executable (downloaded by curl command)
 ```
-
-To use this structure:
-
-1. Create a new directory called `indexify-tax-calculator`.
-2. Navigate into this directory in your terminal.
-3. Create the virtual environment and activate it (discussed below).
-4. Create each of the `.py` and `.yaml` files in the root of this directory (discussed below).
-5. Run the curl command to download the Indexify executable into this directory (discussed below).
-
-This structure keeps all the components of our tutorial project organized in one place, making it easy to manage and run the different scripts.
 
 ## Stage 1: Setting Up the Indexify Server
 
@@ -414,30 +400,6 @@ The key strengths of this pipeline would be:
 2. Efficient chunking and embedding of text for quick retrieval
 3. Use of up-to-date, specific information for answer generation
 4. Scalability to handle multiple documents or more complex queries
-
-### Scaling for Hundreds of PDFs
-
-To scale this pipeline for hundreds of PDFs, one may consider the following aspects of the existing design:
-
-1. **Modular Extraction Graph**: 
-   The current design allows for easy addition of *new extractors*. This modularity means you can process different types of PDFs by adding specialized extractors to the graph.
-
-2. **Indexing and Retrieval**:
-   The current system uses **vector index** for retrieval. This approach is inherently scalable and can handle *large volumes of data* efficiently.
-
-3. **Stateless Processing**:
-   Each stage of the pipeline (PDF ingestion, extraction, querying) is essentially *stateless*. This design naturally lends itself to parallel processing.
-
-To handle hundreds of PDFs, you could:
-
-1. Implement parallel processing in the document ingestion phase.
-2. Use a distributed storage system for the indexed data.
-3. Implement a queueing system for managing the ingestion of large numbers of PDFs.
-4. Consider using a caching layer in the querying phase to store frequent queries and their results.
-
-The present example design, with its modular and flexible approach, provides a solid foundation for these scalability enhancements. The separation of concerns between extraction graph setup, document ingestion, and querying allows each component to be scaled independently as needed.
-
-By following this guide, you've taken a significant step in leveraging Indexify's capabilities for real-world applications. As you continue to explore, consider how you might apply these techniques to other domains or expand the system to handle more diverse types of queries and documents
 
 ## Next Steps
 

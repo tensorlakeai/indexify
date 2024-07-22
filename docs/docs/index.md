@@ -8,13 +8,13 @@ Indexify pipelines operate in real-time. They process data immediately after ing
 
 ## Multi-Stage Ingestion and Extraction Workflows
 
-Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute.
+Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute. Some unique characteristics of Indexify workflows are -
 
 **AI Native**: Use models from OpenAI, HuggingFace and Ollama in the pipeline.
 
-**Extensible**: Extend Indexify by plugging in Python modules in the pipeline.
+**Extensible**: by plugging in Python modules in the pipeline.
 
-**Scalable**: Handles ingestion and processing data at scale powered by a low latency and distributed scheduler.
+**Real Time and Scalable**: Handles real-time processing of data at scale powered by a low latency and distributed scheduler.
 
 **APIs**: Pipelines are exposed as HTTP APIs, making them accessible from applications written in TypeScript, Java, Python, Go, etc.
 
