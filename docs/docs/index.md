@@ -35,28 +35,9 @@ extraction_policies:
     ```bash
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/extraction_graphs' \
-    -H 'accept: application/json' \
-    -H 'Content-Type: application/json' \
-    -d '{
-        "description": "PDF To Text Extraction Pipeline",
-        "extraction_policies": [
-          {
-            "extractor": "tensorlake/marker",
-            "name": "pdf_to_markdown"
-          },
-          {
-            "extractor": "tensorlake/ner",
-            "name": "entity_extractor",
-            "content_source": "pdf_to_markdown"
-          },
-          {
-            "extractor": "tensorlake/minilm-l6",
-            "name": "embedding",
-            "content_source": "pdf_to_markdown"
-          }
-        ],
-        "name": "pdf-ingestion-pipeline"
-    }'
+    -H 'accept: application/x-yaml' \
+    -H 'Content-Type: application/x-yaml' \
+    --data-binary @graph.yaml
     ```
 
 === "Python"
