@@ -616,7 +616,6 @@ async fn namespace_open_api(
     post,
     path = "/namespaces/{namespace}/extraction_graphs",
     request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/json"),
-    request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/x-yaml"),
     tag = "ingestion",
     responses(
         (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
@@ -632,12 +631,26 @@ async fn create_extraction_graph(
     State(state): State<NamespaceEndpointState>,
     payload: String,
 ) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
-    let content_type = headers.get(axum::http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok());
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok());
 
     let payload: ExtractionGraphRequest = match content_type {
-        Some("application/json") => serde_json::from_str(&payload).map_err(|_| IndexifyAPIError::new(StatusCode::BAD_REQUEST, "Unable to parse json payload"))?,
-        Some("application/x-yaml") => serde_yaml::from_str(&payload).map_err(|e| { IndexifyAPIError::new(StatusCode::BAD_REQUEST, format!("Unable to parse yaml payload {}", e).as_str()) })?,
-        _ => return Err(IndexifyAPIError::new(StatusCode::BAD_REQUEST, "Unsupported content type")),
+        Some("application/json") => serde_json::from_str(&payload).map_err(|_| {
+            IndexifyAPIError::new(StatusCode::BAD_REQUEST, "Unable to parse json payload")
+        })?,
+        Some("application/x-yaml") => serde_yaml::from_str(&payload).map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                format!("Unable to parse yaml payload {}", e).as_str(),
+            )
+        })?,
+        _ => {
+            return Err(IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                "Unsupported content type",
+            ))
+        }
     };
 
     let indexes = state
