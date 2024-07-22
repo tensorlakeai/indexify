@@ -43,14 +43,6 @@ We'll use the following notation to indicate which terminal to use:
 <command goes here>
 ```
 
-To start using Indexify, follow these steps:
-
-1. Install Indexify
-2. Start the Indexify server
-3. Install the Indexify Python client
-
-We will look at these steps in much more detail in the End-to-End guide section
-
 ## Understanding PDF Extraction
 
 PDF extraction is the process of pulling out useful information from PDF files. This can include:

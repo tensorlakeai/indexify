@@ -36,6 +36,8 @@ We'll use the following notation to indicate which terminal to use:
 <command goes here>
 ```
 
+![Indexify Terminal](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/c0185f07-5033-4e7c-9040-7854b996d430)
+
 ### Understanding Indexify Components
 
 Here are components which you will touch while working through the example:
@@ -125,6 +127,12 @@ Indexify provides tools to test extractors locally, package and deploy them to p
 ### Using Available Extractors
 
 As mentioned before, for the purpose of this tutorial, we already have Extractors written, deployed and tested.
+Set your OpenAI API key:
+
+```bash
+export OPENAI_API_KEY=your_api_key_here
+```
+
 Now, let's download three essential extractors:
 
 ```bash title="( Terminal 2 ) Download Indexify Extractors"
@@ -133,12 +141,6 @@ indexify-extractor download tensorlake/openai
 indexify-extractor download tensorlake/minilm-l6
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor join-server
-```
-
-Don't forget to set your OpenAI API key:
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
 ```
 
 Now, let's start all available extractors:
@@ -173,17 +175,18 @@ extraction_policies:
 ```
 
 This YAML file defines three extraction policies:
+
 1. `entity-extractor`: Extracts named entities from the text
 2. `chunker`: Splits the text into smaller chunks
 3. `wikiembedding`: Creates embeddings for the chunks
 
 These are the three key extractors are utilized to process and analyze the input content from Wikipedia:
 
-1. OpenAI Extractor (`tensorlake/openai`): Uses OpenAI’s language models for entity extraction from various input types (text, PDF, images). The extractor can be customized with specific system and user prompts to tailor its output.
+1. OpenAI Extractor(`tensorlake/openai`): Uses OpenAI’s LLMs for entity extraction from various input types (text, PDF, images). It can be customized with specific system and user prompts to tailor its output.
 
-2. Chunk Extractor (`tensorlake/chunk-extractor`): Breaks down text into chunks, offering flexibility in chunk size and overlap.
+2. Chunk Extractor(`tensorlake/chunk-extractor`): Breaks down text into chunks, offering flexibility in chunk size and overlap.
 
-3. MiniLM-L6 Extractor (`tensorlake/minilm-l6`): Generates embeddings of the text chunks for semantic search and retrieval.
+3. MiniLM-L6 Extractor(`tensorlake/minilm-l6`): Generates embeddings of the text chunks for semantic search and retrieval.
 
 These extractors work in concert to transform raw, unstructured input into processed, indexed, and easily retrievable information, forming the backbone of the Indexify pipeline for tasks such as entity recognition, text segmentation, and semantic embedding. You can learn more about different types of available extractors and their usage [here](https://docs.getindexify.ai/apis/extractors/).
 
@@ -216,9 +219,6 @@ python3 ./setup.py
 ## Step 6: Loading Data
 
 Now that we have our extraction graph set up, let's create (or open) a script to load the Wikipedia data into our pipeline.
-
-![Indexify Terminal 3](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/c0185f07-5033-4e7c-9040-7854b996d430)
-
 
 Create a file named `ingest.py` with the following content:
 
@@ -256,6 +256,10 @@ You can query Indexify to -
 2. Get extracted data from any of the extraction policies of an Extraction Graph.
 3. Perform semantic search on vector indexes populated by embedding extractors.
 4. Run SQL Queries on structured data(not in this tutorial).
+
+```bash title="( Terminal 3 ) Run our RAG query"
+OPENAI_API_KEY=your_api_key_here python3 ./query.py
+```
 
 For now let us create a file named `query.py` with the following content:
 
@@ -308,10 +312,6 @@ if __name__ == "__main__":
 ```
 
 Run this script to query the indexed data:
-
-```bash title="( Terminal 3 ) Run our RAG query"
-OPENAI_API_KEY=your_api_key_here python3 ./query.py
-```
 
 You should see a response summarizing Kevin Durant's career accomplishments based on the indexed Wikipedia data.
 
