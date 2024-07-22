@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Extension,
@@ -616,6 +616,7 @@ async fn namespace_open_api(
     post,
     path = "/namespaces/{namespace}/extraction_graphs",
     request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/json"),
+    request_body(content = ExtractionGraphRequest, description = "Definition of extraction graph to create", content_type = "application/x-yaml"),
     tag = "ingestion",
     responses(
         (status = 200, description = "Extraction graph added successfully", body = ExtractionGraphResponse),
@@ -626,10 +627,19 @@ async fn namespace_open_api(
 async fn create_extraction_graph(
     // FIXME: this throws a 500 when the binding already exists
     // FIXME: also throws a 500 when the index name already exists
+    headers: HeaderMap,
     Path(namespace): Path<String>,
     State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<ExtractionGraphRequest>,
+    payload: String,
 ) -> Result<Json<ExtractionGraphResponse>, IndexifyAPIError> {
+    let content_type = headers.get(axum::http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok());
+
+    let payload: ExtractionGraphRequest = match content_type {
+        Some("application/json") => serde_json::from_str(&payload).map_err(|_| IndexifyAPIError::new(StatusCode::BAD_REQUEST, "Unable to parse json payload"))?,
+        Some("application/x-yaml") => serde_yaml::from_str(&payload).map_err(|e| { IndexifyAPIError::new(StatusCode::BAD_REQUEST, format!("Unable to parse yaml payload {}", e).as_str()) })?,
+        _ => return Err(IndexifyAPIError::new(StatusCode::BAD_REQUEST, "Unsupported content type")),
+    };
+
     let indexes = state
         .data_manager
         .create_extraction_graph(&namespace, payload)
@@ -637,6 +647,7 @@ async fn create_extraction_graph(
         .map_err(IndexifyAPIError::internal_error)?
         .into_iter()
         .collect();
+
     Ok(Json(ExtractionGraphResponse { indexes }))
 }
 
