@@ -34,7 +34,7 @@ extraction_policies:
 === "HTTP"
     ```bash
     curl -X 'POST' \
-    'http://localhost:8900/namespace/default/extraction_graphs' \
+    'http://localhost:8900/namespaces/default/extraction_graphs' \
     -H 'accept: application/json' \
     -H 'Content-Type: application/json' \
     -d '{

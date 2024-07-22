@@ -87,7 +87,7 @@ pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_communit
 
 ## Step 3: Setting Up Indexify Extractors
 
-The next step is to set up the extractors, which are essential for structured extraction from unstructured data across different modalities. For instance, this includes using different extractors for parsing HTML and converting into text, chunking the text, and embedding it.
+The next step is to set up the extractors, which are essential for structured extraction from unstructured data across different modalities. For instance, in this example we use different extractors for parsing HTML and converting into text, chunking the text, and embedding it.
 
 Extractors consume Content, which consists of raw bytes of unstructured data, and then produce a list of processed Content along with extracted features.
 
@@ -97,39 +97,11 @@ If you want to read and understand how to build a custom extractor for your own 
 
 ### Using Custom Extractors
 
-An extractor in Indexify is designed to process unstructured data. It receives data in a `Content` object and transforms it into one or more `Content` objects, optionally adding `Feature` objects during extraction. For example, you could split a PDF into multiple content pieces, each with its text and corresponding embedding or other metadata.
+Custom Extractors are written by implementing a Python class that extends the `Extractor` abstractor class from the `indexify-extractor-sdk` package.
 
-#### Key Concepts
+Here is an example Extrator, which does Named Entity Recognition on text data.
 
-1. **Content**: Represents unstructured data with properties:
-
-    - `data`: Raw bytes of the unstructured data
-    - `content_type`: MIME type of the data (e.g., `text/plain`, `image/png`)
-    - `Feature`: Optional associated feature (embedding or JSON metadata)
-
-2. **Feature**: Extracted information from unstructured data, such as embeddings or JSON metadata.
-
-#### Building a Custom Extractor
-
-Building a custom extractor is an easy 4 step process. We will walk through this while laying down each step in a sequential manner. To read a full guide on building custom extractors, read the official [documentation for developing extractors](https://docs.getindexify.ai/apis/develop_extractors/).
-
-##### Step 1: Clone from Template
-
-Use the following command to create a template for your new extractor:
-
-```bash  title="( Terminal 2 ) Download Code Template"
-curl https://codeload.github.com/tensorlakeai/indexify-extractor-template/tar.gz/main | tar -xz  indexify-extractor-template-main
-```
-
-##### Step 2: Implement the Extractor
-
-In the template, you'll find a `MyExtractor` class in the `custom_extractor.py` file. Implement the `extract` method, which takes a `Content` object and returns a list of `Content` objects.
-
-Basically `extract` method takes a Content object which have the bytes of unstructured data and the mime-type. You can pass a list of JSON, text, video, audio and documents into the extract method. It then returns a list of transformed or derived content, or a list of features.
-
-For instance, in the following example snippet we iterate over a list of content, chunk each content, run a NER model and an embedding model over each chunk and return them as features along with the chunks of text.
-
-```python title="custom_extractor.py"
+```python
 def extract(self, content: Content) -> List[Content]:
     """
     Extracts features from content.
@@ -145,38 +117,9 @@ def extract(self, content: Content) -> List[Content]:
     return output
 ```
 
-##### Step 3: Define Extractor Properties
+An extractor receives data in a `Content` object and transforms it into one or more `Content` objects, optionally adding `Embedding` objects during extraction. For example, you could split a PDF into multiple content pieces, each with its text and corresponding embedding or other metadata.
 
-Add the following properties to your extractor class:
-
-- `name`: The name of your extractor
-- `description`: A detailed description of what your extractor does
-- `system_dependencies`: List of dependencies for packaging in a Docker container
-- `input_mime_types`: List of input data types your extractor can handle (default is `["text/plain"]`)
-
-##### Step 4: List Dependencies
-
-Create a `requirements.txt` file in your extractor's folder to list any Python dependencies.
-
-#### Deploying Locally
-
-##### Local Installation
-
-Install your extractor locally to make it available to the Indexify server:
-
-```bash
-indexify-extractor install-local custom_extractor:MyExtractor 
-```
-
-#### Joining with Control Plane
-
-Connect your extractor to the Indexify server to receive content streams:
-
-```bash
-indexify-extractor join-server
-```
-
-By following these short steps, you can create, and locally deploy custom extractors in Indexify, allowing you to integrate specialized data processing capabilities into your Indexify pipelines.
+Indexify provides tools to test extractors locally, package and deploy them to production. For detailed instructions, please see this page.
 
 ### Using Available Extractors
 
