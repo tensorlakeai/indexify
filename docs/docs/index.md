@@ -8,7 +8,7 @@ Indexify pipelines operate in real-time. They process data immediately after ing
 
 **Use Cases:** Pipelines for Entity Extraction/Embedding from documents, Audio Transcription, Summarization, Object Detection from Images. 
 
-**RAG**: Embedding and structured data extracted by Indexify can be consumed into RAG applications on private enterprise data. 
+**RAG**: Embedding and structured data extracted by Indexify from enterprise data can be consumed into RAG applications.  
 
 ## Multi-Stage Data Ingestion and Extraction Workflows
 
