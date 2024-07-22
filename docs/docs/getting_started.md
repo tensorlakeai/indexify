@@ -129,7 +129,7 @@ Indexify provides tools to test extractors locally, package and deploy them to p
 As mentioned before, for the purpose of this tutorial, we already have Extractors written, deployed and tested.
 Set your OpenAI API key:
 
-```bash
+```bash title="( Terminal 2 ) Download Indexify Extractors"
 export OPENAI_API_KEY=your_api_key_here
 ```
 
