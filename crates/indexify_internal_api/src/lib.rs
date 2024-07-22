@@ -701,15 +701,10 @@ impl ExtractionPolicyBuilder {
         let id = ExtractionPolicy::create_id(graph_name, &name, &ns);
         let mut output_table_mapping = HashMap::new();
         for (output_name, output_schema) in extractor_description.outputs {
-            let index_table_name = match output_schema {
-                OutputSchema::Embedding(_) => {
-                    format!("{}.{}.{}.{}", ns, graph_name, name, output_name)
-                }
-                OutputSchema::Attributes(_) => {
-                    format!("{}.{}", ns, graph_name)
-                }
-            };
-            output_table_mapping.insert(output_name, index_table_name);
+            if let OutputSchema::Embedding(_) = output_schema {
+                let index_table_name = format!("{}.{}.{}.{}", ns, graph_name, name, output_name);
+                output_table_mapping.insert(output_name, index_table_name);
+            }
         }
         Ok(ExtractionPolicy {
             id,
