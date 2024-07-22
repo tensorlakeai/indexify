@@ -9,9 +9,9 @@
         "type":"separator",
         "title":"Available Extractors"
     },
+    "text":"Text",
     "pdf":"PDF",
     "image":"Image",
-    "text":"Text",
     "audio":"Audio",
     "video":"Video",
     "embedding":"Embedding",

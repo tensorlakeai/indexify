@@ -19,12 +19,12 @@ const config: DocsThemeConfig = {
     );
   },
   project: {
-    link: 'https://github.com/adithyaakrishna/indexify-docs',
+    link: 'https://github.com/tensorlake/indexify',
   },
   chat: {
     link: 'https://dub.sh/tensorlake-discord',
   },
-  docsRepositoryBase: 'https://github.com/adithyaakrishna/indexify-docs',
+  docsRepositoryBase: 'https://github.com/tensorlakeai/indexify/tree/main/docs',
   useNextSeoProps() {
     const { asPath } = useRouter()
     if (asPath !== '/') {
