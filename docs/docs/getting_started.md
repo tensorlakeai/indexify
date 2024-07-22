@@ -91,7 +91,7 @@ The next step is to set up the extractors, which are essential for structured ex
 
 Extractors consume Content, which consists of raw bytes of unstructured data, and then produce a list of processed Content along with extracted features.
 
-![Extractor_working](https://github.com/user-attachments/assets/ac12fc76-3043-485f-9a8b-6bbffa7d878d)
+![Extractor_working](images/Extractor_Transformation_Concept.png)
 
 If you want to read and understand how to build a custom extractor for your own use case, go through the following section. However, if you want to use a built-in available extractor jump to the [next section](#using-available-extractors). 
 
@@ -102,24 +102,25 @@ Custom Extractors are written by implementing a Python class that extends the `E
 Here is an example Extrator, which does Named Entity Recognition on text data.
 
 ```python
-def extract(self, content: Content) -> List[Content]:
-    """
-    Extracts features from content.
-    """
-    output: List[Content] = []
-    chunks = content.chunk()
-    for chunk in chunks:
-        embedding = get_embedding(chunk)
-        entities = run_ner_model(chunk)
-        embed_chunk = Content.from_text(text=chunk, feature=Feature.embedding(name="text_embedding", values=embedding))
-        metadata_chunk = Content.from_text(text=chunk, feature=Feature.metadata(name="metadata", json.dumps(entities))),
-        output.append([embed_chunk, metadata_chunk])
-    return output
+class NerExtract(Extractor):
+    name = 'yourorg/nerextractor'
+    
+    def extract(self, content: Content) -> List[Content]:
+        """
+        Extracts named entities from content.
+        """
+        output = []
+        chunks = chunk_content(content)
+        for chunk in chunks:
+            entities = run_ner_model(chunk)
+            metadata_chunk = Content(content_type='application/json', data=entities),
+            output.append([metadata_chunk])
+        return output
 ```
 
-An extractor receives data in a `Content` object and transforms it into one or more `Content` objects, optionally adding `Embedding` objects during extraction. For example, you could split a PDF into multiple content pieces, each with its text and corresponding embedding or other metadata.
+An extractor receives data in a `Content` object and transforms it into one or more `Content` objects, optionally adding `Embedding` objects during extraction. For example, you could split a PDF into multiple content pieces, each with its text and corresponding embedding or named entities detected in the text.
 
-Indexify provides tools to test extractors locally, package and deploy them to production. For detailed instructions, please see this page.
+Indexify provides tools to test extractors locally, package and deploy them to production. For detailed instructions, [please see this page](apis/develop_extractors.md).
 
 ### Using Available Extractors
 
@@ -320,7 +321,7 @@ During his career, Kevin Durant has achieved numerous accomplishments, including
 
 ## Conclusion
 
-Congratulations! You've successfully set up an Indexify pipeline for ingesting, processing, and querying Wikipedia data. This beginner-friendly guide has walked you through:
+Congratulations! You've successfully set up an Indexify pipeline for ingesting, processing, and querying Wikipedia data. This guide has walked you through:
 
 1. Setting up the Indexify server and extractors
 2. Defining an extraction graph for processing Wikipedia pages
