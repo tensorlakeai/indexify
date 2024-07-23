@@ -1,0 +1,105 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Docs",
+  "logo": {
+    "dark": "/images/logo/dark.svg",
+    "light": "/images/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#3296FE",
+    "light": "#3296FE",
+    "dark": "#DBEAFE",
+    "anchors": {
+      "from": "#3296FE",
+      "to": "#DBEAFE"
+    }
+  },
+  "topbarCtaButton": {
+    "name": "Get in Touch",
+    "url": "https://dub.sh/diptanu-calendly"
+  },
+  "tabs": [
+    {
+      "name": "CLI & UI",
+      "url": "cli-ui"
+    },
+    {
+      "name": "Extractors",
+      "url": "/extractors"
+    },
+    {
+      "name": "APIs",
+      "url": "/apis"
+    },
+    {
+      "name": "Use Cases",
+      "url": "/usecases"
+    },
+    {
+      "name": "LLM Frameworkws",
+      "url": "/integrations"
+    },
+    {
+      "name": "Deployment and Operation",
+      "url": "/operations"
+    },
+    {
+      "name": "Examples",
+      "url": "/examples"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Website",
+      "icon": "globe",
+      "url": "https://getindexify.ai"
+    },
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://dub.sh/tensorlake-discord"
+    },
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://dub.sh/indexify-github"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Indexify",
+      "pages": [
+        "introduction",
+        "key-concepts",
+        "architecture",
+        "comparisons"
+      ]
+    },
+    {
+      "group": "Get Started",
+      "pages": [
+        "/docs/getting-started-basic",
+        "/docs/getting-started-intermediate"
+      ]
+    },
+    {
+      "group": "CLI & UI",
+      "pages": [
+        "cli-ui/extractor_cli",
+        "cli-ui/server_cli",
+        "cli-ui/ui"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "x": "https://x.com/tensorlake",
+    "github": "https://github.com/tensorlakeai/indexify",
+    "linkedin": "https://www.linkedin.com/company/tensorlake"
+  },
+  "analytics": {
+    "ga4": {
+        "measurementId": "G-KCZ6YYKGKR"
+    }
+}
+}

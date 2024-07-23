@@ -1,0 +1,10 @@
+{
+    "--": {
+      "type": "separator",
+      "title": "APIs"
+    },
+    "install_clients": "Install",
+    "extraction_graphs": "Extraction Graphs",
+    "content_ingestion": "Content Ingestion",
+    "retrieval": "Retrieval"
+}
