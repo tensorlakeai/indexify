@@ -15,6 +15,7 @@ build: ## Build rust application
 	cargo build
 
 build-release: ## Build rust release
+	cargo install cross
 	cross build --target x86_64-unknown-linux-gnu --release
 
 build-release-aarch64:
