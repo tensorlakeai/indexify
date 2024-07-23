@@ -130,7 +130,7 @@ def summarize_pdf(pdf_path):
     
     # Retrieve the summarized content
     summary = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_summarizer",
         policy_name="text_to_summary"
     )

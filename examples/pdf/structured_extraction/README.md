@@ -127,7 +127,7 @@ def extract_schema_from_pdf(pdf_path):
     
     # Retrieve the extracted content
     extracted_data = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_schema_extractor",
         policy_name="text_to_schema"
     )

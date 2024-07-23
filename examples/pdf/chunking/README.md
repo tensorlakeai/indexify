@@ -104,7 +104,7 @@ def retreive_chunks(pdf_path):
     
     # Retrieve the chunked content
     chunks = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_chunker",
         policy_name="text_to_chunks"
     )

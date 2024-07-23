@@ -105,7 +105,7 @@ def analyze_image(image_path):
     
     # Retrieve the analysis results
     detailed_caption = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="florence_image_analyzer",
         policy_name="detailed_caption"
     )
