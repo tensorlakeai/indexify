@@ -1,14 +1,16 @@
-# Service Configuration
+---
+title: 'Service Configuration'
+---
 
 Indexify is configured by a YAML configuration file. The easiest way to start is by generating it with the CLI or by downloading a sample configuration file, and then tweaking it to fit your needs.
 
 ## Generate with CLI
 
-??? note "Unable to find `./indexify`?"
+<Note>
+  Don't forget to download our `Indexify` binary before running the command below. You can do by running the command `curl https://getindexify.ai | sh`.
 
-    Don't forget to download our `Indexify` binary before running the command below. You can do by running the command `curl https://getindexify.ai | sh`.
-
-    This will in turn download the relevant binary at the relative path `./indexify`.
+  This will in turn download the relevant binary at the relative path `./indexify`.
+</Note>
 
 ```shell
 ./indexify init-config --config-path /tmp/indexify.yaml
