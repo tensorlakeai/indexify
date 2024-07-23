@@ -1,6 +1,6 @@
 # LangChain Integration with Indexify for PDF QA
 
-This README demonstrates how to integrate Indexify with LangChain for a PDF Question-Answering (QA) system. This approach replaces the official LangChain tutorial (https://python.langchain.com/v0.2/docs/tutorials/pdf_qa/) by using Indexify for data extraction, management, and retrieval.
+The tutorial is based on the official Langchain documentation, available at [Langchain Docs](https://python.langchain.com/v0.2/docs/tutorials/pdf_qa/). We have enhanced the tutorial by incorporating the use of Indexify for continuous ingestion and extraction from PDF files. This improvement ensures that the RAG application remains unchanged, even when new PDF files are added to the knowledge base.
 
 ## Setup
 
