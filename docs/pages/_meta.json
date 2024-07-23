@@ -21,6 +21,10 @@
     "title": "APIs",
     "type": "page"
   },
+  "extractors": {
+    "title": "Extractors",
+    "type": "page"
+  },
   "usecases": {
     "title": "Use Cases",
     "type": "page"
