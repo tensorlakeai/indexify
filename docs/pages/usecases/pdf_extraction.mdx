@@ -39,7 +39,7 @@ You'll need three separate terminal windows open for this tutorial:
 
 We'll use the following notation to indicate which terminal to use:
 
-```bash title="( Terminal X ) Description of Command"
+```bash filename="( Terminal X ) Description of Command"
 <command goes here>
 ```
 
@@ -94,12 +94,12 @@ indexify-pdf-extractor/
 
 First, set up your environment:
 
-```bash title="( Terminal 1 ) Setup Indexify"
+```bash filename="( Terminal 1 ) Setup Indexify"
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
 
-```bash title="( Terminal 2 ) Setup Python Environment"
+```bash filename="( Terminal 2 ) Setup Python Environment"
 python3 -m venv venv
 source venv/bin/activate
 pip install indexify-extractor-sdk indexify requests
@@ -111,7 +111,7 @@ indexify-extractor join-server
 
 Create a file named `image_extraction.py` with the following content:
 
-```python title="image_extraction.py"
+```python filename="image_extraction.py"
 from indexify import IndexifyClient, ExtractionGraph
 import os
 import requests
@@ -171,7 +171,7 @@ if __name__ == "__main__":
 
 Run the script:
 
-```bash title="( Terminal 3 ) Run Image Extraction"
+```bash filename="( Terminal 3 ) Run Image Extraction"
 python3 image_extraction.py
 ```
 Following is the output of the extraction process. 
@@ -184,7 +184,7 @@ Following is the output of the extraction process.
 
 Create a file named `table_extraction.py` with the following content:
 
-```python title="table_extraction.py"
+```python filename="table_extraction.py"
 from indexify import IndexifyClient, ExtractionGraph
 import os
 import requests
@@ -241,7 +241,7 @@ if __name__ == "__main__":
 
 Run the script:
 
-```bash title="( Terminal 3 ) Run Table Extraction"
+```bash filename="( Terminal 3 ) Run Table Extraction"
 python3 table_extraction.py
 ```
 Following is the output of the extraction process. 
@@ -256,7 +256,7 @@ For simple content (or text) extraction, follow these steps:
 
 1. Create a file named `content_extraction.py` with the following content:
 
-```python title="continuous_extraction.py"
+```python filename="continuous_extraction.py"
 from indexify import IndexifyClient, ExtractionGraph
 import requests
 
@@ -300,7 +300,7 @@ if __name__ == "__main__":
 
 4. Run the continuous extraction script:
 
-```bash title="( Terminal 3 ) Run Content Extraction"
+```bash filename="( Terminal 3 ) Run Content Extraction"
 python3 content_extraction.py
 ```
 Following is the output of the extraction process. 

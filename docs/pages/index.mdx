@@ -4,7 +4,7 @@ title: Introduction
 
 # Effortless Ingestion and Extraction for Unstructured Data at Any Scale
 
-![Indexify High Level](images/Indexify_KAT.gif)
+![Indexify High Level](/images/Indexify_KAT.gif)
 
 Indexify is an open-source data framework. It is designed for creating ingestion and extraction pipelines for unstructured data. The framework uses a declarative approach to perform structured extraction with any AI model or to transform ingested data.
 
@@ -26,7 +26,7 @@ Extraction Graphs are at the center of Indexify. They are pipelines which proces
 
 **APIs**: Pipelines are exposed as HTTP APIs, making them accessible from applications written in TypeScript, Java, Python, Go, etc.
 
-```yaml title="graph.yaml"
+```yaml filename="graph.yaml"
 name: 'pdf-ingestion-pipeline'
 extraction_policies:
 - extractor: 'tensorlake/marker'
@@ -144,9 +144,9 @@ To understand usage of indexify for various use cases we recommend the following
 
 | Guide | What You'll Build | Key Concepts Covered |
 |-------|-------------------|----------------------|
-| [Getting Started - Basic](https://docs.getindexify.ai/getting_started/) | A Wikipedia information retrieval system | - Indexify Server setup<br>- Extraction Graphs<br>- Basic Extractors<br>- Data Ingestion<br>- Vector Search |
-| [Getting Started - Intermediate](https://docs.getindexify.ai/getting_started_intermediate/) | A tax document processing and Q&A system | - PDF processing<br>- Custom Extractors<br>- Structured Data Extraction<br>- Advanced Querying |
-| [Multi-Modal RAG on PDF](https://docs.getindexify.ai/example_code/pdf/indexing_and_rag) | A video content analysis and retrieval system | - Multi-modal data processing<br>- Video frame extraction<br>- Speech-to-text conversion<br>- Cross-modal retrieval |
+| [Getting Started - Basic](https://docs.getindexify.ai/getting_started/) | A Wikipedia information retrieval system | - Indexify Server setup<br />- Extraction Graphs<br />- Basic Extractors<br />- Data Ingestion<br />- Vector Search |
+| [Getting Started - Intermediate](https://docs.getindexify.ai/getting_started_intermediate/) | A tax document processing and Q&A system | - PDF processing<br />- Custom Extractors<br />- Structured Data Extraction<br />- Advanced Querying |
+| [Multi-Modal RAG on PDF](https://docs.getindexify.ai/example_code/pdf/indexing_and_rag) | A video content analysis and retrieval system | - Multi-modal data processing<br />- Video frame extraction<br />- Speech-to-text conversion<br />- Cross-modal retrieval |
 
 
 ## Why Use Indexify?

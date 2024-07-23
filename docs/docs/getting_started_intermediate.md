@@ -31,7 +31,7 @@ You'll need three separate terminal windows open for this tutorial:
 
 We'll use the following notation to indicate which terminal to use:
 
-```bash title="( Terminal X ) Description of Command"
+```bash filename="( Terminal X ) Description of Command"
 <command goes here>
 ```
 
@@ -45,7 +45,7 @@ Here are components which you will touch while working through the example:
 
 The directory structure of our project, will look like this 
 
-```plaintext title="Directory Structure"
+```plaintext filename="Directory Structure"
 indexify-tax-calculator/
 │
 ├── venv/                      # Virtual environment (created by python3 -m venv venv)
@@ -63,7 +63,7 @@ indexify-tax-calculator/
 
 Download the indexify server and run it
 
-```bash title="( Terminal 1 ) Download Indexify Server"
+```bash filename="( Terminal 1 ) Download Indexify Server"
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
@@ -92,7 +92,7 @@ Before we begin, let's setup a virtual environment for Python projects and downl
 
     Indexify requires python 3.11 or older at this present moment to work.
 
-```bash title="( Terminal 2 ) Download Indexify Extractors"
+```bash filename="( Terminal 2 ) Download Indexify Extractors"
 python3 -m venv venv
 source venv/bin/activate
 pip3 install indexify-extractor-sdk indexify wikipedia openai
@@ -105,7 +105,7 @@ indexify-extractor download tensorlake/chunk-extractor
 
 Run the Indexify Extractor server in a separate terminal
 
-```bash title="( Terminal 2 ) Join the server"
+```bash filename="( Terminal 2 ) Join the server"
 indexify-extractor join-server
 ```
 
@@ -119,13 +119,13 @@ Don't forget to install the necessary dependencies before running the rest of th
 
 === "Python"
 
-    ```bash title="( Terminal 2 ) Install libraries"
+    ```bash filename="( Terminal 2 ) Install libraries"
     pip3 install indexify openai
     ```
 
 === "Typescript"
 
-    ```bash title="( Terminal 2 ) Install libraries"
+    ```bash filename="( Terminal 2 ) Install libraries"
     npm install axios getindexify openai
     ```
 ## Stage 4: Setting Up the Extraction Graph
@@ -134,7 +134,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
 
 === "Python"
 
-    ``` python title="setup_extraction_graph.py"
+    ``` python filename="setup_extraction_graph.py"
     from indexify import ExtractionGraph, IndexifyClient
 
     client = IndexifyClient()
@@ -161,7 +161,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
 
 === "Typescript"
 
-    ```javascript title="setup_extraction_graph.ts"
+    ```javascript filename="setup_extraction_graph.ts"
     import { ExtractionGraph, IndexifyClient } from "getindexify"
 
     (async () => {
@@ -195,7 +195,7 @@ This extraction graph, named 'pdfqa', defines a three-step process:
 
 Run this script to create the extraction graph:
 
-```bash title="( Terminal 3) Create Extraction Graph"
+```bash filename="( Terminal 3) Create Extraction Graph"
 source venv/bin/activate
 python3 ./setup_extraction_graph.py
 ```
@@ -221,7 +221,7 @@ Add the PDF document to the "pdfqa" extraction graph:
 
 === "Python"
 
-    ```python title="ingest_document.py"
+    ```python filename="ingest_document.py"
     import requests
     from indexify import IndexifyClient
 
@@ -236,7 +236,7 @@ Add the PDF document to the "pdfqa" extraction graph:
 
 === "TypeScript"
 
-    ```typescript title="ingest_document.ts"
+    ```typescript filename="ingest_document.ts"
     import axios from 'axios';
     import { promises as fs } from 'fs';
     import { IndexifyClient } from "getindexify";
@@ -261,7 +261,7 @@ This code does the following:
 
 Run the following code to ingest the tax document
 
-```bash title="( Terminal 3) Ingest Documents"
+```bash filename="( Terminal 3) Ingest Documents"
 python3 ./ingest_document.py
 ```
 
@@ -277,7 +277,7 @@ We can use the same prompting and context retrieval function defined above to ge
 
 === "Python"
 
-    ```python title="query_tax_info.py"
+    ```python filename="query_tax_info.py"
     from openai import OpenAI
     from indexify import IndexifyClient
 
@@ -314,7 +314,7 @@ We can use the same prompting and context retrieval function defined above to ge
 
 === "Typescript" 
 
-    ```typescript title="query_tax_info.ts"
+    ```typescript filename="query_tax_info.ts"
     import { ExtractionGraph, IndexifyClient } from "getindexify";
     import { OpenAI } from "openai";
 
@@ -365,7 +365,7 @@ The `query_tax_info.py` script handles the querying of processed tax information
 
 Run the following code to query the tax document
 
-```bash title="( Terminal 3) Query from Document"
+```bash filename="( Terminal 3) Query from Document"
 python3 ./query_tax_info.py
 ```
 The example question asks about California tax brackets and calculates taxes for a $24,000 income. The LLM uses the context provided by our Indexify pipeline to formulate an accurate response as shown below.
@@ -405,8 +405,8 @@ The key strengths of this pipeline would be:
 
 | Topics | Subtopics |
 |--------|-----------|
-| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br>  • Transformation techniques<br>  • Structured Data Extraction methods<br>  • Advanced Embedding Extraction<br>  • Combining Transformation, Embedding, and Metadata Extraction<br>- Namespaces and data organization<br>- Content management strategies<br>- Designing complex Extraction Graphs<br>- Advanced Vector Index and Retrieval API usage<br>- Optimizing Structured Data Tables |
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server<br>  • Coordinator functionality and optimization<br>  • Ingestion Server scalability<br>- Advanced Extractor configurations<br>- Deployment Layouts<br>  • Optimizing Local Mode for development<br>  • Scaling Production Mode for high-volume applications |
-| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth<br>- Designing extractors for specific data types or industries<br>- Implementing advanced extractor classes<br>- Strategies for testing and debugging complex extractors<br>- Integrating custom extractors into large-scale Indexify pipelines |
-| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis<br>- Real-time image and video content extraction systems<br>- Audio transcription and sentiment analysis pipelines<br>- Creating multi-modal data processing systems<br>- Implementing large-scale, distributed data ingestion and retrieval systems<br>- Building domain-specific question-answering systems (e.g., legal, medical, financial) |
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br />  • Transformation techniques<br />  • Structured Data Extraction methods<br />  • Advanced Embedding Extraction<br />  • Combining Transformation, Embedding, and Metadata Extraction<br />- Namespaces and data organization<br />- Content management strategies<br />- Designing complex Extraction Graphs<br />- Advanced Vector Index and Retrieval API usage<br />- Optimizing Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server<br />  • Coordinator functionality and optimization<br />  • Ingestion Server scalability<br />- Advanced Extractor configurations<br />- Deployment Layouts<br />  • Optimizing Local Mode for development<br />  • Scaling Production Mode for high-volume applications |
+| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth<br />- Designing extractors for specific data types or industries<br />- Implementing advanced extractor classes<br />- Strategies for testing and debugging complex extractors<br />- Integrating custom extractors into large-scale Indexify pipelines |
+| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis<br />- Real-time image and video content extraction systems<br />- Audio transcription and sentiment analysis pipelines<br />- Creating multi-modal data processing systems<br />- Implementing large-scale, distributed data ingestion and retrieval systems<br />- Building domain-specific question-answering systems (e.g., legal, medical, financial) |
 
