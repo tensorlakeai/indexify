@@ -211,8 +211,10 @@ impl Scheduler {
 
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let table_name = extraction_policy.output_table_mapping.get(name).unwrap();
-            output_mapping.insert(name.clone(), table_name.clone());
+            let table_name = extraction_policy.output_table_mapping.get(name);
+            if let Some(table_name) = table_name {
+                output_mapping.insert(name.clone(), table_name.clone());
+            }
         }
 
         let mut hasher = DefaultHasher::new();
