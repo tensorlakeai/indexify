@@ -7,7 +7,6 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
-use internal_api::OutputSchema;
 use tracing::info;
 
 use crate::{
@@ -35,13 +34,7 @@ impl Scheduler {
     ) -> Result<Vec<String>> {
         let mut tables = Vec::new();
         for policy in policies {
-            let extractor = self.shared_state.extractor_with_name(&policy.extractor)?;
-            for (name, schema) in extractor.outputs {
-                if let OutputSchema::Embedding(_) = schema {
-                    let table_name = policy.output_table_mapping.get(&name).unwrap();
-                    tables.push(table_name.clone());
-                }
-            }
+            tables.extend(policy.output_table_mapping.values().cloned());
         }
         Ok(tables)
     }
@@ -211,8 +204,7 @@ impl Scheduler {
 
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let table_name = extraction_policy.output_table_mapping.get(name);
-            if let Some(table_name) = table_name {
+            if let Some(table_name) = extraction_policy.output_table_mapping.get(name) {
                 output_mapping.insert(name.clone(), table_name.clone());
             }
         }
