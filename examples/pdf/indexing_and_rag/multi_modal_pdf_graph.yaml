@@ -1,8 +1,3 @@
-from indexify import IndexifyClient, ExtractionGraph
-
-client = IndexifyClient()
-
-extraction_graph_spec = """
 name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
@@ -24,7 +19,3 @@ extraction_policies:
   - extractor: 'tensorlake/clip-extractor'
     name: 'image_to_embeddings'
     content_source: 'pdf_to_image'
-"""
-
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)

@@ -14,14 +14,12 @@ def get_images(pdf_path):
     # Upload the PDF file
     content_id = client.upload_file("image_extractor", pdf_path)
     
-    # Wait for the extraction to complete
-    client.wait_for_extraction(content_id)
-    
     # Retrieve the images content
     images = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="image_extractor",
-        policy_name="pdf_to_image"
+        policy_name="pdf_to_image",
+        blocking=True,
     )
     
     return images
