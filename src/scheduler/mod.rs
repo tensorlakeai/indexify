@@ -7,7 +7,6 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
-use internal_api::OutputSchema;
 use tracing::info;
 
 use crate::{
@@ -35,13 +34,7 @@ impl Scheduler {
     ) -> Result<Vec<String>> {
         let mut tables = Vec::new();
         for policy in policies {
-            let extractor = self.shared_state.extractor_with_name(&policy.extractor)?;
-            for (name, schema) in extractor.outputs {
-                if let OutputSchema::Embedding(_) = schema {
-                    let table_name = policy.output_table_mapping.get(&name).unwrap();
-                    tables.push(table_name.clone());
-                }
-            }
+            tables.extend(policy.output_table_mapping.values().cloned());
         }
         Ok(tables)
     }
@@ -101,9 +94,16 @@ impl Scheduler {
                     .await
             }
         };
+        let graph_names = match &state_change.change_type {
+            indexify_internal_api::ChangeType::AddGraphToContent { extraction_graph } => {
+                vec![extraction_graph.clone()]
+            }
+            indexify_internal_api::ChangeType::NewContent => content.extraction_graph_names.clone(),
+            _ => return Err(anyhow!("unexpected state change type")),
+        };
         let extraction_policies = self
             .shared_state
-            .match_extraction_policies_for_content(&content)
+            .match_extraction_policies_for_content(&content, &graph_names)
             .await?;
         let tables = self.tables_for_policies(&extraction_policies).await?;
         for extraction_policy in extraction_policies {
@@ -204,8 +204,9 @@ impl Scheduler {
 
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let table_name = extraction_policy.output_table_mapping.get(name).unwrap();
-            output_mapping.insert(name.clone(), table_name.clone());
+            if let Some(table_name) = extraction_policy.output_table_mapping.get(name) {
+                output_mapping.insert(name.clone(), table_name.clone());
+            }
         }
 
         let mut hasher = DefaultHasher::new();

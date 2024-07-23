@@ -28,7 +28,7 @@ jobs:
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: cargo install cargo-deb
-      - run: make build-release-ubuntu20.04
+      - run: make build-release
       - run: cargo deb --no-build --no-strip --target x86_64-unknown-linux-gnu
       - uses: actions/upload-artifact@v4
         with:

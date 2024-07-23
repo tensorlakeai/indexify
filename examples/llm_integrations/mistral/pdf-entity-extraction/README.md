@@ -2,19 +2,6 @@
 
 This cookbook demonstrates how to build a robust entity extraction pipeline for PDF documents using Indexify and Mistral's large language models. You will learn how to efficiently extract named entities from PDF files for various applications such as information retrieval, content analysis, and data mining.
 
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractors](#install-required-extractors)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Entity Extraction Pipeline](#implementing-the-entity-extraction-pipeline)
-6. [Running the Entity Extraction](#running-the-entity-extraction)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
-
 ## Introduction
 
 Entity extraction, also known as named entity recognition (NER) involves identifying and classifying named entities in text into predefined categories such as persons, organizations, locations, dates, and more. By applying this technique to PDF documents, we can automatically extract structured information from unstructured text, making it easier to analyze and utilize the content of these documents.
@@ -129,7 +116,7 @@ def extract_entities_from_pdf(pdf_path):
     
     # Retrieve the extracted entities
     entities_content = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_entity_extractor",
         policy_name="text_to_entities"
     )
@@ -148,16 +135,14 @@ if __name__ == "__main__":
     extracted_entities = extract_entities_from_pdf(pdf_path)
     
     print("Extracted Entities:")
-    for category, entities in extracted_entities.items():
-        print(f"\n{category.capitalize()}:")
-        for entity in entities:
-            print(f"- {entity}")
+    print(extracted_entities)
 ```
 
 You can run the Python script as many times, or use this in an application to continue generating summaries:
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/llm_integrations/mistral/pdf-entity-extraction/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

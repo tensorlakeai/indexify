@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use filter::{LabelsFilter, Operator};
 use indexify_internal_api::ContentMetadata;
 use pgvector::Vector;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Row};
 
 use super::{CreateIndexParams, SearchResult, VectorChunk, VectorDb};
-use crate::{server_config::PgVectorConfig, utils::PostgresIndexName, vectordbs::FilterOperator};
+use crate::{server_config::PgVectorConfig, utils::PostgresIndexName};
 
 #[derive(Debug)]
 pub struct PgVector {
@@ -182,32 +183,33 @@ impl VectorDb for PgVector {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-        filters: Vec<super::Filter>,
+        filter: LabelsFilter,
     ) -> Result<Vec<SearchResult>> {
         let index = PostgresIndexName::new(&index);
         let mut query = format!(
             "SELECT content_id, CAST(1 - ($1 <=> embedding) AS FLOAT4) AS confidence_score, metadata, root_content_metadata, content_metadata FROM \"{index}\""
         );
-        if !filters.is_empty() {
+        if !filter.is_empty() {
             query.push_str(" WHERE ");
-            let filter_query = filters
+            let filter_query = filter
+                .0
                 .into_iter()
-                .map(|filter| {
-                    let value = match filter.value {
+                .map(|expr| {
+                    let value = match expr.value {
                         serde_json::Value::String(s) => s,
-                        _ => filter.value.to_string(),
+                        _ => expr.value.to_string(),
                     };
 
                     format!(
                         "metadata->>'{}' {} '{}'",
-                        filter.key,
-                        match filter.operator {
-                            FilterOperator::Eq => "=",
-                            FilterOperator::Neq => "<>",
-                            FilterOperator::Gt => ">",
-                            FilterOperator::GtEq => ">=",
-                            FilterOperator::Lt => "<",
-                            FilterOperator::LtEq => "<=",
+                        expr.key,
+                        match expr.operator {
+                            Operator::Eq => "=",
+                            Operator::Neq => "<>",
+                            Operator::Gt => ">",
+                            Operator::GtEq => ">=",
+                            Operator::Lt => "<",
+                            Operator::LtEq => "<=",
                         },
                         value
                     )

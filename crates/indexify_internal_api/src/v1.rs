@@ -42,12 +42,17 @@ pub struct ExtractionPolicy {
 
 impl From<ExtractionPolicy> for super::ExtractionPolicy {
     fn from(policy: ExtractionPolicy) -> Self {
+        let expressions: Vec<_> = policy
+            .filters
+            .iter()
+            .map(|(k, v)| filter::Expression {
+                key: k.clone(),
+                value: from_str_to_json(v),
+                operator: filter::Operator::Eq,
+            })
+            .collect();
         super::ExtractionPolicy {
-            filters: policy
-                .filters
-                .iter()
-                .map(|(k, v)| (k.clone(), from_str_to_json(v)))
-                .collect(),
+            filter: filter::LabelsFilter(expressions),
             id: policy.id,
             graph_name: policy.graph_name,
             name: policy.name,

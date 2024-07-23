@@ -1,30 +1,27 @@
 import { useState } from "react";
-import { Document, Page } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
-import { pdfjs } from "react-pdf";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
 import { Box, Button, Typography } from "@mui/material";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.js",
-  import.meta.url
-).toString();
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-const PdfDisplay = ({ url }: { url: string }) => {
+interface PdfDisplayProps {
+  url: string;
+}
+
+const PdfDisplay: React.FC<PdfDisplayProps> = ({ url }) => {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState<number>(1);
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }): void {
     setNumPages(numPages);
+    setPageNumber(1);
   }
 
   return (
     <div>
-      <Box
-        sx={{
-          maxWidth: "500px",
-        }}
-      >
+      <Box sx={{ maxWidth: "500px" }}>
         {numPages > 1 && (
           <Box
             display="flex"
@@ -37,18 +34,18 @@ const PdfDisplay = ({ url }: { url: string }) => {
               variant="contained"
               color="primary"
               disabled={pageNumber <= 1}
-              onClick={() => setPageNumber(pageNumber - 1)}
+              onClick={() => setPageNumber((prev) => prev - 1)}
             >
               Previous
             </Button>
-            <Typography sx={{userSelect:"none"}}>
+            <Typography sx={{ userSelect: "none" }}>
               Page {pageNumber} of {numPages}
             </Typography>
             <Button
               variant="contained"
               color="primary"
               disabled={pageNumber >= numPages}
-              onClick={() => setPageNumber(pageNumber + 1)}
+              onClick={() => setPageNumber((prev) => prev + 1)}
             >
               Next
             </Button>

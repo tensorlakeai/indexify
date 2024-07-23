@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use filter::LabelsFilter;
 use futures::future::join_all;
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::Index;
@@ -14,7 +15,7 @@ use crate::{
     coordinator_client::CoordinatorClient,
     extractor_router::ExtractorRouter,
     metrics::{vector_storage::Metrics, Timer},
-    vectordbs::{CreateIndexParams, Filter, IndexDistance, SearchResult, VectorChunk, VectorDBTS},
+    vectordbs::{CreateIndexParams, IndexDistance, SearchResult, VectorChunk, VectorDBTS},
 };
 
 pub struct VectorIndexManager {
@@ -128,7 +129,7 @@ impl VectorIndexManager {
         index: Index,
         query: &str,
         k: usize,
-        filters: Vec<String>,
+        filter: filter::LabelsFilter,
         include_content: bool,
     ) -> Result<Vec<ScoredText>> {
         let _timer = Timer::start(&self.metrics.vector_search);
@@ -139,16 +140,11 @@ impl VectorIndexManager {
             features: vec![],
             labels: HashMap::new(),
         };
-        info!("Extracting searching from index {:?}", index);
-        let filters = filters
-            .into_iter()
-            .map(|f| Filter::from_str(f.as_str()))
-            .collect::<Result<Vec<Filter>>>()?;
 
         let embedding = self.generate_embedding(&index.extractor, content).await?;
 
         let search_result = self
-            .search_vector_db(index.table_name, embedding.values, k as u64, filters)
+            .search_vector_db(index.table_name, embedding.values, k as u64, filter)
             .await?;
 
         let mut content_byte_map = HashMap::new();
@@ -215,10 +211,10 @@ impl VectorIndexManager {
         index: String,
         embedding: Vec<f32>,
         k: u64,
-        filters: Vec<Filter>,
+        filter: LabelsFilter,
     ) -> Result<Vec<SearchResult>> {
         let _timer = Timer::start(&self.metrics.vector_search_db);
-        let search_result = self.vector_db.search(index, embedding, k, filters).await?;
+        let search_result = self.vector_db.search(index, embedding, k, filter).await?;
         Ok(search_result)
     }
 

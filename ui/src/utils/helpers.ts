@@ -1,5 +1,5 @@
-import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient, ITask } from 'getindexify'
-import { TaskCounts } from '../types'
+import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient } from 'getindexify'
+import { IHash } from '../types'
 
 export const stringToColor = (str: string) => {
   let hash = 0
@@ -53,35 +53,15 @@ export const formatBytes = (bytes: number, decimals: number = 2): string => {
 }
 
 export const getExtractionPolicyTaskCounts = async (
-  extractionPolicyId: string,
+  extractionGraph: string,
+  extractionPolicyName: string,
   client: IndexifyClient
-): Promise<TaskCounts> => {
-  const [
-    { total: totalSuccess },
-    { total: totalFailed },
-    { total: totalUnknown },
-  ] = await Promise.all([
-    client.getTasks({
-      limit: 0,
-      extractionPolicyId,
-      outcome: 'Success',
-    }),
-    client.getTasks({
-      limit: 0,
-      extractionPolicyId,
-      outcome: 'Failed',
-    }),
-    client.getTasks({
-      limit: 0,
-      extractionPolicyId,
-      outcome: 'Unknown',
-    }),
-  ])
-  return {
-    totalSuccess: totalSuccess ?? 0,
-    totalFailed: totalFailed ?? 0,
-    totalUnknown: totalUnknown ?? 0,
-  }
+): Promise<any> => {
+  const tasks = client.getTasks(
+      extractionGraph,
+      extractionPolicyName,
+    );
+    return tasks;
 }
 
 type KeyValueObject = { [key: string]: string };
@@ -105,10 +85,7 @@ export const mapExtractionPoliciesToRows = (
   extractionGraph: ExtractionGraph,
   extractors: Extractor[],
   graphName: string,
-  tasks: {
-      tasks: ITask[];
-      total?: number;
-  }
+  tasks: IHash
 ): Row[] => {
   const extractorMap = new Map(extractors.map(e => [e.name, e]));
   
@@ -124,14 +101,14 @@ export const mapExtractionPoliciesToRows = (
     console.error(`No graph found with name: ${graphName}`);
     return [];
   }
-
   
   const rows: Row[] = targetGraph.extraction_policies.map((policy, index) => {
     const extractor = extractorMap.get(policy.extractor);
-    const filterTasks = tasks.tasks.filter(task => task.extraction_policy_id === policy.id)
-    const pendingTaskCount = filterTasks.filter(task => task.outcome === 0).length
-    const failedTaskCount = filterTasks.filter(task => task.outcome === 1).length
-    const completedTaskCount = filterTasks.filter(task => task.outcome === 2).length
+    const policyTasks = tasks[policy.name] || [];
+    const pendingTaskCount = policyTasks.totalTasks?.unknown ?? 0;
+    const failedTaskCount = policyTasks.totalTasks?.failure ?? 0;
+    const completedTaskCount = policyTasks.totalTasks?.success ?? 0;
+    
     const finalRows = {
       id: index + 1,
       name: policy.name,
@@ -146,4 +123,49 @@ export const mapExtractionPoliciesToRows = (
   });
 
   return rows;
+};
+
+export async function getTasksForExtractionGraph(
+  extractionGraph: ExtractionGraph,
+  client: any,
+): Promise<IHash> {
+  const tasks_by_policies: IHash = {};
+
+  for (const extractionPolicy of extractionGraph.extraction_policies) {
+    tasks_by_policies[extractionPolicy.name] = await client.getTasks(
+      extractionGraph.name,
+      extractionPolicy.name
+    );
+  }
+  return tasks_by_policies;
+}
+
+export const formatTimestamp = (value: string | number | null | undefined): string => {
+  if (value == null) return 'N/A';
+  
+  let timestamp: number;
+  
+  if (typeof value === 'string') {
+    timestamp = parseInt(value, 10);
+  } else if (typeof value === 'number') {
+    timestamp = value;
+  } else {
+    return 'Invalid Date';
+  }
+  
+  if (isNaN(timestamp)) return 'Invalid Date';
+
+  const milliseconds = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+  
+  const date = new Date(milliseconds);
+  
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
 };

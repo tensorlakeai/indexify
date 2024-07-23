@@ -5,13 +5,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use filter::{Expression, LabelsFilter};
 use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
-use smart_default::SmartDefault;
 use strum::{Display, EnumString};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::{openapi, IntoParams, ToSchema};
 
 use crate::{api_utils, metadata_storage, vectordbs};
 
@@ -70,8 +70,9 @@ pub struct ExtractionPolicy {
     pub id: String,
     pub extractor: String,
     pub name: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    #[schema(schema_with = filter_schema)]
+    pub filter: filter::LabelsFilter,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
     pub graph_name: String,
@@ -81,12 +82,16 @@ impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::ExtractionPolicy) -> Result<Self> {
-        let filters_eq = internal_api::utils::convert_map_prost_to_serde_json(value.filters)?;
+        let expressions: Result<Vec<_>> = value
+            .filter
+            .iter()
+            .map(|e| filter::Expression::from_str(e))
+            .collect();
         Ok(Self {
             id: value.id,
             extractor: value.extractor,
             name: value.name,
-            filters_eq: Some(filters_eq),
+            filter: LabelsFilter(expressions?),
             input_params: Some(serde_json::from_str(&value.input_params).unwrap()),
             content_source: Some(value.content_source),
             graph_name: value.graph_name,
@@ -97,38 +102,15 @@ impl TryFrom<indexify_coordinator::ExtractionPolicy> for ExtractionPolicy {
 #[derive(Default, Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataNamespace {
     pub name: String,
-    pub extraction_graphs: Vec<ExtractionGraph>,
 }
 
 impl TryFrom<indexify_coordinator::Namespace> for DataNamespace {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Namespace) -> Result<Self> {
-        let extraction_graphs = {
-            let mut graphs = vec![];
-            for graph in value.extraction_graphs {
-                let graph: ExtractionGraph = graph.try_into()?;
-                graphs.push(graph);
-            }
-            graphs
-        };
-
-        Ok(Self {
-            name: value.name,
-            extraction_graphs,
-        })
+        Ok(Self { name: value.name })
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, SmartDefault, ToSchema)]
-pub struct CreateNamespace {
-    pub name: String,
-    pub extraction_graphs: Vec<ExtractionGraph>,
-    pub labels: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateNamespaceResponse {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetNamespaceResponse {
@@ -177,13 +159,29 @@ impl From<vectordbs::IndexDistance> for IndexDistance {
     }
 }
 
+fn filter_schema() -> openapi::Array {
+    openapi::ArrayBuilder::new()
+        .description(Some("Filter for content labels, list of expressions."))
+        .items(
+            openapi::ObjectBuilder::new()
+                .schema_type(openapi::SchemaType::String)
+                .description(Some(
+                    "filter expression in format key/operator/value, e.g. key>=value",
+                ))
+                .build(),
+        )
+        .example(Some(serde_json::json!(vec!["key1=value1", "key2>=value2"])))
+        .build()
+}
+
 /// Request payload for creating a new vector index.
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct ExtractionPolicyRequest {
     pub extractor: String,
     pub name: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub filters_eq: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    #[schema(schema_with = filter_schema)]
+    pub filter: LabelsFilter,
     pub input_params: Option<serde_json::Value>,
     pub content_source: Option<String>,
 }
@@ -219,11 +217,6 @@ pub struct UpdateContentRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateContentResponse {}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TombstoneContentRequest {
-    pub content_ids: Vec<String>,
-}
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RunExtractorsResponse {}
@@ -327,11 +320,11 @@ pub struct ListIndexesResponse {
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
 pub struct SearchRequest {
-    pub index: String,
     pub query: String,
     pub k: Option<u64>,
     #[serde(default)]
-    pub filters: Vec<String>,
+    #[schema(schema_with = filter_schema)]
+    pub filters: LabelsFilter,
     pub include_content: Option<bool>,
 }
 
@@ -354,13 +347,13 @@ impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListExtractionGraphResponse {
+    pub extraction_graphs: Vec<ExtractionGraph>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, Clone)]
 pub struct ListContent {
-    #[serde(
-        deserialize_with = "api_utils::deserialize_none_to_empty_string",
-        default
-    )]
-    pub graph: String,
     #[serde(
         deserialize_with = "api_utils::deserialize_none_to_empty_string",
         default
@@ -371,8 +364,13 @@ pub struct ListContent {
         default
     )]
     pub parent_id: String,
-    #[serde(default, deserialize_with = "api_utils::deserialize_labels_eq_filter")]
-    pub labels_eq: Option<HashMap<String, serde_json::Value>>,
+    #[serde(
+        deserialize_with = "api_utils::deserialize_none_to_empty_string",
+        default
+    )]
+    pub ingested_content_id: String,
+    #[serde(default)]
+    pub labels_filter: Vec<Expression>,
 
     pub limit: Option<u64>,
 
@@ -731,9 +729,8 @@ pub struct GetExtractedMetadataResponse {
     pub extracted_metadata: Vec<ExtractedMetadata>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasks {
-    pub extraction_policy: Option<String>,
     pub content_id: Option<String>,
     pub start_id: Option<String>,
     pub limit: Option<u64>,
@@ -840,19 +837,25 @@ pub struct TaskAssignments {
     pub assignments: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UploadFileResponse {
     pub content_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddGraphToContent {
+    /// List of existing content ids to extract from
+    pub content_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphRequest {
     pub name: String,
     pub description: Option<String>,
     pub extraction_policies: Vec<ExtractionPolicyRequest>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphResponse {
     pub indexes: Vec<String>,
 }

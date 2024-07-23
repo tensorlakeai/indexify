@@ -1,23 +1,8 @@
 # Debate Topic-wise Summary Pipeline with Indexify and Mistral
 
-In this cookbook, we'll explore how to create a debate topic-wise summary pipeline using Indexify and Mistral's large language models. By the end of this document, you'll have a pipeline capable of processing video debates, extracting audio, performing speech recognition and diarization, and generating summaries for each topic discussed.
+We show how to create a pipeline capable of summarizing and performing topic extraction on videos.
+The pipeline will consist of four main steps -
 
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractors](#install-required-extractors)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Debate Summary Pipeline](#implementing-the-debate-summary-pipeline)
-6. [Running the Summary Pipeline](#running-the-summary-pipeline)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
-
-## Introduction
-
-The debate summary pipeline will consist of four main steps:
 1. Video to Audio extraction using `tensorlake/audio-extractor`
 2. Speech recognition and diarization using `tensorlake/asrdiarization`
 3. Topic extraction using `tensorlake/mistral`

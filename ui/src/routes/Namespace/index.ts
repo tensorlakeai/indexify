@@ -5,4 +5,4 @@ export { default as ExtractionGraphsPage } from "./ExtractionGraphsPage";
 export { default as SearchIndexPage } from "./SearchIndexPage";
 export { default as IndexesPage } from "./IndexesPage";
 export { default as SqlTablesPage } from "./SqlTablesPage";
-export { default as ContentsPage } from "./ContentsPage";
+export { default as StateChangesPage } from "./StateChangesPage";

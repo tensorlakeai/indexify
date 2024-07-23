@@ -1,26 +1,9 @@
 # Structured Extraction from PDFs with GPT-4
 
-In this cookbook, we'll explore how to create a PDF schema extraction pipeline using Indexify, the Marker PDF extractor, and OpenAI's language models. By the end of the document, you should have a pipeline capable of ingesting PDF documents and extracting structured information based on a predefined schema.
+Structured Extraction from PDF involves extracting specific information from documents. We show how to create a pipeline, which accepts a schema and extracts information from PDFs into the provided schema.
 
-![Preview data](https://i.postimg.cc/XYCqNP0p/hoa.png)
-
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractors](#install-required-extractors)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Schema Extraction Pipeline](#implementing-the-schema-extraction-pipeline)
-6. [Running the Schema Extraction](#running-the-schema-extraction)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
-
-## Introduction
-
-The schema extraction pipeline will consist of two steps:
-- PDF to Text extraction using the pre-built extractor `tensorlake/marker`.
+The pipeline is composed of two steps:
+- PDF to Text extraction using the extractor `tensorlake/marker`.
 - Schema-based information extraction using `tensorlake/schema` with OpenAI's language models.
 
 ## Prerequisites
@@ -144,7 +127,7 @@ def extract_schema_from_pdf(pdf_path):
     
     # Retrieve the extracted content
     extracted_data = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_schema_extractor",
         policy_name="text_to_schema"
     )
@@ -169,6 +152,7 @@ You can run the Python script to extract schema-based information from PDF files
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/pdf/structured_extraction/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

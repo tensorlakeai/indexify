@@ -1,5 +1,5 @@
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IExtractionPolicy, IIndex } from 'getindexify'
+import { IIndex } from 'getindexify'
 import { Alert, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { Link } from 'react-router-dom'
@@ -9,19 +9,10 @@ import { InfoCircle, MobileProgramming } from 'iconsax-react'
 const IndexTable = ({
   indexes,
   namespace,
-  extractionPolicies,
 }: {
   indexes: IIndex[]
   namespace: string
-  extractionPolicies: IExtractionPolicy[]
 }) => {
-  const getPolicyFromIndexname = (
-    indexName: string
-  ): IExtractionPolicy | undefined => {
-    return extractionPolicies.find((policy) =>
-      String(indexName).startsWith(`${policy.graph_name}.${policy.name}`)
-    )
-  }
 
   const columns: GridColDef[] = [
     {
@@ -42,20 +33,21 @@ const IndexTable = ({
       },
     },
     {
-      field: 'policy_name',
-      headerName: 'Policy Name',
-      flex: 1,
+      field: 'extractionGraphName',
+      headerName: 'Extraction Graph Name',
+      flex: 2,
+      valueGetter: (params) => params.row.name,
       renderCell: (params) => {
-        const policy = getPolicyFromIndexname(params.row.name)
-        if (!policy) {
-          return null
-        }
+        const extractionGraphName = params.value.split('.')[0] || '';
         return (
-          <Link
-            to={`/${namespace}/extraction-policies/${policy.graph_name}/${policy.name}`}
-          >
-            {policy.name}
-          </Link>
+          <>
+            <Link
+              to={`/${namespace}/extraction-graphs/${extractionGraphName}`}
+            >
+              {extractionGraphName}
+            </Link>
+            <CopyText text={extractionGraphName} className="show-onHover" />
+          </>
         )
       },
     },
@@ -94,7 +86,7 @@ const IndexTable = ({
                 paginationModel: { page: 0, pageSize: 5 },
               },
             }}
-            pageSizeOptions={[5, 10]}
+            pageSizeOptions={[5, 10, 20]}
             className="custom-data-grid"
           />
         </Box>

@@ -54,6 +54,8 @@ use indexify_proto::indexify_coordinator::{
     ListActiveContentsResponse,
     ListContentRequest,
     ListContentResponse,
+    ListExtractionGraphRequest,
+    ListExtractionGraphResponse,
     ListExtractionPoliciesRequest,
     ListExtractionPoliciesResponse,
     ListExtractorsRequest,
@@ -187,15 +189,17 @@ impl CoordinatorServiceServer {
                 return Err(anyhow!(message));
             }
 
-            let filters = internal_api::utils::convert_map_prost_to_serde_json(
-                policy_request.filters.clone(),
-            )?;
+            let expressions: Result<Vec<_>> = policy_request
+                .filter
+                .iter()
+                .map(|e| filter::Expression::from_str(e))
+                .collect();
 
             let policy = ExtractionPolicyBuilder::default()
                 .namespace(policy_request.namespace.clone())
                 .name(policy_request.name.clone())
                 .extractor(policy_request.extractor.clone())
-                .filters(filters)
+                .filter(filter::LabelsFilter(expressions?))
                 .input_params(input_params)
                 .content_source(content_source)
                 .build(&extraction_graph.name, extractor.clone())
@@ -215,6 +219,25 @@ impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
 
+    async fn add_graph_to_content(
+        &self,
+        request: tonic::Request<indexify_coordinator::AddGraphToContentRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::AddGraphToContentResponse>, tonic::Status>
+    {
+        let request = request.into_inner();
+        self.coordinator
+            .add_graph_to_content(
+                request.namespace,
+                request.extraction_graph,
+                request.content_ids,
+            )
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(
+            indexify_coordinator::AddGraphToContentResponse {},
+        ))
+    }
+
     async fn extraction_graph_links(
         &self,
         request: tonic::Request<ExtractionGraphLinksRequest>,
@@ -226,6 +249,28 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(ExtractionGraphLinksResponse { links }))
+    }
+
+    async fn list_extraction_graphs(
+        &self,
+        request: tonic::Request<ListExtractionGraphRequest>,
+    ) -> Result<Response<ListExtractionGraphResponse>, tonic::Status> {
+        let request = request.into_inner();
+        let graphs = self
+            .coordinator
+            .list_extraction_graphs(&request.namespace)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let mut proto_graphs = vec![];
+        for graph in graphs {
+            let proto_graph = graph.try_into().map_err(|e| {
+                tonic::Status::aborted(format!("unable to convert extraction graph: {}", e))
+            })?;
+            proto_graphs.push(proto_graph);
+        }
+        Ok(Response::new(ListExtractionGraphResponse {
+            graphs: proto_graphs,
+        }))
     }
 
     async fn link_extraction_graphs(
@@ -318,9 +363,13 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<ListContentRequest>,
     ) -> Result<tonic::Response<ListContentResponse>, tonic::Status> {
         let req = request.into_inner();
-
-        let labels_eq = internal_api::utils::convert_map_prost_to_serde_json(req.labels_eq)
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let expressions: Result<Vec<_>> = req
+            .labels_filter
+            .iter()
+            .map(|e| filter::Expression::from_str(e))
+            .collect();
+        let labels_filter =
+            filter::LabelsFilter(expressions.map_err(|e| tonic::Status::aborted(e.to_string()))?);
 
         let start_id = if req.start_id.is_empty() {
             None
@@ -339,7 +388,9 @@ impl CoordinatorService for CoordinatorServiceServer {
                 (req.graph.is_empty() || c.extraction_graph_names.contains(&req.graph)) &&
                 (req.parent_id.is_empty() ||
                     Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
-                content_filter(c, &source_filter, &labels_eq)
+                (req.ingested_content_id.is_empty() ||
+                    Some(&req.ingested_content_id) == c.root_content_id.as_ref().map(|id| id)) &&
+                content_filter(c, &source_filter, &labels_filter)
         };
         let response = self
             .coordinator
@@ -976,10 +1027,18 @@ impl CoordinatorService for CoordinatorServiceServer {
             tonic::Status::aborted(format!("unable to convert task outcome filter: {}", e))
         })?;
         let outcome: internal_api::TaskOutcomeFilter = outcome.into();
+        let policy_id = if !req.extraction_policy.is_empty() {
+            internal_api::ExtractionPolicy::create_id(
+                &req.extraction_graph,
+                &req.extraction_policy,
+                &req.namespace,
+            )
+        } else {
+            req.extraction_policy
+        };
         let filter = |task: &Task| {
             task.namespace == req.namespace &&
-                (req.extraction_policy.is_empty() ||
-                    task.extraction_policy_id == req.extraction_policy) &&
+                (policy_id.is_empty() || task.extraction_policy_id == policy_id) &&
                 (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
                 outcome.matches(task.outcome)
         };

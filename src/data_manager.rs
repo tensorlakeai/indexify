@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use filter::LabelsFilter;
 use futures::{Stream, StreamExt};
 use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
@@ -79,6 +80,40 @@ impl DataManager {
         self.coordinator_client.get().await
     }
 
+    pub async fn add_graph_to_content(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        content_ids: Vec<String>,
+    ) -> Result<()> {
+        let req = indexify_coordinator::AddGraphToContentRequest {
+            namespace,
+            content_ids,
+            extraction_graph,
+        };
+        self.get_coordinator_client()
+            .await?
+            .add_graph_to_content(req)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_extraction_graphs(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<api::ExtractionGraph>> {
+        let graphs = self
+            .coordinator_client
+            .list_extraction_graphs(namespace)
+            .await?;
+        let mut api_graphs = Vec::new();
+        for graph in graphs {
+            let api_graph: api::ExtractionGraph = graph.try_into()?;
+            api_graphs.push(api_graph);
+        }
+        return Ok(api_graphs);
+    }
+
     #[tracing::instrument]
     pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
         let req = indexify_coordinator::ListNamespaceRequest {};
@@ -87,17 +122,7 @@ impl DataManager {
 
         let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|r| {
-                let graphs: Result<Vec<api::ExtractionGraph>, anyhow::Error> = r
-                    .extraction_graphs
-                    .into_iter()
-                    .map(|g| g.try_into())
-                    .collect();
-                Ok(api::DataNamespace {
-                    name: r.name,
-                    extraction_graphs: graphs?,
-                })
-            })
+            .map(|r| Ok(api::DataNamespace { name: r.name }))
             .collect();
         Ok(data_namespaces?)
     }
@@ -195,13 +220,17 @@ impl DataManager {
             let input_params_serialized = serde_json::to_string(&ep.input_params)
                 .map_err(|e| anyhow!("unable to serialize input params to str {}", e))?;
 
-            let filters = ep.filters_eq.clone().unwrap_or_default();
-            let filters = internal_api::utils::convert_map_serde_to_prost_json(filters)?;
+            let filter = ep
+                .filter
+                .0
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>();
             let req = indexify_coordinator::ExtractionPolicyRequest {
                 namespace: namespace.to_string(),
                 extractor: ep.extractor.clone(),
                 name: ep.name.clone(),
-                filters,
+                filter,
                 input_params: input_params_serialized,
                 content_source: ep.content_source.clone().unwrap_or_default(),
                 created_at: SystemTime::now()
@@ -281,21 +310,24 @@ impl DataManager {
         graph: &str,
         source_filter: &str,
         parent_id_filter: &str,
-        labels_eq_filter: Option<&HashMap<String, serde_json::Value>>,
+        ingested_content_id_filter: &str,
+        labels_filter: &LabelsFilter,
         start_id: String,
         limit: u64,
         return_total: bool,
     ) -> Result<api::ListContentResponse> {
-        let default_labels_eq = HashMap::new();
-        let labels_eq = internal_api::utils::convert_map_serde_to_prost_json(
-            labels_eq_filter.unwrap_or(&default_labels_eq).clone(),
-        )?;
+        let labels_filter = labels_filter
+            .0
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>();
         let req = indexify_coordinator::ListContentRequest {
             graph: graph.to_string(),
             namespace: namespace.to_string(),
             source: Some(source_filter.to_string().into()),
             parent_id: parent_id_filter.to_string(),
-            labels_eq,
+            ingested_content_id: ingested_content_id_filter.to_string(),
+            labels_filter,
             start_id,
             limit,
             return_total,
@@ -504,17 +536,22 @@ impl DataManager {
 
     pub async fn get_content_tree_metadata(
         &self,
-        _namespace: &str,
-        content_id: String,
+        namespace: &str,
+        content_id: &str,
+        extraction_graph_name: &str,
+        extraction_policy: &str,
     ) -> Result<Vec<api::ContentMetadata>> {
-        let req = indexify_coordinator::GetContentTreeMetadataRequest { content_id };
         let response = self
-            .get_coordinator_client()
-            .await?
-            .get_content_tree_metadata(req)
+            .coordinator_client
+            .get_content_metadata_tree(
+                namespace,
+                extraction_graph_name,
+                extraction_policy,
+                content_id,
+            )
             .await?;
         let mut content_list: Vec<api::ContentMetadata> = vec![];
-        for content in response.into_inner().content_list {
+        for content in response.content_list {
             let content: api::ContentMetadata = content.try_into()?;
             content_list.push(content);
         }
@@ -932,7 +969,7 @@ impl DataManager {
         index_name: &str,
         query: &str,
         k: u64,
-        filters: Vec<String>,
+        filter: LabelsFilter,
         include_content: bool,
     ) -> Result<Vec<ScoredText>> {
         let req = indexify_coordinator::GetIndexRequest {
@@ -948,7 +985,7 @@ impl DataManager {
             .index
             .ok_or(anyhow!("Index not found"))?;
         self.vector_index_manager
-            .search(index, query, k as usize, filters, include_content)
+            .search(index, query, k as usize, filter, include_content)
             .await
     }
 

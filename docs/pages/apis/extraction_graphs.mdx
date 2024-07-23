@@ -1,10 +1,8 @@
-import { Tabs } from 'nextra/components'
-
 # Extraction Graphs 
 Extraction Graphs can be setup declaritively on a namespace, using the HTTP API or any of the clients
 
-<Tabs items={['Python', 'TypeScript', 'cURL']}
-  <Tabs.Tab>
+=== "python"
+
     ```python
     extraction_graph_spec = """
     name: 'myextractiongraph'
@@ -16,9 +14,8 @@ Extraction Graphs can be setup declaritively on a namespace, using the HTTP API 
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
     ```
-  </Tabs.Tab>
+=== "TypeScript"
 
-  <Tabs.Tab>
     ```typescript
     const client = await IndexifyClient.createClient();
     const graph = ExtractionGraph.fromYaml(`
@@ -30,9 +27,8 @@ Extraction Graphs can be setup declaritively on a namespace, using the HTTP API 
     `);
     await client.createExtractionGraph(graph);
     ```
-  </Tabs.Tab>
+=== "curl"
 
-  <Tabs.Tab>
     ```shell
     curl -v -X POST http://localhost:8900/namespaces/default/extraction_graphs \
     -H "Content-Type: application/json" \
@@ -48,8 +44,6 @@ Extraction Graphs can be setup declaritively on a namespace, using the HTTP API 
         ]
     }'
     ```
-  </Tabs.Tab>
-</Tabs>  
 
 
 This creates an extraction graph - 
@@ -64,9 +58,8 @@ This creates an extraction graph -
 Mulitple extractors can be chained together in a single graph. Specify a `content_source` in a policy to send content from an upstream extractor to downstream.
 
 For ex -
-<Tabs items={['Python', 'TypeScript']}
-  
-  <Tabs.Tab>
+=== "Python"
+
     ```python
     extraction_graph_spec = """
     name: 'myextractiongraph'
@@ -80,9 +73,8 @@ For ex -
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
     ```
-  </Tabs.Tabs>  
+=== "TypeScript"
 
-  <Tabs.Tab>
     ```typescript
     const graph = ExtractionGraph.fromYaml(`
     name: 'myextractiongraph'
@@ -95,7 +87,5 @@ For ex -
     `);
     await client.createExtractionGraph(graph);
     ```
-    </Tabs.Tab>
-  </Tabs>
-     
+    
 In this example any text uploaded into the graph is chunked using the chunking extractor, the chunked text is then passed into the embedding extractor to generate text embeddings from the chunks.

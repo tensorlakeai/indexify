@@ -9,6 +9,7 @@ import {
   Select,
   Paper,
   CircularProgress,
+  OutlinedInput,
 } from '@mui/material';
 import { ExtractionGraph, IndexifyClient } from 'getindexify';
 import LabelsInput from './Inputs/LabelsInput';
@@ -16,21 +17,18 @@ import FileDropZone from './Inputs/DropZone';
 
 interface Props {
   client: IndexifyClient;
+  extractionGraphs: ExtractionGraph[]
 }
 
-const uploadFiles = async (client: IndexifyClient, extractionGraphName: string, files: File[], labels: Record<string, string>): Promise<void> => {
-    const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels));
-    await Promise.all(uploadPromises);
-  };
-
-const UploadButton = ({ client }: Props) => {
+const UploadButton = ({ client, extractionGraphs }: Props) => {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [extractionGraphName, setExtractionGraphName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>(
-    client.extractionGraphs
+  const [newContentId, setNewContentId] = useState("");
+  const [localExtractionGraphs, setLocalExtractionGraphs] = useState<ExtractionGraph[]>(
+    extractionGraphs
   );
 
   const handleFileSelect = (selectedFiles: File[]) => {
@@ -58,14 +56,15 @@ const UploadButton = ({ client }: Props) => {
   const upload = async () => {
     if (files.length > 0 && extractionGraphName) {
       setLoading(true);
-      await uploadFiles(client, extractionGraphName, files, labels);
+      const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels, newContentId));
+      await Promise.all(uploadPromises);
       window.location.reload();
     }
   };
 
   const updateExtractionGraphs = async () => {
     const graphs = await client.getExtractionGraphs();
-    setExtractionGraphs(graphs);
+    setLocalExtractionGraphs(graphs);
   };
 
   const isUploadButtonDisabled = files.length === 0 || !extractionGraphName || loading;
@@ -99,12 +98,22 @@ const UploadButton = ({ client }: Props) => {
             <MenuItem value="" disabled>
               Select Extraction Graph
             </MenuItem>
-            {extractionGraphs.map((graph) => (
+            {localExtractionGraphs.map((graph) => (
               <MenuItem key={graph.name} value={graph.name}>
                 {graph.name}
               </MenuItem>
             ))}
           </Select>
+          <OutlinedInput
+            label="Content Id"
+            value={newContentId}
+            onChange={(event) => setNewContentId(event.target.value)}
+            fullWidth
+            notched={false}
+            placeholder="Content Id"
+            sx={{ backgroundColor: "white", mt: 2 }}
+            size="small"
+          />
           <FileDropZone onFileSelect={handleFileSelect} />
           <LabelsInput
             disabled={loading}
@@ -147,7 +156,7 @@ const UploadButton = ({ client }: Props) => {
           </Box>
         </Paper>
       </Modal>
-      <Button onClick={handleOpen} size="small" variant="contained" color="primary" startIcon={<UploadIcon />}>
+       <Button onClick={handleOpen} size="small" variant="outlined" startIcon={<UploadIcon />} sx={{ color: "#3296FE"}}>
         Upload
       </Button>
     </>

@@ -1,34 +1,28 @@
-FROM ubuntu:22.04
-LABEL stage=builder
+FROM ubuntu:20.04
+#LABEL stage=builder
 
 WORKDIR /indexify-build
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update
-RUN apt -y install software-properties-common
-RUN add-apt-repository ppa:deadsnakes/ppa -y
-RUN apt install -y \
-    build-essential make cmake g++ ca-certificates \
-    curl pkg-config python3.11 python3.11-dev python3.11-venv \
-    python3.11-distutils git protobuf-compiler protobuf-compiler-grpc \
-    sqlite3 libssl-dev libclang-dev librocksdb-dev
-RUN apt -y remove python3.10
+RUN apt -y install software-properties-common unzip \
+    build-essential make cmake ca-certificates \
+    curl pkg-config git \
+    sqlite3 clang gcc-10 g++-10
 
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable -y
 
-ENV PATH="/root/.cargo/bin:${PATH}"
+RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip
+
+RUN unzip protoc-25.1-linux-x86_64.zip -d /usr/local
+
+ENV PATH="/${HOME}/.cargo/bin:/{HOME}/.local/bin:${PATH}"
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-RUN bash -c 'export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")" && \. "$NVM_DIR/nvm.sh" && nvm install stable'
+RUN curl -sL https://deb.nodesource.com/setup_22.x | bash
 
-COPY ./ .
+RUN apt install -y nodejs
 
-COPY .git .git
-
-ENV PYTHON=python3.11
-ENV PYO3_CROSS_PYTHON_VERSION=3.11
-ENV PYTHONPATH=${PYTHONPATH}:/indexify-build/extractors
-RUN bash -c 'export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")" && \. "$NVM_DIR/nvm.sh" && cargo build --release'
+RUN apt remove -y gcc-9 g++-9
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 20 --slave /usr/bin/g++ g++ /usr/bin/g++-10

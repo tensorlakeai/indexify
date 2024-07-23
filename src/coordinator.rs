@@ -70,6 +70,17 @@ impl Coordinator {
         })
     }
 
+    pub async fn add_graph_to_content(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        content_ids: Vec<String>,
+    ) -> Result<()> {
+        self.shared_state
+            .add_graph_to_content(namespace, extraction_graph, content_ids)
+            .await
+    }
+
     pub async fn get_extraction_graph_links(
         &self,
         namespace: &str,
@@ -295,6 +306,10 @@ impl Coordinator {
 
     pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
         self.shared_state.list_namespaces().await
+    }
+
+    pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
+        self.shared_state.list_extraction_graphs(namespace).await
     }
 
     pub async fn get_namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
@@ -696,6 +711,9 @@ impl Coordinator {
                 indexify_internal_api::ChangeType::NewContent => {
                     self.scheduler.create_new_tasks(change).await?
                 }
+                indexify_internal_api::ChangeType::AddGraphToContent { .. } => {
+                    self.scheduler.create_new_tasks(change).await?
+                }
                 indexify_internal_api::ChangeType::ExecutorRemoved => {
                     self.scheduler.handle_executor_removed(change).await?
                 }
@@ -763,8 +781,14 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, fs, sync::Arc, time::Duration, vec};
+    use std::{
+        fs,
+        sync::Arc,
+        time::{Duration, Instant},
+        vec,
+    };
 
+    use filter::{Expression, LabelsFilter, Operator};
     use indexify_internal_api::{self as internal_api, ExtractionGraphLink, ExtractionGraphNode};
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{ContentMetadataId, ContentSource, TaskOutcome};
@@ -1256,10 +1280,10 @@ mod tests {
         //  Check that content has been correctly tombstoned
         let content_tree = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content.id.id)?;
+            .get_content_tree_metadata_with_version(&parent_content.id)?;
         let content_tree_2 = coordinator
             .shared_state
-            .get_content_tree_metadata(&parent_content_2.id.id)?;
+            .get_content_tree_metadata_with_version(&parent_content_2.id)?;
         for content in &content_tree {
             assert!(
                 content.tombstoned,
@@ -1267,13 +1291,55 @@ mod tests {
                 content.id.id
             );
         }
-        for content in content_tree_2 {
+        for content in &content_tree_2 {
             assert!(
                 content.tombstoned,
                 "Content {} is not tombstoned",
                 content.id.id
             );
         }
+
+        coordinator.run_scheduler().await?;
+
+        // Check that gc tasks are created.
+        let gc_tasks = coordinator.garbage_collector.gc_tasks.read().await;
+        assert_eq!(gc_tasks.len(), content_tree.len() + content_tree_2.len());
+        let gc_task_ids: Vec<_> = gc_tasks.iter().map(|(id, _)| id.clone()).collect();
+        drop(gc_tasks);
+
+        // Check that content is deleted when tasks are completed.
+        for task_id in gc_task_ids {
+            coordinator
+                .update_gc_task(&task_id, TaskOutcome::Success)
+                .await?;
+        }
+
+        let start = Instant::now();
+        let timeout = Duration::new(2, 0);
+        let mut success = false;
+
+        while Instant::now().duration_since(start) < timeout {
+            let contents = coordinator
+                .shared_state
+                .state_machine
+                .get_content_namespace_table()?;
+            match contents.get(DEFAULT_TEST_NAMESPACE) {
+                Some(contents) => {
+                    if contents.len() == 0 {
+                        success = true;
+                        break;
+                    }
+                }
+                None => {
+                    success = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        assert!(success, "content was not deleted");
+
         Ok(())
     }
 
@@ -1328,7 +1394,7 @@ mod tests {
             .unwrap();
         let policies_matching_content = coordinator
             .shared_state
-            .match_extraction_policies_for_content(&content)
+            .match_extraction_policies_for_content(&content, &content.extraction_graph_names)
             .await?;
         assert_eq!(policies_matching_content.len(), 1);
 
@@ -1346,7 +1412,7 @@ mod tests {
             .unwrap();
         let policies_matching_content = coordinator
             .shared_state
-            .match_extraction_policies_for_content(&content)
+            .match_extraction_policies_for_content(&content, &content.extraction_graph_names)
             .await?;
         assert_eq!(policies_matching_content.len(), 0);
 
@@ -1830,6 +1896,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_add_graph_to_content() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg_1 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_1",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_1.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let eg_2 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_2",
+            vec![
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_2.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let parent_content = test_mock_content_metadata("test_parent_id", "", &eg_1.name);
+        let create_res = coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
+        coordinator.run_scheduler().await?;
+        let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
+        assert_eq!(all_tasks.len(), 1);
+
+        let mut child_id = 1;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 4);
+
+        coordinator
+            .add_graph_to_content(
+                DEFAULT_TEST_NAMESPACE.to_string(),
+                eg_2.name.clone(),
+                vec!["test_parent_id".to_string()],
+            )
+            .await?;
+
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_link_graphs() -> Result<(), anyhow::Error> {
         let (coordinator, _) = setup_coordinator().await;
 
@@ -2043,8 +2184,11 @@ mod tests {
         //  Create the extraction policy under the namespace of the content
         let mut eg =
             create_test_extraction_graph("extraction_graph_1", vec!["extraction_policy_1"]);
-        eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
+        eg.extraction_policies[0].filter = LabelsFilter(vec![Expression {
+            key: "label1".to_string(),
+            value: serde_json::json!("value1"),
+            operator: Operator::Eq,
+        }]);
         coordinator.create_extraction_graph(eg.clone()).await?;
 
         //  Create some content

@@ -20,6 +20,8 @@ service CoordinatorService {
 
     rpc ListExtractionPolicies(ListExtractionPoliciesRequest) returns (ListExtractionPoliciesResponse) {}
 
+    rpc ListExtractionGraphs(ListExtractionGraphRequest) returns (ListExtractionGraphResponse) {}
+
     rpc CreateNS(CreateNamespaceRequest) returns (CreateNamespaceResponse) {}
 
     rpc ListNS(ListNamespaceRequest) returns (ListNamespaceResponse) {}
@@ -77,6 +79,8 @@ service CoordinatorService {
     rpc LinkExtractionGraphs(LinkExtractionGraphsRequest) returns (LinkExtractionGraphsResponse) {}
 
     rpc ExtractionGraphLinks(ExtractionGraphLinksRequest) returns (ExtractionGraphLinksResponse) {}
+
+    rpc AddGraphToContent(AddGraphToContentRequest) returns (AddGraphToContentResponse) {}
 }
 
 message GetContentMetadataRequest {
@@ -88,7 +92,10 @@ message GetContentMetadataResponse {
 }
 
 message GetContentTreeMetadataRequest {
-    string content_id = 1;
+    string namespace = 1;
+    string content_id = 2;
+    string extraction_graph_name = 3;
+    string extraction_policy = 4;
 }
 
 message GetContentTreeMetadataResponse {
@@ -137,6 +144,8 @@ message ListTasksRequest {
     uint64 limit = 5;
     bool return_total = 6;
     TaskOutcomeFilter outcome = 7;
+
+    string extraction_graph = 8;
 }
 
 message ListTasksResponse {
@@ -331,11 +340,12 @@ message ListContentRequest {
     string namespace = 1;
     ContentSource source = 2;
     string parent_id = 3;
-    map<string, google.protobuf.Value> labels_eq = 4;
+    repeated string labels_filter = 4;
     uint64 limit = 5;
     string start_id = 6;
     bool return_total = 7;
     string graph = 8;
+    string ingested_content_id = 9;
 }
 
 message ListContentResponse {
@@ -357,6 +367,14 @@ message ListExtractionPoliciesRequest {
 
 message ListExtractionPoliciesResponse {
     repeated ExtractionPolicy policies = 1;
+}
+
+message ListExtractionGraphRequest {
+    string namespace = 1;
+}
+
+message ListExtractionGraphResponse {
+    repeated ExtractionGraph graphs = 1;
 }
 
 message CreateNamespaceRequest {
@@ -389,10 +407,10 @@ message ExtractionPolicy {
     string extractor = 2;
     string name = 3;
     string input_params = 4;
-    map<string, google.protobuf.Value> filters = 5;
     string content_source = 6;
     string graph_name = 7;
     map<string, string> output_table_mapping = 8;
+    repeated string filter = 9;
 }
 
 message ExtractionPolicyRequest {
@@ -400,9 +418,9 @@ message ExtractionPolicyRequest {
     string extractor = 2;
     string name = 3;
     string input_params = 4;
-    map<string, google.protobuf.Value> filters = 5;
     string content_source = 6;
     int64 created_at = 7;
+    repeated string filter = 8;
 }
 
 message CreateExtractionGraphRequest {
@@ -602,3 +620,11 @@ message ExtractionGraphLinksRequest {
 message ExtractionGraphLinksResponse {
     repeated ExtractionGraphLink links = 1;
 }
+
+message AddGraphToContentRequest {
+    string namespace = 1;
+    string extraction_graph = 2;
+    repeated string content_ids = 3;
+}
+
+message AddGraphToContentResponse {}

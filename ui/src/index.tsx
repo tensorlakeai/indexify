@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
@@ -16,22 +15,22 @@ import {
   ExtractionPolicyPageLoader,
   SearchIndexPageLoader,
   IndividualContentPageLoader,
-  ContentsPageLoader,
   ExtractorsPageLoader,
   ExtractionGraphsPageLoader,
   IndexesPageLoader,
   SqlTablesPageLoader,
-  IndividualExtractionGraphPageLoader
+  IndividualExtractionGraphPageLoader,
+  StateChangesPageLoader
 } from "./utils/loaders";
 import {
   ExtractionPolicyPage,
   SearchIndexPage,
   IndividualContentPage,
-  ContentsPage,
   ExtractorsPage,
   ExtractionGraphsPage,
   IndexesPage,
-  SqlTablesPage
+  SqlTablesPage,
+  StateChangesPage
 } from "./routes/Namespace";
 import IndividualExtractionGraphPage from "./routes/Namespace/IndividualExtractionGraphPage";
 
@@ -51,12 +50,6 @@ const router = createBrowserRouter(
         {
           path: "/:namespace",
           element: <RedirectToExtractors />
-        },
-        {
-          path: "/:namespace/extraction-policies/:graphname/:policyname",
-          element: <ExtractionPolicyPage />,
-          loader: ExtractionPolicyPageLoader,
-          errorElement: <ErrorPage />
         },
         {
           path: "/:namespace/indexes/:indexName",
@@ -83,9 +76,15 @@ const router = createBrowserRouter(
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/extraction-graphs/:extractorName",
+          path: "/:namespace/extraction-graphs/:extraction_graph",
           element: <IndividualExtractionGraphPage />,
           loader: IndividualExtractionGraphPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/extraction-graphs/:extraction_graph/extraction-policies/:policyName",
+          element: <ExtractionPolicyPage />,
+          loader: ExtractionPolicyPageLoader,
           errorElement: <ErrorPage />
         },
         {
@@ -99,7 +98,13 @@ const router = createBrowserRouter(
           element: <SqlTablesPage />,
           loader: SqlTablesPageLoader,
           errorElement: <ErrorPage />
-        }
+        },
+        {
+          path: "/:namespace/state-changes",
+          element: <StateChangesPage />,
+          loader: StateChangesPageLoader,
+          errorElement: <ErrorPage />
+        },
       ]
     }
   ],

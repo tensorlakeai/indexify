@@ -1,20 +1,9 @@
 # Table Extraction from PDFs
 
-This project demonstrates how to extract tables from PDF documents using Indexify. It includes two main components: setting up an extraction graph for table extraction and a script to process PDFs and retrieve the extracted tables.
+We show how to extract tables from PDF documents using Indexify. 
 
-## Table of Contents
+It consists of two main parts:
 
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-4. [File Descriptions](#file-descriptions)
-5. [Usage](#usage)
-6. [Customization](#customization)
-7. [Conclusion](#conclusion)
-
-## Introduction
-
-This project showcases the use of Indexify to create a pipeline for extracting tables from PDF documents. It consists of two main parts:
 - An extraction graph that defines the process of converting PDFs to tables.
 - A script that downloads a PDF, uploads it to Indexify, and retrieves the extracted tables.
 
@@ -49,7 +38,7 @@ Before we begin, ensure you have the following:
 
 1. `table_pipeline.py`: This script sets up the extraction graph for converting PDFs to tables.
 
-2. `upload_and_retreive.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted tables.
+2. `upload_and_retrieve.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted tables.
 
 ## Usage
 
@@ -58,10 +47,11 @@ Before we begin, ensure you have the following:
    python table_pipeline.py
    ```
 
-2. Then, run the [`upload_and_retreive.py`](upload_and_retreive.py) script to process a PDF and extract tables:
+2. Then, run the [`upload_and_retrieve.py`](upload_and_retreive.py) script to process a PDF and extract tables:
    ```bash
    python upload_and_retreive.py
    ```
+   <img src="https://docs.getindexify.ai/example_code/pdf/table_extraction/carbon.png" width="600"/>
 
    This script will:
    - Download a sample PDF from arXiv
@@ -73,7 +63,7 @@ Before we begin, ensure you have the following:
 
 You can customize the table extraction process by modifying the `extraction_graph_spec` in `table_pipeline.py`. For example, you could add additional extraction steps or change the output format.
 
-In `upload_and_retreive.py`, you can modify the `pdf_url` variable to process different PDF documents.
+In `upload_and_retrieve.py`, you can modify the `pdf_url` variable to process different PDF documents.
 
 ## Conclusion
 

@@ -130,7 +130,7 @@ def summarize_pdf(pdf_path):
     
     # Retrieve the summarized content
     summary = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_summarizer",
         policy_name="text_to_summary"
     )
@@ -155,6 +155,7 @@ You can run the Python script as many times, or use this in an application to co
 ```bash
 python upload_and_retreive.py
 ```
+<img src="https://docs.getindexify.ai/example_code/llm_integrations/mistral/pdf-summarization/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

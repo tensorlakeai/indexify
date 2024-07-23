@@ -1,25 +1,9 @@
 # PDF Chunking with Indexify and RecursiveCharacterTextSplitter
 
-In this cookbook, we'll explore how to create a PDF chunking pipeline using Indexify, the tensorlake/marker for PDF text extraction, and the tensorlake/chunk-extractor with RecursiveCharacterTextSplitter. By the end of this document, you should have a pipeline capable of ingesting PDF documents and chunking their content for further processing or analysis.
+Pipeline to extract and chunk text from a PDF. The pipeline uses - 
 
-## Table of Contents
-
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Setup](#setup)
-   - [Install Indexify](#install-indexify)
-   - [Install Required Extractors](#install-required-extractors)
-4. [Creating the Extraction Graph](#creating-the-extraction-graph)
-5. [Implementing the Chunking Pipeline](#implementing-the-chunking-pipeline)
-6. [Running the Chunking Process](#running-the-chunking-process)
-7. [Customization and Advanced Usage](#customization-and-advanced-usage)
-8. [Conclusion](#conclusion)
-
-## Introduction
-
-The PDF chunking pipeline will be composed of two main steps:
-1. PDF to Text extraction using the `tensorlake/marker` extractor.
-2. Text chunking using the `tensorlake/chunk-extractor` with RecursiveCharacterTextSplitter.
+1. `tensorlake/marker` for PDF text extraction
+2. `tensorlake/chunk-extractor` chunks markdown from the previous step with Langchain's RecursiveCharacterTextSplitter.
 
 ## Prerequisites
 
@@ -91,12 +75,12 @@ client.create_extraction_graph(extraction_graph)
 
 You can run this script to set up the pipeline:
 ```bash
-python pdf_chunking_graph.py
+python setup_graph.py
 ```
 
-## Ingestion and Retreival from the Pipeline
+## Ingestion and Retrieval from the Pipeline
 
-Now that we have our extraction graph set up, we can upload files and make the pipeline generate chunks. Create a file `upload_and_retreive.py`:
+Now that we have our extraction graph set up, we can upload files and make the pipeline generate chunks. Create a file `upload_and_retrieve.py`:
 
 ```python
 import os
@@ -120,7 +104,7 @@ def retreive_chunks(pdf_path):
     
     # Retrieve the chunked content
     chunks = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_chunker",
         policy_name="text_to_chunks"
     )
@@ -146,8 +130,9 @@ if __name__ == "__main__":
 
 You can run the Python script to process a PDF and generate chunks:
 ```bash
-python upload_and_retreive.py
+python upload_and_retrieve.py
 ```
+<img src="https://docs.getindexify.ai/example_code/pdf/chunking/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

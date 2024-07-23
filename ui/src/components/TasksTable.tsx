@@ -1,181 +1,181 @@
-import { useEffect, useState } from 'react'
-import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { IExtractionPolicy, ITask } from 'getindexify'
-import { Alert, Chip } from '@mui/material'
-import { Box } from '@mui/system'
-import moment from 'moment'
-import { Link } from 'react-router-dom'
-import { TaskStatus } from 'getindexify'
+import React, { useEffect, useState } from 'react';
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableContainer, 
+  TableHead, 
+  TableRow, 
+  Paper, 
+  TablePagination,
+  Alert, 
+  Chip, 
+  Box,
+  Link
+} from '@mui/material';
+import { IExtractionPolicy, IndexifyClient, ITask, TaskStatus } from 'getindexify';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { formatTimestamp } from '../utils/helpers';
 
-const TasksTable = ({
+interface TasksTableProps {
+  extractionPolicies: IExtractionPolicy[];
+  namespace: string;
+  loadData: (pageSize: number, startId?: string) => Promise<{ tasks: ITask[]; total: number; hasNextPage: boolean }>;
+  hideContentId?: boolean;
+  hideExtractionPolicy?: boolean;
+  onContentClick: (contentId: string) => void;
+  client: IndexifyClient;
+}
+
+const TasksTable: React.FC<TasksTableProps> = ({
   extractionPolicies,
   namespace,
   hideContentId,
   hideExtractionPolicy,
   loadData,
-}: {
-  extractionPolicies: IExtractionPolicy[]
-  namespace: string
-  loadData?: (pageSize: number, startId?: string) => Promise<ITask[]>
-  hideContentId?: boolean
-  hideExtractionPolicy?: boolean
+  onContentClick, 
+  client,
 }) => {
-  const [rowCountState, setRowCountState] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [tasks, setTasks] = useState<ITask[]>([])
-  const [startIds, setStartIds] = useState<Record<number, string>>({})
-  const [paginationModel, setPaginationModel] = useState({
-    page: 0,
-    pageSize: 20,
-  })
+  const [loading, setLoading] = useState<boolean>(false);
+  const [tasks, setTasks] = useState<ITask[]>([]);
+  const [page, setPage] = useState<number>(0);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(20);
+  const [isLastPage, setIsLastPage] = useState<boolean>(false);
+
+  const loadTasks = async () => {
+    setLoading(true);
+    try {
+      const startId = tasks.length > 0 ? tasks[tasks.length - 1].id : undefined;
+      const { tasks: newTasks } = await loadData(rowsPerPage + 1, startId);
+      
+      if (newTasks.length <= rowsPerPage) {
+        setIsLastPage(true);
+      } else {
+        newTasks.pop();
+        setIsLastPage(false);
+      }
+      
+      setTasks(newTasks);
+    } catch (error) {
+      console.error("Error loading tasks:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let active = true
+    loadTasks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, rowsPerPage]);
 
-    ;(async () => {
-      setLoading(true)
-      if (!active || !loadData) return
+  const handleChangePage = (event: React.MouseEvent<HTMLButtonElement> | null, newPage: number) => {
+    setPage(newPage);
+  };
 
-      // load tasks for a given page
-      const newTasks = await loadData(
-        paginationModel.pageSize,
-        paginationModel.page ? startIds[paginationModel.page - 1] : undefined
-      )
-      setTasks(newTasks)
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
-      const newRowCount =
-        paginationModel.page * paginationModel.pageSize + newTasks.length
-      setRowCountState(newRowCount)
-
-      // add to startids if needed
-      if (newTasks.length && startIds[paginationModel.page] === undefined) {
-        const lastId = newTasks[newTasks.length - 1].id
-        setStartIds((prev) => ({
-          ...prev,
-          [paginationModel.page]: lastId,
-        }))
-      }
-      setLoading(false)
-    })()
-
-    return () => {
-      active = false
+  const renderStatusChip = (status: TaskStatus) => {
+    switch (status) {
+      case TaskStatus.Failure:
+        return <Chip icon={<ErrorOutlineIcon />} label="Failure" variant="outlined" color="error" sx={{ backgroundColor: '#FBE5E5' }} />;
+      case TaskStatus.Success:
+        return <Chip icon={<CheckCircleOutlineIcon />} label="Success" variant="outlined" color="success" sx={{ backgroundColor: '#E5FBE6' }} />;
+      default:
+        return <Chip icon={<InfoOutlinedIcon />} label="In Progress" variant="outlined" color="info" sx={{ backgroundColor: '#E5EFFB' }} />;
     }
-  }, [paginationModel, loadData, startIds])
-
-  let columns: GridColDef[] = [
-    {
-      field: 'id',
-      headerName: 'Task ID',
-      flex: 1,
-    },
-    {
-      field: 'content_metadata.id',
-      headerName: 'Content ID',
-      flex: 1,
-      valueGetter: (params) => params.row.content_metadata.id,
-      renderCell: (params) => (
-        <Link to={`/${namespace}/content/${params.value}`}>{params.value}</Link>
-      ),
-    },
-    {
-      field: 'extraction_policy_id',
-      headerName: 'Extraction Policy',
-      renderCell: (params) => {
-        const policy = extractionPolicies.find(
-          (policy) => policy.id === params.value
-        )
-        return policy ? (
-          <Link
-            to={`/${namespace}/extraction-policies/${policy?.graph_name}/${policy?.name}`}
-          >
-            {policy?.name}
-          </Link>
-        ) : null
-      },
-      flex: 1,
-    },
-    {
-      field: 'outcome',
-      flex: 1,
-      headerName: 'Status',
-      renderCell: (params) => {
-        if (params.value === TaskStatus.Failure) {
-          return <Chip icon={<ErrorOutlineIcon />} label="Failure" variant="outlined" color="error" sx={{ backgroundColor: '#FBE5E5' }} />
-        } else if (params.value === TaskStatus.Success) {
-          return <Chip icon={<CheckCircleOutlineIcon />} label="Success" variant="outlined" color="success" sx={{ backgroundColor: '#E5FBE6' }} />
-        } else {
-          return  (
-            <Chip icon={<InfoOutlinedIcon />} label="In Progress" variant="outlined" color="info" sx={{ backgroundColor: '#E5EFFB' }}  />
-          )
-        }
-      },
-    },
-    {
-      field: 'content_metadata.source',
-      headerName: 'Source',
-      valueGetter: (params) =>
-        params.row.content_metadata.source || 'Ingestion',
-      flex: 1,
-    },
-    {
-      field: 'content_metadata.created_at',
-      headerName: 'Created At',
-      renderCell: (params) => {
-        return moment(params.row.content_metadata.created_at * 1000).format(
-          'MM/DD/YYYY h:mm A'
-        )
-      },
-      valueGetter: (params) => params.row.content_metadata.created_at,
-      flex: 1,
-    },
-  ]
-
-  columns = columns.filter((col) => {
-    if (hideContentId && col.field === 'content_metadata.id') {
-      return false
-    } else if (hideExtractionPolicy && col.field === 'extraction_policy_id') {
-      return false
-    }
-    return true
-  })
+  };
 
   const renderContent = () => {
-    if (tasks.length === 0) {
+    if (tasks.length === 0 && !loading) {
       return (
         <Box mt={1} mb={2}>
           <Alert variant="outlined" severity="info">
             No Tasks Found
           </Alert>
         </Box>
-      )
+      );
     }
     return (
-      <Box
-        sx={{
-          width: '100%',
-        }}
-      >
-        <DataGrid
-          sx={{ backgroundColor: 'white', borderRadius: '12px' }}
-          autoHeight
-          rows={tasks.slice(0, paginationModel.pageSize)}
-          rowCount={rowCountState}
-          columns={columns}
-          paginationModel={paginationModel}
-          onPaginationModelChange={setPaginationModel}
-          paginationMode="server"
-          loading={loading}
-          pageSizeOptions={[20]}
+      <TableContainer component={Paper} sx={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Task ID</TableCell>
+              {!hideContentId && <TableCell>Content ID</TableCell>}
+              {!hideExtractionPolicy && <TableCell>Extraction Policy</TableCell>}
+              <TableCell>Status</TableCell>
+              <TableCell>Source</TableCell>
+              <TableCell>Created At</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {tasks?.map((task) => (
+              <TableRow key={task.id}>
+                <TableCell>{task.id}</TableCell>
+                {!hideContentId && (
+                  <TableCell>
+                    <Link
+                      component="button"
+                      variant="body2"
+                      onClick={() => onContentClick(task.content_metadata.id)}
+                    >
+                      {task.content_metadata.id}
+                    </Link>
+                  </TableCell>
+                )}
+                {!hideExtractionPolicy && (
+                  <TableCell>
+                    {task.extraction_policy_id}
+                  </TableCell>
+                )}
+                <TableCell>{renderStatusChip(task.outcome as TaskStatus)}</TableCell>
+                <TableCell>{task.content_metadata.source || 'Ingestion'}</TableCell>
+                <TableCell>
+                  {formatTimestamp(task.content_metadata.created_at)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <TablePagination
+          rowsPerPageOptions={[5, 10, 20]}
+          component="div"
+          count={-1}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          labelDisplayedRows={() => ''}
+          slotProps={{
+            actions: {
+              nextButton: {
+                disabled: isLastPage
+              }, 
+              previousButton: {
+                disabled: page === 0
+              }
+            }
+          }}
+          sx={{ 
+            display: "flex", 
+            ".MuiTablePagination-toolbar": {
+              paddingLeft: "10px"
+            }, 
+            ".MuiTablePagination-actions": {
+              marginLeft: "0px !important"
+            }
+          }}
         />
-      </Box>
-    )
-  }
+      </TableContainer>
+    );
+  };
 
-  return <>{renderContent()}</>
-}
+  return <>{renderContent()}</>;
+};
 
-export default TasksTable
+export default TasksTable;

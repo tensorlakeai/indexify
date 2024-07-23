@@ -2,44 +2,34 @@
 title: Introduction
 ---
 
-# Effortless Ingestion and Extraction for AI Applications at Any Scale
+# Effortless Ingestion and Extraction for Unstructured Data at Any Scale
 
-<p align="center">
-  <img src="/images/Indexify_KAT.gif" alt="Indexify High Level"/>
-</p>
+![Indexify High Level](images/Indexify_KAT.gif)
 
+Indexify is an open-source data framework. It is designed for creating ingestion and extraction pipelines for unstructured data. The framework uses a declarative approach to perform structured extraction with any AI model or to transform ingested data.
 
+Indexify pipelines operate in real-time. They process data immediately after ingestion. This makes them ideal for interactive applications and low-latency scenarios.
 
-Indexify is a data framework designed for building ingestion and extraction pipelines for unstructured data. These pipelines are defined using declarative configuration. Each stage of the pipeline can perform structured extraction using any AI model or transform ingested data. The pipelines start working immediately upon data ingestion into Indexify, making them ideal for interactive applications and low-latency use cases.
+**Use Cases:** Pipelines for Entity Extraction/Embedding from documents, Audio Transcription, Summarization, Object Detection from Images. 
 
-You should use `Indexify` if: 
+**RAG**: Embedding and structured data extracted by Indexify from enterprise data can be consumed into RAG applications.  
 
-1. You are working with non-trivial amount of data, >1000s of documents, audio files, videos or images. 
-2. The data volume grows over time, and LLMs need access to updated data as quickly as possible
-3. You care about reliability and availability of your ingestion pipelines. 
-4. You are working with multi-modal data, or combine multiple models into a single pipeline for data extraction.
-5. User Experience of your application degrades if your LLM application is reading stale data when data sources are updated.
+## Multi-Stage Data Ingestion and Extraction Workflows
 
-## Why use Indexify?
-Most LLM data frameworks for unstructured data are primarily optimized for prototyping applications. A typical MVP data processing pipeline is written as follows -
+Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute. Some unique characteristics of Indexify workflows are -
 
-```py copy
-data = load_data(source)
-embedding = generate_embedding(data) 
-structured_data = structured_extraction_function(data)
-db.save(embedding)
-db.save(structured_data)
-```
+**AI Native**: Use models from OpenAI, HuggingFace and Ollama in the pipeline.
 
-All of these lines in the above code snippet **can and will** [fail in production](https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/). If your application relies on your data framework being reliable and not losing data, you will inevitably lose data in production with LLM data frameworks designed for prototyping MVPs.
+**Extensible**: by plugging in Python modules in the pipeline.
 
-### The Indexify Approach
-Indexify provides a declarative configuration approach. You can translate the code above into a pipeline like this,
+**Real Time and Scalable**: Handles real-time processing of data at scale powered by a low latency and distributed scheduler.
 
-```yaml copy
+**APIs**: Pipelines are exposed as HTTP APIs, making them accessible from applications written in TypeScript, Java, Python, Go, etc.
+
+```yaml title="graph.yaml"
 name: 'pdf-ingestion-pipeline'
 extraction_policies:
-- extractor: 'tensorlake/markdown'
+- extractor: 'tensorlake/marker'
   name: 'pdf_to_markdown'
 - extractor: 'tensorlake/ner'
   name: 'entity_extractor'
@@ -49,35 +39,129 @@ extraction_policies:
   content_source: 'pdf_to_markdown'
 ```
 
-1. Data extraction/transformation code are written as an `Extractor` and referred in any pipelines. Extractors are just functions under the hood that take data from upstream source and spits out transformed data, embedding or structured data. 
+=== "HTTP"
+    ```bash
+    curl -X 'POST' \
+    'http://localhost:8900/namespaces/default/extraction_graphs' \
+    -H 'accept: application/x-yaml' \
+    -H 'Content-Type: application/x-yaml' \
+    --data-binary @graph.yaml
+    ```
 
-2. The extraction policy named `pdf_to_markdown` converts every PDF ingested into markdown. The extraction policies, `entity_extractor` and `pdf_to_markdown` are linked to `pdf_to_markdown` using the `content_source` attribute, which links downstream extraction policies to upstream. 
+=== "Python"
+    ```python
+    from indexify import IndexifyClient, ExtractionGraph
+    graph = ExtractionGraph.from_yaml_file("graph.yaml")
+    client = IndexifyClient()
+    client.create_extraction_graph(graph)
+    ```
 
-3. We have written some ready to use extractors. You can write custom extractors very easily to add any data extraction/transformation code or library.
+=== "Typescript"
+    ```typescript
+    ```
 
-Indexify is distributed on many machines to scale-out each of the stages in the above pipeline. The pipeline state is replicated across multiple machines to recover from hardware failures, software crashes of the server. You get predictable latencies and throughput for data extraction, and it's fully observable to help troubleshoot. 
+### Continuous Data Ingestion  
 
-## Local Experience
-Indexify runs locally without **any** dependencies. The pipelines developed and tested on laptops can run unchanged in production.
+=== "HTTP"
+    ```bash
+    curl -X 'POST' \
+    'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
+    -H 'accept: */*' \
+    -H 'Content-Type: multipart/form-data' \
+    -F 'file=@file.pdf;type=application/pdf' \
+    -F 'labels={"source":"arxiv"}'
+    ```
 
-## Start Using Indexify
+=== "Python"
+    ```python
+    client = IndexifyClient()
 
-Dive into [Getting Started](getting_started.md) to learn how to use Indexify.
+    files = ["file1.pdf", .... "file100.pdf"]
+    for file in files:
+      client.upload_file("pdf-ingestion-pipeline", file)
+    ```
 
-If you would like to learn some common use-cases - 
+=== "Typescript"
+    ```Typescript
+    ```
 
-1. Learn how to build ingestion and extraction pipelines for [RAG Applications](usecases/rag.md)
-2. Extract [PDF](usecases/pdf_extraction.md), [Videos](usecases/video_rag.md) and [Audio](usecases/audio_extraction.md) to extract embedding and [structured data](usecases/image_retrieval.md).
+### Retrieve Extracted Data
 
-## Features
+Retrieve extracted named entities 
 
-* Makes Unstructured Data **Queryable** with **SQL** and **Semantic Search**
-* **Real Time** Extraction Engine to keep indexes **automatically** updated as new data is ingested.
-* Create **Extraction Graph** to create multi-step workflows for **data transformation**, **embedding** and **structured extraction**.
-* **Incremental Extraction** and **Selective Deletion** when content is deleted or updated.
-* **Extractor SDK** allows adding new extraction capabilities, and many readily available extractors for **PDF**, **Image** and **Video** indexing and extraction.
-* **Multi-Tenant** from the ground up, **Namespaces** to isolate sensitive data.
-* Works with **any LLM Framework** including **Langchain**, **DSPy**, etc.
-* Runs on your laptop during **prototyping** and also scales to **1000s of machines** on the cloud.
-* Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
-* We have even **Open Sourced Automation** to deploy to Kubernetes in production.
+=== "HTTP"
+
+    ```bash
+    curl -X 'GET' \
+    'http://localhost:8900/namespaces/:namespace/extraction_graphs/pdf-ingestion-pipeline/content/585ebafdbc9dbbbe/extraction_policies/entity_extractor' \
+    ```
+
+=== "Python"
+
+    ```python
+    content_ids = [content.id for content in client.list_content("pdf-ingestion-pipeline")]
+
+    markdown = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "pdf_to_markdown")
+    named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
+    ```
+
+=== "TypeScript"
+    
+    ```typescript
+    ```
+
+Search vector indexes populated by embeddings 
+
+=== "HTTP"
+
+    ```bash
+    curl -X 'POST' \
+    'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
+    -H 'accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{
+        "filters": [],
+        "include_content": true,
+        "k": 3,
+        "query": "wework"
+    }'
+    ```
+
+=== "Python"
+
+    ```python
+    results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
+    ```
+
+=== "Typescript"
+
+    ```typescript
+    ```
+
+To understand usage of indexify for various use cases we recommend the following starting points.
+
+## Indexify Learning Path 
+
+| Guide | What You'll Build | Key Concepts Covered |
+|-------|-------------------|----------------------|
+| [Getting Started - Basic](https://docs.getindexify.ai/getting_started/) | A Wikipedia information retrieval system | - Indexify Server setup<br>- Extraction Graphs<br>- Basic Extractors<br>- Data Ingestion<br>- Vector Search |
+| [Getting Started - Intermediate](https://docs.getindexify.ai/getting_started_intermediate/) | A tax document processing and Q&A system | - PDF processing<br>- Custom Extractors<br>- Structured Data Extraction<br>- Advanced Querying |
+| [Multi-Modal RAG on PDF](https://docs.getindexify.ai/example_code/pdf/indexing_and_rag) | A video content analysis and retrieval system | - Multi-modal data processing<br>- Video frame extraction<br>- Speech-to-text conversion<br>- Cross-modal retrieval |
+
+
+## Why Use Indexify?
+
+Indexify is for continuous ingestion and extraction from unstructured data in a streaming fashion. If you are building LLM Application that need structured data from any unstructured data sources, Indexify is the tool for you.
+
+While there lies a divide in tools for prototyping and for deploying to production, Indexify runs locally on laptops for rapid prototyping, but you can also deploy a scaled up version in production for high availability and reliability.
+
+You should use Indexify if you care about -
+
+* Processing Multi-Modal Data such as PDFs, Videos, Images, and Audio
+* High Availability and Fault Tolerance
+* Local Experience for rapid prototyping
+* Automatically updating indexes whenever upstream data sources are updated
+* Incremental Extraction and Selective Deletion
+* Compatibility with Various LLM Frameworks (Langchain, DSPy, etc.)
+* Integration with any database, blob store or vector store.
+* Owning your data infrastructure and being able to deploy on any cloud.

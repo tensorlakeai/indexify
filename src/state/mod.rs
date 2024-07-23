@@ -416,12 +416,14 @@ impl App {
     pub async fn match_extraction_policies_for_content(
         &self,
         content_metadata: &internal_api::ContentMetadata,
+        graph_names: &[String],
     ) -> Result<Vec<ExtractionPolicy>> {
         if content_metadata.tombstoned {
             return Ok(Vec::new());
         }
+
         let mut policy_ids = Vec::new();
-        for graph_name in &content_metadata.extraction_graph_names {
+        for graph_name in graph_names {
             let graph_links = self
                 .state_machine
                 .data
@@ -446,12 +448,7 @@ impl App {
             .await?;
         let mut matched_policies = Vec::new();
         for extraction_policy in all_extraction_policies {
-            if !extraction_policy.filters.iter().all(|(name, value)| {
-                content_metadata
-                    .labels
-                    .get(name)
-                    .map_or(false, |v| v == value)
-            }) {
+            if !extraction_policy.filter.matches(&content_metadata.labels) {
                 continue;
             }
             let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
@@ -567,6 +564,42 @@ impl App {
             .client_write(req)
             .await
             .map_err(|e| anyhow!("unable to remove executor {}", e))?;
+        Ok(())
+    }
+
+    pub async fn add_graph_to_content(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        content_ids: Vec<String>,
+    ) -> Result<()> {
+        // Take a reference on the contents until the new graph change is processed.
+        let new_state_changes = content_ids
+            .iter()
+            .map(|id| {
+                StateChange::new_with_refcnt(
+                    id.to_string(),
+                    internal_api::ChangeType::AddGraphToContent {
+                        extraction_graph: extraction_graph.clone(),
+                    },
+                    timestamp_secs(),
+                    id.to_string(),
+                )
+            })
+            .collect();
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::AddGraphToContent {
+                extraction_graph,
+                namespace,
+                content_ids,
+            },
+            new_state_changes,
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft
+            .client_write(req)
+            .await
+            .map_err(|e| anyhow!("unable to add graph to content: {}", e.to_string()))?;
         Ok(())
     }
 
@@ -767,6 +800,18 @@ impl App {
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
+    }
+
+    pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
+        let graphs: Vec<ExtractionGraph> = self
+            .state_machine
+            .get_all_rows_from_cf::<ExtractionGraph>(StateMachineColumns::ExtractionGraphs)
+            .await?
+            .into_iter()
+            .filter(|(_, graph)| graph.namespace.eq(namespace))
+            .map(|(_, graph)| graph)
+            .collect();
+        Ok(graphs)
     }
 
     pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
@@ -1457,6 +1502,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
+    use filter::{Expression, LabelsFilter, Operator};
     use indexify_internal_api::{
         ContentMetadata,
         ContentMetadataId,
@@ -1775,10 +1821,22 @@ mod tests {
 
         let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
 
-        eg.extraction_policies[0].filters = HashMap::from([
-            ("label1".to_string(), serde_json::json!("value1")),
-            ("label2".to_string(), serde_json::json!("value2")),
-            ("label3".to_string(), serde_json::json!("value3")),
+        eg.extraction_policies[0].filter = LabelsFilter(vec![
+            Expression {
+                key: "label1".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value1"),
+            },
+            Expression {
+                key: "label2".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value2"),
+            },
+            Expression {
+                key: "label3".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value3"),
+            },
         ]);
 
         node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
@@ -1807,7 +1865,10 @@ mod tests {
         //  Fetch the policy based on the content id and check that the retrieved policy
         // is correct
         let matched_policies = node
-            .match_extraction_policies_for_content(&content_metadata)
+            .match_extraction_policies_for_content(
+                &content_metadata,
+                &content_metadata.extraction_graph_names,
+            )
             .await?;
         assert_eq!(matched_policies.len(), 1);
         assert_eq!(
@@ -1899,8 +1960,11 @@ mod tests {
 
         //  Create the extraction graph
         let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
-        eg.extraction_policies[0].filters =
-            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
+        eg.extraction_policies[0].filter = LabelsFilter(vec![Expression {
+            key: "label1".to_string(),
+            operator: Operator::Eq,
+            value: serde_json::json!("value1"),
+        }]);
         let _structured_data_schema = StructuredDataSchema::default();
         node.create_extraction_graph(
             eg.clone(),
@@ -1925,7 +1989,10 @@ mod tests {
             .get_latest_version_of_content("content_id_1")?
             .unwrap();
         let policies = node
-            .match_extraction_policies_for_content(&content_metadata1)
+            .match_extraction_policies_for_content(
+                &content_metadata1,
+                &content_metadata1.extraction_graph_names,
+            )
             .await?;
         assert_eq!(policies.len(), 1);
 
@@ -1934,7 +2001,10 @@ mod tests {
             .get_latest_version_of_content("content_id_2")?
             .unwrap();
         let policies = node
-            .match_extraction_policies_for_content(&content_metadata2)
+            .match_extraction_policies_for_content(
+                &content_metadata2,
+                &content_metadata2.extraction_graph_names,
+            )
             .await?;
         assert_eq!(policies.len(), 0);
 

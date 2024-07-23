@@ -8,6 +8,7 @@ resources:
   - ../components/ingress
   - ../components/chunker
   - ../components/minilm-l6
+  - ../components/pdfextractor
 
 components:
   - ../components/postgres

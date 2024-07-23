@@ -143,6 +143,19 @@ impl CoordinatorClient {
         Ok(client)
     }
 
+    pub async fn list_extraction_graphs(
+        &self,
+        namespace: &str,
+    ) -> Result<Vec<indexify_coordinator::ExtractionGraph>> {
+        let request = tonic::Request::new(
+            indexify_proto::indexify_coordinator::ListExtractionGraphRequest {
+                namespace: namespace.to_string(),
+            },
+        );
+        let response = self.get().await?.list_extraction_graphs(request).await?;
+        Ok(response.into_inner().graphs)
+    }
+
     pub async fn get_raft_metrics_snapshot(
         &self,
     ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
@@ -228,6 +241,23 @@ impl CoordinatorClient {
         });
         let response = self.get().await?.get_task(request).await?;
         Ok(response.into_inner().task)
+    }
+
+    pub async fn get_content_metadata_tree(
+        &self,
+        namespace: &str,
+        extraction_graph_name: &str,
+        extraction_policy: &str,
+        content_id: &str,
+    ) -> Result<indexify_proto::indexify_coordinator::GetContentTreeMetadataResponse> {
+        let req = indexify_coordinator::GetContentTreeMetadataRequest {
+            namespace: namespace.to_string(),
+            extraction_graph_name: extraction_graph_name.to_string(),
+            extraction_policy: extraction_policy.to_string(),
+            content_id: content_id.to_string(),
+        };
+        let resp = self.get().await?.get_content_tree_metadata(req).await?;
+        Ok(resp.into_inner())
     }
 
     pub async fn get_metadata_for_ingestion(

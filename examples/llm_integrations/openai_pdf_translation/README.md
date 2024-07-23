@@ -150,6 +150,7 @@ if __name__ == "__main__":
     print("Translated Content (first 500 characters):")
     print(translated_text[:500])
 ```
+<img src="https://docs.getindexify.ai/example_code/llm_integrations/openai_pdf_translation/carbon.png" width="600"/>
 
 ## Approach 2: Two-Step PDF Translation with GPT-3.5-turbo
 

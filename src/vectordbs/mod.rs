@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use filter::Expression;
 use indexify_internal_api::ContentMetadata;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
@@ -77,60 +78,6 @@ impl VectorChunk {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum FilterOperator {
-    Eq,
-    Neq,
-    Gt,
-    Lt,
-    GtEq,
-    LtEq,
-}
-
-impl FilterOperator {
-    pub fn from_str(operator: &str) -> Result<Self> {
-        match operator {
-            "=" => Ok(Self::Eq),
-            "!=" => Ok(Self::Neq),
-            ">" => Ok(Self::Gt),
-            "<" => Ok(Self::Lt),
-            ">=" => Ok(Self::GtEq),
-            "<=" => Ok(Self::LtEq),
-            _ => Err(anyhow::anyhow!("Invalid filter operator: {}", operator)),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Filter {
-    pub key: String,
-    pub value: serde_json::Value,
-    pub operator: FilterOperator,
-}
-
-impl Filter {
-    pub fn from_str(filter: &str) -> Result<Self> {
-        // This parser must start with the longest operators first.
-        let operators = vec!["!=", ">=", "<=", "=", ">", "<"];
-        for operator in operators {
-            let parts: Vec<&str> = filter.split(operator).collect();
-            if parts.len() != 2 {
-                continue;
-            }
-
-            let key = parts[0].to_string();
-            let value = serde_json::from_str(parts[1]).unwrap_or(serde_json::json!(parts[1]));
-            let operator = FilterOperator::from_str(operator)?;
-            return Ok(Self {
-                key,
-                value,
-                operator,
-            });
-        }
-        Err(anyhow::anyhow!("Invalid filter: {}", filter))
-    }
-}
-
 /// A trait that defines the interface for interacting with a vector database.
 /// The vector database is responsible for storing and querying vector
 /// embeddings.
@@ -165,7 +112,7 @@ pub trait VectorDb {
         index: String,
         query_embedding: Vec<f32>,
         k: u64,
-        filters: Vec<Filter>,
+        filter: filter::LabelsFilter,
     ) -> Result<Vec<SearchResult>>;
 
     /// Deletes the specified vector index from the vector database.
@@ -200,9 +147,10 @@ pub async fn create_vectordb(config: VectorIndexConfig) -> Result<VectorDBTS> {
 mod tests {
     use std::collections::HashMap;
 
+    use filter::{Expression, Operator};
     use serde_json::json;
 
-    use super::{Filter, FilterOperator, VectorDBTS};
+    use super::VectorDBTS;
     use crate::{
         data_manager::DataManager,
         test_util::db_utils::{create_metadata, test_mock_content_metadata},
@@ -252,7 +200,7 @@ mod tests {
             .unwrap();
 
         let results = vector_db
-            .search(index_name.into(), vec![10., 8.], 1, vec![])
+            .search(index_name.into(), vec![10., 8.], 1, Default::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -390,14 +338,19 @@ mod tests {
         let query = vec![0.1, 0.2];
 
         // Test basic string filters eq
-        let filter = Filter {
+        let filter = Expression {
             key: "tag".to_string(),
             value: serde_json::json!("value1"),
-            operator: FilterOperator::Eq,
+            operator: Operator::Eq,
         };
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(vec![filter]),
+            )
             .await
             .unwrap();
 
@@ -405,14 +358,19 @@ mod tests {
         assert_eq!(res.first().unwrap().content_id, content_ids[0]);
 
         // Test basic string filters neq
-        let filter = Filter {
+        let filter = Expression {
             key: "tag".to_string(),
             value: serde_json::json!("value1"),
-            operator: FilterOperator::Neq,
+            operator: Operator::Neq,
         };
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(vec![filter]),
+            )
             .await
             .unwrap();
 
@@ -420,14 +378,19 @@ mod tests {
         assert_eq!(res.first().unwrap().content_id, content_ids[1]);
 
         // Test single boolean filter
-        let filter = Filter {
+        let filter = Expression {
             key: "bool".to_string(),
             value: serde_json::json!(true),
-            operator: FilterOperator::Eq,
+            operator: Operator::Eq,
         };
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(vec![filter]),
+            )
             .await
             .unwrap();
 
@@ -435,21 +398,26 @@ mod tests {
         assert_eq!(res.first().unwrap().content_id, content_ids[0]);
 
         // Test multi filter string and boolean
-        let filters = vec![
-            Filter {
+        let expressions = vec![
+            Expression {
                 key: "tag".to_string(),
                 value: serde_json::json!("value2"),
-                operator: FilterOperator::Eq,
+                operator: Operator::Eq,
             },
-            Filter {
+            Expression {
                 key: "bool".to_string(),
                 value: serde_json::json!(true),
-                operator: FilterOperator::Neq,
+                operator: Operator::Neq,
             },
         ];
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, filters)
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(expressions),
+            )
             .await
             .unwrap();
 
@@ -457,14 +425,19 @@ mod tests {
         assert_eq!(res.first().unwrap().content_id, content_ids[2]);
 
         // Test single number equality filter
-        let filter = Filter {
+        let expression = Expression {
             key: "number".to_string(),
             value: serde_json::json!(30),
-            operator: FilterOperator::Eq,
+            operator: Operator::Eq,
         };
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(vec![expression]),
+            )
             .await
             .unwrap();
 
@@ -472,49 +445,64 @@ mod tests {
         assert_eq!(res.first().unwrap().content_id, content_ids[1]);
 
         // Test single range filter
-        let filter = Filter {
+        let expression = Expression {
             key: "number".to_string(),
             value: serde_json::json!(30),
-            operator: FilterOperator::GtEq,
+            operator: Operator::GtEq,
         };
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(vec![expression]),
+            )
             .await
             .unwrap();
 
         assert_eq!(res.len(), 2);
 
         // Test multi range filter
-        let filters = vec![
-            Filter {
+        let expressions = vec![
+            Expression {
                 key: "number".to_string(),
                 value: serde_json::json!(25),
-                operator: FilterOperator::GtEq,
+                operator: Operator::GtEq,
             },
-            Filter {
+            Expression {
                 key: "number".to_string(),
                 value: serde_json::json!(35),
-                operator: FilterOperator::Lt,
+                operator: Operator::Lt,
             },
         ];
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, filters)
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(expressions),
+            )
             .await
             .unwrap();
 
         assert_eq!(res.len(), 2);
 
         // Test no results
-        let filter = Filter {
+        let expression = Expression {
             key: "number".to_string(),
             value: serde_json::json!(40),
-            operator: FilterOperator::Gt,
+            operator: Operator::Gt,
         };
 
         let res = vector_db
-            .search(index_name.to_string(), query.clone(), k, vec![filter])
+            .search(
+                index_name.to_string(),
+                query.clone(),
+                k,
+                filter::LabelsFilter(vec![expression]),
+            )
             .await
             .unwrap();
 
