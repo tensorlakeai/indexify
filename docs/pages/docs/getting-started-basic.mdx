@@ -1,6 +1,6 @@
 # Beginner's Guide to Indexify: Building a Wikipedia Information Retrieval System
 
-![Getting-Started-Cover-Image](https://github.com/user-attachments/assets/bce022db-3586-4cac-81ba-eb4426cdd90c)
+![Getting Started Cover Image](https://github.com/user-attachments/assets/bce022db-3586-4cac-81ba-eb4426cdd90c)
 
 In this guide, we'll walk you through creating an online ingestion pipeline for Wikipedia pages. This pipeline will demonstrate how to:
 
@@ -32,8 +32,8 @@ You'll need three separate terminal windows open for this tutorial:
 
 We'll use the following notation to indicate which terminal to use:
 
-```bash filename="( Terminal X ) Description of Command"
-<command goes here>
+```bash filename="Terminal X Description of Command"
+command goes here
 ```
 
 ![Indexify Terminal](https://github.com/tensorlakeai/indexify-extractors/assets/44690292/c0185f07-5033-4e7c-9040-7854b996d430)
@@ -48,10 +48,10 @@ Here are components which you will touch while working through the example:
 
 The directory structure of our project, will look like this 
 
-```plaintext filename="Directory Structure"
-indexify-tutorial/
+```text filename="Directory Structure"
+indexify-tutorial
 │
-├── venv/                  # Virtual environment (created by python3 -m venv venv)
+├── venv                   # Virtual environment (created by python3 -m venv venv)
 │
 ├── graph.yaml             # Extraction graph definition
 ├── setup.py               # Script to create the extraction graph
@@ -65,7 +65,7 @@ indexify-tutorial/
 
 Let's start by downloading and running the Indexify server:
 
-```bash filename="( Terminal 1 ) Download Indexify Server"
+```bash filename="Terminal 1 Download Indexify Server"
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
@@ -81,7 +81,7 @@ The Ingestion API is used for uploading content and retrieving data from indexes
 
 It's good practice to use a virtual environment for Python projects. Let's create one and install the necessary packages:
 
-```bash filename="( Terminal 2 ) Install Dependencies"
+```bash filename="Terminal 2 Install Dependencies"
 python3 -m venv venv
 source venv/bin/activate
 pip3 install indexify-extractor-sdk indexify wikipedia openai langchain_community
@@ -93,7 +93,7 @@ The next step is to set up the extractors, which are essential for structured ex
 
 Extractors consume Content, which consists of raw bytes of unstructured data, and then produce a list of processed Content along with extracted features.
 
-![Extractor_working](images/Extractor_Transformation_Concept.png)
+![Extractor Working](/images/Extractor_Transformation_Concept.png)
 
 If you want to read and understand how to build a custom extractor for your own use case, go through the following section. However, if you want to use a built-in available extractor jump to the [next section](#using-available-extractors). 
 
@@ -107,7 +107,7 @@ Here is an example Extrator, which does Named Entity Recognition on text data.
 class NerExtract(Extractor):
     name = 'yourorg/nerextractor'
     
-    def extract(self, content: Content) -> List[Content]:
+    def extract(self, content: Content) -{'>'} List[Content]:
         """
         Extracts named entities from content.
         """
@@ -129,13 +129,13 @@ Indexify provides tools to test extractors locally, package and deploy them to p
 As mentioned before, for the purpose of this tutorial, we already have Extractors written, deployed and tested.
 Set your OpenAI API key:
 
-```bash filename="( Terminal 2 ) Download Indexify Extractors"
+```bash filename="Terminal 2 Download Indexify Extractors"
 export OPENAI_API_KEY=your_api_key_here
 ```
 
 Now, let's download three essential extractors:
 
-```bash filename="( Terminal 2 ) Download Indexify Extractors"
+```bash filename="Terminal 2 Download Indexify Extractors"
 source venv/bin/activate
 indexify-extractor download tensorlake/openai
 indexify-extractor download tensorlake/minilm-l6
@@ -145,7 +145,7 @@ indexify-extractor join-server
 
 Now, let's start all available extractors:
 
-```bash filename="( Terminal 2 ) Starting Extractor Workers"
+```bash filename="Terminal 2 Starting Extractor Workers"
 indexify-extractor join-server
 ```
 
@@ -153,7 +153,7 @@ indexify-extractor join-server
 
 We’ll define our data pipeline using a YAML file to process text documents by splitting them into chunks, extracting entities, and embedding the chunks in parallel. The following diagram outlines the Indexify end-to-end pipeline.
 
-![Extraction Policy Graph](images/extraction_graph_getting_started.jpg){: style="height:300px"}
+![Extraction Policy Graph](/images/extraction_graph_getting_started.jpg)
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
@@ -315,13 +315,13 @@ Run this script to query the indexed data:
 
 You should see a response summarizing Kevin Durant's career accomplishments based on the indexed Wikipedia data.
 
-```plaintext filename="Output"
+```text filename="Output"
 During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
 ```
 
 ## Conclusion
 
-Congratulations! You've successfully set up an Indexify pipeline for ingesting, processing, and querying Wikipedia data. This guide has walked you through:
+Congratulations, You've successfully set up an Indexify pipeline for ingesting, processing, and querying Wikipedia data. This guide has walked you through:
 
 1. Setting up the Indexify server and extractors
 2. Defining an extraction graph for processing Wikipedia pages
@@ -336,10 +336,10 @@ To continue your journey with Indexify, consider exploring the following topics 
 
 | Topics | Subtopics |
 |--------|-----------|
-| [Intermediate Use Case: Unstructured Data Extraction from a Tax PDF](https://docs.getindexify.ai/getting_started_intermediate/) | - Understanding the challenge of tax document processing<br>- Setting up an Indexify pipeline for PDF extraction<br>- Implementing extractors for key tax information<br>- Querying and retrieving processed tax data |
-| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br>  • Transformation<br>  • Structured Data Extraction<br>  • Embedding Extraction<br>  • Combined Transformation, Embedding, and Metadata Extraction<br>- Namespaces<br>- Content<br>- Extraction Graphs<br>- Vector Index and Retrieval APIs<br>- Structured Data Tables |
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Indexify Server<br>  • Coordinator<br>  • Ingestion Server<br>- Extractors<br>- Deployment Layouts<br>  • Local Mode<br>  • Production Mode |
-| [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK<br>- Designing your extractor's functionality<br>- Implementing the extractor class<br>- Testing and debugging your custom extractor<br>- Integrating the custom extractor into your Indexify pipeline |
-| [Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Document processing and analysis<br>- Image and video content extraction<br>- Audio transcription and analysis<br>- Multi-modal data processing<br>- Large-scale data ingestion and retrieval systems |
+| [Intermediate Use Case: Unstructured Data Extraction from a Tax PDF](https://docs.getindexify.ai/getting_started_intermediate/) | - Understanding the challenge of tax document processing \n  -  Setting up an Indexify pipeline for PDF extraction \n  -  Implementing extractors for key tax information \n  -  Querying and retrieving processed tax data |
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors \n  - Transformation \n  - Structured Data Extraction \n  - Embedding Extraction \n  - Combined Transformation, Embedding, and Metadata Extraction \n  -  Namespaces \n  -  Content \n  -  Extraction Graphs \n  -  Vector Index and Retrieval APIs \n  -  Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Indexify Server \n  - Coordinator \n  - Ingestion Server \n  -  Extractors \n  -  Deployment Layouts \n  - Local Mode \n  - Production Mode |
+| [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK \n  -  Designing your extractor's functionality \n  -  Implementing the extractor class \n  -  Testing and debugging your custom extractor \n  -  Integrating the custom extractor into your Indexify pipeline |
+| [Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Document processing and analysis \n  -  Image and video content extraction \n  -  Audio transcription and analysis \n  -  Multi-modal data processing \n  -  Large-scale data ingestion and retrieval systems |
 
 Each section builds upon the previous ones, providing a logical progression from practical application to deeper technical understanding and finally to customization and real-world examples.

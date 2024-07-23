@@ -2,7 +2,7 @@
 
 The core idea is to build ingestion pipelines with stages that transforms unstructured data, and perform structured extraction or create embeddings using AI models.
 
-![Extraction Graph Concept Image](images/extraction_graph_key_concept.png)
+![Extraction Graph Concept Image](/images/extraction_graph_key_concept.png)
  
 ## Extraction Graphs
 These are multi-step workflows created by chaining multiple extractors together. They allow you to manage and orchestrate complex data processing pipelines by,

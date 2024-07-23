@@ -1,5 +1,5 @@
-import { Callouts } from 'nextra/components'
-import { Tabs } from 'nextra/components'
+import { Callout } from 'nextra/components';
+import { Tabs } from 'nextra/components';
 
 # Getting Started - Parsing complex PDF Documents
 
@@ -46,7 +46,7 @@ Here are components which you will touch while working through the example:
 
 The directory structure of our project, will look like this 
 
-```plaintext filename="Directory Structure"
+```text filename="Directory Structure"
 indexify-tax-calculator/
 │
 ├── venv/                      # Virtual environment (created by python3 -m venv venv)
@@ -82,16 +82,17 @@ Extractors are specialized components in Indexify that process and transform dat
 - MiniLM-L6 Extractor: Generates embeddings for text chunks
 
 
-??? note "Want the Source Code?"
-
-    The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/intermediate) in our example folder
-
+<Callout type="info" emoji="️ℹ️">
+  The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/intermediate) in our example folder
+</Callout>
 
 Before we begin, let's setup a virtual environment for Python projects and download the extractors
 
-!!! note "Python Versions"
+<Callout type="info" emoji="️ℹ️">
+  Indexify requires python 3.11 or older at this present moment to work.
+</Callout>
 
-    Indexify requires python 3.11 or older at this present moment to work.
+    
 
 ```bash filename="( Terminal 2 ) Download Indexify Extractors"
 python3 -m venv venv
@@ -118,7 +119,7 @@ section.
 
 Don't forget to install the necessary dependencies before running the rest of this tutorial.
 
-<Tabs items={['Python', 'TypeScript']}
+<Tabs items={['Python', 'TypeScript']}>
 
   <Tabs.Tab>
     ```bash filename="( Terminal 2 ) Install libraries"
@@ -130,14 +131,14 @@ Don't forget to install the necessary dependencies before running the rest of th
     ```bash filename="( Terminal 2 ) Install libraries"
     npm install axios getindexify openai
     ```
-  </Tabs.Tabs> 
+  </Tabs.Tab> 
 </Tabs>  
 
 ## Stage 4: Setting Up the Extraction Graph
 
 Set up an extraction graph to process the PDF documents. The extraction graph defines the sequence of operations that will be performed on our input data (the tax law PDF). Let's set it up:
 
-<Tabs items={['Python', 'TypeScript']}
+<Tabs items={['Python', 'TypeScript']}>
   <Tabs.Tab>
     ```python filename="setup_extraction_graph.py"
     from indexify import ExtractionGraph, IndexifyClient
@@ -191,7 +192,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
         await client.createExtractionGraph(graph)
       })()
     ```
-  </Tabs.Tabs>  
+  </Tabs.Tab>  
 </Tabs>  
 
 This extraction graph, named 'pdfqa', defines a three-step process:
@@ -226,7 +227,7 @@ The `setup_extraction_graph.py` script is responsible for defining and creating 
 
 Add the PDF document to the "pdfqa" extraction graph:
 
-Tabs items={['Python', 'TypeScript']}
+<Tabs items={['Python', 'TypeScript']}>
 
   <Tabs.Tab>
     ```python filename="ingest_document.py"
@@ -263,7 +264,8 @@ Tabs items={['Python', 'TypeScript']}
     })();
     ```
   </Tabs.Tab>
-</Tabs>   
+</Tabs>
+
 This code does the following:
 
 1. Downloads the California tax law PDF from a public URL
@@ -285,7 +287,9 @@ We can use the same prompting and context retrieval function defined above to ge
 <Callout type="info" emoji="️ℹ️">
   You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
 </Callout>
-<Tabs items={['Python', 'TypeScript']}
+
+
+<Tabs items={['Python', 'TypeScript']}>
 
   <Tabs.Tab>
     ```python filename="query_tax_info.py"
@@ -299,11 +303,11 @@ We can use the same prompting and context retrieval function defined above to ge
         results = client.search_index(name=index, query=question, top_k=3)
         context = ""
         for result in results:
-            context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
+            context = context + f"content id: {result['content_id']} \n \npassage: {result['text']}\n"
         return context
 
     def create_prompt(question, context):
-        return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
+        return f"Answer the question, based on the context. \nquestion: {question}  \ncontext: {context}"
 
     question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
     context = get_context(question, "pdfqa.pdfembedding.embedding")
@@ -337,12 +341,12 @@ We can use the same prompting and context retrieval function defined above to ge
         const results = await client.searchIndex(index, question, topK)
 
         return results.reduce((ctx, result) =>
-          ctx + `content id: {${result.content_id}} \n\n passage: {${result.text}}\n`,
+          ctx + `content id: {${result.content_id}} \n \npassage: {${result.text}}\n`,
         "")
       }
 
       const createPrompt = (question: string, context: string) =>
-        `Answer the question, based on the context.\n question: ${question} \n context: ${context}`
+        `Answer the question, based on the context. \nquestion: ${question}  \ncontext: ${context}`
 
       const question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
       const context = await getContext(question, "pdfqa.pdfembedding.embedding")
@@ -420,8 +424,7 @@ The key strengths of this pipeline would be:
 
 | Topics | Subtopics |
 |--------|-----------|
-| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors <br />   • Transformation techniques <br />   • Structured Data Extraction methods <br />   • Advanced Embedding Extraction <br />   • Combining Transformation, Embedding, and Metadata Extraction <br /> - Namespaces and data organization <br /> - Content management strategies <br /> - Designing complex Extraction Graphs <br /> - Advanced Vector Index and Retrieval API usage <br /> - Optimizing Structured Data Tables |
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server <br />   • Coordinator functionality and optimization <br />   • Ingestion Server scalability <br /> - Advanced Extractor configurations <br /> - Deployment Layouts <br />   • Optimizing Local Mode for development <br />   • Scaling Production Mode for high-volume applications |
-| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth <br /> - Designing extractors for specific data types or industries <br /> - Implementing advanced extractor classes <br /> - Strategies for testing and debugging complex extractors <br /> - Integrating custom extractors into large-scale Indexify pipelines |
-| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis <br /> - Real-time image and video content extraction systems <br /> - Audio transcription and sentiment analysis pipelines <br /> - Creating multi-modal data processing systems <br /> - Implementing large-scale, distributed data ingestion and retrieval systems <br /> - Building domain-specific question-answering systems (e.g., legal, medical, financial) |
-
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors  \n  - Transformation techniques \n  - Structured Data Extraction methods \n  - Advanced Embedding Extraction \n  - Combining Transformation, Embedding, and Metadata Extraction \n- Namespaces and data organization \n- Content management strategies \n- Designing complex Extraction Graphs \n- Advanced Vector Index and Retrieval API usage \n- Optimizing Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server \n  - Coordinator functionality and optimization \n  - Ingestion Server scalability \n- Advanced Extractor configurations \n- Deployment Layouts \n  - Optimizing Local Mode for development \n  - Scaling Production Mode for high-volume applications |
+| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth \n- Designing extractors for specific data types or industries \n- Implementing advanced extractor classes \n- Strategies for testing and debugging complex extractors \n- Integrating custom extractors into large-scale Indexify pipelines |
+| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis \n- Real-time image and video content extraction systems \n- Audio transcription and sentiment analysis pipelines \n- Creating multi-modal data processing systems \n- Implementing large-scale, distributed data ingestion and retrieval systems \n- Building domain-specific question-answering systems (e.g., legal, medical, financial) |

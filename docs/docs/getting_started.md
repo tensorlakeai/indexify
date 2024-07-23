@@ -48,7 +48,7 @@ Here are components which you will touch while working through the example:
 
 The directory structure of our project, will look like this 
 
-```plaintext filename="Directory Structure"
+```text filename="Directory Structure"
 indexify-tutorial/
 │
 ├── venv/                  # Virtual environment (created by python3 -m venv venv)
@@ -93,7 +93,7 @@ The next step is to set up the extractors, which are essential for structured ex
 
 Extractors consume Content, which consists of raw bytes of unstructured data, and then produce a list of processed Content along with extracted features.
 
-![Extractor_working](images/Extractor_Transformation_Concept.png)
+![Extractor_working](/images/Extractor_Transformation_Concept.png)
 
 If you want to read and understand how to build a custom extractor for your own use case, go through the following section. However, if you want to use a built-in available extractor jump to the [next section](#using-available-extractors). 
 
@@ -153,7 +153,7 @@ indexify-extractor join-server
 
 We’ll define our data pipeline using a YAML file to process text documents by splitting them into chunks, extracting entities, and embedding the chunks in parallel. The following diagram outlines the Indexify end-to-end pipeline.
 
-![Extraction Policy Graph](images/extraction_graph_getting_started.jpg){: style="height:300px"}
+![Extraction Policy Graph](/images/extraction_graph_getting_started.jpg){: style="height:300px"}
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
@@ -315,7 +315,7 @@ Run this script to query the indexed data:
 
 You should see a response summarizing Kevin Durant's career accomplishments based on the indexed Wikipedia data.
 
-```plaintext filename="Output"
+```text filename="Output"
 During his career, Kevin Durant has achieved numerous accomplishments, including winning two NBA championships, an NBA Most Valuable Player Award, two Finals MVP Awards, two NBA All-Star Game Most Valuable Player Awards, four NBA scoring titles, the NBA Rookie of the Year Award, and being named to ten All-NBA teams (including six First Teams). He has also been selected as an NBA All-Star 14 times and was named to the NBA 75th Anniversary Team in 2021. Additionally, Durant has won three gold medals in the Olympics as a member of the U.S. men's national team and gold at the 2010 FIBA World Championship
 ```
 

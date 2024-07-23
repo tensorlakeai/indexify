@@ -45,7 +45,7 @@ Here are components which you will touch while working through the example:
 
 The directory structure of our project, will look like this 
 
-```plaintext filename="Directory Structure"
+```text filename="Directory Structure"
 indexify-tax-calculator/
 │
 ├── venv/                      # Virtual environment (created by python3 -m venv venv)

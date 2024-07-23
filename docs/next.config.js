@@ -14,6 +14,12 @@ const withNextra = require('nextra')({
 })
 
 module.exports = withNextra({
+  webpack: (config, { dev, isServer }) => {
+    if (!dev) {
+      config.cache = false;
+    }
+    return config;
+  },
   async redirects() {
     // TODO: Configure Redirects
     return [
