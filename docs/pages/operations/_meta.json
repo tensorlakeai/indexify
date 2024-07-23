@@ -1,0 +1,11 @@
+{
+    "--": {
+      "type": "separator",
+      "title": "Deployment & Operation"
+    },
+    "kubernetes": "Kubernetes",
+    "configuration": "Configuration",
+    "metrics": "Metrics",
+    "develop": "Develop Indexify",
+    "gpu-deployment": "Extractors on GPU"
+}
