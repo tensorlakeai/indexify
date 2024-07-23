@@ -5,9 +5,7 @@ WORKDIR /indexify-build
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update
-RUN apt -y install software-properties-common unzip
-RUN add-apt-repository ppa:deadsnakes/ppa -y
-RUN apt install -y \
+RUN apt -y install software-properties-common unzip \
     build-essential make cmake g++ ca-certificates \
     curl pkg-config git \
     sqlite3 libssl-dev libclang-dev
