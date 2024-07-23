@@ -1,11 +1,8 @@
 import { Callouts } from 'nextra/components'
 import { Tabs } from 'nextra/components'
 
-# Getting Started - Intermediate
+# Getting Started - Parsing complex PDF Documents
 
-Hello and welcome to the Intermediate Getting Started guide. Please go through the [Getting Started Basic](https://docs.getindexify.ai/getting_started/) guide for Indexify if you haven't already.
-
-## California Tax Calculation Example
 What if one could go through a 26-page complex tax document and understand it without a lawyer, an accountant, or the geek from college? What if 5 easy-to-follow steps were all you need to do reliable QnA on a complex and layered document like a tax invoice?
 Indexify enables you to do just that.
 
@@ -13,9 +10,7 @@ Indexify enables you to do just that.
 ![indexify-header-intermediate](https://github.com/user-attachments/assets/ae0c2dfe-b144-41f4-ba87-0795bef538ec)
 
 In this example, we will make an LLM (Large Language Model) answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
-
-<img src="https://github.com/user-attachments/assets/79839395-3a42-49a7-86a6-1bc9c4e407f9" alt="Image description" height="1024" />
-
+![LLM Getting Started Image](https://github.com/user-attachments/assets/79839395-3a42-49a7-86a6-1bc9c4e407f9)
 
 This seemingly simple example demonstrates the power and flexibility of Indexify. In a real-world scenario, you could easily scale this approach to ingest and extract information from hundreds of state-specific documents, creating a robust tax consultation system.
 
@@ -37,20 +32,19 @@ You'll need three separate terminal windows open for this tutorial:
 
 We'll use the following notation to indicate which terminal to use:
 
-```bash filename="( Terminal X ) Description of Command"
-<command goes here>
+```bash filename="Terminal X - Description of Command"
+{'<'}command goes here{'>'}
 ```
 
 ### Understanding Indexify Components
 
-Before we dive in, let's briefly explain the key components of Indexify:
+Here are components which you will touch while working through the example:
 
 1. **Indexify Server**: The central coordinator and data ingestion API.
 2. **Extractors**: Specialized workers designed to perform specific data processing tasks (e.g., embedding data, generating summaries, or extracting features from unstructured data).
 3. **Extraction Graph**: A declarative YAML file that chains together extractors into a complex pipeline.
 
-
-Also before we look into creating pipelines for ingestion and query, it is best to lay out the directory structure of our project.
+The directory structure of our project, will look like this 
 
 ```plaintext filename="Directory Structure"
 indexify-tax-calculator/
@@ -65,16 +59,6 @@ indexify-tax-calculator/
 │
 └── indexify                   # Indexify server executable (downloaded by curl command)
 ```
-
-To use this structure:
-
-1. Create a new directory called `indexify-tax-calculator`.
-2. Navigate into this directory in your terminal.
-3. Create the virtual environment and activate it (discussed below).
-4. Create each of the `.py` and `.yaml` files in the root of this directory (discussed below).
-5. Run the curl command to download the Indexify executable into this directory (discussed below).
-
-This structure keeps all the components of our tutorial project organized in one place, making it easy to manage and run the different scripts.
 
 ## Stage 1: Setting Up the Indexify Server
 
@@ -155,7 +139,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
 
 <Tabs items={['Python', 'TypeScript']}
   <Tabs.Tab>
-    ``` python filename="setup_extraction_graph.py"
+    ```python filename="setup_extraction_graph.py"
     from indexify import ExtractionGraph, IndexifyClient
 
     client = IndexifyClient()
@@ -182,7 +166,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
   </Tabs.Tab>
 
   <Tabs.Tab>
-    ```javascript filename="setup_extraction_graph.ts"
+    ```typescript filename="setup_extraction_graph.ts"
     import { ExtractionGraph, IndexifyClient } from "getindexify"
 
     (async () => {
@@ -242,7 +226,7 @@ The `setup_extraction_graph.py` script is responsible for defining and creating 
 
 Add the PDF document to the "pdfqa" extraction graph:
 
-<Tabs items={['Python', 'TypeScript']}
+Tabs items={['Python', 'TypeScript']}
 
   <Tabs.Tab>
     ```python filename="ingest_document.py"
@@ -280,7 +264,6 @@ Add the PDF document to the "pdfqa" extraction graph:
     ```
   </Tabs.Tab>
 </Tabs>   
-
 This code does the following:
 
 1. Downloads the California tax law PDF from a public URL
@@ -299,12 +282,9 @@ Once uploaded, Indexify will automatically process the PDF through our defined e
 
 We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
 
-!!! note "OpenAI API"
-
-  <callout>
-    You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
-  </callout>
-
+<Callout type="info" emoji="️ℹ️">
+  You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
+</Callout>
 <Tabs items={['Python', 'TypeScript']}
 
   <Tabs.Tab>
@@ -378,7 +358,7 @@ We can use the same prompting and context retrieval function defined above to ge
     })()
     ```
   </Tabs.Tab>
-</Tabs>  
+</Tabs>
 
 This will allow you to do the following:
 
@@ -404,9 +384,8 @@ python3 ./query_tax_info.py
 ```
 The example question asks about California tax brackets and calculates taxes for a $24,000 income. The LLM uses the context provided by our Indexify pipeline to formulate an accurate response as shown below.
 
-!!! note "Response"
-
-    Based on the provided information, the tax rates and brackets for California are as follows:
+<Callout type="info" emoji="️ℹ️">
+Based on the provided information, the tax rates and brackets for California are as follows:
 
     - $0 - $11,450: 10% of the amount over $0
     - $11,450 - $43,650: $1,145 plus 15% of the amount over $11,450
@@ -424,6 +403,8 @@ The example question asks about California tax brackets and calculates taxes for
 
     Therefore, your total tax liability would be $1,145 + $1,882.50 = $3,027.50.
 
+</Callout>
+
 ## Conclusion
 
 This intermediate guide demonstrates how to use Indexify to create a sophisticated question-answering system for California tax laws. By ingesting a PDF, extracting and processing its content, and using an LLM for answer generation, we've created a flexible and powerful tool that could be easily expanded to cover more complex scenarios or multiple documents.
@@ -435,36 +416,12 @@ The key strengths of this pipeline would be:
 3. Use of up-to-date, specific information for answer generation
 4. Scalability to handle multiple documents or more complex queries
 
-### Scaling for Hundreds of PDFs
-
-To scale this pipeline for hundreds of PDFs, one may consider the following aspects of the existing design:
-
-1. **Modular Extraction Graph**: 
-   The current design allows for easy addition of *new extractors*. This modularity means you can process different types of PDFs by adding specialized extractors to the graph.
-
-2. **Indexing and Retrieval**:
-   The current system uses **vector index** for retrieval. This approach is inherently scalable and can handle *large volumes of data* efficiently.
-
-3. **Stateless Processing**:
-   Each stage of the pipeline (PDF ingestion, extraction, querying) is essentially *stateless*. This design naturally lends itself to parallel processing.
-
-To handle hundreds of PDFs, you could:
-
-1. Implement parallel processing in the document ingestion phase.
-2. Use a distributed storage system for the indexed data.
-3. Implement a queueing system for managing the ingestion of large numbers of PDFs.
-4. Consider using a caching layer in the querying phase to store frequent queries and their results.
-
-The present example design, with its modular and flexible approach, provides a solid foundation for these scalability enhancements. The separation of concerns between extraction graph setup, document ingestion, and querying allows each component to be scaled independently as needed.
-
-By following this guide, you've taken a significant step in leveraging Indexify's capabilities for real-world applications. As you continue to explore, consider how you might apply these techniques to other domains or expand the system to handle more diverse types of queries and documents
-
 ## Next Steps
 
 | Topics | Subtopics |
 |--------|-----------|
-| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors<br />  • Transformation techniques<br />  • Structured Data Extraction methods<br />  • Advanced Embedding Extraction<br />  • Combining Transformation, Embedding, and Metadata Extraction<br />- Namespaces and data organization<br />- Content management strategies<br />- Designing complex Extraction Graphs<br />- Advanced Vector Index and Retrieval API usage<br />- Optimizing Structured Data Tables |
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server<br />  • Coordinator functionality and optimization<br />  • Ingestion Server scalability<br />- Advanced Extractor configurations<br />- Deployment Layouts<br />  • Optimizing Local Mode for development<br />  • Scaling Production Mode for high-volume applications |
-| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth<br />- Designing extractors for specific data types or industries<br />- Implementing advanced extractor classes<br />- Strategies for testing and debugging complex extractors<br />- Integrating custom extractors into large-scale Indexify pipelines |
-| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis<br />- Real-time image and video content extraction systems<br />- Audio transcription and sentiment analysis pipelines<br />- Creating multi-modal data processing systems<br />- Implementing large-scale, distributed data ingestion and retrieval systems<br />- Building domain-specific question-answering systems (e.g., legal, medical, financial) |
+| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors <br />   • Transformation techniques <br />   • Structured Data Extraction methods <br />   • Advanced Embedding Extraction <br />   • Combining Transformation, Embedding, and Metadata Extraction <br /> - Namespaces and data organization <br /> - Content management strategies <br /> - Designing complex Extraction Graphs <br /> - Advanced Vector Index and Retrieval API usage <br /> - Optimizing Structured Data Tables |
+| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server <br />   • Coordinator functionality and optimization <br />   • Ingestion Server scalability <br /> - Advanced Extractor configurations <br /> - Deployment Layouts <br />   • Optimizing Local Mode for development <br />   • Scaling Production Mode for high-volume applications |
+| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth <br /> - Designing extractors for specific data types or industries <br /> - Implementing advanced extractor classes <br /> - Strategies for testing and debugging complex extractors <br /> - Integrating custom extractors into large-scale Indexify pipelines |
+| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples_index/) | - Multi-lingual document processing and analysis <br /> - Real-time image and video content extraction systems <br /> - Audio transcription and sentiment analysis pipelines <br /> - Creating multi-modal data processing systems <br /> - Implementing large-scale, distributed data ingestion and retrieval systems <br /> - Building domain-specific question-answering systems (e.g., legal, medical, financial) |
 

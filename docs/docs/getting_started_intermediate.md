@@ -134,7 +134,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
 
 === "Python"
 
-    ``` python filename="setup_extraction_graph.py"
+    ```python filename="setup_extraction_graph.py"
     from indexify import ExtractionGraph, IndexifyClient
 
     client = IndexifyClient()
