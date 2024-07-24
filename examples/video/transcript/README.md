@@ -115,7 +115,7 @@ def summarize_debate(video_path):
     
     # Retrieve the extracted topics
     topics = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="debate_summarizer",
         policy_name="topic_extraction"
     )
@@ -123,7 +123,7 @@ def summarize_debate(video_path):
     topics = topics[0]['content'].decode('utf-8')
     
     summaries = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="debate_summarizer",
         policy_name="topic_summarization"
     )

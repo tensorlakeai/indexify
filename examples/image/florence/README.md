@@ -111,13 +111,13 @@ def analyze_image(image_path):
     )
     
     object_detection = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="florence_image_analyzer",
         policy_name="object_detection"
     )
     
     referring_expression = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="florence_image_analyzer",
         policy_name="referring_expression_segmentation"
     )

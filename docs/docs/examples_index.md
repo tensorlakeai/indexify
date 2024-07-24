@@ -9,8 +9,9 @@ Here are some of examples of use-cases you could accomplish with Indexify
 - [Markdown Extraction](../example_code/pdf/pdf_to_markdown)
 - [Chunk Extraction (Uses LangChain)](../example_code/pdf/chunking)
 - [Indexing and RAG (Uses OpenAI)](../example_code/pdf/indexing_and_rag)
+- [PDF Question Answering (Uses LangChain)](../example_code/pdf/langchain)
 - [Structured Extraction guided by Schema (Uses OpenAI)](../example_code/pdf/structured_extraction)
-- [Adaptive RAG using LangGraph and Indexify](../example_code/pdf/langgraph)
+- [Adaptive RAG using LangGraph](../example_code/pdf/langgraph)
 
 ## **Audio Extraction**
 - [General Instructions](../example_code/audio)

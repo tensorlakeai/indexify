@@ -21,7 +21,7 @@ def extract_entities_from_pdf(pdf_path):
     
     # Retrieve the extracted entities
     entities_content = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_entity_extractor",
         policy_name="text_to_entities"
     )
