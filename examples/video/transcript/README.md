@@ -38,7 +38,12 @@ Start the Indexify server:
 
 ### Install Required Extractors
 
-Next, we'll install the necessary extractors in a new terminal:
+Next, we'll install the necessary extractors in a new terminal. We are using a model for Speaker Diarization which requires using a HF Token. Create a token here - https://huggingface.co/settings/tokens
+
+Set the token before running the following commands - 
+```bash
+export HF_TOKEN=xxxx
+```
 
 ```bash
 pip install indexify-extractor-sdk
