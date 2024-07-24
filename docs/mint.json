@@ -1,0 +1,190 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Docs",
+  "logo": {
+    "dark": "/images/logo/dark.svg",
+    "light": "/images/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#3296FE",
+    "light": "#69affa",
+    "dark": "#3296FE",
+    "anchors": {
+      "from": "#69affa",
+      "to": "#3296FE"
+    }
+  },
+  "topbarCtaButton": {
+    "name": "Get in Touch",
+    "url": "https://dub.sh/diptanu-calendly"
+  },
+  "tabs": [
+    {
+      "name": "👨‍💻 API Reference",
+      "url": "api-reference"
+    },
+    {
+      "name": "🎮 Examples",
+      "url": "examples"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://dub.sh/tensorlake-discord"
+    },
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://dub.sh/indexify-github"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Overview",
+      "pages": [
+        "introduction",
+        "key-concepts",
+        "architecture",
+        "comparisons"
+      ]
+    },
+    {
+      "group": "Get Started",
+      "pages": [
+        "docs/getting-started-basic",
+        "docs/getting-started-intermediate"
+      ]
+    },
+    {
+      "group": "CLI & UI",
+      "pages": [
+        "cli-ui/extractor_cli",
+        "cli-ui/server_cli",
+        "cli-ui/ui"
+      ]
+    },
+    {
+      "group": "Extractors",
+      "pages": [
+        "extractors/audio",
+        "extractors/develop_extractors",
+        "extractors/embedding",
+        "extractors/extractors",
+        "extractors/image",
+        "extractors/pdf",
+        "extractors/text",
+        "extractors/video",
+        "extractors/web"
+      ]
+    },
+    {
+      "group": "APIs",
+      "pages": [
+        "apis/content_ingestion",
+        "apis/extraction_graphs",
+        "apis/install_clients",
+        "apis/retrival"
+      ]
+    },
+    {
+      "group": "Use Cases",
+      "pages": [
+        "usecases/audio_extraction",
+        "usecases/image_retrieval",
+        "usecases/pdf_extraction",
+        "usecases/rag",
+        "usecases/video_rag"
+      ]
+    },
+    {
+      "group": "LLM Frameworks",
+      "pages": [
+        {
+          "group": "DSPy",
+          "pages": [
+            "integrations/dspy/python"
+          ]
+        },
+        {
+          "group": "Langchain",
+          "pages": [
+            "integrations/langchain/python",
+            "integrations/langchain/typescript"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Deployment and Operation",
+      "pages": [
+        "operations/configuration",
+        "operations/develop",
+        "operations/gpu-deployment",
+        "operations/kubernetes",
+        "operations/metrics"
+      ]
+    },
+    {
+      "group": "Examples",
+      "pages": [
+        "examples/index"
+      ]
+    },
+    {
+      "group": "Operations",
+      "pages": [
+        "api-reference/operations/list-all-executors-running-extractors-in-the-cluster",
+        "api-reference/operations/list-all-extractors-available-in-the-cluster",
+        "api-reference/operations/get-all-the-extraction-graph-links-for-a-given-extraction-graph",
+        "api-reference/operations/create-a-link-with-a-given-extraction-graph",
+        "api-reference/operations/list-all-namespaces-registered-on-the-server",
+        "api-reference/operations/create-a-new-namespace",
+        "api-reference/operations/list-tasks-generated-for-a-given-content-and-a-given-extraction-policy",
+        "api-reference/operations/list-the-state-changes-in-the-system"
+      ]
+    },
+    {
+      "group": "Ingestion",
+      "pages": [
+        "api-reference/ingestion/create-a-new-extraction-graph-in-the-namespace",
+        "api-reference/ingestion/update-content",
+        "api-reference/ingestion/delete-content",
+        "api-reference/ingestion/list-all-extraction-graphs-in-a-namespace",
+        "api-reference/ingestion/upload-a-file-to-an-extraction-graph-in-a-namespace"
+      ]
+    },
+    {
+      "group": "Retrieval",
+      "pages": [
+        "api-reference/retrieval/get-extracted-content-metadata-for-a-specific-content-id-and-extraction-graph",
+        "api-reference/retrieval/download-content-with-a-given-id",
+        "api-reference/retrieval/get-content-metadata-for-a-specific-content-id",
+        "api-reference/retrieval/list-all-the-content-ingested-into-an-extraction-graph",
+        "api-reference/retrieval/list-all-the-indexes-in-a-given-namespace",
+        "api-reference/retrieval/search-a-vector-index-in-a-namespace"
+      ]
+    }
+  ],
+  "api": {
+    "playground": {
+      "mode": "hide"
+    },
+    "baseUrl": "https://indexify-server.api.tensorlake.ai/",
+    "auth": {
+      "method": "bearer"
+    }
+  },
+  "footerSocials": {
+    "x": "https://x.com/tensorlake",
+    "github": "https://github.com/tensorlakeai/indexify",
+    "linkedin": "https://www.linkedin.com/company/tensorlake"
+  },
+  "analytics": {
+    "ga4": {
+        "measurementId": "G-KCZ6YYKGKR"
+    }
+  }
+}

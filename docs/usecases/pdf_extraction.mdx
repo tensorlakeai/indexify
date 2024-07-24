@@ -1,0 +1,472 @@
+---
+title: 'PDF Extraction'
+description: 'Comprehensive Guide to PDF Extraction with Indexify'
+---
+
+PDF (Portable Document Format) is a widely used file format for sharing documents. However, extracting useful information from PDFs can be immensely challenging. Indexify provides various extractors to help you extract text, images, and tables from PDF documents efficiently.
+
+| Sample PDF Page |
+|:---------------:|
+| ![Sample PDF Page](https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg) |
+| *A Sample page from a PDF document* |
+| *Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)* |
+
+Let us see how Indexify performs on a page like this.
+
+### Sample Output
+
+| Image Extraction | Table Extraction | Content Extraction |
+|------------------|------------------|---------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="800"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
+
+This guide will walk you through using Indexify for PDF extraction, from basic concepts to advanced use cases. Although this guide doesn't make any assumptions about your familiarity with Indexify or its components, we highly recommend you go through the [Getting Started](https://docs.getindexify.ai/getting_started/) and [Key Concepts](https://docs.getindexify.ai/concepts/) guide.
+
+## Getting Started for PDF Extraction
+
+### Prerequisites
+
+Before we begin, ensure you have the following:
+
+- Python 3.11 or older installed (Indexify currently requires this version)
+- Basic familiarity with Python programming
+- An OpenAI API key (for using GPT models in the question-answering part)
+- Command-line interface experience
+
+### Setup
+
+You'll need three separate terminal windows open for this tutorial:
+
+1. Terminal 1: For downloading and running the Indexify Server
+2. Terminal 2: For running Indexify extractors
+3. Terminal 3: For running Python scripts to load and query data from the Indexify server
+
+We'll use the following notation to indicate which terminal to use:
+
+```bash filename="( Terminal X ) Description of Command"
+<command goes here>
+```
+
+## Understanding PDF Extraction
+
+PDF extraction is the process of pulling out useful information from PDF files. This can include:
+
+- **Text**: The main content of the document.
+- **Images**: Any pictures or graphics in the PDF.
+- **Tables**: Structured data presented in a tabular format.
+- **Metadata**: Information about the document itself, such as author, creation date, etc.
+
+Extracting this information can be challenging due to the complex structure of PDF files. Indexify simplifies this process by providing specialized extractors for each type of content.
+
+## Indexify PDF Extractors
+
+Indexify offers several extractors specifically designed for PDF documents. Here's an overview of the main ones:
+
+| Extractor Class Name | Features | Best Use Case |
+|----------------------|----------|---------------|
+| tensorlake/pdfextractor | Extracts text, images, and tables | Best for scientific papers with tabular information |
+| tensorlake/ocrmypdf | Focuses on text extraction | Ideal for photocopied or scanned PDFs (CPU-based) |
+| tensorlake/easyocr | Focuses on text extraction | Optimized for photocopied or scanned PDFs (GPU-based) |
+| tensorlake/marker | Converts PDFs to Markdown | Best for detailed, structured, and formatted PDFs |
+| tensorlake/layoutlm-document-qa-extractor | Specialized for question-answering tasks | Particularly useful for invoices and structured documents |
+
+Let's visualize how these extractors fit into an extraction pipeline:
+
+![extractor_types](https://github.com/user-attachments/assets/98d4a8f2-07dd-46db-ba1d-d1a24e58aaa1)
+
+This diagram shows how different Indexify extractors can process a PDF document, each producing specific types of output. To learn more about various types of extractors or the guide to creating your own extractor, read the official docs [here](https://docs.getindexify.ai/apis/extractors/#extractor-input-and-output).
+
+## End-to-End Example: Building a PDF Knowledge Base
+
+Let's walk through a complete example of how to use Indexify to build a PDF knowledge base. This example will demonstrate how to extract text, images, and tables from a set of PDF documents and store the extracted information for later use. The PDF we will be using for this example is the technical report for Mistral, found [here](https://arxiv.org/pdf/2310.06825.pdf).
+
+###  Directory Structure
+
+```text
+indexify-pdf-extractor/
+│
+├── venv/                      # Virtual environment
+│
+├── image_extraction.py        # Script for image extraction
+├── table_extraction.py        # Script for table extraction
+├── content_extraction.py      # Script for content extraction
+│
+└── indexify                   # Indexify server executable
+```
+
+### Setup
+
+First, set up your environment:
+
+```bash filename="( Terminal 1 ) Setup Indexify"
+curl https://getindexify.ai | sh
+./indexify server -d
+```
+
+```bash filename="( Terminal 2 ) Setup Python Environment"
+python3 -m venv venv
+source venv/bin/activate
+pip install indexify-extractor-sdk indexify requests
+indexify-extractor download tensorlake/pdfextractor
+indexify-extractor join-server
+```
+
+### Image Extraction
+
+Create a file named `image_extraction.py` with the following content:
+
+```python filename="image_extraction.py"
+from indexify import IndexifyClient, ExtractionGraph
+import os
+import requests
+
+# Set up the extraction graph
+client = IndexifyClient()
+extraction_graph_spec = """
+name: 'image_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_image'
+    input_params:
+      output_types: ["image"]
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
+
+def get_images(pdf_path):
+    client = IndexifyClient()
+    
+    # Upload the PDF file
+    content_id = client.upload_file("image_extractor", pdf_path)
+    
+    # Wait for the extraction to complete
+    client.wait_for_extraction(content_id)
+    
+    # Retrieve the images content
+    images = client.get_extracted_content(
+        ingested_content_id=content_id,
+        graph_name="image_extractor",
+        policy_name="pdf_to_image"
+    )
+    
+    return images
+
+if __name__ == "__main__":
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    pdf_path = "reference_document.pdf"
+    
+    # Download the PDF
+    download_pdf(pdf_url, pdf_path)
+    
+    # Get images from the PDF
+    images = get_images(pdf_path)
+    for image in images:
+        content_id = image.features[0].name
+        with open(f"{content_id}.png", 'wb') as f:
+            print("writing image ", content_id)
+            f.write(image.data)
+```
+
+Run the script:
+
+```bash filename="( Terminal 3 ) Run Image Extraction"
+python3 image_extraction.py
+```
+Following is the output of the extraction process. 
+
+| Sample Page to extract image from | Sample Image extracted from page |
+|-----------------------------------|----------------------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="600"/> |
+
+### Table Extraction
+
+Create a file named `table_extraction.py` with the following content:
+
+```python filename="table_extraction.py"
+from indexify import IndexifyClient, ExtractionGraph
+import os
+import requests
+
+# Set up the extraction graph
+client = IndexifyClient()
+extraction_graph_spec = """
+name: 'table_extractor'
+extraction_policies:
+  - extractor: 'tensorlake/pdfextractor'
+    name: 'pdf_to_table'
+    input_params:
+      output_types: ["table"]
+"""
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+
+def download_pdf(url, save_path):
+    response = requests.get(url)
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
+    print(f"PDF downloaded and saved to {save_path}")
+
+def get_tables(pdf_path):
+    client = IndexifyClient()
+    
+    # Upload the PDF file
+    content_id = client.upload_file("table_extractor", pdf_path)
+    
+    # Wait for the extraction to complete
+    client.wait_for_extraction(content_id)
+    
+    # Retrieve the tables content
+    tables = client.get_extracted_content(
+        ingested_content_id=content_id,
+        graph_name="table_extractor",
+        policy_name="pdf_to_table"
+    )
+    
+    return tables[0].features[0].value if tables else None
+
+if __name__ == "__main__":
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    pdf_path = "reference_document.pdf"
+    
+    # Download the PDF
+    download_pdf(pdf_url, pdf_path)
+    
+    # Get tables from the PDF
+    tables = get_tables(pdf_path)
+    print("Tables from the PDF:")
+    print(tables)
+```
+
+Run the script:
+
+```bash filename="( Terminal 3 ) Run Table Extraction"
+python3 table_extraction.py
+```
+Following is the output of the extraction process. 
+
+| Sample Page to extract table from | Sample Extracted Table |
+|-----------------------------------|------------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` |
+
+### Content Extraction
+
+For simple content (or text) extraction, follow these steps:
+
+1. Create a file named `content_extraction.py` with the following content:
+
+```python filename="continuous_extraction.py"
+from indexify import IndexifyClient, ExtractionGraph
+import requests
+
+client = IndexifyClient()
+
+extraction_graph_spec = """
+name: 'pdfknowledgebase'
+extraction_policies:
+   - extractor: 'tensorlake/pdfextractor'
+     name: 'pdf_to_text'
+"""
+
+extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+client.create_extraction_graph(extraction_graph)
+
+def process_pdf(url):
+    # Download the PDF
+    response = requests.get(url)
+    pdf_content = response.content
+    filename = url.split("/")[-1]
+
+    # Upload and process the PDF
+    content_id = client.upload_bytes("pdfknowledgebase", pdf_content, filename)
+    
+    # Wait for the extraction to complete
+    client.wait_for_extraction(content_id)
+    
+    # Retrieve and print extracted content
+    extracted_content = client.get_extracted_content(
+        ingested_content_id=content_id,
+        graph_name="pdfknowledgebase",
+        policy_name="pdf_to_text"
+    )
+    print(f"Extracted content from {filename}:")
+    print(extracted_content)
+
+if __name__ == "__main__":
+    pdf_url = "https://arxiv.org/pdf/2310.06825.pdf"
+    process_pdf(pdf_url)
+```
+
+4. Run the continuous extraction script:
+
+```bash filename="( Terminal 3 ) Run Content Extraction"
+python3 content_extraction.py
+```
+Following is the output of the extraction process. 
+
+| Sample Page to extract content from | Sample Extracted Content |
+|-------------------------------------|--------------------------|
+| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
+
+This guide demonstrates how to use Indexify for PDF extraction, closely aligning with the provided examples. Key points:
+
+1. Separate scripts for image extraction, table extraction, and continuous extraction.
+2. PDFs are downloaded from URLs instead of using local file paths.
+3. Extraction graphs are set up for each specific task.
+4. The extraction scrips can be extended to process multiple PDFs in sequence.
+
+You can further extend these scripts to include additional processing steps or to handle multiple PDFs as needed for your specific use case.
+
+### Visualize the Extraction Process
+
+Let's visualize our PDF knowledge base extraction process:
+
+![extractor_flow](https://github.com/user-attachments/assets/31da97c4-f81f-4388-bfe8-ec7c0a962bd6)
+
+This diagram illustrates how PDF documents are processed through Indexify, extracted using the `tensorlake/pdfextractor`, and stored in a knowledge base for later querying and retrieval.
+
+## Advanced Use Cases
+
+Once you have extracted content from your PDFs, you can use it for various advanced applications:
+
+1. **Document Search Engine**: Index the extracted text to create a searchable database of your PDFs.
+2. **Image Analysis**: Process extracted images for tasks like object detection or classification.
+3. **Data Analysis**: Use extracted tables for data analysis and visualization.
+4. **Question Answering**: Combine extracted content with language models for automated question answering.
+
+Here's a simple example of how you might use the extracted text for a basic search functionality:
+
+```python
+from indexify import IndexifyClient
+from rapidfuzz import fuzz
+
+client = IndexifyClient()
+
+def search_pdfs(query, graph_name="pdf_knowledge_base", policy_name="pdf_extractor"):
+    results = []
+    for content_id in client.list_content_ids(graph_name):
+        extracted_content = client.get_extracted_content(
+            ingested_content_id=content_id, 
+            graph_name=graph_name, 
+            policy_name=policy_name
+        )
+        for content in extracted_content:
+            if content.content_type == "text/plain":
+                text = content.data.decode('utf-8')
+                similarity = fuzz.partial_ratio(query.lower(), text.lower())
+                if similarity > 70:  # Adjust this threshold as needed
+                    results.append((content_id, similarity))
+    
+    return sorted(results, key=lambda x: x[1], reverse=True)
+
+# Example usage
+search_results = search_pdfs("machine learning")
+for content_id, similarity in search_results[:5]:  # Top 5 results
+    print(f"Content ID: {content_id}, Similarity: {similarity}")
+```
+
+This script implements a simple fuzzy search across all extracted text from your PDFs, returning the most relevant documents based on the search query.
+
+
+## Extractor Performance Analysis
+
+When choosing an extractor for your PDF processing needs, it's important to consider both accuracy and speed. Here's a comparison of the performance of different Indexify PDF extractors:
+
+Here's a quadrant chart diagram of the performance:
+
+![extractor_performance](https://github.com/user-attachments/assets/ae01d495-a180-4261-b57c-fc7467000376)
+
+This chart provides a visual representation of how different extractors perform in terms of speed and accuracy. The ideal extractor would be in the top-right quadrant (Fast and Accurate).
+
+
+### Category: Scientific Papers and Books
+
+1. [crowd.pdf](https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/crowd.pdf) - Reference: [crowd.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/crowd.md) (10 pages)
+2. [multicolcnn.pdf](https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/multicolcnn.pdf) - Reference: [multicolcnn.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/multicolcnn.md) (10 pages)
+3. [switch_trans.pdf](https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/switch_trans.pdf) - Reference: [switch_trans.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/switch_trans.md) (40 pages)
+4. [thinkdsp.pdf](https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/thinkdsp.pdf) - Reference: [thinkdsp.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkdsp.md) (153 pages)
+5. [thinkos.pdf](https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/thinkos.pdf) - Reference: [thinkos.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkos.md) (99 pages)
+6. [thinkpython.pdf](https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/thinkpython.pdf) - Reference: [thinkpython.md](https://raw.githubusercontent.com/tensorlakeai/indexify-extractors/main/pdf/benchmark/references/thinkpython.md) (240 pages)
+
+
+### Scoring Methodology
+
+The scoring was done by comparing the extracted text from each PDF with its reference text using the following steps:
+
+1. **Chunking**: Both the hypothesis (extracted text) and the reference text are divided into chunks of 500 characters, ensuring chunks have a minimum of 25 characters.
+2. **Overlap Score Calculation**: For each chunk of the hypothesis text, a fuzzy matching score with the best-matching reference chunk within a defined range is computed using the `rapidfuzz` library. This range is determined based on a length modifier and search distance.
+3. **Final Score**: The average of these chunk scores provides a final alignment score between 0 and 1, indicating how closely the extracted text matches the reference.
+
+### Extractor Performance
+
+| Extractor                   | Accuracy | Speed | Best For                            |
+|-----------------------------|----------|-------|-------------------------------------|
+| tensorlake/pdfextractor     | High     | Fast  | General-purpose extraction          |
+| tensorlake/ocrmypdf         | Medium   | Medium| Scanned documents (CPU-based)       |
+| tensorlake/easyocr          | High     | Slow  | Scanned documents (GPU-based)       |
+| tensorlake/marker           | Very High| Slow  | Detailed, structured PDFs           |
+| layoutlm-document-qa        | High     | Medium| Question-answering tasks            |
+
+### Reproduction Code for Comparison
+
+| Resource | Link |
+|----------|------|
+| Code for Creating Graphs | [Google Colab](https://colab.research.google.com/drive/1xyS8oCJV1CHW5fmgeD3umSAPbGOqID-G?usp=sharing) |
+| Benchmarking Notebook | [Google Colab](https://colab.research.google.com/drive/16U8ll_oa55jLJgRbdbp2i7NKPmuUb7Gb?usp=sharing) |
+| Benchmarking Local Script | [GitHub Repository](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/benchmark) |
+| Extractor Performance Benchmarks | [Marker GitHub Repository](https://github.com/VikParuchuri/marker?tab=readme-ov-file#benchmarks) |
+
+Note: Thanks to the Marker team for the code used in the Extractor Performance Benchmarks.
+
+
+## Explore More Examples
+
+We've curated a collection of PDF extraction examples. Check out these notebooks:
+
+- [Tax Document Extraction (Uses OpenAI)](https://www.analyticsvidhya.com/blog/2024/07/seamlessly-extract-text-from-pdfs/)
+- [Translation (Uses OpenAI)](../../example_code/pdf/openai_pdf_translation)
+- [Summarization (Uses Mistral)](../../example_code/pdf/mistral/pdf-summarization)
+- [Entity Extraction (Uses Mistral)](../../example_code/pdf/mistral/pdf-entity-extraction)
+- [Chunk Extraction (Uses LangChain)](../../example_code/pdf/chunking)
+- [Indexing and RAG (Uses OpenAI)](../../example_code/pdf/rag)
+- [Structured Extraction guided by Schema (Uses OpenAI)](../../example_code/pdf/schema)
+
+
+## Conclusion
+
+Indexify provides a powerful and flexible solution for PDF extraction, enabling you to build sophisticated document processing pipelines. By understanding the capabilities of different extractors and following best practices, you can efficiently extract valuable information from your PDF documents and use it in a wide range of applications.
+
+### Recommendation of Extractors
+
+| Aspect | Extractor | Class Name | Analysis |
+|--------|-----------|------------|----------|
+| Accuracy | Marker | tensorlake/marker | Consistently provides high accuracy scores across all PDF documents. |
+| | EasyOCR | tensorlake/easyocr | Shows competitive accuracy across all the documents. |
+| | OCRMyPDF | tensorlake/ocrmypdf | Shows competitive accuracy across all the documents. |
+| | Unstructured IO | tensorlake/pdfextractor | Is fractionally better than EasyOCR in one of the books, and from OCRMyPDF on another. |
+| | OpenAI GPT-4o | tensorlake/openai | Performs well for code-based texts however it performs average for regular texts. |
+| Time Efficiency | Unstructured IO | tensorlake/pdfextractor | Is the fastest, taking the least time for all PDF documents. |
+| | EasyOCR | tensorlake/easyocr | Shows extreme variability in processing times, being exceptionally fast for some documents and very slow for others. |
+| | Marker | tensorlake/marker | Despite providing high accuracy, is significantly slower compared to the other extractors. |
+| | OCRmyPDF | tensorlake/ocrmypdf | Shows moderate time efficiency, balancing between speed and accuracy. |
+| | OpenAI GPT-4o | tensorlake/openai | Takes by far the longest time and is best avoided for pdf extraction unless necessary. |
+| Recommendations | Marker | tensorlake/marker | Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction. |
+| | EasyOCR | tensorlake/easyocr | When accuracy is important, but you need faster extraction time. EasyOCR also provides training recipes to fine-tune the model on private documents. This will improve its accuracy further. |
+| | Unstructured IO | tensorlake/pdfextractor | While unstructured doesn't show any significant advantages in accuracy, it is known to handle a lot of different variations of PDFs. |
+
+While our extractors do most of the heavy lifting for you, there are some practical developer considerations that one needs to take while building with Indexify.
+
+### Best Practices and Tips
+
+1. **Choose the Right Extractor**: Select the extractor that best fits your specific use case and document types.
+2. **Preprocess Your PDFs**: Ensure your PDFs are of good quality. For scanned documents, consider using OCR-specific extractors.
+3. **Handle Errors Gracefully**: Some PDFs may fail to process. Implement error handling to manage these cases.
+4. **Monitor Performance**: Keep an eye on processing times and accuracy, especially when dealing with large volumes of documents.
+5. **Post-process Extracted Content**: Clean and format extracted text, validate table structures, and optimize images as needed.
+6. **Implement Caching**: For frequently accessed documents, consider caching extracted content to improve response times.
+
+Remember, the key to successful PDF extraction is choosing the right tools for your specific needs and continuously refining your process. Experiment with different extractors and configurations to find the optimal setup for your use case.
