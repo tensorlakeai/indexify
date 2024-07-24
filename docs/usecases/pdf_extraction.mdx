@@ -7,7 +7,7 @@ PDF (Portable Document Format) is a widely used file format for sharing document
 
 | Sample PDF Page |
 |:---------------:|
-| ![Sample PDF Page](https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg) |
+| ![Sample PDF Page](https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/image/2310.06825v1_page-0004.jpg) |
 | *A Sample page from a PDF document* |
 | *Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)* |
 
@@ -17,9 +17,9 @@ Let us see how Indexify performs on a page like this.
 
 | Image Extraction | Table Extraction | Content Extraction |
 |------------------|------------------|---------------------|
-| <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="800"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
+| <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/image/5561f24377d1c264.png" width="800"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
 
-This guide will walk you through using Indexify for PDF extraction, from basic concepts to advanced use cases. Although this guide doesn't make any assumptions about your familiarity with Indexify or its components, we highly recommend you go through the [Getting Started](https://docs.getindexify.ai/getting_started/) and [Key Concepts](https://docs.getindexify.ai/concepts/) guide.
+This guide will walk you through using Indexify for PDF extraction, from basic concepts to advanced use cases. Although this guide doesn't make any assumptions about your familiarity with Indexify or its components, we highly recommend you go through the [Getting Started](https://docs.getindexify.ai/docs/getting-started-basic/) and [Key Concepts](https://docs.getindexify.ai/concepts/) guide.
 
 ## Getting Started for PDF Extraction
 
@@ -42,7 +42,7 @@ You'll need three separate terminal windows open for this tutorial:
 
 We'll use the following notation to indicate which terminal to use:
 
-```bash filename="( Terminal X ) Description of Command"
+```bash ( Terminal X ) Description of Command
 <command goes here>
 ```
 
@@ -97,12 +97,12 @@ indexify-pdf-extractor/
 
 First, set up your environment:
 
-```bash filename="( Terminal 1 ) Setup Indexify"
+```bash ( Terminal 1 ) Setup Indexify
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
 
-```bash filename="( Terminal 2 ) Setup Python Environment"
+```bash ( Terminal 2 ) Setup Python Environment
 python3 -m venv venv
 source venv/bin/activate
 pip install indexify-extractor-sdk indexify requests
@@ -114,7 +114,7 @@ indexify-extractor join-server
 
 Create a file named `image_extraction.py` with the following content:
 
-```python filename="image_extraction.py"
+```python image_extraction.py
 from indexify import IndexifyClient, ExtractionGraph
 import os
 import requests
@@ -174,20 +174,20 @@ if __name__ == "__main__":
 
 Run the script:
 
-```bash filename="( Terminal 3 ) Run Image Extraction"
+```bash ( Terminal 3 ) Run Image Extraction
 python3 image_extraction.py
 ```
 Following is the output of the extraction process. 
 
 | Sample Page to extract image from | Sample Image extracted from page |
 |-----------------------------------|----------------------------------|
-| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | <img src="https://docs.getindexify.ai/example_code/pdf/image/5561f24377d1c264.png" width="600"/> |
+| <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/image/5561f24377d1c264.png" width="600"/> |
 
 ### Table Extraction
 
 Create a file named `table_extraction.py` with the following content:
 
-```python filename="table_extraction.py"
+```python table_extraction.py
 from indexify import IndexifyClient, ExtractionGraph
 import os
 import requests
@@ -244,14 +244,14 @@ if __name__ == "__main__":
 
 Run the script:
 
-```bash filename="( Terminal 3 ) Run Table Extraction"
+```bash ( Terminal 3 ) Run Table Extraction
 python3 table_extraction.py
 ```
 Following is the output of the extraction process. 
 
 | Sample Page to extract table from | Sample Extracted Table |
 |-----------------------------------|------------------------|
-| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` |
+| <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```{"0": ["Model", "Modality", "MMLU"], "1": ["LLaMA 2 7B", "Pretrained", "44.4"], "2": ["Code-Llama 7B", "Finetuned", "36.99"]}``` |
 
 ### Content Extraction
 
@@ -259,7 +259,7 @@ For simple content (or text) extraction, follow these steps:
 
 1. Create a file named `content_extraction.py` with the following content:
 
-```python filename="continuous_extraction.py"
+```python continuous_extraction.py
 from indexify import IndexifyClient, ExtractionGraph
 import requests
 
@@ -303,14 +303,14 @@ if __name__ == "__main__":
 
 4. Run the continuous extraction script:
 
-```bash filename="( Terminal 3 ) Run Content Extraction"
+```bash ( Terminal 3 ) Run Content Extraction
 python3 content_extraction.py
 ```
 Following is the output of the extraction process. 
 
 | Sample Page to extract content from | Sample Extracted Content |
 |-------------------------------------|--------------------------|
-| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
+| <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> | ```Size and Efficiency. We computed "equivalent model sizes" of the Llama 2 family, aiming to understand Mistral 7B models...``` |
 
 This guide demonstrates how to use Indexify for PDF extraction, closely aligning with the provided examples. Key points:
 
