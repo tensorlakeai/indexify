@@ -163,11 +163,11 @@ image = Image.open(requests.get(image_url, stream=True).raw)
 ```python
 plot_bbox(image, objects[0]['content'].decode('utf-8'), output_filename=f'bbox_output_{i}.png')
 ```
-![](https://docs.getindexify.ai/example_code/image/florence/detect.png)
+![](https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/image/florence/detect.png)
 ```python
 draw_polygons(image, segmentation[0]['content'].decode('utf-8'), fill_mask=True, output_filename=f'polygon_output_{i}.png')
 ```
-![](https://docs.getindexify.ai/example_code/image/florence/segment.png)
+![](https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/image/florence/segment.png)
 
 ## Customization and Advanced Usage
 

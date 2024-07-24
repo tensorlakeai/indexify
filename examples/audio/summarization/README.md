@@ -33,7 +33,7 @@ indexify-extractor join-server
 python setup_graph.py
 ```
 
-<img src="https://docs.getindexify.ai/example_code/audio/summarization/carbon.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/audio/summarization/carbon.png" width="600"/>
 
 ## Upload Data and Retrieve 
 The next step is to upload an audio file and retreive the transcript
@@ -42,4 +42,4 @@ The next step is to upload an audio file and retreive the transcript
 python upload_and_retrieve.py
 ```
 
-<img src="https://docs.getindexify.ai/example_code/audio/summarization/output.png" width="800"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/audio/summarization/output.png" width="800"/>

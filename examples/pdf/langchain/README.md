@@ -159,7 +159,7 @@ Execute the Python script to process a PDF and answer questions:
 ```bash
 python upload_and_retrieve.py
 ```
-<img src="https://docs.getindexify.ai/example_code/pdf/langchain/carbon.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langchain/carbon.png" width="600"/>
 
 This script will download a sample PDF, process it using the Indexify pipeline, and then answer a question about the content.
 
