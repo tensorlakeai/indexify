@@ -91,6 +91,17 @@ client.create_extraction_graph(extraction_graph)
 
 Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
 
+OR, if you want to use OpenAI instead of Mistral, replace the Mistral extractor in the graph above with OpenAI extractor like this:
+
+```
+  - extractor: 'tensorlake/openai'
+    name: 'topic_summarization'
+    input_params:
+      model: 'gpt-4o-mini'
+      api_key: 'YOUR_OPENAI_API_KEY'
+      system_prompt: 'Summarize the discussion on the main topics from the debate transcript. Provide key points and arguments from both sides.'
+```
+
 Run this script to set up the pipeline:
 ```bash
 python debate_summary_graph.py
