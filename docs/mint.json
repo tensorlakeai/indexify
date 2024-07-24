@@ -94,16 +94,6 @@
       ]
     },
     {
-      "group": "Use Cases",
-      "pages": [
-        "usecases/audio_extraction",
-        "usecases/image_retrieval",
-        "usecases/pdf_extraction",
-        "usecases/rag",
-        "usecases/video_rag"
-      ]
-    },
-    {
       "group": "LLM Frameworks",
       "pages": [
         {
