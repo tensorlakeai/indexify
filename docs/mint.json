@@ -21,12 +21,12 @@
   },
   "tabs": [
     {
-      "name": "🎮 Examples",
-      "url": "examples"
-    },
-    {
       "name": "👨‍💻 API Reference",
       "url": "api-reference"
+    },
+    {
+      "name": "🎮 Examples",
+      "url": "examples"
     }
   ],
   "anchors": [
@@ -170,7 +170,7 @@
   ],
   "api": {
     "playground": {
-      "mode": "show"
+      "mode": "hide"
     },
     "baseUrl": "https://indexify-server.api.tensorlake.ai/",
     "auth": {
