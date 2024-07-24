@@ -219,7 +219,7 @@ print(client.sql_query("select * from imageknowledgebase where object_name='pers
 ```
 
 ### LLM Framework Integration 
-Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
+Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python).
 
 ### Try out other extractors
 We have a ton of other extractors, you can list them and try them out - 
