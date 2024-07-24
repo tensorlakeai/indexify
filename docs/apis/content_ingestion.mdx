@@ -1,9 +1,9 @@
 We provide APIs to upload raw text and any files from which you might want to extract information and build indexes.
 
 Import the language specific clients
-=== "Python"
 
-    ```python
+<CodeGroup>
+  ```python Python
     from indexify import IndexifyClient
     extraction_graph_spec = """
     name: 'myextractiongraph'
@@ -14,9 +14,7 @@ Import the language specific clients
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
     ```
-=== "TypeScript"
-
-    ```typescript
+    ```typescript Typescript
     import { IndexifyClient, ExtractionGraph } from "getindexify";
 
     const client = await IndexifyClient.createClient();
@@ -28,133 +26,120 @@ Import the language specific clients
     `);
     await client.createExtractionGraph(graph);
     ```
+</CodeGroup>
+    
 
 ## Upload File
 
-=== "Python"
-
-    ```python
-    content = client.upload_file(extraction_graphs="myextractiongraph",path="/path/to/file")
-    ```
-
-=== "TypeScript"
-  
-    ```typescript
-    await client.uploadFile("myextractiongraph", `files/test.txt`);
-    ```
+<CodeGroup>
+  ```python Python
+  content = client.upload_file(extraction_graphs="myextractiongraph",path="/path/to/file")
+  ```
+  ```typescript Typescript
+  await client.uploadFile("myextractiongraph", `files/test.txt`);
+  ```
+</CodeGroup>
 
 ## Upload Raw Text
-=== "Python"
 
-    ```python
-    client.add_documents("myextractiongraph", [
-      "Indexify is amazing!",
-      "Indexify is a retrieval service for LLM agents!",
-      "Kevin Durant is the best basketball player in the world."
-    ])
-    ```
-=== "TypeScript"
-
-    ```typescript
-    await client.addDocuments("myextractiongraph", [
-      "Indexify is amazing!",
-      "Indexify is a retrieval service for LLM agents!",
-      "Kevin Durant is the best basketball player in the world."
-    ]);
-    ```
+<CodeGroup>
+  ```python Python
+  client.add_documents("myextractiongraph", [
+    "Indexify is amazing!",
+    "Indexify is a retrieval service for LLM agents!",
+    "Kevin Durant is the best basketball player in the world."
+  ])
+  ```
+  ```typescript Typescript
+  await client.addDocuments("myextractiongraph", [
+    "Indexify is amazing!",
+    "Indexify is a retrieval service for LLM agents!",
+    "Kevin Durant is the best basketball player in the world."
+  ]);
+  ```
+</CodeGroup>
 
 ## Namespaces
 
 Namespaces are used to isolate content uploaded by applications or from extractors that chunk or transform content.
 
-!!! note
-
-    A default namespace, named `default` is created when Indexify is started.
+<Note>
+  A default namespace, named `default` is created when Indexify is started.
+</Note>
+    
 
 ## Create or Update a Namespace
 A namespace can be created by specifying a unique name, and any additional labels or extraction policies.
 
-=== "python"
+  ```shell cURL
+  curl -X POST http://localhost:8900/namespaces \
+  -H 'Content-Type: application/json' \
+  -d '
+      {
+        "name": "research",
+        "extraction_graphs": [],
+        "labels": {"sensitive": "true"}
+      }
+  '
+  ```
+  ```python Python
+  from indexify import IndexifyClient, ExtractionPolicy
 
-    ```python
-    from indexify import IndexifyClient, ExtractionPolicy
+  IndexifyClient.create_namespace(
+      name="research",
+      extraction_graphs=[],
+      labels={"sensitive": "true"},
+  )
+  ```
+  ```typescript Typescript
+  import { IndexifyClient, IExtractionPolicy } from "getindexify";
 
-    IndexifyClient.create_namespace(
-        name="research",
-        extraction_graphs=[],
-        labels={"sensitive": "true"},
-    )
-    ```
+  IndexifyClient.createNamespace({
+    name:"research", 
+    extractionGraphs:[], 
+    labels:{"sensitive":"true"}});
+  ```
 
-=== "TypeScript"
-
-    ```typescript
-    import { IndexifyClient, IExtractionPolicy } from "getindexify";
-
-    IndexifyClient.createNamespace({
-      name:"research", 
-      extractionGraphs:[], 
-      labels:{"sensitive":"true"}});
-    ```
-
-=== "curl"
-
-    ```shell
-    curl -X POST http://localhost:8900/namespaces \
-    -H 'Content-Type: application/json' \
-    -d '
-        {
-          "name": "research",
-          "extraction_graphs": [],
-          "labels": {"sensitive": "true"}
-        }
-    '
-    ```
+    
 
 ## List Namespaces
-=== "python"
 
-    ```python
-    namespaces = IndexifyClient.namespaces()
-    ```
-
-=== "TypeScript"
-
-    ```typescript
-    const namespaces = await IndexifyClient.namespaces();
-    ```
-
-=== "curl"
-
-    ```shell
-    curl -X GET http://localhost:8900/namespaces
-    ```
-??? abstract "output"
-
-    ```json
+<CodeGroup>
+  ```shell cURL
+  curl -X GET http://localhost:8900/namespaces
+  ```
+  ```python Python
+  namespaces = IndexifyClient.namespaces()
+  ```
+  ```typescript Typescript
+  const namespaces = await IndexifyClient.namespaces();
+  ```
+</CodeGroup>
+    
+```json Output
+{
+  "namespaces" : [
     {
-      "namespaces" : [
-          {
-            "extraction_graphs" : [
-                {
-                  "extraction_policies" : [
-                      {
-                        "content_source" : "",
-                        "extractor" : "tensorlake/minilm-l6",
-                        "filters_eq" : {},
-                        "graph_name" : "sportsknowledgebase",
-                        "id" : "f4ac72a165927ada",
-                        "input_params" : null,
-                        "name" : "minilml6"
-                      }
-                  ],
-                  "id" : "default",
-                  "name" : "sportsknowledgebase",
-                  "namespace" : "default"
-                }
-            ],
-            "name" : "default"
-          },
-      ]
-    }
-    ```
+      "extraction_graphs" : [
+        {
+          "extraction_policies" : [
+            {
+              "content_source" : "",
+              "extractor" : "tensorlake/minilm-l6",
+              "filters_eq" : {},
+              "graph_name" : "sportsknowledgebase",
+              "id" : "f4ac72a165927ada",
+              "input_params" : null,
+              "name" : "minilml6"
+            }
+          ],
+          "id" : "default",
+          "name" : "sportsknowledgebase",
+          "namespace" : "default"
+        }
+      ],
+      "name" : "default"
+    },
+  ]
+}
+```

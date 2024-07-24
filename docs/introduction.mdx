@@ -41,111 +41,86 @@ extraction_policies:
   content_source: 'pdf_to_markdown'
 ```
 
-<Tabs items={['cURL', 'Python', 'TypeScript']}>
-    <Tabs.Tab>
-        ```bash
-        curl -X 'POST' \
-        'http://localhost:8900/namespaces/default/extraction_graphs' \
-        -H 'accept: application/x-yaml' \
-        -H 'Content-Type: application/x-yaml' \
-        --data-binary @graph.yaml
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```python
-        from indexify import IndexifyClient, ExtractionGraph
-        graph = ExtractionGraph.from_yaml_file("graph.yaml")
-        client = IndexifyClient()
-        client.create_extraction_graph(graph)
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```typescript
-        ```
-    </Tabs.Tab>
-</Tabs>
-    
+<CodeGroup>
+    ```bash cURL
+    curl -X 'POST' \
+    'http://localhost:8900/namespaces/default/extraction_graphs' \
+    -H 'accept: application/x-yaml' \
+    -H 'Content-Type: application/x-yaml' \
+    --data-binary @graph.yaml
+    ```
+    ```python Python
+    from indexify import IndexifyClient, ExtractionGraph
+    graph = ExtractionGraph.from_yaml_file("graph.yaml")
+    client = IndexifyClient()
+    client.create_extraction_graph(graph)
+    ```
+    ```typescript Typescript
+    ```
+</CodeGroup>
 
 ### Continuous Data Ingestion
 
-<Tabs items={['cURL', 'Python', 'TypeScript']}>
-    <Tabs.Tab>
-        ```bash
-        curl -X 'POST' \
-        'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
-        -H 'accept: */*' \
-        -H 'Content-Type: multipart/form-data' \
-        -F 'file=@file.pdf;type=application/pdf' \
-        -F 'labels={"source":"arxiv"}'
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```python
-        client = IndexifyClient()
+<CodeGroup>
+    ```bash
+    curl -X 'POST' \
+    'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
+    -H 'accept: */*' \
+    -H 'Content-Type: multipart/form-data' \
+    -F 'file=@file.pdf;type=application/pdf' \
+    -F 'labels={"source":"arxiv"}'
+    ```
+    ```python
+    client = IndexifyClient()
 
-        files = ["file1.pdf", .... "file100.pdf"]
-        for file in files:
-        client.upload_file("pdf-ingestion-pipeline", file)
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```typescript
-        ```
-    </Tabs.Tab>
-</Tabs>
+    files = ["file1.pdf", .... "file100.pdf"]
+    for file in files:
+    client.upload_file("pdf-ingestion-pipeline", file)
+    ```
+    ```typescript
+    ```
+</CodeGroup>
 
 ### Retrieve Extracted Data
 
 Retrieve extracted named entities 
 
-<Tabs items={['cURL', 'Python', 'TypeScript']}>
-    <Tabs.Tab>
-        ```bash
-        curl -X 'GET' \
-        'http://localhost:8900/namespaces/:namespace/extraction_graphs/pdf-ingestion-pipeline/content/585ebafdbc9dbbbe/extraction_policies/entity_extractor' \
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```python
-        content_ids = [content.id for content in client.list_content("pdf-ingestion-pipeline")]
+<CodeGroup>
+    ```bash cURL
+    curl -X 'GET' \
+    'http://localhost:8900/namespaces/:namespace/extraction_graphs/pdf-ingestion-pipeline/content/585ebafdbc9dbbbe/extraction_policies/entity_extractor' \
+    ```
+    ```python Python
+    content_ids = [content.id for content in client.list_content("pdf-ingestion-pipeline")]
 
-        markdown = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "pdf_to_markdown")
-        named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```typescript
-        ```
-    </Tabs.Tab>
-</Tabs>
+    markdown = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "pdf_to_markdown")
+    named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
+    ```
+    ```typescript TypeScript
+    ```
+</CodeGroup>
 
 Search vector indexes populated by embeddings
 
-<Tabs items={['cURL', 'Python', 'TypeScript']}>
-    <Tabs.Tab>
-        ```bash
-        curl -X 'POST' \
-        'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
-        -H 'accept: application/json' \
-        -H 'Content-Type: application/json' \
-        -d '{
-            "filters": [],
-            "include_content": true,
-            "k": 3,
-            "query": "wework"
-        }'
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```python
-        results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
-        ```
-    </Tabs.Tab>
-    <Tabs.Tab>
-        ```typescript
-        ```
-    </Tabs.Tab>
-</Tabs>
+<CodeGroup>
+    ```bash
+    curl -X 'POST' \
+    'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
+    -H 'accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{
+        "filters": [],
+        "include_content": true,
+        "k": 3,
+        "query": "wework"
+    }'
+    ```
+    ```python
+    results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
+    ```
+    ```typescript
+    ```
+</CodeGroup>
 
 To understand usage of indexify for various use cases we recommend the following starting points.
 

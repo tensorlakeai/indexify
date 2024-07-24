@@ -14,24 +14,23 @@ In this tutorial we will show you how to do all three image retrieval. We will u
 
 ### Download Indexify
 Download and start Indexify!
+
 ```
 curl https://getindexify.ai | sh
 indexify server -d 
 ```
 
 ### Download and Run Yolo Extractor
-=== "Shell"
 
-    ```shell
+<CodeGroup>
+    ```shell Shell
     indexify-extractor download tensorlake/yolo-extractor
     indexify-extractor join-server
     ```
-
-=== "Docker"
-
-    ```shell
+    ```shell Docker
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/yolo-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500 --workers=1
     ```
+</CodeGroup>
 
 
 ### (Optional) How to test Yolo Extractor Locally
@@ -45,6 +44,7 @@ print(results)
 ```
 
 ### Create an Extraction Policy
+
 ```
 extraction_graph_spec = """
 name: 'imageknowledgebase'
@@ -58,27 +58,34 @@ client.create_extraction_graph(extraction_graph)
 
 ### Upload Files
 Let's add some files stored remotely, which we can use for the rest of the tutorial.
+
 ```
 file_names=["skate.jpg", "congestion.jpg", "bushwick-bred.jpg", "141900.jpg", "132500.jpg", "123801.jpg","120701.jpg", "103701.jpg"]
 file_urls = [f"https://extractor-files.diptanu-6d5.workers.dev/images/{file_name}" for file_name in file_names]
 for file_url in file_urls:
     client.ingest_remote_file(file_url, "image/png", {})
 ```
-If you have local files, you can upload them by -
+
+If you have local files, you can upload them by:
+
 ```
 client.upload_file("yourextractiongraphname", path="../path/to/file")
 ```
 
 
-## SQL Based Retrieval 
+## SQL Based Retrieval
+
 ### Search using SQL
-Lets find a image with a skateboard! 
+
+Lets find a image with a skateboard!
+
 ```
 result = client.sql_query("select * from ingestion where object_name='skateboard';")
 ```
 
 ### Make OpenAI find the images using Langchain! 
-We can make OpenAI generate the SQL query based on a language -
+We can make OpenAI generate the SQL query based on a language
+
 ```
 chain.invoke("Find the photos with a skateboard?")
 ```
@@ -87,20 +94,19 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
 
 ### Download and start the Clip Embedding Extractor
 
-=== "Shell"
-
-    ```bash
+<CodeGroup>
+    ```bash Shell
     indexify-extractor download tensorlake/clip-extractor
     indexify-extractor join-server
     ```
-=== "Docker"
-
-    ```shell
+    ```shell Docker
     docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9501:9501 tensorlake/clip-extractor join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9501 --listen-port=9501
     ```
+</CodeGroup>
 
 
-### Create an Extraction Graph 
+### Create an Extraction Graph
+
 ```
 extraction_graph_spec = """
 name: 'imageknowledgebase'
@@ -111,6 +117,7 @@ extraction_policies:
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
 ```
+
 This creates an embedding index `imageknowledgebase.clip_embedding.embedding`. You can also find the index name via the following API - 
 
 ```
@@ -121,6 +128,7 @@ client.indexes()
 Upload some images or search on the images which were already uploaded
 
 ### Search
+
 ```
 client.search_index(name="imageknowledgebase.clip_embedding.embedding", query="skateboard", top_k=2)
 ```

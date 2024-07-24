@@ -1,7 +1,3 @@
-import { Callout } from 'nextra/components'
-
-# Developing a new Extractor
-
 Custom Extractors allows you to plug in any data processing code you want into an Indexify pipeline. Examples - Custom chunking algorithms for your data, or using your own model in a pipeline.
 
 
@@ -39,7 +35,7 @@ curl https://codeload.github.com/tensorlakeai/indexify-extractor-template/tar.gz
 ## Implement the Extractor 
 The template contains a `MyExtractor` extractor in the `custom_extractor.py` file. Implement the extract method, which accepts a `Content` and produces a list of `Content`. The output content list is usually some form of transformation of the input and some features related to it. The valid output features are `Embedding` and `Metadata`. 
 
-```py
+```python
 def extract(self, content: Content) -> List[Content]:
     """
     Extracts features from content.

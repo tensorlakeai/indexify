@@ -35,16 +35,19 @@ coordinator_addr: 0.0.0.0:8950
 - **coordinator_http_port** Port to access coordinator metrics
 - **raft_port:** Port on which internal messages across coordinator nodes are transmitted. This is only needed if Indexify is either started as a coordinator or in dev mode.
 
-!!! note "Don't forget to configure a volume"
+<Note>
+  "Don't forget to configure a volume"
 
-    Indexify stores all of the the Extraction Graphs you've configured and data it has processed locally. This is configured in `indexify.yaml` as seen below
+  Indexify stores all of the the Extraction Graphs you've configured and data it has processed locally. This is configured in `indexify.yaml` as seen below
 
-    ```
-    state_store:
-      path: <state store path>
-    ```
+  ```
+  state_store:
+    path: <state store path>
+  ```
 
-    Don't forget to configure a persistent volume at this location if you'll like to make sure you don't lose your data when your server restarts.
+  Don't forget to configure a persistent volume at this location if you'll like to make sure you don't lose your data when your server restarts.
+
+</Note>
 
 ### Blob Storage Configuration
 

@@ -33,8 +33,8 @@ You'll need three separate terminal windows open for this tutorial:
 
 We'll use the following notation to indicate which terminal to use:
 
-```bash filename="Terminal X - Description of Command"
-{'<'}command goes here{'>'}
+```bash Terminal X - Description of Command
+<command goes here>
 ```
 
 ### Understanding Indexify Components
@@ -47,7 +47,7 @@ Here are components which you will touch while working through the example:
 
 The directory structure of our project, will look like this 
 
-```text filename="Directory Structure"
+```text "Directory Structure
 indexify-tax-calculator/
 │
 ├── venv/                      # Virtual environment (created by python3 -m venv venv)
@@ -65,10 +65,11 @@ indexify-tax-calculator/
 
 Download the indexify server and run it
 
-```bash filename="( Terminal 1 ) Download Indexify Server"
+```bash Terminal 1 - Download Indexify Server"
 curl https://getindexify.ai | sh
 ./indexify server -d
 ```
+
 Once running, the server provides two key endpoints:
 
 - `http://localhost:8900` - The main API endpoint for data ingestion and retrieval
@@ -93,9 +94,7 @@ Before we begin, let's setup a virtual environment for Python projects and downl
   Indexify requires python 3.11 or older at this present moment to work.
 </Note>
 
-    
-
-```bash filename="( Terminal 2 ) Download Indexify Extractors"
+```bash Terminal 2 - Download Indexify Extractors"
 python3 -m venv venv
 source venv/bin/activate
 pip3 install indexify-extractor-sdk indexify wikipedia openai
@@ -108,7 +107,7 @@ indexify-extractor download tensorlake/chunk-extractor
 
 Run the Indexify Extractor server in a separate terminal
 
-```bash filename="( Terminal 2 ) Join the server"
+```bash Terminal 2 - Join the server
 indexify-extractor join-server
 ```
 
@@ -120,28 +119,21 @@ section.
 
 Don't forget to install the necessary dependencies before running the rest of this tutorial.
 
-<Tabs items={['Python', 'TypeScript']}>
-
-  <Tabs.Tab>
-    ```bash filename="( Terminal 2 ) Install libraries"
-    pip3 install indexify openai
-    ```
-  </Tabs.Tab>  
-
-  <Tabs.Tab>
-    ```bash filename="( Terminal 2 ) Install libraries"
-    npm install axios getindexify openai
-    ```
-  </Tabs.Tab> 
-</Tabs>  
+<CodeGroup>
+  ```bash Terminal 2 - Install libraries"
+  pip3 install indexify openai
+  ```
+  ```bash Terminal 2 - Install libraries"
+  npm install axios getindexify openai
+  ```
+</CodeGroup> 
 
 ## Stage 4: Setting Up the Extraction Graph
 
 Set up an extraction graph to process the PDF documents. The extraction graph defines the sequence of operations that will be performed on our input data (the tax law PDF). Let's set it up:
 
-<Tabs items={['Python', 'TypeScript']}>
-  <Tabs.Tab>
-    ```python filename="setup_extraction_graph.py"
+<CodeGroup>
+  ```python setup_extraction_graph.py
     from indexify import ExtractionGraph, IndexifyClient
 
     client = IndexifyClient()
@@ -165,10 +157,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)
     ```
-  </Tabs.Tab>
-
-  <Tabs.Tab>
-    ```typescript filename="setup_extraction_graph.ts"
+    ```typescript setup_extraction_graph.ts
     import { ExtractionGraph, IndexifyClient } from "getindexify"
 
     (async () => {
@@ -193,8 +182,7 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
         await client.createExtractionGraph(graph)
       })()
     ```
-  </Tabs.Tab>  
-</Tabs>  
+</CodeGroup>
 
 This extraction graph, named 'pdfqa', defines a three-step process:
 
@@ -204,7 +192,7 @@ This extraction graph, named 'pdfqa', defines a three-step process:
 
 Run this script to create the extraction graph:
 
-```bash filename="( Terminal 3) Create Extraction Graph"
+```bash Terminal 3 - Create Extraction Graph
 source venv/bin/activate
 python3 ./setup_extraction_graph.py
 ```
@@ -228,10 +216,8 @@ The `setup_extraction_graph.py` script is responsible for defining and creating 
 
 Add the PDF document to the "pdfqa" extraction graph:
 
-<Tabs items={['Python', 'TypeScript']}>
-
-  <Tabs.Tab>
-    ```python filename="ingest_document.py"
+<CodeGroup>
+  ```python ingest_document.py"
     import requests
     from indexify import IndexifyClient
 
@@ -243,11 +229,7 @@ Add the PDF document to the "pdfqa" extraction graph:
 
     client.upload_file("pdfqa", "taxes.pdf")
     ```
-  </Tabs.Tab>  
-
-
-  <Tabs.Tab>
-    ```typescript filename="ingest_document.ts"
+    ```typescript ingest_document.ts
     import axios from 'axios';
     import { promises as fs } from 'fs';
     import { IndexifyClient } from "getindexify";
@@ -264,8 +246,7 @@ Add the PDF document to the "pdfqa" extraction graph:
         await client.uploadFile("pdfqa", filePath);
     })();
     ```
-  </Tabs.Tab>
-</Tabs>
+</CodeGroup>
 
 This code does the following:
 
@@ -275,7 +256,7 @@ This code does the following:
 
 Run the following code to ingest the tax document
 
-```bash filename="( Terminal 3) Ingest Documents"
+```bash Terminal 3 - Ingest Documents"
 python3 ./ingest_document.py
 ```
 
@@ -289,11 +270,8 @@ We can use the same prompting and context retrieval function defined above to ge
   You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
 </Note>
 
-
-<Tabs items={['Python', 'TypeScript']}>
-
-  <Tabs.Tab>
-    ```python filename="query_tax_info.py"
+<CodeGroup>
+  ```python query_tax_info.py
     from openai import OpenAI
     from indexify import IndexifyClient
 
@@ -327,10 +305,7 @@ We can use the same prompting and context retrieval function defined above to ge
 
     print(chat_completion.choices[0].message.content)
     ```
-  </Tabs.Tab>  
-
-  <Tabs.Tab>
-    ```typescript filename="query_tax_info.ts"
+    ```typescript query_tax_info.ts
     import { ExtractionGraph, IndexifyClient } from "getindexify";
     import { OpenAI } from "openai";
 
@@ -362,8 +337,7 @@ We can use the same prompting and context retrieval function defined above to ge
       }))
     })()
     ```
-  </Tabs.Tab>
-</Tabs>
+</CodeGroup>
 
 This will allow you to do the following:
 
@@ -407,7 +381,6 @@ Based on the provided information, the tax rates and brackets for California are
     - Tax on next $12,550 ($24,000 - $11,450): $12,550 x 15% = $1,882.50
 
     Therefore, your total tax liability would be $1,145 + $1,882.50 = $3,027.50.
-
 </Note>
 
 ## Conclusion

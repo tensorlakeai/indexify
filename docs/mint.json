@@ -8,11 +8,11 @@
   "favicon": "/favicon.svg",
   "colors": {
     "primary": "#3296FE",
-    "light": "#3296FE",
-    "dark": "#DBEAFE",
+    "light": "#69affa",
+    "dark": "#3296FE",
     "anchors": {
-      "from": "#3296FE",
-      "to": "#DBEAFE"
+      "from": "#69affa",
+      "to": "#3296FE"
     }
   },
   "topbarCtaButton": {
@@ -51,11 +51,6 @@
   ],
   "anchors": [
     {
-      "name": "Website",
-      "icon": "globe",
-      "url": "https://getindexify.ai"
-    },
-    {
       "name": "Community",
       "icon": "discord",
       "url": "https://dub.sh/tensorlake-discord"
@@ -68,7 +63,7 @@
   ],
   "navigation": [
     {
-      "group": "Indexify",
+      "group": "Overview",
       "pages": [
         "introduction",
         "key-concepts",

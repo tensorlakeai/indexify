@@ -50,17 +50,14 @@ indexify-extractor download tensorlake/minilm-l6
 
 We need to use 2 terminals to start the Indexify server and the extractors.
 
-=== "Terminal 1"
-
-    ```bash
+<CodeGroup>
+  ```bash Terminal 1
     indexify server -d
     ```
-
-=== "Terminal 2"
-
-    ```bash
+    ```bash Terminal 2
     indexify-extractor join-server
     ```
+</CodeGroup>
 
 ### Download the Libraries
 
@@ -90,7 +87,7 @@ client = IndexifyClient()
 
 Next, we create an extraction graph with 4 extraction policies:
 
-```yaml filename="graph.yaml"
+```yaml graph.yaml
 name: "videoknowledgebase"
 extraction_policies:
   - extractor: "tensorlake/audio-extractor" #(1)!
@@ -112,7 +109,7 @@ extraction_policies:
 4. We process the transcript chunks through `tensorlake/minilm-l6` extractor to extract the vector embedding and index them.
 5. The `content_source` parameter is used to specify the source of the content for the extraction policy. Typically, when creating a pipeline of multiple extractors, the output of one extractor is used as the input for the next extractor.
 
-```py
+```python
 with open("graph.yaml", "r") as file:
   extraction_graph_spec = file.read()
   extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
