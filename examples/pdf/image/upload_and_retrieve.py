@@ -19,7 +19,7 @@ def get_images(pdf_path):
     
     # Retrieve the images content
     images = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="image_extractor",
         policy_name="pdf_to_image"
     )

@@ -146,7 +146,7 @@ def get_images(pdf_path):
     
     # Retrieve the images content
     images = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="image_extractor",
         policy_name="pdf_to_image"
     )
@@ -219,7 +219,7 @@ def get_tables(pdf_path):
     
     # Retrieve the tables content
     tables = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="table_extractor",
         policy_name="pdf_to_table"
     )
@@ -286,7 +286,7 @@ def process_pdf(url):
     
     # Retrieve and print extracted content
     extracted_content = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdfknowledgebase",
         policy_name="pdf_to_text"
     )
@@ -347,7 +347,7 @@ def search_pdfs(query, graph_name="pdf_knowledge_base", policy_name="pdf_extract
     results = []
     for content_id in client.list_content_ids(graph_name):
         extracted_content = client.get_extracted_content(
-            content_id=content_id, 
+            ingested_content_id=content_id, 
             graph_name=graph_name, 
             policy_name=policy_name
         )

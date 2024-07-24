@@ -19,7 +19,7 @@ def detect_objects(image_path):
     
     # Retrieve the detected objects
     detections = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="yolo_detector",
         policy_name="image_object_detection"
     )

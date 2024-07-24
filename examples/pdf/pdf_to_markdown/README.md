@@ -91,7 +91,7 @@ def extract_text(pdf_path):
     
     # Retrieve the extracted text content
     extracted_text = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_text_extractor",
         policy_name="pdf_to_text"
     )
