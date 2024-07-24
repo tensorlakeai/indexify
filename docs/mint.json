@@ -177,6 +177,10 @@
       "method": "bearer"
     }
   },
+  "feedback": {
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
   "footerSocials": {
     "x": "https://x.com/tensorlake",
     "github": "https://github.com/tensorlakeai/indexify",
