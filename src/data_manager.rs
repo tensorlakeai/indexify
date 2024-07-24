@@ -862,7 +862,6 @@ impl DataManager {
                         extractor,
                         extraction_graph_name,
                     );
-                    info!("adding metadata to index {}", feature.data.to_string());
                     self.metadata_index_manager
                         .add_metadata(&content_metadata.namespace, extracted_attributes)
                         .await?;

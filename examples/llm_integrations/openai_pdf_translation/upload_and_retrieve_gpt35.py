@@ -18,7 +18,7 @@ def translate_pdf(pdf_path):
     
     # Retrieve the translated content
     translated_content = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_translator_gpt35",
         policy_name="text_to_french"
     )
