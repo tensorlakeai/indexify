@@ -83,7 +83,16 @@ Create a file named `upload_and_retrieve.py`:
 ```python
 import requests
 import os
-os.environ["OPENAI_API_KEY"] = "YOUR_OPENAI_API_KEY"
+import sys
+
+# Try to get the API key from the environment
+api_key = os.environ.get("OPENAI_API_KEY")
+
+# Check if the API key is set
+if not api_key:
+    print("Error: OPENAI_API_KEY is not set in the environment.")
+    print("Please set the OPENAI_API_KEY environment variable and try again.")
+    sys.exit(1)
 
 from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(model="gpt-4o-mini")
