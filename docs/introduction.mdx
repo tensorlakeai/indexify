@@ -28,7 +28,7 @@ Extraction Graphs are at the center of Indexify. They are pipelines which proces
 
 **APIs**: Pipelines are exposed as HTTP APIs, making them accessible from applications written in TypeScript, Java, Python, Go, etc.
 
-```yaml filename="graph.yaml"
+```yaml graph.yaml
 name: 'pdf-ingestion-pipeline'
 extraction_policies:
 - extractor: 'tensorlake/marker'
@@ -62,7 +62,7 @@ extraction_policies:
 ### Continuous Data Ingestion
 
 <CodeGroup>
-    ```bash
+    ```bash cURL
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
     -H 'accept: */*' \
@@ -103,7 +103,7 @@ Retrieve extracted named entities
 Search vector indexes populated by embeddings
 
 <CodeGroup>
-    ```bash
+    ```bash cURL
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
     -H 'accept: application/json' \

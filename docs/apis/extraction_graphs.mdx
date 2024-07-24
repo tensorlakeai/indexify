@@ -1,7 +1,7 @@
 Extraction Graphs can be setup declaritively on a namespace, using the HTTP API or any of the clients
 
 <CodeGroup>
-    ``shell cURL
+    ```shell cURL
     curl -v -X POST http://localhost:8900/namespaces/default/extraction_graphs \
     -H "Content-Type: application/json" \
     -d '
@@ -51,7 +51,7 @@ This creates an extraction graph -
 ## Chained Extraction Graph Policies
 Mulitple extractors can be chained together in a single graph. Specify a `content_source` in a policy to send content from an upstream extractor to downstream.
 
-For ex -
+For ex:
 
 <CodeGroup>
     ```python Python
@@ -79,6 +79,6 @@ For ex -
     `);
     await client.createExtractionGraph(graph);
     ```
-</CodeGroup>    
+</CodeGroup>
     
 In this example any text uploaded into the graph is chunked using the chunking extractor, the chunked text is then passed into the embedding extractor to generate text embeddings from the chunks.

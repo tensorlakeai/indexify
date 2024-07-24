@@ -150,8 +150,8 @@
       "group": "Ingestion",
       "pages": [
         "api-reference/ingestion/create-a-new-extraction-graph-in-the-namespace",
-        "api-reference/ingestion/update-a-content-all-the-extraction-graphs-associated-with-the-content-will",
-        "api-reference/ingestion/deletes-the-content-with-a-given-id-and-also-all-the-extracted-content-by",
+        "api-reference/ingestion/update-content",
+        "api-reference/ingestion/delete-content",
         "api-reference/ingestion/list-all-extraction-graphs-in-a-namespace",
         "api-reference/ingestion/upload-a-file-to-an-extraction-graph-in-a-namespace"
       ]
@@ -159,7 +159,7 @@
     {
       "group": "Retrieval",
       "pages": [
-        "api-reference/retrieval/get-extracted-content-metadata-for-a-specific-content-id-and-extraction",
+        "api-reference/retrieval/get-extracted-content-metadata-for-a-specific-content-id-and-extraction-graph",
         "api-reference/retrieval/download-content-with-a-given-id",
         "api-reference/retrieval/get-content-metadata-for-a-specific-content-id",
         "api-reference/retrieval/list-all-the-content-ingested-into-an-extraction-graph",
@@ -170,7 +170,7 @@
   ],
   "api": {
     "playground": {
-      "mode": "hide"
+      "mode": "show"
     },
     "baseUrl": "https://indexify-server.api.tensorlake.ai/",
     "auth": {
