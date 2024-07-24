@@ -153,13 +153,13 @@ Replace `"YOUR_OPENAI_API_KEY"` with your actual OpenAI API key.
 
 Reference from PDF file from which answer should be generated:
 
-<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/paper.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/paper.png" width="600"/>
 
 You can run the Python script to process a PDF and answer questions:
 ```bash
 python upload_and_retreive.py
 ```
-<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/carbon.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/carbon.png" width="600"/>
 
 ## Part 2: Multi-Modal RAG with GPT-4o mini
 
@@ -314,13 +314,13 @@ Replace `"YOUR_OPENAI_API_KEY"` with your actual OpenAI API key.
 
 Reference from PDF file from which answer should be generated:
 
-<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/image.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/image.png" width="600"/>
 
 You can run the Python script to process a PDF, including both text and images, and answer questions:
 ```bash
 python mm_upload_and_retrieve.py
 ```
-<img src="https://docs.getindexify.ai/example_code/pdf/indexing_and_rag/mm_carbon.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/mm_carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

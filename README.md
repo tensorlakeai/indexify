@@ -30,7 +30,7 @@ ETL-based ingestion systems process files in batches, suitable for offline use c
 
 ## Detailed Getting Started
 
-To get started follow our [documentation](https://docs.getindexify.ai/getting_started/).
+To get started follow our [documentation](https://docs.getindexify.ai/getting-started-basic/).
 
 ## Quick Start
 #### Download and start Indexify | Terminal1

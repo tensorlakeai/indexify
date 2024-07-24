@@ -118,7 +118,7 @@ You can run the Python script to process a PDF and extract its text:
 ```bash
 python upload_and_extract.py
 ```
-<img src="https://docs.getindexify.ai/example_code/pdf/pdf_to_markdown/carbon.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

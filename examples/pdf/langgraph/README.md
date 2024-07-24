@@ -358,8 +358,8 @@ You can run the Python script to process a PDF and answer questions:
 python ingest.py
 ```
 
-<img src="https://docs.getindexify.ai/example_code/pdf/langgraph/image1.png" width="600"/>
-<img src="https://docs.getindexify.ai/example_code/pdf/langgraph/image2.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langgraph/image1.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langgraph/image2.png" width="600"/>
 
 ## Conclusion
 
