@@ -181,6 +181,19 @@
     "suggestEdit": true,
     "raiseIssue": true
   },
+  "seo": {
+    "indexHiddenPages": true
+  },
+  "layout": "topnav",
+  "modeToggle": {
+    "default": "light"
+  },
+  "topbar": {
+    "style": "gradient"
+  },
+  "search": {
+    "location": "top"
+  },
   "footerSocials": {
     "x": "https://x.com/tensorlake",
     "github": "https://github.com/tensorlakeai/indexify",
