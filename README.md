@@ -121,8 +121,8 @@ client.wait_for_extraction(content_id)
 print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
 ```
 
-
 ### Audio Transcription and Summarization
+
 This example shows how to transcribe audio, and create a pipeline that embeds the transcription 
 More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_extraction/
 
