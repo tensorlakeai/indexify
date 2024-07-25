@@ -6,7 +6,7 @@
 [Examples](examples) | [Indexify Extractors](https://github.com/tensorlakeai/indexify-extractors) | [Python Client](https://github.com/tensorlakeai/indexify-python-client) | [TypeScript Client](https://github.com/tensorlakeai/indexify-typescript-client)
 
 
-![Indexify High Level](docs/docs/images/Indexify_KAT.gif)
+![Indexify High Level](docs/images/docs_intro_diagram.png)
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 
