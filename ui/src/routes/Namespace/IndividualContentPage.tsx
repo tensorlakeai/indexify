@@ -13,7 +13,6 @@ import {
 } from 'getindexify'
 import { Link } from 'react-router-dom'
 import { formatBytes } from '../../utils/helpers'
-import moment from 'moment'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import DetailedContent from '../../components/DetailedContent'
 import CopyText from '../../components/CopyText'
@@ -85,9 +84,9 @@ const IndividualContentPage = () => {
       </Box>
       <DetailedContent
         filename={contentMetadata.name}
-        source={contentMetadata.source}
+        source={contentMetadata.source ? contentMetadata.source : "Ingestion"}
         size={formatBytes(contentMetadata.size)}
-        createdAt={moment(contentMetadata.created_at * 1000).format()}
+        createdAt={`${contentMetadata.created_at}`}
         storageURL={contentMetadata.storage_url}
         parentID={contentMetadata.parent_id}
         namespace={namespace}
