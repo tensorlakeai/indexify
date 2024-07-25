@@ -1,13 +1,55 @@
-Indexify complements LangChain by providing a robust platform for indexing large volume of multi-modal content such as PDFs, raw text, audio and video. It provides a retriever API to retrieve context for LLMs.
+---
+title: 'Langchain'
+---
 
-You can use our LangChain retriever in TypeScript from our langchain package `@getindexify/langchain` to begin retrieving your data.
+Indexify complements LangChain by providing a robust ingestion engine for indexing large volume of multi-modal content such as PDFs, raw text, audio and video. 
+It provides a Langchain retriever to retrieve context for LLMs.
 
-#### Installation
-```shell
-npm install @getindexify/langchain
-```
+## Install
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install indexify-langchain
+    ```
+  </Tab>
+  <Tab title="Typescript">
+    ```bash
+    npm install @getindexify/langchain
+    ```
+  </Tab>
+</Tabs>
 
-Below is an example
+## Initiate the retriever
+<Tabs>
+  <Tab title="Python">
+    ```python
+    params = {"name": "minilml6.embedding", "top_k": 9}
+    retriever = IndexifyRetriever(client=client, params=params)
+    ```
+  </Tab>
+  <Tab title="Typescript">
+    ```typescript
+    import { IndexifyClient } from "getindexify";
+    import { IndexifyRetriever } from "@getindexify/langchain";
+
+
+    const retriever = new IndexifyRetriever(client, {
+        name: "myextractiongraph.minilml6.embedding",
+        topK: 9,
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Complete Examples
+
+We developed a few examples to demonstrate the integration of LangChain with Indexify.
+
+- [LangChain Integration with Indexify for PDF QA](https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/langchain)
+- [Adaptive RAG with LangGraph](https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/langgraph)
+
+
+## Typescript Examples
 
 ```typescript
 import { ChatOpenAI } from "@langchain/openai";

@@ -105,19 +105,8 @@
     {
       "group": "LLM Frameworks",
       "pages": [
-        {
-          "group": "DSPy",
-          "pages": [
-            "integrations/dspy/python"
-          ]
-        },
-        {
-          "group": "Langchain",
-          "pages": [
-            "integrations/langchain/python",
-            "integrations/langchain/typescript"
-          ]
-        }
+          "integrations/dspy",
+          "integrations/langchain"
       ]
     },
     {
