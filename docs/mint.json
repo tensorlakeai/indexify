@@ -47,21 +47,21 @@
   ],
   "navigation": [
     {
-      "group": "Overview",
+      "group": "Get Started",
       "pages": [
         "introduction",
+        "docs/getting-started-basic",
+        "docs/getting-started-intermediate"
+      ]
+    },
+    {
+      "group": "Overview",
+      "pages": [
         "key-concepts",
         "architecture",
         "comparisons",
         "extractors",
         "develop_extractors"
-      ]
-    },
-    {
-      "group": "Get Started",
-      "pages": [
-        "docs/getting-started-basic",
-        "docs/getting-started-intermediate"
       ]
     },
     {
