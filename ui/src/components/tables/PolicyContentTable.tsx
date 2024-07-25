@@ -148,7 +148,7 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
                   </Box>
                 </MuiTableCell>
                 <MuiTableCell>{row.mime_type}</MuiTableCell>
-                <MuiTableCell>{row.source}</MuiTableCell>
+                <MuiTableCell>{row.source ? row.source : "Ingestion"}</MuiTableCell>
                 <MuiTableCell>{row.parent_id}</MuiTableCell>
                 <MuiTableCell>
                   {typeof row.labels === 'object' && row.labels !== null
