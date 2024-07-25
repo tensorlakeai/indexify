@@ -42,16 +42,20 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20'
+
       - name: Npm Install
         run: cd ui && npm ci
+
       - name: UI Lint Check
         run: cd ui && npm run lint
+
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           components: rustfmt
           override: true
+
       - name: Rust Format Check
         run: |
           cargo +nightly fmt -- --check
