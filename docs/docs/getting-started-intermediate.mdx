@@ -146,15 +146,15 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
     extraction_graph_spec = """
     name: 'pdfqa'
     extraction_policies:
-      - extractor: 'tensorlake/marker' # (2)!
+      - extractor: 'tensorlake/marker' 
         name: 'mdextract'
-      - extractor: 'tensorlake/chunk-extractor' #(3)!
+      - extractor: 'tensorlake/chunk-extractor'
         name: 'chunker'
         input_params:
             chunk_size: 1000
             overlap: 100
         content_source: 'mdextract'
-      - extractor: 'tensorlake/minilm-l6' #(4)!
+      - extractor: 'tensorlake/minilm-l6'
         name: 'pdfembedding'
         content_source: 'chunker'
     """

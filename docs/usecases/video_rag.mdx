@@ -90,15 +90,15 @@ Next, we create an extraction graph with 4 extraction policies:
 ```yaml graph.yaml
 name: "videoknowledgebase"
 extraction_policies:
-  - extractor: "tensorlake/audio-extractor" #(1)!
+  - extractor: "tensorlake/audio-extractor"
     name: "audio_clips_of_videos"
-  - extractor: "tensorlake/whisper-asr" #(2)!
+  - extractor: "tensorlake/whisper-asr" 
     name: "audio_transcription"
-    content_source: "audio_clips_of_videos" #(5)!
-  - extractor: "tensorlake/chunk-extractor" #(3)!
+    content_source: "audio_clips_of_videos"
+  - extractor: "tensorlake/chunk-extractor"
     name: "transcription_chunks"
     content_source: "audio_transcription"
-  - extractor: "tensorlake/minilm-l6" #(4)!
+  - extractor: "tensorlake/minilm-l6" 
     name: "transcript_embedding"
     content_source: "transcription_chunks"
 ```
