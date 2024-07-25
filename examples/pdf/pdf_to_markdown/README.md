@@ -118,7 +118,10 @@ You can run the Python script to process a PDF and extract its text:
 ```bash
 python upload_and_extract.py
 ```
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/carbon.png" width="600"/>
+   Sample Page to extract markdown from:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/screenshot.png" width="600"/>
+   Sample Markdown extracted from page:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

@@ -37,5 +37,5 @@ if __name__ == "__main__":
     # Chunk the PDF
     chunks = retreive_chunks(pdf_path)
     print(f"Number of chunks generated: {len(chunks)}")
-    print("\nFirst chunk:")
+    print("\nLast chunk:")
     print(chunks[0][:500] + "...")  # Print first 500 characters of the first chunk

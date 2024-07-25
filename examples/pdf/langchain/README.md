@@ -154,10 +154,13 @@ Replace `"YOUR_OPENAI_API_KEY"` with your actual OpenAI API key.
 
 ## Running the PDF QA System
 
-Execute the Python script to process a PDF and answer questions:
+Reference from PDF file from which answer should be generated:
 
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langchain/paper.png" width="600"/>
+
+You can run the Python script to process a PDF and answer questions:
 ```bash
-python upload_and_retrieve.py
+python upload_and_retreive.py
 ```
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langchain/carbon.png" width="600"/>
 
