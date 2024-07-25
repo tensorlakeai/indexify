@@ -52,7 +52,9 @@
         "introduction",
         "key-concepts",
         "architecture",
-        "comparisons"
+        "comparisons",
+        "extractors",
+        "develop_extractors"
       ]
     },
     {
@@ -60,6 +62,16 @@
       "pages": [
         "docs/getting-started-basic",
         "docs/getting-started-intermediate"
+      ]
+    },
+    {
+      "group": "Use Cases",
+      "pages": [
+        "usecases/audio_extraction",
+        "usecases/image_retrieval",
+        "usecases/pdf_extraction",
+        "usecases/rag",
+        "usecases/video_rag"
       ]
     },
     {
@@ -71,17 +83,14 @@
       ]
     },
     {
-      "group": "Extractors",
+      "group": "Pre-Built Extractors",
       "pages": [
         "extractors/audio",
-        "extractors/develop_extractors",
         "extractors/embedding",
-        "extractors/extractors",
         "extractors/image",
         "extractors/pdf",
         "extractors/text",
-        "extractors/video",
-        "extractors/web"
+        "extractors/video"
       ]
     },
     {
