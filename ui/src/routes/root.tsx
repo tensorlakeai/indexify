@@ -150,7 +150,7 @@ export default function Dashboard() {
                 className={location.pathname.startsWith(`/${namespace}/state-changes`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
                 <HistoryIcon className="drawer-logo" />
-                <ListItemText primary={'System Changes'} />
+                <ListItemText primary={'System Events'} />
               </ListItemButton>
             </List>
           </Box>

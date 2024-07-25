@@ -51,7 +51,7 @@ const StateChangesPage = () => {
           <Cpu size="25" className="heading-icons" variant="Outline" />
         </div>
         <Typography variant="h4">
-          System Changes
+          System Events
         </Typography>
       </Stack>
       <Paper style={{ height: '100vh', width: '100%', marginTop: 10, boxShadow: "0px 0px 3px -1px #6FA8EA inset" }} elevation={0}>
