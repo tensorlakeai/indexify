@@ -36,7 +36,7 @@
       "url": "sdks"
     },
     {
-      "name": "Download",
+      "name": "⬇️ Download",
       "url": "download"
     }
   ],
@@ -50,11 +50,6 @@
       "name": "GitHub",
       "icon": "github",
       "url": "https://dub.sh/indexify-github"
-    },
-    {
-      "name": "Download",
-      "icon": "download",
-      "url": "download"
     }
   ],
   "navigation": [
