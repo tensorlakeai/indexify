@@ -19,6 +19,9 @@
     "name": "Get in Touch",
     "url": "https://dub.sh/diptanu-calendly"
   },
+  "primaryTab": {
+      "name": "📄 Documentation"
+  },
   "tabs": [
     {
       "name": "👨‍💻 API Reference",
@@ -31,6 +34,11 @@
     {
       "name": "📚 Language SDKs",
       "url": "sdks"
+    },
+    {
+      "name": "⬇️ Download",
+      "isDefaultHidden": false,
+      "url": "download"
     }
   ],
   "anchors": [
@@ -45,9 +53,9 @@
       "url": "https://dub.sh/indexify-github"
     },
     {
-      "name": "Install",
+      "name": "Download",
       "icon": "download",
-      "url": "install"
+      "url": "download"
     }
   ],
   "navigation": [
@@ -128,6 +136,12 @@
       "group": "Examples",
       "pages": [
         "examples/index"
+      ]
+    },
+    {
+      "group": "Install",
+      "pages": [
+        "download/index"
       ]
     },
     {
