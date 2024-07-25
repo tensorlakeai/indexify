@@ -43,6 +43,11 @@
       "name": "GitHub",
       "icon": "github",
       "url": "https://dub.sh/indexify-github"
+    },
+    {
+      "name": "Install",
+      "icon": "download",
+      "url": "install"
     }
   ],
   "navigation": [
