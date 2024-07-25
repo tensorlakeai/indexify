@@ -169,3 +169,26 @@ export const formatTimestamp = (value: string | number | null | undefined): stri
     hour12: true
   });
 };
+
+const keyPatterns: string[] = ['key', 'api_key', 'key_api', 'API', 'KEY', 'API_KEY', 'API-KEY'];
+
+export function maskApiKeys(inputString: string): string {
+  try {
+    const data: { [key: string]: any } = JSON.parse(inputString);
+    const maskValue = (value: any): string => '*'.repeat(String(value).length);
+    for (const [key, value] of Object.entries(data)) {
+      if (keyPatterns.some(pattern => key.toLowerCase().includes(pattern.toLowerCase()))) {
+        data[key] = maskValue(value);
+      }
+    }
+
+    return JSON.stringify(data);
+  } catch (error) {
+    let result = inputString;
+    for (const pattern of keyPatterns) {
+      const regex = new RegExp(`("${pattern}":\\s*")([^"]*)`, 'gi');
+      result = result.replace(regex, (_, g1, g2) => `${g1}${'*'.repeat(g2.length)}`);
+    }
+    return result;
+  }
+}
