@@ -2,6 +2,7 @@ import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material'
 import { IExtractionPolicy, IExtractor, IIndex } from 'getindexify'
 import { IExtractionGraphColumns, TaskCounts } from '../types'
 import { Link } from 'react-router-dom'
+import { maskApiKeys } from '../utils/helpers'
 
 const ExtractionPolicyItem = ({
   extractionPolicy,
@@ -24,23 +25,26 @@ const ExtractionPolicyItem = ({
   index?: IIndex
 }) => {
   const renderInputParams = () => {
-    if (
-      !extractionPolicy.input_params ||
-      Object.keys(extractionPolicy.input_params).length === 0
-    ) {
-      return <Chip label={`none`} />
-    }
-    const params = extractionPolicy.input_params
-    return (
-      <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
-        <Stack gap={1} direction="row">
-          {Object.keys(params).map((val: string) => {
-            return <Chip key={val} label={`${val}:${params[val]}`} />
-          })}
-        </Stack>
-      </Box>
-    )
+  if (
+    !extractionPolicy.input_params ||
+    Object.keys(extractionPolicy.input_params).length === 0
+  ) {
+    return <Chip label={`none`} />;
   }
+
+  const maskedParamsString = maskApiKeys(JSON.stringify(extractionPolicy.input_params));
+  const params = JSON.parse(maskedParamsString);
+
+  return (
+    <Box sx={{ overflowX: 'scroll' }} className="custom-scroll">
+      <Stack gap={1} direction="row">
+        {Object.keys(params).map((val: string) => {
+          return <Chip key={val} label={`${val}:${params[val]}`} />;
+        })}
+      </Stack>
+    </Box>
+  );
+};
 
   const renderMimeTypes = () => {
     const extractor = extractors.find(

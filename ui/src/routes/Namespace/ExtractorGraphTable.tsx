@@ -1,6 +1,6 @@
 import React from 'react';
 import { TableContainer as MuiTableContainer, Paper, Table as MuiTable, TableHead as MuiTableHead, TableRow as MuiTableRow, TableCell as MuiTableCell, TableBody as MuiTableBody, Box, Chip, Stack, Tooltip, Link } from '@mui/material';
-import { Row } from '../../utils/helpers';
+import { maskApiKeys, Row } from '../../utils/helpers';
 import CopyText from '../../components/CopyText';
 
 interface ExtractorTableProps {
@@ -80,7 +80,7 @@ const ExtractorGraphTable: React.FC<ExtractorTableProps> = ({ rows, namespace, e
                   <Chip key={index} label={type} size="small" sx={{ mr: 0.5 }} />
                 ))}
               </MuiTableCell>
-              <MuiTableCell sx={{ pt: 2}}>{row.inputParameters}</MuiTableCell>
+              <MuiTableCell sx={{ pt: 2}}>{maskApiKeys(row.inputParameters)}</MuiTableCell>
               <MuiTableCell sx={{ pt: 2}}>
                 <StatusChips
                   pending={row.pending}
