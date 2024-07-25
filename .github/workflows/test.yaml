@@ -1,4 +1,5 @@
 name: Tests
+
 on:
   push:
     branches:
@@ -11,8 +12,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+      other: ${{ steps.filter.outputs.other }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            ui:
+              - 'ui/**'
+            other:
+              - '**'
+              - '!ui/**'
+              - '!docs/**'
+
   lint:
     name: Lint Checks
+    needs: changes
+    if: ${{ needs.changes.outputs.ui == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -21,25 +42,24 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20'
-
       - name: Npm Install
         run: cd ui && npm ci
-
       - name: UI Lint Check
         run: cd ui && npm run lint
-
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           components: rustfmt
           override: true
-
       - name: Rust Format Check
         run: |
           cargo +nightly fmt -- --check
+
   test:
     name: Run Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.other == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
