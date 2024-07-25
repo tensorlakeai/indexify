@@ -13,6 +13,7 @@ env:
 
 jobs:
   changes:
+    name: Get Changes
     runs-on: ubuntu-latest
     outputs:
       ui: ${{ steps.filter.outputs.ui }}
