@@ -36,16 +36,11 @@
       "url": "sdks"
     },
     {
-      "name": "Download",
+      "name": "⬇️ Download",
       "url": "download"
     }
   ],
   "anchors": [
-    {
-      "name": "Download",
-      "icon": "down",
-      "url": "download"
-    },
     {
       "name": "Community",
       "icon": "discord",
