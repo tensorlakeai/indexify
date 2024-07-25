@@ -38,18 +38,14 @@ Start the Indexify server:
 
 ### Install Required Extractors
 
-Next, we'll install the necessary extractors in a new terminal. We are using a model for Speaker Diarization which requires using a HF Token. Create a token here - https://huggingface.co/settings/tokens
-
-Set the token before running the following commands - 
-```bash
-export HF_TOKEN=xxxx
-```
+Next, we'll install the necessary extractors in a new terminal.
 
 ```bash
 pip install indexify-extractor-sdk
 indexify-extractor download tensorlake/audio-extractor
 indexify-extractor download tensorlake/asrdiarization
 indexify-extractor download tensorlake/mistral
+indexify-extractor download tensorlake/openai
 ```
 
 Once the extractors are downloaded, start them:
@@ -63,7 +59,7 @@ Now we will setup the extraction graph for video ingestion, and we will also wri
 
 On a new terminal, install the Indexify client library
 ```bash
-pip install indexify pytubefix
+pip install -U indexify pytubefix
 ```
 
 Create a new Python file called `debate_summary_graph.py` and add the following code:
@@ -102,6 +98,25 @@ client.create_extraction_graph(extraction_graph)
 ```
 
 Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
+
+OR, if you want to use OpenAI instead of Mistral, replace the Mistral extractor in the graph above with OpenAI extractor like this:
+
+```
+  - extractor: 'tensorlake/openai'
+    name: 'topic_extraction'
+    input_params:
+      model: 'gpt-4o-mini'
+      api_key: 'YOUR_OPENAI_API_KEY'
+      system_prompt: 'Extract the main topics discussed in this debate transcript. List each topic as a brief phrase or title.'
+    content_source: 'speech_recognition'
+  - extractor: 'tensorlake/openai'
+    name: 'topic_summarization'
+    input_params:
+      model: 'gpt-4o-mini'
+      api_key: 'YOUR_OPENAI_API_KEY'
+      system_prompt: 'Summarize the discussion on the main topics from the debate transcript. Provide key points and arguments from both sides.'
+    content_source: 'speech_recognition'
+```
 
 Run this script to set up the pipeline:
 ```bash
@@ -148,7 +163,7 @@ def summarize_debate(video_path):
 if __name__ == "__main__":
     from pytubefix import YouTube
 
-    yt = YouTube("https://www.youtube.com/watch?v=-v-8wJkmwBY")
+    yt = YouTube("https://www.youtube.com/watch?v=SAL-mNE10TA")
     file_name = "biden_trump_debate_2024.mp4"
     if not os.path.exists(file_name):
         video = yt.streams.filter(progressive=True, file_extension="mp4").order_by("resolution").desc().first()
@@ -166,10 +181,14 @@ To run the debate summary pipeline:
 
 1. Ensure you have the video file of the Biden-Trump 2024 Presidential Debate saved as `biden_trump_debate_2024.mp4` in the same directory as your script.
 
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/video/transcript/thumbnail.jpg" width="600"/>
+
 2. Run the Python script:
    ```bash
    python debate_summary_pipeline.py
    ```
+
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/video/transcript/carbon.png" width="600"/>
 
 This will process the video, extract topics, and generate summaries for each topic discussed in the debate.
 
