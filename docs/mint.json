@@ -42,10 +42,9 @@
   ],
   "anchors": [
     {
-      "name": "Download Indexify",
-      "icon": "download",
-      "url": "download",
-      "isDefaultHidden": false
+      "name": "Download",
+      "icon": "down",
+      "url": "download"
     },
     {
       "name": "Community",
