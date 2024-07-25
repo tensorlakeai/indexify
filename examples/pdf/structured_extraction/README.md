@@ -152,7 +152,10 @@ You can run the Python script to extract schema-based information from PDF files
 ```bash
 python upload_and_retreive.py
 ```
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/carbon.png" width="600"/>
+   Sample Pages to extract structured data from:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/page1.jpg" width="300"/><img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/page2.jpg" width="300"/>
+   Sample structured data extracted from pages:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 
