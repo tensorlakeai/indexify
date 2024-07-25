@@ -42,6 +42,11 @@
   ],
   "anchors": [
     {
+      "name": "Download",
+      "icon": "download",
+      "url": "https://docs.getindexify.ai/download/index"
+    },
+    {
       "name": "Community",
       "icon": "discord",
       "url": "https://dub.sh/tensorlake-discord"
@@ -50,11 +55,6 @@
       "name": "GitHub",
       "icon": "github",
       "url": "https://dub.sh/indexify-github"
-    },
-    {
-      "name": "Download",
-      "icon": "download",
-      "url": "download"
     }
   ],
   "navigation": [
