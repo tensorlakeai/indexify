@@ -353,6 +353,9 @@ if __name__ == "__main__":
 
 ### Running the RAG System
 
+Sample Page to extract markdown from:
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langgraph/Adversarial.jpg" width="200"/><img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langgraph/LLM.jpg" width="200"/><img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/langgraph/Prompt.jpg" width="200"/>
+
 You can run the Python script to process a PDF and answer questions:
 ```bash
 python ingest.py
