@@ -311,7 +311,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
                   </MuiTableCell>
                   <MuiTableCell>{row.mime_type}</MuiTableCell>
                   {tabValue !== "ingested" && (
-                    <MuiTableCell>{row.source}</MuiTableCell>
+                    <MuiTableCell>{row.source ? row.source : "Ingestion"}</MuiTableCell>
                   )}
                   {tabValue !== "ingested" && (
                     <MuiTableCell>{row.parent_id}</MuiTableCell>
