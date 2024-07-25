@@ -314,7 +314,7 @@
     "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content/{content_id}/extraction_policies/{extraction_policy}": {
       "get": {
         "tags": ["retrieval"],
-        "summary": "Get extracted content metadata for ingested content",
+        "summary": "List Extracted Content Metadata",
         "operationId": "getContentTreeMetadata",
         "parameters": [
           {
@@ -342,7 +342,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "ID of the content"
+            "description": "Ingested Content ID"
           },
           {
             "name": "extraction_policy",
@@ -501,7 +501,7 @@
     "/namespaces/{namespace}/content/{content_id}/download": {
       "get": {
         "tags": ["retrieval"],
-        "summary": "Download content with a given id",
+        "summary": "Download Content by Id",
         "operationId": "downloadContent",
         "parameters": [
           {
@@ -551,7 +551,7 @@
     "/namespaces/{namespace}/content/{content_id}/metadata": {
       "get": {
         "tags": ["retrieval"],
-        "summary": "Get content metadata for a specific content id",
+        "summary": "Get Content Metadata by Id",
         "operationId": "getContentMetadata",
         "parameters": [
           {
@@ -640,7 +640,7 @@
     "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content": {
       "get": {
         "tags": ["retrieval"],
-        "summary": "List all the content ingested into an extraction graph",
+        "summary": "List Ingested Content",
         "operationId": "listContent",
         "parameters": [
           {
@@ -748,7 +748,7 @@
     "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract": {
       "post": {
         "tags": ["ingestion"],
-        "summary": "Upload a file to an extraction graph in a namespace",
+        "summary": "Upload Files",
         "operationId": "uploadFile",
         "parameters": [
           {
@@ -932,7 +932,7 @@
     "/namespaces/{namespace}/indexes": {
       "get": {
         "tags": ["retrieval"],
-        "summary": "List all the indexes in a given namespace",
+        "summary": "List Indexes",
         "operationId": "listIndexes",
         "parameters": [
           {
@@ -972,7 +972,7 @@
     "/namespaces/{namespace}/indexes/{index}/search": {
       "post": {
         "tags": ["retrieval"],
-        "summary": "Search a vector index in a namespace",
+        "summary": "Search Vector Index",
         "operationId": "indexSearch",
         "parameters": [
           {
