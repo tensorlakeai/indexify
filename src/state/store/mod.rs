@@ -15,6 +15,7 @@ use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
+    ContentOffset,
     ExecutorMetadata,
     ExtractionGraph,
     ExtractionGraphLink,
@@ -23,7 +24,7 @@ use indexify_internal_api::{
     StructuredDataSchema,
     Task,
 };
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -77,6 +78,8 @@ use self::{
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::{
+    api::NewContentStreamStart,
+    coordinator::ContentStream,
     metrics::{state_machine::Metrics, Timer},
     utils::OptionInspectNone,
 };
@@ -130,6 +133,7 @@ pub enum StateMachineColumns {
     ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
     RaftState,                          //  Raft state
     ExtractionGraphLinks,               //  Namespace/Graph/Source -> Linked graph name
+    ChangeIdContentIndex,               //  ChangeId -> ContentId
 }
 
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
@@ -374,6 +378,71 @@ pub struct StateMachineStore {
     snapshot: std::sync::RwLock<Option<Snapshot<TypeConfig>>>,
 
     metrics: Metrics,
+}
+
+fn content_stream_items(
+    state: &IndexifyState,
+    db: &OptimisticTransactionDB,
+    offset: ContentOffset,
+) -> Result<Vec<ContentMetadata>> {
+    let key = offset.0.to_be_bytes();
+    let iter = db.iterator_cf(
+        StateMachineColumns::ChangeIdContentIndex.cf(db),
+        IteratorMode::From(&key, rocksdb::Direction::Forward),
+    );
+    let mut ids: Vec<String> = Vec::new();
+    for item in iter {
+        match item {
+            Ok((_key, value)) => {
+                let id = String::from_utf8(value.to_vec())?;
+                ids.push(id);
+            }
+            Err(e) => {
+                return Err(anyhow!("Failed to read content stream: {}", e));
+            }
+        }
+        if ids.len() >= 100 {
+            break;
+        }
+    }
+    state
+        .get_content_from_ids(ids, db)
+        .map_err(|e| anyhow!("Failed to get content: {}", e))
+}
+
+pub fn new_content_stream(
+    store: Arc<StateMachineStore>,
+    start: NewContentStreamStart,
+) -> ContentStream {
+    let mut offset = match start {
+        NewContentStreamStart::FromOffset(offset) => offset.next(),
+        NewContentStreamStart::FromLast => {
+            *store.data.indexify_state.content_offset.lock().unwrap()
+        }
+    };
+    let stream = async_stream::stream! {
+        let mut rx = store.data.indexify_state.new_content_channel.subscribe();
+        loop {
+            let items = content_stream_items(&store.data.indexify_state, &store.db.read().unwrap(), offset);
+            match items {
+                Ok(items) => {
+                    if items.is_empty() {
+                        let _ = rx.recv().await;
+                    } else {
+                        offset = items.last().unwrap().change_offset.next();
+                        for item in items {
+                            yield Ok(item);
+                        }
+                    }
+                }
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            }
+        }
+    };
+    Box::pin(stream)
 }
 
 impl StateMachineStore {
