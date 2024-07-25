@@ -44,7 +44,8 @@
     {
       "name": "Download Indexify",
       "icon": "download",
-      "url": "download"
+      "url": "download",
+      "isDefaultHidden": false
     },
     {
       "name": "Community",
