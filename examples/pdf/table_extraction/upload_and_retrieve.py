@@ -24,7 +24,7 @@ def get_tables(pdf_path):
         policy_name="pdf_to_table"
     )
     
-    return tables[0]['content'].decode('utf-8')
+    return tables[5]['content'].decode('utf-8')
 
 # Example usage
 if __name__ == "__main__":

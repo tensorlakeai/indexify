@@ -51,6 +51,9 @@ Before we begin, ensure you have the following:
    ```bash
    python upload_and_retreive.py
    ```
+   Sample Page to extract table from:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/table_extraction/screenshot.png" width="600"/>
+   Sample Table extracted from page:
    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/table_extraction/carbon.png" width="600"/>
 
    This script will:
