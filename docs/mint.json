@@ -44,7 +44,7 @@
     {
       "name": "Download",
       "icon": "download",
-      "url": "https://docs.getindexify.ai/download/index"
+      "url": "download"
     },
     {
       "name": "Community",
