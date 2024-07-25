@@ -90,11 +90,11 @@
     {
       "group": "Pre-Built Extractors",
       "pages": [
-        "extractors/audio",
-        "extractors/embedding",
-        "extractors/image",
-        "extractors/pdf",
         "extractors/text",
+        "extractors/pdf",
+        "extractors/embedding",
+        "extractors/audio",
+        "extractors/image",
         "extractors/video"
       ]
     },
