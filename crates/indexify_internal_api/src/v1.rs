@@ -108,6 +108,7 @@ impl From<ContentMetadata> for super::ContentMetadata {
             tombstoned: metadata.tombstoned,
             hash: metadata.hash,
             content_type: metadata.content_type,
+            change_offset: super::ContentOffset(0),
         }
     }
 }

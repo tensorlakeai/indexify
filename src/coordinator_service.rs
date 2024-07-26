@@ -14,10 +14,16 @@ use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
 use futures::StreamExt;
 use hyper::StatusCode;
-use indexify_internal_api::{self as internal_api, ContentSourceFilter, ExtractionGraphLink};
+use indexify_internal_api::{
+    self as internal_api,
+    ContentOffset,
+    ContentSourceFilter,
+    ExtractionGraphLink,
+};
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_server::CoordinatorService,
+    ContentStreamItem,
     CoordinatorCommand,
     CreateContentRequest,
     CreateContentResponse,
@@ -85,6 +91,7 @@ use indexify_proto::indexify_coordinator::{
     WaitContentExtractionResponse,
 };
 use internal_api::{
+    ContentSource,
     ExtractionGraph,
     ExtractionGraphBuilder,
     ExtractionPolicyBuilder,
@@ -115,7 +122,7 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, warn, Instrument};
 
 use crate::{
-    api::IndexifyAPIError,
+    api::{IndexifyAPIError, NewContentStreamStart},
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
     coordinator_filters::content_filter,
@@ -216,8 +223,54 @@ impl CoordinatorServiceServer {
 
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
+    type ContentStreamStream =
+        Pin<Box<dyn tokio_stream::Stream<Item = Result<ContentStreamItem, Status>> + Send + Sync>>;
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+
+    async fn content_stream(
+        &self,
+        request: tonic::Request<indexify_coordinator::ContentStreamRequest>,
+    ) -> Result<tonic::Response<Self::ContentStreamStream>, tonic::Status> {
+        let request = request.into_inner();
+        let start = if request.change_offset == u64::MAX {
+            NewContentStreamStart::FromLast
+        } else {
+            NewContentStreamStart::FromOffset(ContentOffset(request.change_offset))
+        };
+        let stream = self.coordinator.new_content_stream(start);
+        let stream = stream
+            .filter(move |item| {
+                futures::future::ready(match item {
+                    Err(_) => true,
+                    Ok(item) => {
+                        item.namespace == request.namespace &&
+                            item.extraction_graph_names
+                                .contains(&request.extraction_graph) &&
+                            item.source ==
+                                ContentSource::ExtractionPolicyName(
+                                    request.extraction_policy.clone(),
+                                )
+                    }
+                })
+            })
+            .map(|item| match item {
+                Err(e) => return Err(tonic::Status::aborted(e.to_string())),
+                Ok(item) => {
+                    let offset = item.change_offset.0;
+                    let content: Result<indexify_proto::indexify_coordinator::ContentMetadata> =
+                        item.try_into();
+                    match content {
+                        Ok(content) => Ok(ContentStreamItem {
+                            content: Some(content),
+                            change_offset: offset,
+                        }),
+                        Err(e) => Err(tonic::Status::aborted(e.to_string())),
+                    }
+                }
+            });
+        Ok(tonic::Response::new(Box::pin(stream)))
+    }
 
     async fn add_graph_to_content(
         &self,
