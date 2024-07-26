@@ -117,7 +117,7 @@ python extract_invoice.py
 ```
 
 Sample Page to extract invoice from:
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/screenshot.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/screenshot.jpg" width="600"/>
 Sample Invoice extracted from page:
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/carbon.png" width="600"/>
 
