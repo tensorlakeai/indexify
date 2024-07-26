@@ -76,59 +76,44 @@ const ExtractionPolicyPage = () => {
   });
 
   const fetchTaskCounts = useMemo(() => {
-    return async () => {
-      try {
-        const unknown = await client.getTasks(
-          extractionGraph.name,
-          policy.name,
-          {
-            namespace: namespace,
-            extractionGraph: extractionGraph.name,
-            extractionPolicy: policy.name,
-            outcome: 'Unknown',
-            returnTotal: true
-          }
-        );
+  return async () => {
+    try {
+      const outcomes = ['Unknown', 'Success', 'Failed'] as const;
+      
+      const results = await Promise.all(
+        outcomes.map(outcome => 
+          client.getTasks(
+            extractionGraph.name,
+            policy.name,
+            {
+              namespace: namespace,
+              extractionGraph: extractionGraph.name,
+              extractionPolicy: policy.name,
+              outcome: outcome,
+              returnTotal: true
+            }
+          )
+        )
+      );
 
-        const success = await client.getTasks(
-          extractionGraph.name,
-          policy.name,
-          {
-            namespace: namespace,
-            extractionGraph: extractionGraph.name,
-            extractionPolicy: policy.name,
-            outcome: 'Success',
-            returnTotal: true
-          }
-        );
+      const [unknown, success, failure] = results.map(result => result.totalTasks || 0);
 
-        const failure = await client.getTasks(
-          extractionGraph.name,
-          policy.name,
-          {
-            namespace: namespace,
-            extractionGraph: extractionGraph.name,
-            extractionPolicy: policy.name,
-            outcome: 'Failed',
-            returnTotal: true
-          }
-        );
-
-        return {
-          unknown: unknown.totalTasks || 0,
-          success: success.totalTasks || 0,
-          failure: failure.totalTasks || 0
-        };
-      } catch (error) {
-        console.error("Error fetching task counts:", error);
-        return { unknown: 0, success: 0, failure: 0 };
-      }
-    };
-  }, [client, extractionGraph.name, policy.name, namespace]);
+      return { unknown, success, failure };
+    } catch (error) {
+      console.error("Error fetching task counts:", error);
+      return { unknown: 0, success: 0, failure: 0 };
+    }
+  };
+}, [client, extractionGraph.name, policy.name, namespace]);
 
   useEffect(() => {
-    fetchTaskCounts().then(setLocalTaskCounts);
-  }, [fetchTaskCounts]);
+  const loadTaskCounts = async () => {
+    const taskCounts = await fetchTaskCounts();
+    setLocalTaskCounts(taskCounts)
+  };
+
+  loadTaskCounts();
+}, [fetchTaskCounts]);
 
   const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
   const [drawerOpen, setDrawerOpen] = useState(false);
