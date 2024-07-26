@@ -11,7 +11,7 @@ In this guide, we'll walk you through creating an online ingestion pipeline for 
 
 By the end of this tutorial, you'll be able to:
 
-1. Use advanced LLMs like Llama 3.1 to answer questions based on indexed information (Retrieval-Augmented Generation or RAG)
+1. Use advanced LLMs like Mistral or Multimodal GPT-4 via API calls and Llama 3.1 or Phi-3 locally via Llama.CPP to answer questions based on indexed information (Retrieval-Augmented Generation or RAG)
 2. Retrieve the Named Entities extracted from the text
 3. Use a User Interface to visually debug your pipelines and inspect how pages are broken down into chunks
 
@@ -29,6 +29,7 @@ Before we begin, make sure you have:
 1. Python 3.9 or higher installed
 2. Basic knowledge of Python programming
 3. Familiarity with command-line interfaces
+4. An OpenAI API key (only if using GPT models)
 
 ## Setup
 
@@ -92,7 +93,7 @@ It's good practice to use a virtual environment for Python projects. Let's creat
 ```bash Terminal 2 - Install Dependencies
 python3 -m venv venv
 source venv/bin/activate
-pip3 install indexify-extractor-sdk indexify wikipedia langchain_community
+pip3 install indexify-extractor-sdk indexify wikipedia openai llama-cpp-python mistralai langchain_community
 ```
 
 ## Step 3: Setting Up Indexify Extractors
@@ -138,9 +139,25 @@ As mentioned before, for the purpose of this tutorial, we already have Extractor
 
 Now, let's download three essential extractors:
 
-```bash Terminal 2 - Download Indexify Extractors
+```bash Terminal 2 - Download Indexify Extractors for Llama.CPP
 source venv/bin/activate
 indexify-extractor download tensorlake/llama_cpp
+indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/chunk-extractor
+indexify-extractor join-server
+```
+```bash Terminal 2 - Download Indexify Extractors for OpenAI
+source venv/bin/activate
+export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+indexify-extractor download tensorlake/openai
+indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/chunk-extractor
+indexify-extractor join-server
+```
+```bash Terminal 2 - Download Indexify Extractors for Mistral
+source venv/bin/activate
+export MISTRAL_API_KEY="YOUR_MISTRAL_API_KEY"
+indexify-extractor download tensorlake/mistral
 indexify-extractor download tensorlake/minilm-l6
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor join-server
@@ -160,10 +177,43 @@ We'll define our data pipeline using a YAML file to process text documents by sp
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
-```yaml graph.yaml
+```yaml graph.yaml for Llama.CPP
 name: "wiki_extraction_pipeline"
 extraction_policies:
   - extractor: "tensorlake/llama_cpp"
+    name: "entity-extractor" 
+    input_params:
+      system_prompt: "Extract entities from text, and return the output in JSON format."
+  - extractor: "tensorlake/chunk-extractor"
+    name: "chunker"
+    input_params:
+      chunk_size: 1000
+      overlap: 100
+  - extractor: "tensorlake/minilm-l6"
+    name: "wikiembedding"
+    content_source: "chunker"
+```
+```yaml graph.yaml for OpenAI
+name: "wiki_extraction_pipeline"
+extraction_policies:
+  - extractor: "tensorlake/openai"
+    name: "entity-extractor" 
+    input_params:
+      model: "gpt-4o-mini"
+      system_prompt: "Extract entities from text, and return the output in JSON format."
+  - extractor: "tensorlake/chunk-extractor"
+    name: "chunker"
+    input_params:
+      chunk_size: 1000
+      overlap: 100
+  - extractor: "tensorlake/minilm-l6"
+    name: "wikiembedding"
+    content_source: "chunker"
+```
+```yaml graph.yaml for Mistral
+name: "wiki_extraction_pipeline"
+extraction_policies:
+  - extractor: "tensorlake/mistral"
     name: "entity-extractor" 
     input_params:
       system_prompt: "Extract entities from text, and return the output in JSON format."
@@ -185,7 +235,7 @@ This YAML file defines three extraction policies:
 
 These are the three key extractors are utilized to process and analyze the input content from Wikipedia:
 
-1. Llama CPP Extractor(`tensorlake/llama_cpp`): Uses Llama 3.1 model for entity extraction from various input types (text, PDF, images). It can be customized with specific system and user prompts to tailor its output.
+1. Llama CPP Extractor(`tensorlake/llama_cpp`): Uses Phi-3-mini-4k-instruct model for entity extraction from text input type. OR OpenAI Extractor(`tensorlake/openai`): Uses OpenAI’s LLMs for entity extraction from various input types (text, PDF, images). OR Mistral Extractor(`tensorlake/mistral`): Uses Mistral AI API for entity extraction from text input type. All these can be customized with specific system prompts to tailor its output.
 
 2. Chunk Extractor(`tensorlake/chunk-extractor`): Breaks down text into chunks, offering flexibility in chunk size and overlap.
 
@@ -260,22 +310,26 @@ You can query Indexify to -
 3. Perform semantic search on vector indexes populated by embedding extractors.
 4. Run SQL Queries on structured data(not in this tutorial).
 
-```bash Terminal 3 - Run our RAG query
+```bash Terminal 3 - Run our RAG query for Llama.CPP
+python3 ./query.py
+```
+```bash Terminal 3 - Run our RAG query for OpenAI
+export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+python3 ./query.py
+```
+```bash Terminal 3 - Run our RAG query for Mistral
+export MISTRAL_API_KEY="YOUR_MISTRAL_API_KEY"
 python3 ./query.py
 ```
 
 For now let us create a file named `query.py` with the following content:
 
-```python query.py
+```python query.py for Llama.CPP
 from indexify import IndexifyClient
 from llama_cpp import Llama
 
 client = IndexifyClient()
-llm = Llama(
-    "bullerwins/Meta-Llama-3.1-8B-Instruct-GGUF",
-    filename="*Q8_0.gguf",
-    chat_format="llama-2"
-)
+llm = Llama.from_pretrained(repo_id='microsoft/Phi-3-mini-4k-instruct-gguf', filename='*q4.gguf', verbose=False)
 
 # Get entities
 ingested_content_list = client.list_content("wiki_extraction_pipeline")
@@ -302,7 +356,100 @@ def query_database(question: str, index: str, top_k=3):
         ]
     )
     
-    return response['choices'][0]['message']['content']
+    return response["choices"][0]["message"]["content"]
+
+if __name__ == "__main__":
+    index_name = "wiki_extraction_pipeline.wikiembedding.embedding"
+    indexes = client.indexes()
+    print(f"Vector indexes present: {indexes}, querying index: {index_name}")
+    print(
+        query_database(
+            "What accomplishments did Kevin durant achieve during his career?",
+            "wiki_extraction_pipeline.wikiembedding.embedding",
+            4,
+        )
+    )
+```
+```python query.py for OpenAI
+from indexify import IndexifyClient
+from openai import OpenAI
+
+client = IndexifyClient()
+client_openai = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+
+# Get entities
+ingested_content_list = client.list_content("wiki_extraction_pipeline")
+content_id = ingested_content_list[0].id
+entities = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "entity-extractor")
+
+# Get chunks
+chunks = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "chunker")
+
+def query_database(question: str, index: str, top_k=3):
+    retrieved_results = client.search_index(name=index, query=question, top_k=top_k)
+    context = "\n-".join([item["text"] for item in retrieved_results])
+    
+    response = client_openai.chat.completions.create(
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that answers questions based on the given context."},
+            {"role": "user", "content": f"Answer the following question based on the context provided:\nQuestion: {question}\nContext: {context}"}
+        ],
+        model="gpt-4o-mini",
+    )
+    
+    return response.choices[0].message.content
+
+if __name__ == "__main__":
+    index_name = "wiki_extraction_pipeline.wikiembedding.embedding"
+    indexes = client.indexes()
+    print(f"Vector indexes present: {indexes}, querying index: {index_name}")
+    print(
+        query_database(
+            "What accomplishments did Kevin durant achieve during his career?",
+            "wiki_extraction_pipeline.wikiembedding.embedding",
+            4,
+        )
+    )
+```
+```python query.py for Mistral
+from indexify import IndexifyClient
+from mistralai.client import MistralClient
+from mistralai.models.chat_completion import ChatMessage
+
+client = IndexifyClient()
+client_mistral = MistralClient(api_key="YOUR_MISTRAL_API_KEY")
+
+# Get entities
+ingested_content_list = client.list_content("wiki_extraction_pipeline")
+content_id = ingested_content_list[0].id
+entities = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "entity-extractor")
+
+# Get chunks
+chunks = client.get_extracted_content(
+    content_id, 
+    "wiki_extraction_pipeline", 
+    "chunker")
+
+def query_database(question: str, index: str, top_k=3):
+    retrieved_results = client.search_index(name=index, query=question, top_k=top_k)
+    context = "\n-".join([item["text"] for item in retrieved_results])
+    
+    response = client_mistral.chat(
+        messages=[ChatMessage(role="system", content="You are a helpful assistant that answers questions based on the given context."),
+                  ChatMessage(role="user", content=f"Answer the following question based on the context provided:\nQuestion: {question}\nContext: {context}")],
+        model="mistral-large-latest",
+    )
+    
+    return response.choices[0].message.content
 
 if __name__ == "__main__":
     index_name = "wiki_extraction_pipeline.wikiembedding.embedding"
@@ -343,7 +490,7 @@ Congratulations, You've successfully set up an Indexify pipeline for ingesting, 
 1. Setting up the Indexify server and extractors
 2. Defining an extraction graph for processing Wikipedia pages
 3. Ingesting data into the system
-4. Querying the processed data using semantic search and Llama 3.1
+4. Querying the processed data using semantic search and Phi 3 Mini / GPT 4o Mini / Mistral Large
 
 Indexify's fault-tolerant design ensures reliability and scalability, making it suitable for mission-critical applications. You can now explore more advanced topics and integrations to further enhance your information retrieval and processing capabilities.
 
