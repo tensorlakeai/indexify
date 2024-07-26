@@ -7,7 +7,12 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use indexify_internal_api::{self as internal_api, ExtractionGraphNode, ServerTaskType};
+use indexify_internal_api::{
+    self as internal_api,
+    ContentOffset,
+    ExtractionGraphNode,
+    ServerTaskType,
+};
 use internal_api::{
     v1,
     ContentMetadata,
@@ -27,7 +32,7 @@ use internal_api::{
 };
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
-use rocksdb::OptimisticTransactionDB;
+use rocksdb::{IteratorMode, OptimisticTransactionDB};
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 use tracing::warn;
@@ -581,7 +586,31 @@ impl Ord for UnfinishedTask {
     }
 }
 
-#[derive(thiserror::Error, Debug, Default)]
+fn max_content_offset(db: &OptimisticTransactionDB) -> Result<u64, StateMachineError> {
+    let mut iter = db.iterator_cf(
+        StateMachineColumns::ChangeIdContentIndex.cf(db),
+        IteratorMode::End,
+    );
+    match iter.next() {
+        Some(Ok((key, _))) => {
+            let key_bytes: Result<[u8; 8], _> = key.as_ref().try_into();
+            match key_bytes {
+                Ok(bytes) => Ok(u64::from_be_bytes(bytes) + 1),
+                Err(e) => Err(StateMachineError::DatabaseError(format!(
+                    "Failed to decode key: {}",
+                    e
+                ))),
+            }
+        }
+        Some(Err(e)) => Err(StateMachineError::DatabaseError(format!(
+            "Failed to read content index: {}",
+            e
+        ))),
+        None => Ok(1),
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
 pub struct IndexifyState {
     // Reverse Indexes
     /// The tasks that are currently unassigned
@@ -627,6 +656,11 @@ pub struct IndexifyState {
 
     /// Graph+ContentSource->Policy Id
     pub graph_links: Arc<RwLock<HashMap<ExtractionGraphNode, HashSet<ExtractionPolicyId>>>>,
+
+    pub new_content_channel: broadcast::Sender<()>,
+
+    /// Next content offset
+    pub content_offset: std::sync::Mutex<ContentOffset>,
 }
 
 impl fmt::Display for IndexifyState {
@@ -647,7 +681,38 @@ impl fmt::Display for IndexifyState {
     }
 }
 
+impl Default for IndexifyState {
+    fn default() -> Self {
+        let new_content_channel = broadcast::channel(1).0;
+        Self {
+            unassigned_tasks: Default::default(),
+            unprocessed_state_changes: Default::default(),
+            extraction_policies_table: Default::default(),
+            extractor_executors_table: Default::default(),
+            namespace_index_table: Default::default(),
+            unfinished_tasks_by_extractor: Default::default(),
+            unfinished_tasks_by_executor: Default::default(),
+            schemas_by_namespace: Default::default(),
+            content_children_table: Default::default(),
+            root_task_counts: Default::default(),
+            metrics: Default::default(),
+            extraction_graphs_by_ns: Default::default(),
+            change_id: Default::default(),
+            graph_links: Default::default(),
+            new_content_channel,
+            content_offset: std::sync::Mutex::new(ContentOffset(1)),
+        }
+    }
+}
+
 impl IndexifyState {
+    pub fn next_content_offset(&self) -> ContentOffset {
+        let mut offset_guard = self.content_offset.lock().unwrap();
+        let offset = *offset_guard;
+        *offset_guard = offset.next();
+        offset
+    }
+
     // Complete value of link is stored in db key since multiple graphs
     // can be linked to the same node.
     fn set_extraction_graph_link(
@@ -657,7 +722,7 @@ impl IndexifyState {
         link: &ExtractionGraphLink,
     ) -> Result<(), StateMachineError> {
         let key = JsonEncoder::encode(link)?;
-        txn.put_cf(&StateMachineColumns::ExtractionGraphLinks.cf(db), key, &[])
+        txn.put_cf(&StateMachineColumns::ExtractionGraphLinks.cf(db), key, [])
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
     }
 
@@ -931,11 +996,21 @@ impl IndexifyState {
         contents_vec: impl IntoIterator<Item = &'a ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
-            let serialized_content = JsonEncoder::encode(content)?;
+            let mut content = content.clone();
+            content.change_offset = self.next_content_offset();
+            let serialized_content = JsonEncoder::encode(&content)?;
             txn.put_cf(
                 StateMachineColumns::ContentTable.cf(db),
                 content.id_key(),
                 &serialized_content,
+            )
+            .map_err(|e| {
+                StateMachineError::DatabaseError(format!("error writing content: {}", e))
+            })?;
+            txn.put_cf(
+                StateMachineColumns::ChangeIdContentIndex.cf(db),
+                content.change_offset.0.to_be_bytes(),
+                &content.id.id,
             )
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!("error writing content: {}", e))
@@ -977,6 +1052,7 @@ impl IndexifyState {
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
         content_id: ContentMetadataId,
         latest: bool,
+        change_offset: ContentOffset,
     ) -> Result<(), StateMachineError> {
         let key = if latest {
             content_id.id.clone()
@@ -991,7 +1067,7 @@ impl IndexifyState {
                     e
                 ))
             })?;
-        if !res.is_some() {
+        if res.is_none() {
             warn!("Content with id {} not found", content_id);
         }
         txn.delete_cf(StateMachineColumns::ContentTable.cf(db), &key)
@@ -1001,6 +1077,16 @@ impl IndexifyState {
                     e
                 ))
             })?;
+        txn.delete_cf(
+            StateMachineColumns::ChangeIdContentIndex.cf(db),
+            change_offset.0.to_be_bytes(),
+        )
+        .map_err(|e| {
+            StateMachineError::TransactionError(format!(
+                "error in txn while trying to delete content: {}",
+                e
+            ))
+        })?;
         Ok(())
     }
 
@@ -1247,7 +1333,7 @@ impl IndexifyState {
             return Ok(());
         };
         for content_id in content_ids {
-            let content = self.get_latest_version_of_content(&content_id, db, txn)?;
+            let content = self.get_latest_version_of_content(content_id, db, txn)?;
             match content {
                 Some(content) if !content.tombstoned => {
                     if content.namespace != namespace {
@@ -1320,7 +1406,13 @@ impl IndexifyState {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
                     if gc_task.task_type == ServerTaskType::Delete {
-                        self.delete_content(db, &txn, gc_task.content_id.clone(), gc_task.latest)?;
+                        self.delete_content(
+                            db,
+                            &txn,
+                            gc_task.content_id.clone(),
+                            gc_task.latest,
+                            gc_task.change_offset,
+                        )?;
                     }
                 }
             }
@@ -1476,7 +1568,7 @@ impl IndexifyState {
         for state_change in state_changes_processed {
             if unprocessed_changes.contains(&state_change.id) {
                 if let Some(refcnt_object_id) = &state_change.refcnt_object_id {
-                    self.dec_root_ref_count(&refcnt_object_id);
+                    self.dec_root_ref_count(refcnt_object_id);
                 }
             }
         }
@@ -1531,7 +1623,7 @@ impl IndexifyState {
                     .write()
                     .unwrap()
                     .entry(executor_id.clone())
-                    .or_insert(BTreeSet::new());
+                    .or_default();
 
                 Ok(())
             }
@@ -1582,6 +1674,7 @@ impl IndexifyState {
                         guard.content_uploads += 1;
                         guard.content_bytes += entry.content.size_bytes;
                     }
+                    let _ = self.new_content_channel.send(());
                 }
                 Ok(())
             }
@@ -1932,7 +2025,7 @@ impl IndexifyState {
         let mut assignments = HashMap::new();
         let iter = db.iterator_cf(
             StateMachineColumns::TaskAssignments.cf(db),
-            rocksdb::IteratorMode::Start,
+            IteratorMode::Start,
         );
         for item in iter {
             let (key, value) = item.map_err(|e| {
@@ -2109,14 +2202,13 @@ impl IndexifyState {
                 column
             )))
             .unwrap();
-        db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start)
-            .map(|item| {
-                item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
-                    .and_then(|(key, value)| match JsonEncoder::decode::<V>(&value) {
-                        Ok(value) => Ok((key, value)),
-                        Err(e) => Err(StateMachineError::SerializationError(e.to_string())),
-                    })
-            })
+        db.iterator_cf(cf_handle, IteratorMode::Start).map(|item| {
+            item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
+                .and_then(|(key, value)| match JsonEncoder::decode::<V>(&value) {
+                    Ok(value) => Ok((key, value)),
+                    Err(e) => Err(StateMachineError::SerializationError(e.to_string())),
+                })
+        })
     }
 
     /// Test utility method to get all key-value pairs from a column family
@@ -2134,7 +2226,7 @@ impl IndexifyState {
                 "Failed to get column family {}",
                 column
             )))?;
-        let iter = db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+        let iter = db.iterator_cf(cf_handle, IteratorMode::Start);
 
         iter.map(|item| {
             item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
@@ -2302,7 +2394,7 @@ impl IndexifyState {
         graph_links: &mut HashMap<ExtractionGraphNode, HashSet<String>>,
     ) -> Result<(), StateMachineError> {
         let cf_handle = StateMachineColumns::ExtractionGraphLinks.cf(db);
-        for v in db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start) {
+        for v in db.iterator_cf(cf_handle, IteratorMode::Start) {
             let (key, _) = v.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             let link: ExtractionGraphLink = JsonEncoder::decode(&key)?;
 
@@ -2372,7 +2464,7 @@ impl IndexifyState {
             .unwrap();
         let mut graph_links = self.graph_links.write().unwrap();
 
-        self.rebuild_graph_links(db, &mut *graph_links)?;
+        self.rebuild_graph_links(db, &mut graph_links)?;
 
         for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
             let eg = eg?;
@@ -2437,6 +2529,8 @@ impl IndexifyState {
             Some(val) => Into::<u64>::into(val) + 1,
             None => 0,
         };
+
+        *self.content_offset.lock().unwrap() = ContentOffset(max_content_offset(db)?);
 
         for content in self.iter_cf::<ContentMetadata>(db, StateMachineColumns::ContentTable) {
             let (_, content) = content?;

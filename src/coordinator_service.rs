@@ -14,10 +14,16 @@ use anyhow::{anyhow, Result};
 use axum::{extract::State, routing::get};
 use futures::StreamExt;
 use hyper::StatusCode;
-use indexify_internal_api::{self as internal_api, ContentSourceFilter, ExtractionGraphLink};
+use indexify_internal_api::{
+    self as internal_api,
+    ContentOffset,
+    ContentSourceFilter,
+    ExtractionGraphLink,
+};
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_server::CoordinatorService,
+    ContentStreamItem,
     CoordinatorCommand,
     CreateContentRequest,
     CreateContentResponse,
@@ -85,6 +91,7 @@ use indexify_proto::indexify_coordinator::{
     WaitContentExtractionResponse,
 };
 use internal_api::{
+    ContentSource,
     ExtractionGraph,
     ExtractionGraphBuilder,
     ExtractionPolicyBuilder,
@@ -115,7 +122,7 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, warn, Instrument};
 
 use crate::{
-    api::IndexifyAPIError,
+    api::{IndexifyAPIError, NewContentStreamStart},
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
     coordinator_filters::content_filter,
@@ -216,8 +223,54 @@ impl CoordinatorServiceServer {
 
 #[tonic::async_trait]
 impl CoordinatorService for CoordinatorServiceServer {
+    type ContentStreamStream =
+        Pin<Box<dyn tokio_stream::Stream<Item = Result<ContentStreamItem, Status>> + Send + Sync>>;
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+
+    async fn content_stream(
+        &self,
+        request: tonic::Request<indexify_coordinator::ContentStreamRequest>,
+    ) -> Result<tonic::Response<Self::ContentStreamStream>, tonic::Status> {
+        let request = request.into_inner();
+        let start = if request.change_offset == u64::MAX {
+            NewContentStreamStart::FromLast
+        } else {
+            NewContentStreamStart::FromOffset(ContentOffset(request.change_offset))
+        };
+        let stream = self.coordinator.new_content_stream(start);
+        let stream = stream
+            .filter(move |item| {
+                futures::future::ready(match item {
+                    Err(_) => true,
+                    Ok(item) => {
+                        item.namespace == request.namespace &&
+                            item.extraction_graph_names
+                                .contains(&request.extraction_graph) &&
+                            item.source ==
+                                ContentSource::ExtractionPolicyName(
+                                    request.extraction_policy.clone(),
+                                )
+                    }
+                })
+            })
+            .map(|item| match item {
+                Err(e) => Err(tonic::Status::aborted(e.to_string())),
+                Ok(item) => {
+                    let offset = item.change_offset.0;
+                    let content: Result<indexify_proto::indexify_coordinator::ContentMetadata> =
+                        item.try_into();
+                    match content {
+                        Ok(content) => Ok(ContentStreamItem {
+                            content: Some(content),
+                            change_offset: offset,
+                        }),
+                        Err(e) => Err(tonic::Status::aborted(e.to_string())),
+                    }
+                }
+            });
+        Ok(tonic::Response::new(Box::pin(stream)))
+    }
 
     async fn add_graph_to_content(
         &self,
@@ -389,7 +442,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 (req.parent_id.is_empty() ||
                     Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
                 (req.ingested_content_id.is_empty() ||
-                    Some(&req.ingested_content_id) == c.root_content_id.as_ref().map(|id| id)) &&
+                    Some(&req.ingested_content_id) == c.root_content_id.as_ref()) &&
                 content_filter(c, &source_filter, &labels_filter)
         };
         let response = self
@@ -414,7 +467,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?
             .into_iter()
-            .map(|c| c.into())
             .collect_vec();
         Ok(tonic::Response::new(ListActiveContentsResponse {
             content_ids,
@@ -1509,7 +1561,7 @@ async fn run_scheduler(
         tokio::select! {
             _ = state_watcher_rx.changed() => {
                 if is_leader.load(Ordering::Relaxed) {
-                   let _state_change = state_watcher_rx.borrow_and_update().clone();
+                   let _state_change = *state_watcher_rx.borrow_and_update();
                    if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }

@@ -586,6 +586,8 @@ pub struct GarbageCollectionTask {
     pub blob_store_path: String,
     pub assigned_to: Option<String>,
     pub task_type: ServerTaskType,
+    #[serde(default)]
+    pub change_offset: ContentOffset,
 }
 
 impl GarbageCollectionTask {
@@ -610,6 +612,7 @@ impl GarbageCollectionTask {
             blob_store_path: content_metadata.storage_url,
             assigned_to: None,
             task_type,
+            change_offset: content_metadata.change_offset,
         }
     }
 }
@@ -938,6 +941,15 @@ impl Display for ContentSource {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Copy, Default)]
+pub struct ContentOffset(pub u64);
+
+impl ContentOffset {
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ContentMetadata {
     pub id: ContentMetadataId,
@@ -958,6 +970,8 @@ pub struct ContentMetadata {
     pub extraction_policy_ids: HashMap<ExtractionPolicyId, u64>, /*  map of completion time for
                                                                   * each extraction policy id */
     pub extraction_graph_names: Vec<ExtractionGraphName>,
+    /// monotonically increasing change id
+    pub change_offset: ContentOffset,
 }
 
 impl ContentMetadata {
@@ -1047,6 +1061,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
+            change_offset: ContentOffset(0),
         })
     }
 }
@@ -1077,6 +1092,7 @@ impl Default for ContentMetadata {
             tombstoned: false,
             hash: "test_hash".to_string(),
             extraction_graph_names: vec![],
+            change_offset: ContentOffset(0),
         }
     }
 }

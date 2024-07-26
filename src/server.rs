@@ -19,11 +19,14 @@ use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
+    ContentStreamItem,
+    ContentStreamRequest,
     GcTaskAcknowledgement,
     ListStateChangesRequest,
     ListTasksRequest,
 };
 use indexify_ui::Assets as UiAssets;
+use internal_api::ContentOffset;
 use mime::Mime;
 use prometheus::Encoder;
 use tokio::{
@@ -31,6 +34,7 @@ use tokio::{
     sync::{mpsc, watch},
 };
 use tokio_stream::StreamExt;
+use tonic::Streaming;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 use utoipa::{
@@ -77,6 +81,7 @@ pub struct NamespaceEndpointState {
             list_extractors,
             list_executors,
             list_content,
+            new_content_stream,
             update_content,
             delete_content,
             get_content_metadata,
@@ -101,7 +106,7 @@ pub struct NamespaceEndpointState {
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse, ListTasks,
             ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
-            AddGraphToContent,
+            AddGraphToContent, NewContentStreamResponse
         )
         ),
         tags(
@@ -215,6 +220,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
                 get(list_tasks).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/new_content",
+                get(new_content_stream).with_state(namespace_endpoint_state.clone()),
             )
             .route("/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()))
@@ -1117,7 +1126,7 @@ async fn upload_file(
             } else {
                 name
             };
-            let content_mime = labels.get("mime_type").map(|v| v.as_str()).flatten();
+            let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
             let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
             let content_mime =
                 content_mime.unwrap_or(mime_guess::from_ext(ext).first_or_octet_stream());
@@ -1283,6 +1292,81 @@ async fn ingest_extracted_content(
     State(state): State<NamespaceEndpointState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| IngestExtractedContentState::new(state).run(socket))
+}
+
+async fn get_new_content_stream(
+    state: &NamespaceEndpointState,
+    namespace: String,
+    extraction_graph: String,
+    extraction_policy: String,
+    start: NewContentStreamStart,
+) -> Result<Streaming<ContentStreamItem>> {
+    let mut client = state.data_manager.get_coordinator_client().await?;
+    let stream = client
+        .content_stream(ContentStreamRequest {
+            change_offset: match start {
+                NewContentStreamStart::FromLast => u64::MAX,
+                NewContentStreamStart::FromOffset(offset) => offset.0,
+            },
+            namespace,
+            extraction_graph,
+            extraction_policy,
+        })
+        .await?;
+    Ok(stream.into_inner())
+}
+
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extraction_policies/{extraction_policy}/content",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("extraction_policy" = String, Path, description = "Extraction policy name"),
+        ("offset" = Option<u64>, Query, description = "Offset to start from, if not provided will start from last")
+    ),
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Started stream of new content", body = NewContentStreamResponse),
+        (status = BAD_REQUEST, description = "Unable to start new content stream")
+    ),
+)]
+async fn new_content_stream(
+    Path((namespace, extraction_graph, extraction_policy)): Path<(String, String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let offset = params.get("offset").and_then(|s| s.parse().ok());
+    let start = match offset {
+        Some(offset) => NewContentStreamStart::FromOffset(ContentOffset(offset)),
+        None => NewContentStreamStart::FromLast,
+    };
+    let stream = get_new_content_stream(
+        &state,
+        namespace,
+        extraction_graph,
+        extraction_policy,
+        start,
+    )
+    .await
+    .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let stream = stream.map(|item| match item {
+        Ok(item) => {
+            let item: Result<NewContentStreamResponse, _> = item.try_into();
+            match item {
+                Ok(item) => axum::response::sse::Event::default().json_data(item),
+                Err(e) => {
+                    tracing::error!("error in new content stream: {}", e);
+                    Err(axum::Error::new(e))
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("error in new content stream: {}", e);
+            Err(axum::Error::new(e))
+        }
+    });
+    Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
 /// Run extraction graph for a list of existing content

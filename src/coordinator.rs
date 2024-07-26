@@ -1,13 +1,15 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
+    pin::Pin,
     sync::Arc,
     time::SystemTime,
     vec,
 };
 
 use anyhow::{anyhow, Result};
-use indexify_internal_api::{self as internal_api, ExtractionGraphLink};
+use futures::Stream;
+use indexify_internal_api::{self as internal_api, ContentMetadata, ExtractionGraphLink};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
     ContentMetadataId,
@@ -24,6 +26,7 @@ use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info, warn};
 
 use crate::{
+    api::NewContentStreamStart,
     coordinator_client::CoordinatorClient,
     coordinator_service::EXECUTOR_HEARTBEAT_PERIOD,
     forwardable_coordinator::ForwardableCoordinator,
@@ -31,13 +34,15 @@ use crate::{
     metrics::Timer,
     scheduler::Scheduler,
     state::{
-        store::{requests::StateChangeProcessed, ExecutorId, FilterResponse},
+        store::{new_content_stream, requests::StateChangeProcessed, ExecutorId, FilterResponse},
         RaftMetrics,
         SharedState,
     },
     task_allocator::TaskAllocator,
     utils,
 };
+
+pub type ContentStream = Pin<Box<dyn Stream<Item = Result<ContentMetadata>> + Send + Sync>>;
 
 pub struct Coordinator {
     pub shared_state: SharedState,
@@ -68,6 +73,10 @@ impl Coordinator {
             my_executors: std::sync::Mutex::new(HashSet::new()),
             all_executors: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub fn new_content_stream(&self, start: NewContentStreamStart) -> ContentStream {
+        new_content_stream(self.shared_state.state_machine.clone(), start)
     }
 
     pub async fn add_graph_to_content(
@@ -330,7 +339,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
+            .map(|task| -> Result<indexify_coordinator::Task> { task.try_into() })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -357,7 +366,7 @@ impl Coordinator {
             .shared_state
             .list_tasks(filter, start_id, limit, return_total)
             .await?;
-        Ok(response.try_into()?)
+        response.try_into()
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -465,7 +474,7 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        Ok(task.try_into()?)
+        task.try_into()
     }
 
     pub async fn get_task_and_root_content(
@@ -690,8 +699,7 @@ impl Coordinator {
 
             match change.change_type {
                 indexify_internal_api::ChangeType::TombstoneContentTree => {
-                    let _ = self
-                        .handle_tombstone_content_tree_state_change(change)
+                    self.handle_tombstone_content_tree_state_change(change)
                         .await?;
                     continue;
                 }
@@ -789,12 +797,15 @@ mod tests {
     };
 
     use filter::{Expression, LabelsFilter, Operator};
+    use futures::{FutureExt, StreamExt};
     use indexify_internal_api::{self as internal_api, ExtractionGraphLink, ExtractionGraphNode};
     use indexify_proto::indexify_coordinator::CreateContentStatus;
-    use internal_api::{ContentMetadataId, ContentSource, TaskOutcome};
+    use internal_api::{ContentMetadataId, ContentOffset, ContentSource, TaskOutcome};
+    use tokio::time::timeout;
 
     use super::Coordinator;
     use crate::{
+        coordinator::NewContentStreamStart,
         coordinator_client::CoordinatorClient,
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
@@ -1325,7 +1336,7 @@ mod tests {
                 .get_content_namespace_table()?;
             match contents.get(DEFAULT_TEST_NAMESPACE) {
                 Some(contents) => {
-                    if contents.len() == 0 {
+                    if contents.is_empty() {
                         success = true;
                         break;
                     }
@@ -1502,7 +1513,6 @@ mod tests {
         Ok(())
     }
 
-    use futures::FutureExt;
     use tokio::select;
 
     #[tokio::test]
@@ -2213,6 +2223,179 @@ mod tests {
         // Check if the task is created for the content that matches the policy
         // and    // non matching content does not have a task.
         assert_eq!(tasks.len() + unassigned_tasks.len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_content_stream() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let extractor = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor.clone()],
+            )
+            .await?;
+
+        let eg =
+            create_test_extraction_graph("test_extraction_graph", vec!["test_extraction_policy"]);
+        coordinator.create_extraction_graph(eg.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let mut stream =
+            coordinator.new_content_stream(NewContentStreamStart::FromOffset(ContentOffset(0)));
+
+        let content = test_mock_content_metadata("test_content_id", "", &eg.name);
+        coordinator
+            .create_content_metadata(vec![content.clone()])
+            .await?;
+
+        let timeout_duration = Duration::from_secs(1);
+
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, content.id.id);
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
+
+        // Should not return items without new contents processed
+        match stream.next().now_or_never() {
+            Some(stream_content_item) => {
+                panic!("Unexpected content in stream: {:?}", stream_content_item);
+            }
+            None => {}
+        }
+
+        let mut child_id = 1;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, "1");
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
+
+        // new stream should restart from the beginning
+        let mut stream =
+            coordinator.new_content_stream(NewContentStreamStart::FromOffset(ContentOffset(0)));
+
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, content.id.id);
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, "1");
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
+
+        // lookup starting from offset 2 should return only the second content
+        let mut stream =
+            coordinator.new_content_stream(NewContentStreamStart::FromOffset(ContentOffset(1)));
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, "1");
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
+        match stream.next().now_or_never() {
+            Some(stream_content_item) => {
+                panic!("Unexpected content in stream: {:?}", stream_content_item);
+            }
+            None => {}
+        }
+
+        // lookup from FromLast should not return any content until new added
+        let mut stream = coordinator.new_content_stream(NewContentStreamStart::FromLast);
+        match stream.next().now_or_never() {
+            Some(stream_content_item) => {
+                panic!("Unexpected content in stream: {:?}", stream_content_item);
+            }
+            None => {}
+        }
+        let content = test_mock_content_metadata("test_content_id_1", "", &eg.name);
+        coordinator
+            .create_content_metadata(vec![content.clone()])
+            .await?;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, "test_content_id_1");
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(stream_content_item))) => {
+                assert_eq!(stream_content_item.id.id, "2");
+            }
+            Ok(Some(Err(e))) => {
+                panic!("Stream error: {:?}", e);
+            }
+            Ok(None) => {
+                panic!("Stream ended unexpectedly");
+            }
+            Err(_) => {
+                panic!("Stream timed out");
+            }
+        }
         Ok(())
     }
 }

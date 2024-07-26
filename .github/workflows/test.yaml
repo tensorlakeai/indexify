@@ -1,4 +1,5 @@
 name: Tests
+
 on:
   push:
     branches:
@@ -11,8 +12,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    name: Get Changes
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+      other: ${{ steps.filter.outputs.other }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            ui:
+              - 'ui/**'
+            other:
+              - '**'
+              - '!ui/**'
+              - '!docs/**'
+
   lint:
     name: Lint Checks
+    needs: changes
+    if: ${{ needs.changes.outputs.ui == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -38,8 +60,11 @@ jobs:
       - name: Rust Format Check
         run: |
           cargo +nightly fmt -- --check
+
   test:
     name: Run Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.other == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

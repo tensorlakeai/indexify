@@ -189,10 +189,7 @@ async fn update_schema_with_missing_fields(
         }
     }
 
-    let new_fields = new_fields
-        .into_iter()
-        .map(|f| Arc::new(f))
-        .collect::<Vec<_>>();
+    let new_fields = new_fields.into_iter().map(Arc::new).collect::<Vec<_>>();
 
     if !new_fields.is_empty() {
         let mut all_fields = schema.fields().to_vec();

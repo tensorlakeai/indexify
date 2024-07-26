@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use filter::{Expression, LabelsFilter};
-use indexify_internal_api::{self as internal_api};
+use indexify_internal_api::{self as internal_api, ContentOffset};
 use indexify_proto::indexify_coordinator::{self};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, BytesOrString};
@@ -663,6 +663,35 @@ impl From<internal_api::ExtractResponse> for ExtractResponse {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum NewContentStreamStart {
+    /// Last offset seen by the caller, start from next
+    #[serde(rename = "from_offset")]
+    FromOffset(ContentOffset),
+    /// Start from the next created content
+    #[serde(rename = "from_last")]
+    FromLast,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct NewContentStreamResponse {
+    /// New content metadata
+    pub content: ContentMetadata,
+    /// Restart offset for the next request
+    pub offset: u64,
+}
+
+impl TryFrom<indexify_proto::indexify_coordinator::ContentStreamItem> for NewContentStreamResponse {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_proto::indexify_coordinator::ContentStreamItem) -> Result<Self> {
+        Ok(Self {
+            content: value.content.unwrap().try_into()?,
+            offset: value.change_offset,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ContentFrame {
     pub bytes: Vec<u8>,
@@ -755,10 +784,7 @@ impl TryFrom<indexify_proto::indexify_coordinator::ListTasksResponse> for ListTa
         let tasks = value
             .tasks
             .into_iter()
-            .map(|task| {
-                task.try_into()
-                    .map_err(|e| IndexifyAPIError::internal_error(e))
-            })
+            .map(|task| task.try_into().map_err(IndexifyAPIError::internal_error))
             .collect::<Result<Vec<Task>, Self::Error>>()?;
 
         Ok(Self {

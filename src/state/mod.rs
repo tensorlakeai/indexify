@@ -1799,6 +1799,7 @@ mod tests {
             .state_machine
             .get_latest_version_of_content(&content_metadata_vec[0].id.id)?
             .unwrap();
+        content_metadata_vec[0].change_offset = read_content.change_offset;
         assert_eq!(read_content, content_metadata_vec[0]);
 
         Ok(())
