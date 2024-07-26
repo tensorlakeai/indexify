@@ -294,7 +294,7 @@ fn delete_incomplete_snapshots(path: impl AsRef<Path>) -> std::io::Result<()> {
 
 // Read snapshot metadata from checkpoint directory
 fn snapshot_meta(path: &PathBuf) -> Result<SnapshotMeta<NodeId, Node>, StorageError<NodeId>> {
-    let db = open_db(&path).map_err(|e| {
+    let db = open_db(path).map_err(|e| {
         StorageIOError::read_snapshot(None, anyhow!("Failed to open snapshot: {}", e))
     })?;
     let last_membership = get_from_cf(&db, StateMachineColumns::RaftState, LAST_MEMBERSHIP_KEY)
@@ -388,7 +388,7 @@ fn content_stream_items(
     let key = offset.0.to_be_bytes();
     let iter = db.iterator_cf(
         StateMachineColumns::ChangeIdContentIndex.cf(db),
-        IteratorMode::From(&key, rocksdb::Direction::Forward),
+        IteratorMode::From(&key, Direction::Forward),
     );
     let mut ids: Vec<String> = Vec::new();
     for item in iter {
@@ -466,7 +466,7 @@ impl StateMachineStore {
             db.put_cf(
                 StateMachineColumns::RaftState.cf(&db),
                 STORE_VERSION,
-                &CURRENT_STORE_VERSION.to_be_bytes(),
+                CURRENT_STORE_VERSION.to_be_bytes(),
             )
             .map_err(|e| {
                 StorageIOError::write_state_machine(anyhow!("failed to init db: {}", e))
@@ -484,7 +484,7 @@ impl StateMachineStore {
         let live_snapshot = snapshots.pop().unwrap();
 
         // Remove all but last snapshot directories
-        let snapshot = if snapshots.len() >= 1 {
+        let snapshot = if !snapshots.is_empty() {
             for snapshot in snapshots[..snapshots.len() - 1].iter() {
                 fs::remove_dir_all(&snapshot.snapshot.snapshot_dir).map_err(|e| {
                     StorageIOError::read_snapshot(None, anyhow!("Failed to remove snapshot: {}", e))
@@ -589,7 +589,7 @@ impl StateMachineStore {
         txn.put_cf(
             StateMachineColumns::RaftState.cf(&db),
             LAST_APPLIED_LOG_ID_KEY,
-            &applied_data,
+            applied_data,
         )
         .map_err(|e| StateMachineError::DatabaseError(format!("Failed to write log id: {}", e)))
     }
@@ -609,7 +609,7 @@ impl StateMachineStore {
         txn.put_cf(
             StateMachineColumns::RaftState.cf(&self.db.read().unwrap()),
             LAST_MEMBERSHIP_KEY,
-            &membership_data,
+            membership_data,
         )
         .map_err(|e| {
             StateMachineError::DatabaseError(format!("Failed to write membership: {}", e))
@@ -1030,7 +1030,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
             StorageIOError::write_snapshot(None, anyhow!("failed to create checkpoint: {}", e))
         })?;
         let snapshot_tmp_id = format!("{}.tmp", snapshot_id);
-        let snapshot_tmp_dir = self.db_path.join(&snapshot_tmp_id);
+        let snapshot_tmp_dir = self.db_path.join(snapshot_tmp_id);
         checkpoint
             .create_checkpoint(&snapshot_tmp_dir)
             .map_err(|e| {
@@ -1233,11 +1233,11 @@ fn bin_to_id(buf: &[u8]) -> u64 {
     (&buf[0..8]).read_u64::<BigEndian>().unwrap()
 }
 
-fn store_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+fn store_column(db: &OptimisticTransactionDB) -> &ColumnFamily {
     db.cf_handle("store").unwrap()
 }
 
-fn logs_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+fn logs_column(db: &OptimisticTransactionDB) -> &ColumnFamily {
     db.cf_handle(LOG_STORE_LOGS_COLUMN).unwrap()
 }
 
@@ -1255,7 +1255,7 @@ impl LogStore {
 
     fn get_last_purged_(&self, db: &OptimisticTransactionDB) -> StorageResult<Option<LogId<u64>>> {
         Ok(db
-            .get_cf(store_column(&db), b"last_purged_log_id")
+            .get_cf(store_column(db), b"last_purged_log_id")
             .map_err(|e| StorageIOError::read(&e))?
             .and_then(|v| JsonEncoder::decode(&v).ok()))
     }
@@ -1578,7 +1578,7 @@ fn apply_v1_snapshot(
     }
     for namespace in &snapshot.namespaces {
         let cf = StateMachineColumns::Namespaces.cf(db);
-        put_cf(&txn, cf, &namespace, &namespace)?;
+        put_cf(&txn, cf, namespace, &namespace)?;
     }
     for (index_name, index) in &snapshot.index_table {
         let cf = StateMachineColumns::IndexTable.cf(db);
@@ -1664,7 +1664,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
                 .put_cf(
                     StateMachineColumns::RaftState.cf(&new_db),
                     LAST_APPLIED_LOG_ID_KEY,
-                    &applied_data,
+                    applied_data,
                 )
                 .unwrap();
         }
@@ -1674,7 +1674,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
             .put_cf(
                 StateMachineColumns::RaftState.cf(&new_db),
                 LAST_MEMBERSHIP_KEY,
-                &membership_data,
+                membership_data,
             )
             .unwrap();
 
@@ -1686,7 +1686,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
         .put_cf(
             StateMachineColumns::RaftState.cf(&new_db),
             STORE_VERSION,
-            &CURRENT_STORE_VERSION.to_be_bytes(),
+            CURRENT_STORE_VERSION.to_be_bytes(),
         )
         .unwrap();
     fs::remove_dir_all(&v1_db_path).unwrap();

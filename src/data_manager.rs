@@ -111,7 +111,7 @@ impl DataManager {
             let api_graph: api::ExtractionGraph = graph.try_into()?;
             api_graphs.push(api_graph);
         }
-        return Ok(api_graphs);
+        Ok(api_graphs)
     }
 
     #[tracing::instrument]
@@ -124,7 +124,7 @@ impl DataManager {
             .into_iter()
             .map(|r| Ok(api::DataNamespace { name: r.name }))
             .collect();
-        Ok(data_namespaces?)
+        data_namespaces
     }
 
     #[tracing::instrument]
@@ -153,7 +153,7 @@ impl DataManager {
             .await?
             .into_inner();
         let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
-        Ok(namespace.try_into()?)
+        namespace.try_into()
     }
 
     pub async fn get_extraction_policy(&self, id: &str) -> Result<api::ExtractionPolicy> {
@@ -169,7 +169,7 @@ impl DataManager {
         let policy = resp
             .policy
             .ok_or_else(|| anyhow!("extraction policy not found"))?;
-        Ok(policy.try_into()?)
+        policy.try_into()
     }
 
     pub async fn link_extraction_graphs(
@@ -337,7 +337,7 @@ impl DataManager {
             .await?
             .list_content(req)
             .await?;
-        Ok(response.into_inner().try_into()?)
+        response.into_inner().try_into()
     }
 
     pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {

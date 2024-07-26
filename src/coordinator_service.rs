@@ -255,7 +255,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 })
             })
             .map(|item| match item {
-                Err(e) => return Err(tonic::Status::aborted(e.to_string())),
+                Err(e) => Err(tonic::Status::aborted(e.to_string())),
                 Ok(item) => {
                     let offset = item.change_offset.0;
                     let content: Result<indexify_proto::indexify_coordinator::ContentMetadata> =
@@ -442,7 +442,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                 (req.parent_id.is_empty() ||
                     Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
                 (req.ingested_content_id.is_empty() ||
-                    Some(&req.ingested_content_id) == c.root_content_id.as_ref().map(|id| id)) &&
+                    Some(&req.ingested_content_id) == c.root_content_id.as_ref()) &&
                 content_filter(c, &source_filter, &labels_filter)
         };
         let response = self
@@ -467,7 +467,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?
             .into_iter()
-            .map(|c| c.into())
             .collect_vec();
         Ok(tonic::Response::new(ListActiveContentsResponse {
             content_ids,
@@ -1562,7 +1561,7 @@ async fn run_scheduler(
         tokio::select! {
             _ = state_watcher_rx.changed() => {
                 if is_leader.load(Ordering::Relaxed) {
-                   let _state_change = state_watcher_rx.borrow_and_update().clone();
+                   let _state_change = *state_watcher_rx.borrow_and_update();
                    if let Err(err) = coordinator.run_scheduler().await {
                           error!("error processing and distributing work: {:?}", err);
                    }

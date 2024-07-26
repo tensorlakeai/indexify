@@ -36,7 +36,7 @@ where
         let value: U = convert(value);
         let value =
             &JsonEncoder::encode(&value).map_err(|e| StorageIOError::read_state_machine(&e))?;
-        db.put_cf(cf, &key, &value)
+        db.put_cf(cf, &key, value)
             .map_err(|e| StorageIOError::read_state_machine(&e))?;
     }
     Ok(())

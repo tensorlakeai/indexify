@@ -603,7 +603,7 @@ fn max_content_offset(db: &OptimisticTransactionDB) -> Result<u64, StateMachineE
             }
         }
         Some(Err(e)) => {
-            return Err(StateMachineError::DatabaseError(format!(
+            Err(StateMachineError::DatabaseError(format!(
                 "Failed to read content index: {}",
                 e
             )))
@@ -724,7 +724,7 @@ impl IndexifyState {
         link: &ExtractionGraphLink,
     ) -> Result<(), StateMachineError> {
         let key = JsonEncoder::encode(link)?;
-        txn.put_cf(&StateMachineColumns::ExtractionGraphLinks.cf(db), key, &[])
+        txn.put_cf(&StateMachineColumns::ExtractionGraphLinks.cf(db), key, [])
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
     }
 
@@ -1069,7 +1069,7 @@ impl IndexifyState {
                     e
                 ))
             })?;
-        if !res.is_some() {
+        if res.is_none() {
             warn!("Content with id {} not found", content_id);
         }
         txn.delete_cf(StateMachineColumns::ContentTable.cf(db), &key)
@@ -1335,7 +1335,7 @@ impl IndexifyState {
             return Ok(());
         };
         for content_id in content_ids {
-            let content = self.get_latest_version_of_content(&content_id, db, txn)?;
+            let content = self.get_latest_version_of_content(content_id, db, txn)?;
             match content {
                 Some(content) if !content.tombstoned => {
                     if content.namespace != namespace {
@@ -1570,7 +1570,7 @@ impl IndexifyState {
         for state_change in state_changes_processed {
             if unprocessed_changes.contains(&state_change.id) {
                 if let Some(refcnt_object_id) = &state_change.refcnt_object_id {
-                    self.dec_root_ref_count(&refcnt_object_id);
+                    self.dec_root_ref_count(refcnt_object_id);
                 }
             }
         }
@@ -1625,7 +1625,7 @@ impl IndexifyState {
                     .write()
                     .unwrap()
                     .entry(executor_id.clone())
-                    .or_insert(BTreeSet::new());
+                    .or_default();
 
                 Ok(())
             }
@@ -2027,7 +2027,7 @@ impl IndexifyState {
         let mut assignments = HashMap::new();
         let iter = db.iterator_cf(
             StateMachineColumns::TaskAssignments.cf(db),
-            rocksdb::IteratorMode::Start,
+            IteratorMode::Start,
         );
         for item in iter {
             let (key, value) = item.map_err(|e| {
@@ -2204,7 +2204,7 @@ impl IndexifyState {
                 column
             )))
             .unwrap();
-        db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start)
+        db.iterator_cf(cf_handle, IteratorMode::Start)
             .map(|item| {
                 item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
                     .and_then(|(key, value)| match JsonEncoder::decode::<V>(&value) {
@@ -2229,7 +2229,7 @@ impl IndexifyState {
                 "Failed to get column family {}",
                 column
             )))?;
-        let iter = db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+        let iter = db.iterator_cf(cf_handle, IteratorMode::Start);
 
         iter.map(|item| {
             item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
@@ -2397,7 +2397,7 @@ impl IndexifyState {
         graph_links: &mut HashMap<ExtractionGraphNode, HashSet<String>>,
     ) -> Result<(), StateMachineError> {
         let cf_handle = StateMachineColumns::ExtractionGraphLinks.cf(db);
-        for v in db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start) {
+        for v in db.iterator_cf(cf_handle, IteratorMode::Start) {
             let (key, _) = v.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             let link: ExtractionGraphLink = JsonEncoder::decode(&key)?;
 
@@ -2467,7 +2467,7 @@ impl IndexifyState {
             .unwrap();
         let mut graph_links = self.graph_links.write().unwrap();
 
-        self.rebuild_graph_links(db, &mut *graph_links)?;
+        self.rebuild_graph_links(db, &mut graph_links)?;
 
         for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
             let eg = eg?;

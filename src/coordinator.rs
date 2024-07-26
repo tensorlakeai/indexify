@@ -339,7 +339,7 @@ impl Coordinator {
             .await?;
         let tasks = tasks
             .into_iter()
-            .map(|task| -> Result<indexify_coordinator::Task> { Ok(task.try_into()?) })
+            .map(|task| -> Result<indexify_coordinator::Task> { task.try_into() })
             .collect::<Result<Vec<_>>>()?;
         Ok(tasks)
     }
@@ -366,7 +366,7 @@ impl Coordinator {
             .shared_state
             .list_tasks(filter, start_id, limit, return_total)
             .await?;
-        Ok(response.try_into()?)
+        response.try_into()
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -474,7 +474,7 @@ impl Coordinator {
 
     pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
         let task = self.shared_state.task_with_id(task_id).await?;
-        Ok(task.try_into()?)
+        task.try_into()
     }
 
     pub async fn get_task_and_root_content(
@@ -699,7 +699,7 @@ impl Coordinator {
 
             match change.change_type {
                 indexify_internal_api::ChangeType::TombstoneContentTree => {
-                    let _ = self
+                    self
                         .handle_tombstone_content_tree_state_change(change)
                         .await?;
                     continue;
@@ -1337,7 +1337,7 @@ mod tests {
                 .get_content_namespace_table()?;
             match contents.get(DEFAULT_TEST_NAMESPACE) {
                 Some(contents) => {
-                    if contents.len() == 0 {
+                    if contents.is_empty() {
                         success = true;
                         break;
                     }

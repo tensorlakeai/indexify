@@ -1126,7 +1126,7 @@ async fn upload_file(
             } else {
                 name
             };
-            let content_mime = labels.get("mime_type").map(|v| v.as_str()).flatten();
+            let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
             let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
             let content_mime =
                 content_mime.unwrap_or(mime_guess::from_ext(ext).first_or_octet_stream());
@@ -1351,7 +1351,8 @@ async fn new_content_stream(
     .await
     .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     let stream = stream.map(|item| {
-        let item = match item {
+        
+        match item {
             Ok(item) => {
                 let item: Result<NewContentStreamResponse, _> = item.try_into();
                 match item {
@@ -1364,10 +1365,9 @@ async fn new_content_stream(
             }
             Err(e) => {
                 tracing::error!("error in new content stream: {}", e);
-                return Err(axum::Error::new(e));
+                Err(axum::Error::new(e))
             }
-        };
-        item
+        }
     });
     Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }

@@ -1066,7 +1066,7 @@ mod tests {
         coordinator.run_scheduler().await?;
 
         let mut child_id = 100;
-        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+        perform_all_tasks(coordinator, "test_executor_id_1", &mut child_id).await?;
 
         let tree = coordinator
             .shared_state

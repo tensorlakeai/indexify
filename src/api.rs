@@ -786,7 +786,7 @@ impl TryFrom<indexify_proto::indexify_coordinator::ListTasksResponse> for ListTa
             .into_iter()
             .map(|task| {
                 task.try_into()
-                    .map_err(|e| IndexifyAPIError::internal_error(e))
+                    .map_err(IndexifyAPIError::internal_error)
             })
             .collect::<Result<Vec<Task>, Self::Error>>()?;
 

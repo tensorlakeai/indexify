@@ -300,7 +300,7 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
                     .await
                     .map_err(|e| Unreachable::new(&e))?
                     .into_inner();
-                if ret.error != "" {
+                if !ret.error.is_empty() {
                     let err: Fatal<NodeId> = serde_json::from_str(&ret.error)
                         .map_err(|e| new_net_err(&e, || "deserialize snapshot error"))?;
                     return Err(RemoteError::new(self.target, err).into());
@@ -337,14 +337,14 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
                 Unreachable::new(&e)
             })?
             .into_inner();
-        if resp.error != "" {
+        if !resp.error.is_empty() {
             let err: Fatal<NodeId> = serde_json::from_str(&resp.error)
                 .map_err(|e| new_net_err(&e, || "deserialize install snapshot error"))?;
             warn!(
                 "snapshot target {:?} received error {:?}",
                 self.target_node.addr, err
             );
-            return Err(RemoteError::new(self.target, err).into());
+            Err(RemoteError::new(self.target, err).into())
         } else {
             let reply: SnapshotResponse<u64> = serde_json::from_str(&resp.data)
                 .map_err(|e| new_net_err(&e, || "deserialize vote"))?;
