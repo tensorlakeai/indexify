@@ -602,12 +602,10 @@ fn max_content_offset(db: &OptimisticTransactionDB) -> Result<u64, StateMachineE
                 ))),
             }
         }
-        Some(Err(e)) => {
-            Err(StateMachineError::DatabaseError(format!(
-                "Failed to read content index: {}",
-                e
-            )))
-        }
+        Some(Err(e)) => Err(StateMachineError::DatabaseError(format!(
+            "Failed to read content index: {}",
+            e
+        ))),
         None => Ok(1),
     }
 }
@@ -2204,14 +2202,13 @@ impl IndexifyState {
                 column
             )))
             .unwrap();
-        db.iterator_cf(cf_handle, IteratorMode::Start)
-            .map(|item| {
-                item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
-                    .and_then(|(key, value)| match JsonEncoder::decode::<V>(&value) {
-                        Ok(value) => Ok((key, value)),
-                        Err(e) => Err(StateMachineError::SerializationError(e.to_string())),
-                    })
-            })
+        db.iterator_cf(cf_handle, IteratorMode::Start).map(|item| {
+            item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
+                .and_then(|(key, value)| match JsonEncoder::decode::<V>(&value) {
+                    Ok(value) => Ok((key, value)),
+                    Err(e) => Err(StateMachineError::SerializationError(e.to_string())),
+                })
+        })
     }
 
     /// Test utility method to get all key-value pairs from a column family

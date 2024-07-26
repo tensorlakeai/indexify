@@ -784,10 +784,7 @@ impl TryFrom<indexify_proto::indexify_coordinator::ListTasksResponse> for ListTa
         let tasks = value
             .tasks
             .into_iter()
-            .map(|task| {
-                task.try_into()
-                    .map_err(IndexifyAPIError::internal_error)
-            })
+            .map(|task| task.try_into().map_err(IndexifyAPIError::internal_error))
             .collect::<Result<Vec<Task>, Self::Error>>()?;
 
         Ok(Self {

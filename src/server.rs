@@ -1350,23 +1350,20 @@ async fn new_content_stream(
     )
     .await
     .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    let stream = stream.map(|item| {
-        
-        match item {
-            Ok(item) => {
-                let item: Result<NewContentStreamResponse, _> = item.try_into();
-                match item {
-                    Ok(item) => axum::response::sse::Event::default().json_data(item),
-                    Err(e) => {
-                        tracing::error!("error in new content stream: {}", e);
-                        Err(axum::Error::new(e))
-                    }
+    let stream = stream.map(|item| match item {
+        Ok(item) => {
+            let item: Result<NewContentStreamResponse, _> = item.try_into();
+            match item {
+                Ok(item) => axum::response::sse::Event::default().json_data(item),
+                Err(e) => {
+                    tracing::error!("error in new content stream: {}", e);
+                    Err(axum::Error::new(e))
                 }
             }
-            Err(e) => {
-                tracing::error!("error in new content stream: {}", e);
-                Err(axum::Error::new(e))
-            }
+        }
+        Err(e) => {
+            tracing::error!("error in new content stream: {}", e);
+            Err(axum::Error::new(e))
         }
     });
     Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))

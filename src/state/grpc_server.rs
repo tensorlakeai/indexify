@@ -374,7 +374,9 @@ impl RaftApi for RaftGrpcServer {
         let mut receive_state = self.receiving_snapshot.lock().await;
         let state = match receive_state.as_mut() {
             None => {
-                return Err(GrpcHelper::internal_err("Snapshot state not found".to_string()));
+                return Err(GrpcHelper::internal_err(
+                    "Snapshot state not found".to_string(),
+                ));
             }
             Some(state) => {
                 if state.snapshot_id != snapshot_id {

@@ -699,8 +699,7 @@ impl Coordinator {
 
             match change.change_type {
                 indexify_internal_api::ChangeType::TombstoneContentTree => {
-                    self
-                        .handle_tombstone_content_tree_state_change(change)
+                    self.handle_tombstone_content_tree_state_change(change)
                         .await?;
                     continue;
                 }
