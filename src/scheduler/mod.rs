@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, Ok, Result};
 use indexify_internal_api as internal_api;
 use indexify_internal_api::StateChange;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     state::SharedState,
@@ -150,8 +150,12 @@ impl Scheduler {
         let executor = self
             .shared_state
             .get_executor_by_id(&state_change.object_id)
-            .await
-            .map_err(|e| anyhow!("redistribute_tasks: {}", e))?;
+            .await;
+        if let Err(err) = &executor {
+            error!("unable to redistribute tasks: {}", err);
+            return Ok(());
+        }
+        let executor = executor.map_err(|e| anyhow!("error redistribution_tasks: {}", e))?;
 
         // Get all extractor names own by the executor
         let extractor_names = executor
