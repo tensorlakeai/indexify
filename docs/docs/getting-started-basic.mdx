@@ -139,6 +139,7 @@ As mentioned before, for the purpose of this tutorial, we already have Extractor
 
 Now, let's download three essential extractors:
 
+<CodeGroup>
 ```bash Terminal 2 - Download Indexify Extractors for Llama.CPP
 source venv/bin/activate
 indexify-extractor download tensorlake/llama_cpp
@@ -162,6 +163,7 @@ indexify-extractor download tensorlake/minilm-l6
 indexify-extractor download tensorlake/chunk-extractor
 indexify-extractor join-server
 ```
+</CodeGroup>
 
 Now, let's start all available extractors:
 
@@ -177,6 +179,7 @@ We'll define our data pipeline using a YAML file to process text documents by sp
 
 Let us create (or open) a file named `graph.yaml` with the following content:
 
+<CodeGroup>
 ```yaml graph.yaml for Llama.CPP
 name: "wiki_extraction_pipeline"
 extraction_policies:
@@ -226,6 +229,7 @@ extraction_policies:
     name: "wikiembedding"
     content_source: "chunker"
 ```
+</CodeGroup>
 
 This YAML file defines three extraction policies:
 
@@ -310,6 +314,7 @@ You can query Indexify to -
 3. Perform semantic search on vector indexes populated by embedding extractors.
 4. Run SQL Queries on structured data(not in this tutorial).
 
+<CodeGroup>
 ```bash Terminal 3 - Run our RAG query for Llama.CPP
 python3 ./query.py
 ```
@@ -321,9 +326,11 @@ python3 ./query.py
 export MISTRAL_API_KEY="YOUR_MISTRAL_API_KEY"
 python3 ./query.py
 ```
+</CodeGroup>
 
 For now let us create a file named `query.py` with the following content:
 
+<CodeGroup>
 ```python query.py for Llama.CPP
 from indexify import IndexifyClient
 from llama_cpp import Llama
@@ -463,6 +470,7 @@ if __name__ == "__main__":
         )
     )
 ```
+</CodeGroup>
 
 Run this script to query the indexed data:
 
