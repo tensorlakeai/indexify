@@ -50,15 +50,7 @@ use requests::{
     V1StateMachineUpdateRequest,
 };
 use rocksdb::{
-    checkpoint::Checkpoint,
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    DBCommon,
-    Direction,
-    IteratorMode,
-    OptimisticTransactionDB,
-    Options,
-    SingleThreaded,
+    checkpoint::Checkpoint, ColumnFamily, ColumnFamilyDescriptor, DBCommon, Direction, IteratorMode, OptimisticTransactionDB, Options, ReadOptions, SingleThreaded
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
@@ -222,18 +214,19 @@ pub fn filter_cf<T, F>(
     filter: F,
     start: Option<&[u8]>,
     limit: Option<usize>,
-    return_total: bool,
 ) -> Result<FilterResponse<T>, anyhow::Error>
 where
     T: DeserializeOwned,
     F: Fn(&T) -> bool,
 {
     let cf = column.cf(db);
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
     let mode = match start {
         Some(start) => IteratorMode::From(start, Direction::Forward),
         None => IteratorMode::Start,
     };
-    let iter = db.iterator_cf(cf, mode);
+    let iter = db.iterator_cf_opt(cf, read_options, mode);
     let mut items = Vec::new();
     let mut total = 0;
     let limit = limit.unwrap_or(usize::MAX);
@@ -244,7 +237,7 @@ where
                 total += 1;
                 if items.len() < limit {
                     items.push(item);
-                    if items.len() >= limit && !return_total {
+                    if items.len() >= limit {
                         break;
                     }
                 }
@@ -755,7 +748,6 @@ impl StateMachineStore {
             filter,
             start_id.as_deref().map(|s| s.as_bytes()),
             limit.map(|l| l as usize),
-            return_total,
         )
     }
 
@@ -848,7 +840,6 @@ impl StateMachineStore {
             filter,
             s,
             limit.map(|l| l as usize),
-            return_total,
         )
     }
 
