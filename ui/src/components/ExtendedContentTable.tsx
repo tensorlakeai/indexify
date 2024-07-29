@@ -95,8 +95,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
         extractionGraph: extractionGraph.name,
         limit: rowsPerPage + 1,
         startId: startId,
-        source: tabValue === "ingested" ? "ingestion" : undefined,
-        returnTotal: true
+        source: tabValue === "ingested" ? "ingestion" : undefined
       });
       
       if (result.contentList.length <= rowsPerPage) {

@@ -1,7 +1,8 @@
 import React from 'react';
 import { TableContainer as MuiTableContainer, Paper, Table as MuiTable, TableHead as MuiTableHead, TableRow as MuiTableRow, TableCell as MuiTableCell, TableBody as MuiTableBody, Box, Chip, Stack, Tooltip, Link } from '@mui/material';
-import { maskApiKeys, Row } from '../../utils/helpers';
+import { maskApiKeys } from '../../utils/helpers';
 import CopyText from '../../components/CopyText';
+import { Row } from '../../types';
 
 interface ExtractorTableProps {
   rows: Row[];

@@ -4,7 +4,7 @@ import {
   getExtractionPolicyTaskCounts,
   getIndexifyServiceURL,
 } from './helpers'
-import { IHash, TaskCounts } from '../types'
+import { IHash } from '../types'
 import axios from 'axios'
 
 async function createClient(namespace: string | undefined) {
@@ -26,12 +26,14 @@ export async function ExtractionGraphsPageLoader({
 }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const extractors = await client.extractors()
-  const extractionGraphs = await client.getExtractionGraphs();
+  const [extractors, extractionGraphs] = await Promise.all([
+    client.extractors(),
+    client.getExtractionGraphs(),
+  ])
 
   return {
     namespace: client.namespace,
-    extractionGraphs: extractionGraphs,
+    extractionGraphs,
     extractors,
   }
 }
@@ -42,74 +44,70 @@ export async function IndividualExtractionGraphPageLoader({
   const { namespace, extraction_graph } = params
   const extractorName = extraction_graph
   if (!namespace) return redirect('/')
+  
   const client = await createClient(params.namespace)
-  const extractionGraphs = await client.getExtractionGraphs()
-
-  const extractionGraph = extractionGraphs.filter(extractionGraph => extractionGraph.name === extractorName)[0];
-  const [extractors] = await Promise.all([
+  
+  const [extractionGraphs, extractors] = await Promise.all([
+    client.getExtractionGraphs(),
     client.extractors(),
   ])
 
-  const tasksByPolicies: IHash = {};
+  const extractionGraph = extractionGraphs.find(graph => graph.name === extractorName);
+  if (!extractionGraph) {
+    throw new Error(`Extraction graph ${extractorName} not found`);
+  }
 
-  for (const extractionPolicy of extractionGraph.extraction_policies) {
-    const tasksNoTotal = await client.getTasks(
-      extractionGraph.name,
-      extractionPolicy.name,
-      {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        extractionPolicy: extractionPolicy.name,
-        returnTotal: true
-      }
-    )
-    const unknown = await client.getTasks(
-      extractionGraph.name,
-      extractionPolicy.name,
-      {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        extractionPolicy: extractionPolicy.name,
-        outcome: 'Unknown',
-        returnTotal: true
-      }
-    )
-    const success = await client.getTasks(
-      extractionGraph.name,
-      extractionPolicy.name,
-      {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        extractionPolicy: extractionPolicy.name,
-        outcome: 'Success',
-        returnTotal: true
-      }
-    )
-    const failure = await client.getTasks(
-      extractionGraph.name,
-      extractionPolicy.name,
-      {
-        namespace: namespace,
-        extractionGraph: extractionGraph.name,
-        extractionPolicy: extractionPolicy.name,
-        outcome: 'Failed',
-        returnTotal: true
-      }
-    )
-    tasksByPolicies[extractionPolicy.name] = {
+  const taskQueries = extractionGraph.extraction_policies.flatMap(policy => [
+    client.getTasks(extractionGraph.name, policy.name, {
+      namespace,
+      extractionGraph: extractionGraph.name,
+      extractionPolicy: policy.name,
+      returnTotal: true
+    }),
+    client.getTasks(extractionGraph.name, policy.name, {
+      namespace,
+      extractionGraph: extractionGraph.name,
+      extractionPolicy: policy.name,
+      outcome: 'Unknown',
+      returnTotal: true
+    }),
+    client.getTasks(extractionGraph.name, policy.name, {
+      namespace,
+      extractionGraph: extractionGraph.name,
+      extractionPolicy: policy.name,
+      outcome: 'Success',
+      returnTotal: true
+    }),
+    client.getTasks(extractionGraph.name, policy.name, {
+      namespace,
+      extractionGraph: extractionGraph.name,
+      extractionPolicy: policy.name,
+      outcome: 'Failed',
+      returnTotal: true
+    })
+  ]);
+
+  const taskResults = await Promise.all(taskQueries);
+
+  const tasksByPolicies: IHash = {};
+  for (let i = 0; i < extractionGraph.extraction_policies.length; i++) {
+    const policy = extractionGraph.extraction_policies[i];
+    const [tasksNoTotal, unknown, success, failure] = taskResults.slice(i * 4, (i + 1) * 4);
+    
+    tasksByPolicies[policy.name] = {
       tasks: tasksNoTotal.tasks,
-      totalTasks:{
+      totalTasks: {
         unknown: unknown.totalTasks,
         success: success.totalTasks,
         failure: failure.totalTasks,
       }
-
-    }
+    };
   }
+
   return {
     tasks: tasksByPolicies,
     extractors,
-    extractionGraph: extractionGraph,
+    extractionGraph,
     client,
     namespace: params.namespace,
     extractorName
@@ -123,22 +121,20 @@ export async function ExtractionPolicyPageLoader({
   if (!namespace || !policyName) return redirect('/')
 
   const client = await createClient(namespace)
-  const extractionGraphs = await client.getExtractionGraphs()
+  const [extractionGraphs, taskCounts] = await Promise.all([
+    client.getExtractionGraphs(),
+    getExtractionPolicyTaskCounts(extraction_graph!, policyName, client)
+  ])
+
   const extractionGraph = extractionGraphs.find(
     (graph) => graph.name === extraction_graph
   )
   const policy = extractionGraphs
-    .map((graph) => graph.extraction_policies)
-    .flat()
+    .flatMap((graph) => graph.extraction_policies)
     .find(
       (policy) => policy.name === policyName && policy.graph_name === extraction_graph
     )
-  
-  let taskCounts:TaskCounts | undefined = undefined
-  if (policy?.id) {
-    taskCounts = await getExtractionPolicyTaskCounts(extraction_graph!, policy.name, client )
-  }
-    
+
   return { policy, namespace, extractionGraph, client, taskCounts }
 }
 
@@ -166,9 +162,10 @@ export async function IndividualContentPageLoader({
   if (!namespace || !contentId) return redirect('/')
 
   const client = await createClient(namespace)
-  const extractionGraphs = await client.getExtractionGraphs();
-
-  const contentMetadata = await client.getContentMetadata(contentId)
+  const [extractionGraphs, contentMetadata] = await Promise.all([
+    client.getExtractionGraphs(),
+    client.getContentMetadata(contentId)
+  ])
 
   return {
     client,
@@ -202,14 +199,13 @@ export async function SearchIndexPageLoader({ params }: LoaderFunctionArgs) {
   if (!namespace || !indexName) return redirect('/')
 
   const client = await createClient(namespace)
-  const indexes = (await client.indexes()).filter(
-    (index) => index.name === indexName
-  )
-  if (!indexes.length) {
+  const indexes = await client.indexes()
+  const index = indexes.find((index) => index.name === indexName)
+  if (!index) {
     return redirect('/')
   }
 
-  return { index: indexes[0], namespace, client }
+  return { index, namespace, client }
 }
 
 export async function SqlTablesPageLoader({ params }: LoaderFunctionArgs) {
@@ -223,5 +219,5 @@ export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const response = await axios.get(`${getIndexifyServiceURL()}/state_changes`);
   const stateChanges = response.data.state_changes
-    return { stateChanges };
+  return { stateChanges };
 }

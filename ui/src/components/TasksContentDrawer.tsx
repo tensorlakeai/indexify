@@ -205,7 +205,7 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
         </StyledPaper>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
-          <Button variant="outlined" onClick={onClose} sx={{ mr: 1 }}>
+          <Button variant="outlined" onClick={onClose} sx={{ mr: 1, color: '#3296FE' }}>
             Close
           </Button>
           <Button 
