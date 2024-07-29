@@ -2,6 +2,14 @@
 
 This guide demonstrates how to create a pipeline for extracting information from invoice PDFs using Indexify and the Donut model. The pipeline uses the `tensorlake/donutcord` extractor to convert PDF invoices into structured text.
 
+**Input**
+
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/screenshot.jpg" width="600"/>
+
+**Output**
+
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/carbon.png" width="600"/>
+
 ## Prerequisites
 
 Before starting, ensure you have:
@@ -115,11 +123,6 @@ You can run the Python script to process an invoice PDF and extract its informat
 ```bash
 python extract_invoice.py
 ```
-
-Sample Page to extract invoice from:
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/screenshot.jpg" width="600"/>
-Sample Invoice extracted from page:
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/carbon.png" width="600"/>
 
 ## Next Steps
 
