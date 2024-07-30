@@ -68,15 +68,20 @@ minio:
 
 postgresql:
   enabled: true
-
   fullnameOverride: vector-store
-
   auth:
     enablePostgresUser: true
     postgresPassword: indexify
-
     database: indexify
-
   image:
-    repository: thomasr/pgvector
+    repository: pgvector/pgvector
     tag: pg16
+  primary:
+    containerSecurityContext:
+      readOnlyRootFilesystem: false
+    initdb:
+      scripts:
+        initdb.sh: |
+          #!/bin/bash
+          echo "Creating database indexify..."
+          psql -U postgres -c "CREATE DATABASE indexify;"
