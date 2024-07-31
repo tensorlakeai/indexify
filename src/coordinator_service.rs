@@ -62,8 +62,6 @@ use indexify_proto::indexify_coordinator::{
     ListContentResponse,
     ListExtractionGraphRequest,
     ListExtractionGraphResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
     ListExtractorsRequest,
     ListExtractorsResponse,
     ListIndexesRequest,
@@ -542,28 +540,6 @@ impl CoordinatorService for CoordinatorServiceServer {
                     .try_into()
                     .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
             ),
-        }))
-    }
-
-    async fn list_extraction_policies(
-        &self,
-        request: tonic::Request<ListExtractionPoliciesRequest>,
-    ) -> Result<tonic::Response<ListExtractionPoliciesResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let extraction_policies = self
-            .coordinator
-            .list_policies(&request.namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut policies = vec![];
-        for policy in extraction_policies {
-            let extraction_policy = policy
-                .try_into()
-                .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
-            policies.push(extraction_policy);
-        }
-        Ok(tonic::Response::new(ListExtractionPoliciesResponse {
-            policies,
         }))
     }
 

@@ -265,13 +265,6 @@ impl Coordinator {
         self.shared_state.get_extraction_policy(&id)
     }
 
-    pub async fn list_policies(
-        &self,
-        namespace: &str,
-    ) -> Result<Vec<internal_api::ExtractionPolicy>> {
-        self.shared_state.list_extraction_policy(namespace).await
-    }
-
     pub async fn update_task(
         &self,
         task_id: &str,

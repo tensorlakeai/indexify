@@ -773,23 +773,6 @@ impl App {
         Ok(extractor)
     }
 
-    pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
-        let extraction_policy_ids = {
-            self.state_machine
-                .get_extraction_policies_table()
-                .await
-                .get(namespace)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .collect_vec()
-        };
-        let extraction_policies = self
-            .state_machine
-            .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())?;
-        Ok(extraction_policies)
-    }
-
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateNamespace {
@@ -1842,10 +1825,6 @@ mod tests {
 
         node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
             .await?;
-
-        //  Read the policy back using namespace
-        let read_policy = node.list_extraction_policy(&eg.namespace).await?;
-        assert_eq!(read_policy.len(), 1);
 
         //  Read the policy back using the id
         let read_policy = node.get_extraction_policy(&eg.extraction_policies[0].id)?;
