@@ -27,17 +27,11 @@ def get_context(question: str, index: str, top_k=3):
 def create_prompt(question, context):
     return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
 
-# Function to encode the image
-def encode_image(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
-
 def answer_question(question):
     text_context = get_context(question, "rag_pipeline.chunks_to_embeddings.embedding")
     image_context = client.search_index(name="rag_pipeline.image_to_embeddings.embedding", query=question, top_k=1)
-    image_path = image_context[0]['content_metadata']['storage_url']
-    image_path = image_path.replace('file://', '')
-    base64_image = encode_image(image_path)
+    image_id = image_context[0]['content_metadata']['id']
+    image_url = f"localhost:8900/namespaces/default/content/{image_id}/download"
     prompt = create_prompt(question, text_context)
     
     chat_completion = client_openai.chat.completions.create(
@@ -52,7 +46,7 @@ def answer_question(question):
                 {
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"
+                    "url": f"{image_url}"
                 }
                 }
             ]
