@@ -34,6 +34,8 @@ extractors:
     name: chunker
   - image: tensorlake/minilm-l6:latest
     name: minilm-l6
+  - image: tensorlake/pdfextractor:latest 
+    name: pdfextractor
 
 extraObjects:
   - |
