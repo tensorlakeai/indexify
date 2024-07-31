@@ -759,6 +759,16 @@ impl App {
         Ok(())
     }
 
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<indexify_internal_api::ExtractionGraphAnalytics>> {
+        self.state_machine
+            .get_graph_analytics(namespace, graph_name)
+            .await
+    }
+
     pub fn extractor_with_name(
         &self,
         extractor: &str,

@@ -326,6 +326,37 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
+    async fn get_extraction_graph_analytics(
+        &self,
+        request: tonic::Request<indexify_coordinator::GetExtractionGraphAnalyticsRequest>,
+    ) -> Result<
+        tonic::Response<indexify_coordinator::GetExtractionGraphAnalyticsResponse>,
+        tonic::Status,
+    > {
+        let request = request.into_inner();
+        let analytics = self
+            .coordinator
+            .get_graph_analytics(&request.namespace, &request.extraction_graph)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let mut proto_analytics = indexify_coordinator::GetExtractionGraphAnalyticsResponse {
+            task_analytics: HashMap::new(),
+        };
+        if let Some(analytics) = analytics {
+            for (extraction_policy, task_analytics) in analytics.task_analytics.iter() {
+                proto_analytics.task_analytics.insert(
+                    extraction_policy.clone(),
+                    indexify_coordinator::TaskAnalytics {
+                        pending: task_analytics.pending_tasks,
+                        success: task_analytics.successful_tasks,
+                        failure: task_analytics.failed_tasks,
+                    },
+                );
+            }
+        }
+        Ok(tonic::Response::new(proto_analytics))
+    }
+
     async fn link_extraction_graphs(
         &self,
         request: tonic::Request<indexify_coordinator::LinkExtractionGraphsRequest>,

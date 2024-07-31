@@ -87,6 +87,34 @@ impl ExtractionGraphBuilder {
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtractionGraphAnalytics {
+    pub task_analytics: HashMap<String, TaskAnalytics>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TaskAnalytics {
+    pub pending_tasks: u64,
+    pub successful_tasks: u64,
+    pub failed_tasks: u64,
+}
+
+impl TaskAnalytics {
+    pub fn pending(&mut self) {
+        self.pending_tasks += 1;
+    }
+
+    pub fn success(&mut self) {
+        self.successful_tasks += 1;
+        self.pending_tasks -= 1;
+    }
+
+    pub fn fail(&mut self) {
+        self.failed_tasks += 1;
+        self.pending_tasks -= 1;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Hash)]
 pub struct ExtractionGraphNode {
     pub namespace: String,

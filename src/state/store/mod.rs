@@ -18,11 +18,13 @@ use indexify_internal_api::{
     ContentOffset,
     ExecutorMetadata,
     ExtractionGraph,
+    ExtractionGraphAnalytics,
     ExtractionGraphLink,
     ExtractionPolicy,
     NamespaceName,
     StructuredDataSchema,
     Task,
+    TaskAnalytics,
 };
 use indexify_proto::indexify_coordinator::{self};
 use openraft::{
@@ -50,7 +52,16 @@ use requests::{
     V1StateMachineUpdateRequest,
 };
 use rocksdb::{
-    checkpoint::Checkpoint, ColumnFamily, ColumnFamilyDescriptor, DBCommon, Direction, IteratorMode, OptimisticTransactionDB, Options, ReadOptions, SingleThreaded
+    checkpoint::Checkpoint,
+    ColumnFamily,
+    ColumnFamilyDescriptor,
+    DBCommon,
+    Direction,
+    IteratorMode,
+    OptimisticTransactionDB,
+    Options,
+    ReadOptions,
+    SingleThreaded,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
@@ -126,6 +137,7 @@ pub enum StateMachineColumns {
     RaftState,                          //  Raft state
     ExtractionGraphLinks,               //  Namespace/Graph/Source -> Linked graph name
     ChangeIdContentIndex,               //  ChangeId -> ContentId
+    TaskAnalytics,                      //  Namespace_Graph_Policy -> TaskAnalytics
 }
 
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
@@ -749,6 +761,41 @@ impl StateMachineStore {
             start_id.as_deref().map(|s| s.as_bytes()),
             limit.map(|l| l as usize),
         )
+    }
+
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<ExtractionGraphAnalytics>> {
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let prefix = format!("{}_{}_", namespace, graph_name);
+        let mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
+
+        let db = self.db.read().unwrap();
+
+        let itr = db.iterator_cf_opt(
+            StateMachineColumns::TaskAnalytics.cf(&db),
+            read_options,
+            mode,
+        );
+
+        let mut extraction_graph_analytics = ExtractionGraphAnalytics::default();
+
+        for kv in itr {
+            let (key, value) = kv.map_err(|e| anyhow::anyhow!("Failed to read db: {}", e))?;
+            let key = String::from_utf8(key.to_vec())?;
+            let extraction_policy_name = key.strip_prefix(&prefix);
+            if let Some(extraction_policy_name) = extraction_policy_name {
+                let task_analytics: TaskAnalytics = JsonEncoder::decode(&value)?;
+                extraction_graph_analytics
+                    .task_analytics
+                    .insert(extraction_policy_name.to_string(), task_analytics);
+            }
+        }
+
+        Ok(Some(extraction_graph_analytics))
     }
 
     pub async fn get_tasks_for_executor(
