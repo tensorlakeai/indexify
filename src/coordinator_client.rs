@@ -156,6 +156,25 @@ impl CoordinatorClient {
         Ok(response.into_inner().graphs)
     }
 
+    pub async fn get_extraction_graph_analytics(
+        &self,
+        namespace: &str,
+        extraction_graph_name: &str,
+    ) -> Result<indexify_coordinator::GetExtractionGraphAnalyticsResponse> {
+        let request = tonic::Request::new(
+            indexify_proto::indexify_coordinator::GetExtractionGraphAnalyticsRequest {
+                namespace: namespace.to_string(),
+                extraction_graph: extraction_graph_name.to_string(),
+            },
+        );
+        let response = self
+            .get()
+            .await?
+            .get_extraction_graph_analytics(request)
+            .await?;
+        Ok(response.into_inner())
+    }
+
     pub async fn get_raft_metrics_snapshot(
         &self,
     ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {

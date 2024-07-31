@@ -548,6 +548,16 @@ impl Coordinator {
         Ok(indexes_to_create)
     }
 
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<indexify_internal_api::ExtractionGraphAnalytics>> {
+        self.shared_state
+            .get_graph_analytics(namespace, graph_name)
+            .await
+    }
+
     pub async fn create_content_tree_tasks(
         &self,
         content_tree: Vec<internal_api::ContentMetadata>,

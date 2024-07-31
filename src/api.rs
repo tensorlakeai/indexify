@@ -770,6 +770,35 @@ pub struct ListTasks {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TaskAnalytics {
+    pub pending: u64,
+    pub success: u64,
+    pub failure: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExtractionGraphAnalytics {
+    pub task_analytics: HashMap<String, TaskAnalytics>,
+}
+
+impl From<indexify_coordinator::GetExtractionGraphAnalyticsResponse> for ExtractionGraphAnalytics {
+    fn from(value: indexify_coordinator::GetExtractionGraphAnalyticsResponse) -> Self {
+        let mut task_analytics = HashMap::new();
+        for (k, v) in value.task_analytics.iter() {
+            task_analytics.insert(
+                k.clone(),
+                TaskAnalytics {
+                    pending: v.pending,
+                    success: v.success,
+                    failure: v.failure,
+                },
+            );
+        }
+        Self { task_analytics }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListTasksResponse {
     pub tasks: Vec<Task>,
     pub total: u64,

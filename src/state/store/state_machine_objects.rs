@@ -12,6 +12,7 @@ use indexify_internal_api::{
     ContentOffset,
     ExtractionGraphNode,
     ServerTaskType,
+    TaskAnalytics,
 };
 use internal_api::{
     v1,
@@ -768,48 +769,28 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn set_tasks(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        tasks: &Vec<Task>,
-    ) -> Result<(), StateMachineError> {
-        // content_id -> Set(Extraction Policy Ids)
-        for task in tasks {
-            let serialized_task = JsonEncoder::encode(task)?;
-            txn.put_cf(
-                StateMachineColumns::Tasks.cf(db),
-                task.id.clone(),
-                &serialized_task,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            self.update_content_extraction_policy_state(
-                db,
-                txn,
-                &task.content_metadata.id,
-                &task.extraction_policy_id,
-                SystemTime::UNIX_EPOCH,
-            )?;
-        }
-        Ok(())
-    }
-
     fn update_tasks(
         &self,
         db: &OptimisticTransactionDB,
         txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        tasks: Vec<&Task>,
+        tasks: Vec<Task>,
         update_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
-            let serialized_task = JsonEncoder::encode(task)?;
+            let serialized_task = JsonEncoder::encode(&task)?;
+            let prev_task: Option<Task> = get_from_cf(db, StateMachineColumns::Tasks, &task.id)
+                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             txn.put_cf(
                 StateMachineColumns::Tasks.cf(db),
                 task.id.clone(),
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            if task.terminal_state() {
+
+            // Mark the completion time if the task is terminal
+            // If the task is newly created, we need to add an entry to the content metadata
+            // that a new task was created for that content.
+            if task.terminal_state() || update_time == SystemTime::UNIX_EPOCH {
                 self.update_content_extraction_policy_state(
                     db,
                     txn,
@@ -818,7 +799,63 @@ impl IndexifyState {
                     update_time,
                 )?;
             }
+
+            self.update_task_analytics(db, txn, prev_task, &task)
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!(
+                        "Error updating task analytics for task {}: {}",
+                        task.id, e
+                    ))
+                })?;
         }
+        Ok(())
+    }
+
+    fn update_task_analytics(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        prev_task: Option<Task>,
+        new_task: &Task,
+    ) -> Result<(), StateMachineError> {
+        let key = format!(
+            "{}_{}_{}",
+            new_task.namespace, new_task.extraction_graph_name, new_task.extraction_policy_id
+        );
+        let task_analytics = db
+            .get_cf(StateMachineColumns::TaskAnalytics.cf(db), key.clone())
+            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+        let mut task_analytics: TaskAnalytics = task_analytics
+            .map(|db_vec| {
+                JsonEncoder::decode(&db_vec)
+                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
+            })
+            .unwrap_or_else(|| Ok(TaskAnalytics::default()))?;
+        if prev_task.is_none() {
+            task_analytics.pending();
+        }
+        match prev_task {
+            Some(prev_task) => {
+                if !prev_task.terminal_state() && new_task.terminal_state() {
+                    if new_task.outcome == TaskOutcome::Success {
+                        task_analytics.success();
+                    } else {
+                        task_analytics.fail();
+                    }
+                }
+            }
+            None => {
+                task_analytics.pending();
+            }
+        }
+
+        let serialized_task_analytics = JsonEncoder::encode(&task_analytics)?;
+        txn.put_cf(
+            StateMachineColumns::TaskAnalytics.cf(db),
+            key,
+            &serialized_task_analytics,
+        )
+        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 
@@ -1342,7 +1379,7 @@ impl IndexifyState {
                 }
             }
             RequestPayload::CreateTasks { tasks } => {
-                self.set_tasks(db, &txn, tasks)?;
+                self.update_tasks(db, &txn, tasks.clone(), SystemTime::UNIX_EPOCH)?;
                 for task in tasks {
                     self.inc_root_ref_count(task.content_metadata.get_root_id());
                 }
@@ -1394,7 +1431,7 @@ impl IndexifyState {
                 executor_id,
                 update_time,
             } => {
-                self.update_tasks(db, &txn, vec![task], *update_time)?;
+                self.update_tasks(db, &txn, vec![task.clone()], *update_time)?;
 
                 if task.terminal_state() {
                     self.metrics
