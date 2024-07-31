@@ -883,7 +883,7 @@ impl IndexifyState {
         }
         match prev_task {
             Some(prev_task) => {
-                if prev_task.terminal_state() && new_task.terminal_state() {
+                if !prev_task.terminal_state() && new_task.terminal_state() {
                     if new_task.outcome == TaskOutcome::Success {
                         task_analytics.success();
                     } else {
