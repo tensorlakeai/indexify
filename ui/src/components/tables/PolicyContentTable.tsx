@@ -45,24 +45,21 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   const loadContent = async (startId?: string) => {
     setIsLoading(true);
     try {
-      const result = await client.listContent(extractorName, namespace, {
-        namespace: namespace,
-        ingestedContentId: contentId,
-        extractionGraph: extractorName,
-        source: policyName,
-        limit: rowsPerPage + 1,
-        startId: startId,
-      });
+      const result = await client.getExtractionPolicyContent({
+        contentId: contentId,
+        graphName: extractorName,
+        policyName: policyName
+      })
       
-      if (result.contentList.length <= rowsPerPage) {
+      if (result.length <= rowsPerPage) {
         setIsLastPage(true);
       } else {
-        result.contentList.pop();
+        result.pop();
         setIsLastPage(false);
       }
       
-      setContent(result.contentList);
-      return result.contentList;
+      setContent(result);
+      return result;
     } catch (error) {
       console.error(`Error loading content for policy ${policyName}:`, error);
       return [];
