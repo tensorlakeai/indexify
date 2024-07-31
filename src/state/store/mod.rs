@@ -961,10 +961,6 @@ impl StateMachineStore {
         Ok(res)
     }
 
-    pub async fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.data.indexify_state.get_extraction_policies_table()
-    }
-
     pub async fn get_extractor_executors_table(
         &self,
     ) -> HashMap<ExtractorName, HashSet<ExecutorId>> {

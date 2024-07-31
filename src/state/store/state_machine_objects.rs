@@ -158,48 +158,6 @@ impl From<HashMap<NamespaceName, HashSet<ContentMetadataId>>> for ContentNamespa
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct ExtractionPoliciesTable {
-    extraction_policies_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
-}
-
-impl ExtractionPoliciesTable {
-    pub fn get(&self, namespace: &NamespaceName) -> HashSet<String> {
-        let guard = self.extraction_policies_table.read().unwrap();
-        guard.get(namespace).cloned().unwrap_or_default()
-    }
-
-    pub fn insert(&self, namespace: &NamespaceName, extraction_policy_id: &str) {
-        let mut guard = self.extraction_policies_table.write().unwrap();
-        guard
-            .entry(namespace.clone())
-            .or_default()
-            .insert(extraction_policy_id.to_owned());
-    }
-
-    pub fn remove(&self, namespace: &NamespaceName, extraction_policy_id: &str) {
-        let mut guard = self.extraction_policies_table.write().unwrap();
-        guard
-            .entry(namespace.clone())
-            .or_default()
-            .remove(extraction_policy_id);
-    }
-
-    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        let guard = self.extraction_policies_table.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<NamespaceName, HashSet<String>>> for ExtractionPoliciesTable {
-    fn from(extraction_policies_table: HashMap<NamespaceName, HashSet<String>>) -> Self {
-        let extraction_policies_table = Arc::new(RwLock::new(extraction_policies_table));
-        Self {
-            extraction_policies_table,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExtractorExecutorsTable {
     extractor_executors_table: Arc<RwLock<HashMap<ExtractorName, HashSet<ExecutorId>>>>,
 }
@@ -619,9 +577,6 @@ pub struct IndexifyState {
     /// State changes that have not been processed yet
     pub unprocessed_state_changes: UnprocessedStateChanges,
 
-    /// Namespace -> Extraction policy id
-    pub extraction_policies_table: ExtractionPoliciesTable,
-
     /// Extractor -> Executors table
     pub extractor_executors_table: ExtractorExecutorsTable,
 
@@ -667,10 +622,9 @@ impl fmt::Display for IndexifyState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, extraction_policies_table: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, unfinished_tasks_by_executor: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
+            "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, unfinished_tasks_by_executor: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
-            self.extraction_policies_table,
             self.extractor_executors_table,
             self.namespace_index_table,
             self.unfinished_tasks_by_extractor,
@@ -687,7 +641,6 @@ impl Default for IndexifyState {
         Self {
             unassigned_tasks: Default::default(),
             unprocessed_state_changes: Default::default(),
-            extraction_policies_table: Default::default(),
             extractor_executors_table: Default::default(),
             namespace_index_table: Default::default(),
             unfinished_tasks_by_extractor: Default::default(),
@@ -1294,7 +1247,6 @@ impl IndexifyState {
         structured_data_schema: StructuredDataSchema,
     ) {
         for ep in &extraction_graph.extraction_policies {
-            self.extraction_policies_table.insert(&ep.namespace, &ep.id);
             let key = ExtractionGraphNode {
                 namespace: ep.namespace.clone(),
                 graph_name: extraction_graph.name.clone(),
@@ -2286,10 +2238,6 @@ impl IndexifyState {
         self.unprocessed_state_changes.inner()
     }
 
-    pub fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.extraction_policies_table.inner()
-    }
-
     pub fn get_extractor_executors_table(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
         self.extractor_executors_table.inner()
     }
@@ -2426,11 +2374,6 @@ impl IndexifyState {
             .unprocessed_state_changes
             .write()
             .unwrap();
-        let mut extraction_policies_table = self
-            .extraction_policies_table
-            .extraction_policies_table
-            .write()
-            .unwrap();
         let mut extractor_executors_table = self
             .extractor_executors_table
             .extractor_executors_table
@@ -2540,16 +2483,6 @@ impl IndexifyState {
                     .or_default()
                     .insert(content.id.clone());
             }
-        }
-
-        for extraction_policy in
-            self.iter_cf::<ExtractionPolicy>(db, StateMachineColumns::ExtractionPolicies)
-        {
-            let (_, extraction_policy) = extraction_policy?;
-            extraction_policies_table
-                .entry(extraction_policy.namespace.clone())
-                .or_default()
-                .insert(extraction_policy.id.clone());
         }
 
         for executor in self.iter_cf::<ExecutorMetadata>(db, StateMachineColumns::Executors) {
