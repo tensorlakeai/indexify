@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { TableContainer as MuiTableContainer, Paper, Table as MuiTable, TableHead as MuiTableHead, TableRow as MuiTableRow, TableCell as MuiTableCell, TableBody as MuiTableBody, Box, Chip, Stack, Tooltip, Link } from '@mui/material';
 import { maskApiKeys } from '../../utils/helpers';
 import CopyText from '../../components/CopyText';
 import { Row } from '../../types';
 import { IndexifyClient } from 'getindexify';
-import axios from 'axios';
 
 interface ExtractorTableProps {
   rows: Row[];
@@ -64,21 +63,20 @@ const StatusChips: React.FC<StatusChipsProps> = ({ pending, failed, completed, h
 const ExtractorGraphTable: React.FC<ExtractorTableProps> = ({ rows, namespace, extractionPolicyName, graphName, client }) => {
   const [analytics, setAnalytics] = useState<ExtractionGraphAnalytics | null>(null);
 
-  useEffect(() => {
-    const fetchAnalytics = async () => {
-      if (graphName) {
-        try {
-          const data = await client.getExtractionGraphAnalytics({ namespace, extractionGraph: graphName });;
-          setAnalytics(data);
-        } catch (error) {
-          console.error('Failed to fetch analytics:', error);
-        }
+  const fetchAnalytics = useMemo(() => async () => {
+    if (graphName) {
+      try {
+        const data = await client.getExtractionGraphAnalytics({ namespace, extractionGraph: graphName });
+        setAnalytics(data);
+      } catch (error) {
+        console.error('Failed to fetch analytics:', error);
       }
-    };
+    }
+  }, [client, namespace, graphName]);
 
+  useEffect(() => {
     fetchAnalytics();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace, graphName]);
+  }, [fetchAnalytics]);
 
   return (
     <MuiTableContainer component={Paper} sx={{borderRadius: '8px', mt: 2, boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
