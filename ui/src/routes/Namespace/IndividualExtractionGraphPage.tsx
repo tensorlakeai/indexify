@@ -16,7 +16,6 @@ import CopyText from '../../components/CopyText';
 
 const IndividualExtractionGraphPage = () => {
   const { 
-    tasks,
     extractors,
     extractionGraph,
     client,
@@ -24,7 +23,6 @@ const IndividualExtractionGraphPage = () => {
     extractorName
    } =
     useLoaderData() as {
-      tasks: IHash,
       extractors: Extractor[],
       extractionGraph: ExtractionGraph
       client: IndexifyClient

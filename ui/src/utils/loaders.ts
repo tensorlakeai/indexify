@@ -4,7 +4,6 @@ import {
   getExtractionPolicyTaskCounts,
   getIndexifyServiceURL,
 } from './helpers'
-import { IHash } from '../types'
 import axios from 'axios'
 
 async function createClient(namespace: string | undefined) {
