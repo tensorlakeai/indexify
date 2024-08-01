@@ -878,9 +878,6 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
             })
             .unwrap_or_else(|| Ok(TaskAnalytics::default()))?;
-        if prev_task.is_none() {
-            task_analytics.pending();
-        }
         match prev_task {
             Some(prev_task) => {
                 if !prev_task.terminal_state() && new_task.terminal_state() {
