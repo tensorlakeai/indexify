@@ -11,7 +11,6 @@ import { Link, useLoaderData } from 'react-router-dom';
 import { ExtractionGraph, Extractor, IndexifyClient } from 'getindexify';
 import { mapExtractionPoliciesToRows } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
-import { IHash } from '../../types';
 import CopyText from '../../components/CopyText';
 
 const IndividualExtractionGraphPage = () => {
