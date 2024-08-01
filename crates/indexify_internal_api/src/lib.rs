@@ -503,7 +503,7 @@ fn default_creation_time() -> SystemTime {
 pub struct Task {
     pub id: String,
     pub extractor: String,
-    pub extraction_policy_id: String,
+    pub extraction_policy_name: String,
     pub extraction_graph_name: String,
     pub output_index_table_mapping: HashMap<String, String>,
     pub namespace: String,
@@ -527,7 +527,7 @@ impl Display for Task {
         write!(
             f,
             "Task(id: {}, extractor: {}, extraction_policy_id: {}, extraction_graph_name: {}, namespace: {}, content_id: {}, outcome: {:?})",
-            self.id, self.extractor, self.extraction_policy_id, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
+            self.id, self.extractor, self.extraction_policy_name, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
         )
     }
 }
@@ -543,7 +543,7 @@ impl TryFrom<Task> for indexify_coordinator::Task {
             namespace: value.namespace,
             content_metadata: Some(value.content_metadata.try_into()?),
             input_params: value.input_params.to_string(),
-            extraction_policy_id: value.extraction_policy_id,
+            extraction_policy_id: value.extraction_policy_name,
             extraction_graph_name: value.extraction_graph_name,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,

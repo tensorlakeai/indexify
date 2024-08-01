@@ -795,7 +795,7 @@ impl IndexifyState {
                     db,
                     txn,
                     &task.content_metadata.id,
-                    &task.extraction_policy_id,
+                    &task.extraction_policy_name,
                     update_time,
                 )?;
             }
@@ -820,7 +820,7 @@ impl IndexifyState {
     ) -> Result<(), StateMachineError> {
         let key = format!(
             "{}_{}_{}",
-            new_task.namespace, new_task.extraction_graph_name, new_task.extraction_policy_id
+            new_task.namespace, new_task.extraction_graph_name, new_task.extraction_policy_name
         );
         let task_analytics = db
             .get_cf(StateMachineColumns::TaskAnalytics.cf(db), key.clone())
@@ -831,9 +831,6 @@ impl IndexifyState {
                     .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
             })
             .unwrap_or_else(|| Ok(TaskAnalytics::default()))?;
-        if prev_task.is_none() {
-            task_analytics.pending();
-        }
         match prev_task {
             Some(prev_task) => {
                 if !prev_task.terminal_state() && new_task.terminal_state() {

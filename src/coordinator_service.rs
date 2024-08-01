@@ -19,6 +19,7 @@ use indexify_internal_api::{
     ContentOffset,
     ContentSourceFilter,
     ExtractionGraphLink,
+    ExtractionPolicy,
 };
 use indexify_proto::indexify_coordinator::{
     self,
@@ -476,7 +477,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let response = self
             .coordinator
-            .list_content(filter, start_id, limit, req.return_total)
+            .list_content(filter, start_id, limit)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
@@ -564,6 +565,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         let extraction_policy = self
             .coordinator
             .get_extraction_policy(request.extraction_policy_id)
+            .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(tonic::Response::new(GetExtractionPolicyResponse {
             policy: Some(
@@ -1032,12 +1034,28 @@ impl CoordinatorService for CoordinatorServiceServer {
                 None
             };
 
+        let extraction_policy_id = ExtractionPolicy::create_id(
+            &task.extraction_graph_name,
+            &task.extraction_policy_name,
+            &task.namespace,
+        );
+        let extraction_policy = self
+            .coordinator
+            .get_extraction_policy(extraction_policy_id)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        let proto_extraction_policy: indexify_coordinator::ExtractionPolicy = extraction_policy
+            .try_into()
+            .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
+
         Ok(Response::new(GetIngestionInfoResponse {
             task: Some(
                 task.try_into()
                     .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
             ),
             root_content,
+            extraction_policy: Some(proto_extraction_policy),
         }))
     }
 
@@ -1097,18 +1115,13 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let filter = |task: &Task| {
             task.namespace == req.namespace &&
-                (policy_id.is_empty() || task.extraction_policy_id == policy_id) &&
+                (policy_id.is_empty() || task.extraction_policy_name == policy_id) &&
                 (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
                 outcome.matches(task.outcome)
         };
         let response = self
             .coordinator
-            .list_tasks(
-                filter,
-                Some(req.start_id),
-                Some(req.limit),
-                req.return_total,
-            )
+            .list_tasks(filter, Some(req.start_id), Some(req.limit))
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(response))

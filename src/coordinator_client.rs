@@ -7,6 +7,7 @@ use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_client,
     ContentMetadata,
+    ExtractionPolicy,
     Task,
 };
 use itertools::Itertools;
@@ -282,7 +283,11 @@ impl CoordinatorClient {
     pub async fn get_metadata_for_ingestion(
         &self,
         task_id: &str,
-    ) -> Result<(Option<Task>, Option<ContentMetadata>)> {
+    ) -> Result<(
+        Option<Task>,
+        Option<ContentMetadata>,
+        Option<ExtractionPolicy>,
+    )> {
         let req = tonic::Request::new(
             indexify_proto::indexify_coordinator::GetIngestionInfoRequest {
                 task_id: task_id.to_string(),
@@ -290,6 +295,6 @@ impl CoordinatorClient {
         );
         let response = self.get().await?.get_ingestion_info(req).await?;
         let resp = response.into_inner();
-        Ok((resp.task, resp.root_content))
+        Ok((resp.task, resp.root_content, resp.extraction_policy))
     }
 }

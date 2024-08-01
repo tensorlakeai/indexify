@@ -133,7 +133,7 @@ impl From<Task> for super::Task {
             content_metadata: task.content_metadata.clone().into(),
             id: task.id,
             extractor: task.extractor,
-            extraction_policy_id: task.extraction_policy_id,
+            extraction_policy_name: task.extraction_policy_id,
             extraction_graph_name: task.extraction_graph_name,
             output_index_table_mapping: task.output_index_table_mapping,
             namespace: task.namespace,

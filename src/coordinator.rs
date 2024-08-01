@@ -230,13 +230,12 @@ impl Coordinator {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>>
     where
         F: Fn(&internal_api::ContentMetadata) -> bool,
     {
         self.shared_state
-            .list_content(filter, start_id, limit, return_total)
+            .list_content(filter, start_id, limit)
             .await
     }
 
@@ -258,11 +257,11 @@ impl Coordinator {
             .await
     }
 
-    pub fn get_extraction_policy(
+    pub async fn get_extraction_policy(
         &self,
         id: ExtractionPolicyId,
     ) -> Result<internal_api::ExtractionPolicy> {
-        self.shared_state.get_extraction_policy(&id)
+        self.shared_state.get_extraction_policy(&id).await
     }
 
     pub async fn update_task(
@@ -350,14 +349,13 @@ impl Coordinator {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<indexify_coordinator::ListTasksResponse>
     where
         F: Fn(&internal_api::Task) -> bool,
     {
         let response = self
             .shared_state
-            .list_tasks(filter, start_id, limit, return_total)
+            .list_tasks(filter, start_id, limit)
             .await?;
         response.try_into()
     }
@@ -1837,8 +1835,9 @@ mod tests {
         let mut content =
             create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
                 .await?;
-        let policy =
-            coordinator.get_extraction_policy(all_tasks[0].extraction_policy_id.clone())?;
+        let policy = coordinator
+            .get_extraction_policy(all_tasks[0].extraction_policy_name.clone())
+            .await?;
         let prev_content = tree
             .iter()
             .find(|c| c.source == ContentSource::ExtractionPolicyName(policy.name.clone()))

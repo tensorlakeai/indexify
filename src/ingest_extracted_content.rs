@@ -66,6 +66,7 @@ struct ContentStateWriting {
     ingest_metadata: BeginExtractedContentIngest,
     task: indexify_coordinator::Task,
     root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
+    extraction_policy: indexify_coordinator::ExtractionPolicy,
     frame_state: FrameState,
 }
 
@@ -74,6 +75,7 @@ impl ContentStateWriting {
         ingest_metadata: BeginExtractedContentIngest,
         task: indexify_coordinator::Task,
         root_content: Option<indexify_coordinator::ContentMetadata>,
+        extraction_policy: indexify_coordinator::ExtractionPolicy,
     ) -> Result<Self> {
         if task.content_metadata.is_none() {
             return Err(anyhow!("task does not have content metadata"));
@@ -83,6 +85,7 @@ impl ContentStateWriting {
             ingest_metadata,
             task,
             root_content_metadata: root_content,
+            extraction_policy,
             frame_state: FrameState::New,
         })
     }
@@ -171,10 +174,6 @@ impl ContentStateWriting {
                     .root_content_metadata
                     .clone()
                     .unwrap_or(self.task.content_metadata.clone().unwrap().try_into()?);
-                let extraction_policy = state
-                    .data_manager
-                    .get_extraction_policy(&self.task.extraction_policy_id)
-                    .await?;
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
@@ -185,11 +184,11 @@ impl ContentStateWriting {
                     size_bytes: frame_state.file_size,
                     storage_url: frame_state.writer.url.clone(),
                     labels,
-                    source: extraction_policy.name,
+                    source: self.extraction_policy.name.clone(),
                     created_at: frame_state.created_at,
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
-                    extraction_graph_names: vec![extraction_policy.graph_name],
+                    extraction_graph_names: vec![self.extraction_policy.graph_name.clone()],
                 };
                 state
                     .data_manager
@@ -253,15 +252,26 @@ impl IngestExtractedContentState {
 
     async fn begin(&mut self, payload: BeginExtractedContentIngest) -> Result<()> {
         info!("beginning extraction ingest for task: {}", payload.task_id);
-        let (task, root_content) = self
+        let (task, root_content, extraction_policy) = self
             .state
             .coordinator_client
             .get_metadata_for_ingestion(&payload.task_id)
             .await?;
         let task = task.ok_or_else(|| anyhow!("task {} not found", payload.task_id))?;
 
-        self.content_state =
-            ContentState::Writing(ContentStateWriting::new(payload, task, root_content)?);
+        let extraction_policy = extraction_policy.ok_or_else(|| {
+            anyhow!(
+                "extraction policy with name {} not found",
+                task.extraction_policy_id
+            )
+        })?;
+
+        self.content_state = ContentState::Writing(ContentStateWriting::new(
+            payload,
+            task,
+            root_content,
+            extraction_policy,
+        )?);
         Ok(())
     }
 
@@ -451,7 +461,7 @@ mod tests {
         let mut task = Task {
             id: task_id.to_string(),
             extractor: "".to_string(),
-            extraction_policy_id: extraction_policy.id.to_string(),
+            extraction_policy_name: extraction_policy.id.to_string(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
             output_index_table_mapping: HashMap::new(),
             namespace: content_metadata.namespace.clone(),

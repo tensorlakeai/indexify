@@ -87,8 +87,6 @@ pub struct ListTasksRequest {
     pub start_id: ::prost::alloc::string::String,
     #[prost(uint64, tag = "5")]
     pub limit: u64,
-    #[prost(bool, tag = "6")]
-    pub return_total: bool,
     #[prost(enumeration = "TaskOutcomeFilter", tag = "7")]
     pub outcome: i32,
     #[prost(string, tag = "8")]
@@ -429,8 +427,6 @@ pub struct ListContentRequest {
     pub limit: u64,
     #[prost(string, tag = "6")]
     pub start_id: ::prost::alloc::string::String,
-    #[prost(bool, tag = "7")]
-    pub return_total: bool,
     #[prost(string, tag = "8")]
     pub graph: ::prost::alloc::string::String,
     #[prost(string, tag = "9")]
@@ -833,6 +829,8 @@ pub struct GetIngestionInfoResponse {
     pub task: ::core::option::Option<Task>,
     #[prost(message, optional, tag = "2")]
     pub root_content: ::core::option::Option<ContentMetadata>,
+    #[prost(message, optional, tag = "3")]
+    pub extraction_policy: ::core::option::Option<ExtractionPolicy>,
 }
 /// wait for content to complete all extraction tasks
 #[allow(clippy::derive_partial_eq_without_eq)]

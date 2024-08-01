@@ -465,7 +465,7 @@ impl App {
         Ok(matched_policies)
     }
 
-    pub fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
+    pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let extraction_policy = self
             .state_machine
             .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)?
@@ -542,10 +542,8 @@ impl App {
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>> {
-        self.state_machine
-            .list_content(predicate, start_id, limit, return_total)
+        self.state_machine.list_content(predicate, start_id, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -1193,14 +1191,11 @@ impl App {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::Task>>
     where
         F: Fn(&internal_api::Task) -> bool,
     {
-        self.state_machine
-            .list_tasks(filter, start_id, limit, return_total)
-            .await
+        self.state_machine.list_tasks(filter, start_id, limit).await
     }
 
     pub async fn update_labels(
@@ -1526,7 +1521,7 @@ mod tests {
             id: task_id.into(),
             namespace: content_metadata.namespace.clone(),
             extractor: "".to_string(),
-            extraction_policy_id: "".to_string(),
+            extraction_policy_name: "".to_string(),
             extraction_graph_name: "".to_string(),
             content_metadata: content_metadata.clone(),
             output_index_table_mapping: Default::default(),
@@ -1769,7 +1764,6 @@ mod tests {
                 |c| c.namespace == content_metadata_vec.first().unwrap().namespace,
                 None,
                 None,
-                false,
             )
             .await
             .unwrap()
@@ -1837,7 +1831,9 @@ mod tests {
             .await?;
 
         //  Read the policy back using the id
-        let read_policy = node.get_extraction_policy(&eg.extraction_policies[0].id)?;
+        let read_policy = node
+            .get_extraction_policy(&eg.extraction_policies[0].id)
+            .await?;
         assert_eq!(read_policy, eg.extraction_policies[0]);
 
         //  Create some content
