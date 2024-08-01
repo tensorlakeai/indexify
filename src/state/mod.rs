@@ -542,10 +542,8 @@ impl App {
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>> {
-        self.state_machine
-            .list_content(predicate, start_id, limit, return_total)
+        self.state_machine.list_content(predicate, start_id, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -1193,14 +1191,11 @@ impl App {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::Task>>
     where
         F: Fn(&internal_api::Task) -> bool,
     {
-        self.state_machine
-            .list_tasks(filter, start_id, limit, return_total)
-            .await
+        self.state_machine.list_tasks(filter, start_id, limit).await
     }
 
     pub async fn update_labels(
@@ -1769,7 +1764,6 @@ mod tests {
                 |c| c.namespace == content_metadata_vec.first().unwrap().namespace,
                 None,
                 None,
-                false,
             )
             .await
             .unwrap()

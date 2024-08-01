@@ -151,7 +151,6 @@ message ListTasksRequest {
     string content_id = 3;
     string start_id = 4;
     uint64 limit = 5;
-    bool return_total = 6;
     TaskOutcomeFilter outcome = 7;
 
     string extraction_graph = 8;
@@ -367,7 +366,6 @@ message ListContentRequest {
     repeated string labels_filter = 4;
     uint64 limit = 5;
     string start_id = 6;
-    bool return_total = 7;
     string graph = 8;
     string ingested_content_id = 9;
 }

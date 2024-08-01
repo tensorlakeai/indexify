@@ -794,7 +794,6 @@ async fn update_labels(
         Omit to start from beginning. To continue iteration, 
         specify id of the last content in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
-        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
     ),
     tag = "retrieval",
     responses(
@@ -819,7 +818,6 @@ async fn list_content(
             &filter::LabelsFilter(filter.labels_filter),
             filter.start_id.clone().unwrap_or_default(),
             filter.limit.unwrap_or(10),
-            filter.return_total,
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -1530,7 +1528,6 @@ async fn extraction_graph_analytics(
         Omit to start from beginning. To continue iteration, 
         specify id of the last task in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
-        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
     ),
     tag = "operations",
     responses(
@@ -1556,7 +1553,6 @@ async fn list_tasks(
             start_id: query.start_id.unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
-            return_total: query.return_total,
             outcome: outcome as i32,
         })
         .await

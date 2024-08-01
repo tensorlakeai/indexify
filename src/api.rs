@@ -375,9 +375,6 @@ pub struct ListContent {
     pub limit: Option<u64>,
 
     pub start_id: Option<String>,
-
-    #[serde(default)]
-    pub return_total: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -763,8 +760,6 @@ pub struct ListTasks {
     pub content_id: Option<String>,
     pub start_id: Option<String>,
     pub limit: Option<u64>,
-    #[serde(default)]
-    pub return_total: bool,
     #[serde(default)]
     pub outcome: internal_api::TaskOutcomeFilter,
 }

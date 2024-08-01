@@ -314,7 +314,6 @@ impl DataManager {
         labels_filter: &LabelsFilter,
         start_id: String,
         limit: u64,
-        return_total: bool,
     ) -> Result<api::ListContentResponse> {
         let labels_filter = labels_filter
             .0
@@ -330,7 +329,6 @@ impl DataManager {
             labels_filter,
             start_id,
             limit,
-            return_total,
         };
         let response = self
             .get_coordinator_client()

@@ -749,7 +749,6 @@ impl StateMachineStore {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<Task>>
     where
         F: Fn(&Task) -> bool,
@@ -878,7 +877,6 @@ impl StateMachineStore {
         filter: impl Fn(&ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<ContentMetadata>> {
         let s = start_id.as_deref().map(|s| s.as_bytes());
         filter_cf(
@@ -1898,7 +1896,7 @@ mod tests {
         assert_eq!(value.len(), 1);
 
         let contents = new_node
-            .list_content(|c| c.namespace == namespace, None, None, false)
+            .list_content(|c| c.namespace == namespace, None, None)
             .await?
             .items;
         assert_eq!(contents.len(), 1);
