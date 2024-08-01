@@ -794,7 +794,6 @@ async fn update_labels(
         Omit to start from beginning. To continue iteration, 
         specify id of the last content in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
-        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
     ),
     tag = "retrieval",
     responses(
@@ -1530,7 +1529,6 @@ async fn extraction_graph_analytics(
         Omit to start from beginning. To continue iteration, 
         specify id of the last task in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
-        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
     ),
     tag = "operations",
     responses(

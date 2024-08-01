@@ -230,13 +230,12 @@ impl Coordinator {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>>
     where
         F: Fn(&internal_api::ContentMetadata) -> bool,
     {
         self.shared_state
-            .list_content(filter, start_id, limit, return_total)
+            .list_content(filter, start_id, limit)
             .await
     }
 
@@ -350,14 +349,13 @@ impl Coordinator {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<indexify_coordinator::ListTasksResponse>
     where
         F: Fn(&internal_api::Task) -> bool,
     {
         let response = self
             .shared_state
-            .list_tasks(filter, start_id, limit, return_total)
+            .list_tasks(filter, start_id, limit)
             .await?;
         response.try_into()
     }

@@ -476,7 +476,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let response = self
             .coordinator
-            .list_content(filter, start_id, limit, req.return_total)
+            .list_content(filter, start_id, limit)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
@@ -1103,12 +1103,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let response = self
             .coordinator
-            .list_tasks(
-                filter,
-                Some(req.start_id),
-                Some(req.limit),
-                req.return_total,
-            )
+            .list_tasks(filter, Some(req.start_id), Some(req.limit))
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(response))
