@@ -57,8 +57,7 @@ export const splitLabels = (data: { [key: string]: string }): string[] => {
 export const mapExtractionPoliciesToRows = (
   extractionGraph: ExtractionGraph | ExtractionGraph[],
   extractors: Extractor[],
-  graphName: string,
-  tasks: IHash
+  graphName: string
 ): Row[] => {
   const extractorMap = new Map(extractors.map(e => [e.name, e]))
   
@@ -73,8 +72,6 @@ export const mapExtractionPoliciesToRows = (
   
   return targetGraph.extraction_policies.map((policy, index) => {
     const extractor = extractorMap.get(policy.extractor)
-    const policyTasks = tasks[policy.name] || {}
-    const { unknown = 0, failure = 0, success = 0 } = policyTasks.totalTasks || {}
     
     return {
       id: index + 1,
@@ -82,9 +79,6 @@ export const mapExtractionPoliciesToRows = (
       extractor: policy.extractor,
       inputTypes: extractor ? extractor.input_mime_types : ['Unknown'],
       inputParameters: policy.input_params ? JSON.stringify(policy.input_params) : 'None',
-      pending: unknown,
-      failed: failure,
-      completed: success,
     }
   })
 }

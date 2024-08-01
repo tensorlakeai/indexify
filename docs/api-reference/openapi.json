@@ -637,6 +637,55 @@
         }
       }
     },
+    "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/analytics": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "Get Analytics for an extraction graph",
+        "operationId": "extraction_graph_analytics",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Namespace of the content",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "extraction_graph",
+            "in": "path",
+            "description": "Extraction graph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Return Analytics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionGraphAnalytics"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to list tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content": {
       "get": {
         "tags": ["retrieval"],
@@ -1369,6 +1418,18 @@
           }
         }
       },
+      "ExtractionGraphAnalytics": {
+        "type": "object",
+        "required": ["task_analytics"],
+        "properties": {
+          "task_analytics": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TaskAnalytics"
+            }
+          }
+        }
+      },
       "ExtractionGraphLink": {
         "type": "object",
         "required": ["content_source", "linked_graph_name"],
@@ -1865,6 +1926,34 @@
               "type": "string"
             },
             "description": "List of index tables associated with the task"
+          }
+        }
+      },
+      "TaskAnalytics": {
+        "type": "object",
+        "required": [
+          "pending",
+          "success",
+          "failure"
+        ],
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Number of pending tasks"
+          },
+          "success": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Number of successful tasks"
+          },
+          "failure": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Number of failed tasks"
           }
         }
       },

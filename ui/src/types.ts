@@ -71,7 +71,4 @@ export interface Row {
     extractor: string;
     inputTypes: string[];
     inputParameters: string;
-    pending: number;
-    failed: number;
-    completed: number;
 }
