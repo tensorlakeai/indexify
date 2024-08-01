@@ -57,55 +57,7 @@ export async function IndividualExtractionGraphPageLoader({
     throw new Error(`Extraction graph ${extractorName} not found`);
   }
 
-  const taskQueries = extractionGraph.extraction_policies.flatMap(policy => [
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      returnTotal: true
-    }),
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      outcome: 'Unknown',
-      returnTotal: true
-    }),
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      outcome: 'Success',
-      returnTotal: true
-    }),
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      outcome: 'Failed',
-      returnTotal: true
-    })
-  ]);
-
-  const taskResults = await Promise.all(taskQueries);
-
-  const tasksByPolicies: IHash = {};
-  for (let i = 0; i < extractionGraph.extraction_policies.length; i++) {
-    const policy = extractionGraph.extraction_policies[i];
-    const [tasksNoTotal, unknown, success, failure] = taskResults.slice(i * 4, (i + 1) * 4);
-    
-    tasksByPolicies[policy.name] = {
-      tasks: tasksNoTotal.tasks,
-      totalTasks: {
-        unknown: unknown.totalTasks,
-        success: success.totalTasks,
-        failure: failure.totalTasks,
-      }
-    };
-  }
-
   return {
-    tasks: tasksByPolicies,
     extractors,
     extractionGraph,
     client,

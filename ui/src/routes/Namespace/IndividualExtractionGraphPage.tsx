@@ -34,7 +34,7 @@ const IndividualExtractionGraphPage = () => {
 
   const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
   const extractorString = JSON.parse(JSON.stringify(extractors));  
-  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName, tasks);
+  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName);
 
   return (
     <Stack direction="column" spacing={3}>
