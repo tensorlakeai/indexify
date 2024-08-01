@@ -818,7 +818,6 @@ async fn list_content(
             &filter::LabelsFilter(filter.labels_filter),
             filter.start_id.clone().unwrap_or_default(),
             filter.limit.unwrap_or(10),
-            filter.return_total,
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -1554,7 +1553,6 @@ async fn list_tasks(
             start_id: query.start_id.unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
-            return_total: query.return_total,
             outcome: outcome as i32,
         })
         .await
