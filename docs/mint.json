@@ -104,9 +104,10 @@
       "group": "Language SDKs",
       "pages": [
         "sdks/index",
-        "sdks/content_ingestion",
         "sdks/extraction_graphs",
-        "sdks/retrieval"
+        "sdks/content_ingestion",
+        "sdks/retrieval",
+        "sdks/namespaces"
       ]
     },
     {

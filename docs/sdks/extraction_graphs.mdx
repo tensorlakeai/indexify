@@ -1,21 +1,6 @@
-Extraction Graphs can be setup declaritively on a namespace, using the HTTP API or any of the clients
+Extraction Graphs are defined declaritively using the HTTP API or any of the clients
 
 <CodeGroup>
-    ```shell cURL
-    curl -v -X POST http://localhost:8900/namespaces/default/extraction_graphs \
-    -H "Content-Type: application/json" \
-    -d '
-    {
-        "name": "myextractiongraph",
-        "extraction_policies": [
-            {
-              "extractor": "tensorlake/minilm-l6",
-              "name": "minil6",
-              "filters_eq": "source:google"
-            }
-        ]
-    }'
-    ```
     ```python Python
     extraction_graph_spec = """
     name: 'myextractiongraph'

@@ -1,0 +1,40 @@
+Namespaces are used to isolate content uploaded by applications.
+
+<Note>
+  A default namespace, named `default` is created when Indexify is started.
+</Note>
+    
+
+## Create or Update a Namespace
+A namespace can be created by specifying a unique name, and any additional labels or extraction policies.
+
+<CodeGroup>
+  ```python Python
+  from indexify import IndexifyClient, ExtractionPolicy
+
+  IndexifyClient.create_namespace(
+      name="research",
+      labels={"sensitive": "true"},
+  )
+  ```
+  ```typescript Typescript
+  import { IndexifyClient, IExtractionPolicy } from "getindexify";
+
+  IndexifyClient.createNamespace({
+    name:"research", 
+    labels:{"sensitive":"true"}});
+  ```
+
+</CodeGroup>
+    
+
+## List Namespaces
+
+<CodeGroup>
+  ```python Python
+  namespaces = IndexifyClient.namespaces()
+  ```
+  ```typescript Typescript
+  const namespaces = await IndexifyClient.namespaces();
+  ```
+</CodeGroup>
