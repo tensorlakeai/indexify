@@ -33,7 +33,7 @@ use internal_api::{
 };
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
-use rocksdb::{IteratorMode, OptimisticTransactionDB};
+use rocksdb::{IteratorMode, OptimisticTransactionDB, Transaction};
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 use tracing::warn;
@@ -672,7 +672,7 @@ impl IndexifyState {
     fn set_extraction_graph_link(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         link: &ExtractionGraphLink,
     ) -> Result<(), StateMachineError> {
         let key = JsonEncoder::encode(link)?;
@@ -683,7 +683,7 @@ impl IndexifyState {
     fn set_extraction_graph(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         extraction_graph: &ExtractionGraph,
         structured_data_schema: &StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
@@ -704,7 +704,7 @@ impl IndexifyState {
     fn set_new_state_changes(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         state_changes: &mut Vec<StateChange>,
     ) -> Result<(), StateMachineError> {
         let mut change_id = self.get_next_change_ids(state_changes.len());
@@ -728,7 +728,7 @@ impl IndexifyState {
     fn set_processed_state_changes(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         state_changes: &Vec<StateChangeProcessed>,
     ) -> Result<Vec<StateChange>, StateMachineError> {
         let state_changes_cf = StateMachineColumns::StateChanges.cf(db);
@@ -759,7 +759,7 @@ impl IndexifyState {
     fn set_index(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         index: &Index,
         id: &String,
     ) -> Result<(), StateMachineError> {
@@ -772,7 +772,7 @@ impl IndexifyState {
     fn update_tasks(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         tasks: Vec<Task>,
         update_time: SystemTime,
     ) -> Result<(), StateMachineError> {
@@ -819,7 +819,7 @@ impl IndexifyState {
     fn update_task_analytics(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         prev_task: Option<Task>,
         new_task: &Task,
     ) -> Result<(), StateMachineError> {
@@ -864,14 +864,15 @@ impl IndexifyState {
     fn set_garbage_collection_tasks(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        garbage_collection_tasks: &Vec<internal_api::GarbageCollectionTask>,
+        txn: &Transaction<OptimisticTransactionDB>,
+        garbage_collection_tasks: &[impl AsRef<internal_api::GarbageCollectionTask>],
     ) -> Result<(), StateMachineError> {
         for gc_task in garbage_collection_tasks {
+            let gc_task = gc_task.as_ref();
             let serialized_gc_task = JsonEncoder::encode(gc_task)?;
             txn.put_cf(
                 StateMachineColumns::GarbageCollectionTasks.cf(db),
-                gc_task.id.clone(),
+                &gc_task.id,
                 &serialized_gc_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -882,7 +883,7 @@ impl IndexifyState {
     fn update_garbage_collection_tasks(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         garbage_collection_tasks: &Vec<&internal_api::GarbageCollectionTask>,
     ) -> Result<(), StateMachineError> {
         for gc_task in garbage_collection_tasks {
@@ -900,7 +901,7 @@ impl IndexifyState {
     fn get_task_assignments_for_executor(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<HashSet<TaskId>, StateMachineError> {
         let value = txn
@@ -927,7 +928,7 @@ impl IndexifyState {
     fn set_task_assignments(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         task_assignments: &HashMap<String, HashSet<TaskId>>,
     ) -> Result<(), StateMachineError> {
         let task_assignment_cf = StateMachineColumns::TaskAssignments.cf(db);
@@ -948,7 +949,7 @@ impl IndexifyState {
     fn delete_task_assignments_for_executor(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<Vec<TaskId>, StateMachineError> {
         let task_assignment_cf = StateMachineColumns::TaskAssignments.cf(db);
@@ -984,7 +985,7 @@ impl IndexifyState {
     fn set_content<'a>(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         contents_vec: impl IntoIterator<Item = &'a ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in contents_vec {
@@ -1011,11 +1012,11 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn tombstone_content_tree(
+    fn tombstone_content_tree<'a>(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        content_metadata: &Vec<ContentMetadata>,
+        txn: &Transaction<OptimisticTransactionDB>,
+        content_metadata: impl IntoIterator<Item = &'a ContentMetadata>,
     ) -> Result<(), StateMachineError> {
         for content in content_metadata {
             let cf = StateMachineColumns::ContentTable.cf(db);
@@ -1041,7 +1042,7 @@ impl IndexifyState {
     fn delete_content(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         content_id: ContentMetadataId,
         latest: bool,
         change_offset: ContentOffset,
@@ -1085,7 +1086,7 @@ impl IndexifyState {
     fn set_executor(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         addr: String,
         executor_id: &str,
         extractors: &Vec<ExtractorDescription>,
@@ -1109,7 +1110,7 @@ impl IndexifyState {
     fn delete_executor(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         executor_id: &str,
     ) -> Result<Option<ExecutorMetadata>, StateMachineError> {
         //  Get a handle on the executor before deleting it from the DB
@@ -1131,7 +1132,7 @@ impl IndexifyState {
     fn set_extractors(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         extractors: &Vec<ExtractorDescription>,
     ) -> Result<(), StateMachineError> {
         for extractor in extractors {
@@ -1151,7 +1152,7 @@ impl IndexifyState {
     fn set_extraction_policy(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         extraction_policy: &ExtractionPolicy,
     ) -> Result<(), StateMachineError> {
         let serialized_extraction_policy = JsonEncoder::encode(extraction_policy)?;
@@ -1169,7 +1170,7 @@ impl IndexifyState {
     fn set_namespace(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         namespace: &NamespaceName,
     ) -> Result<(), StateMachineError> {
         let serialized_name = JsonEncoder::encode(namespace)?;
@@ -1185,7 +1186,7 @@ impl IndexifyState {
     fn set_schema(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         schema: &StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_schema = JsonEncoder::encode(schema)?;
@@ -1201,7 +1202,7 @@ impl IndexifyState {
     pub fn update_content_extraction_policy_state(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         content_id: &ContentMetadataId,
         extraction_policy_id: &str,
         policy_completion_time: SystemTime,
@@ -1252,7 +1253,7 @@ impl IndexifyState {
     pub fn set_coordinator_addr(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         node_id: NodeId,
         coordinator_addr: &str,
     ) -> Result<(), StateMachineError> {
@@ -1309,7 +1310,7 @@ impl IndexifyState {
     fn add_graph_to_content(
         &self,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
         content_ids: &Vec<String>,
         namespace: &str,
         extraction_graph: &str,
@@ -1361,13 +1362,17 @@ impl IndexifyState {
         &self,
         mut request: StateMachineUpdateRequest,
         db: &OptimisticTransactionDB,
-        txn: rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: Transaction<OptimisticTransactionDB>,
     ) -> Result<Option<StateChangeId>, StateMachineError> {
         self.set_new_state_changes(db, &txn, &mut request.new_state_changes)?;
         let mut state_changes_processed =
             self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
+            RequestPayload::DeleteExtractionGraph { graph_id, gc_task } => {
+                self.set_garbage_collection_tasks(db, &txn, &[gc_task])?;
+                self.delete_extraction_graph(db, &txn, graph_id)?;
+            }
             RequestPayload::AddGraphToContent {
                 content_ids,
                 extraction_graph,
@@ -1396,7 +1401,9 @@ impl IndexifyState {
                 if *mark_finished {
                     tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
                     self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
-                    if gc_task.task_type == ServerTaskType::Delete {
+                    if gc_task.task_type == ServerTaskType::Delete ||
+                        gc_task.task_type == ServerTaskType::DeleteBlobStore
+                    {
                         self.delete_content(
                             db,
                             &txn,
@@ -1506,6 +1513,15 @@ impl IndexifyState {
             }
             RequestPayload::TombstoneContentTree { content_metadata } => {
                 self.tombstone_content_tree(db, &txn, content_metadata)?;
+            }
+            RequestPayload::TombstoneContent { content_metadata } => {
+                let updated_content: Vec<_> =
+                    content_metadata.iter().filter(|c| !c.tombstoned).collect();
+                let deleted_content: Vec<_> =
+                    content_metadata.iter().filter(|c| c.tombstoned).collect();
+
+                self.set_content(db, &txn, updated_content)?;
+                self.tombstone_content_tree(db, &txn, deleted_content)?;
             }
             RequestPayload::CreateNamespace { name } => {
                 self.set_namespace(db, &txn, name)?;
@@ -1644,7 +1660,10 @@ impl IndexifyState {
                 gc_task,
                 mark_finished,
             } => {
-                if mark_finished && gc_task.task_type == ServerTaskType::Delete {
+                if mark_finished &&
+                    (gc_task.task_type == ServerTaskType::Delete ||
+                        gc_task.task_type == ServerTaskType::DeleteBlobStore)
+                {
                     self.content_children_table.remove_all(&gc_task.content_id);
                 }
                 Ok(())
@@ -1711,12 +1730,14 @@ impl IndexifyState {
                 }
                 Ok(())
             }
+            RequestPayload::DeleteExtractionGraph { .. } |
             RequestPayload::CreateOrAssignGarbageCollectionTask { .. } |
             RequestPayload::CreateExtractionGraphLink { .. } |
             RequestPayload::CreateNamespace { .. } |
             RequestPayload::JoinCluster { .. } |
             RequestPayload::RemoveExecutor { .. } |
             RequestPayload::SetIndex { .. } |
+            RequestPayload::TombstoneContent { .. } |
             RequestPayload::TombstoneContentTree { .. } => Ok(()),
         }
     }
@@ -1727,12 +1748,74 @@ impl IndexifyState {
         &self,
         content_id: &str,
         db: &OptimisticTransactionDB,
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
+        txn: &Transaction<OptimisticTransactionDB>,
     ) -> Result<Option<ContentMetadata>, StateMachineError> {
         txn.get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
             .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
             .map(|data| JsonEncoder::decode::<ContentMetadata>(&data))
             .transpose()
+    }
+
+    fn delete_schema_for_graph(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
+        graph: &ExtractionGraph,
+    ) -> Result<(), StateMachineError> {
+        let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
+        for item in txn.iterator_cf(cf, IteratorMode::Start) {
+            let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let schema = JsonEncoder::decode::<StructuredDataSchema>(&value)?;
+            if schema.namespace == graph.namespace && schema.extraction_graph_name == graph.name {
+                self.schemas_by_namespace
+                    .remove(&schema.namespace, &schema.id);
+                let _ = txn.delete_cf(cf, key);
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_indexes_for_graph(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
+        graph: &ExtractionGraph,
+    ) -> Result<(), StateMachineError> {
+        let cf = StateMachineColumns::IndexTable.cf(db);
+        for item in txn.iterator_cf(cf, IteratorMode::Start) {
+            let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let index = JsonEncoder::decode::<Index>(&value)?;
+            if index.namespace == graph.namespace && index.graph_name == graph.name {
+                self.namespace_index_table
+                    .remove(&index.namespace, &index.id);
+                let _ = txn.delete_cf(cf, key);
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_extraction_graph(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
+        graph_id: &str,
+    ) -> Result<(), StateMachineError> {
+        let graph = self.get_extraction_graphs(&[graph_id.to_string()], db, txn)?;
+        let graph = match graph.first() {
+            Some(Some(graph)) => graph,
+            _ => {
+                warn!("Extraction graph with id {} not found", graph_id);
+                return Ok(());
+            }
+        };
+        self.delete_schema_for_graph(db, txn, graph)?;
+        self.delete_indexes_for_graph(db, txn, graph)?;
+        txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), &graph_id)
+            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+        self.extraction_graphs_by_ns
+            .remove(&graph.namespace, &graph.id);
+        Ok(())
     }
 
     /// This method is used to get the tasks assigned to an executor
@@ -1850,7 +1933,7 @@ impl IndexifyState {
     /// This method will fetch content based on the id's provided. It will look
     /// for the latest version for each piece of content It will skip any
     /// that cannot be found and expect the consumer to decide what to do in
-    /// that case It will also skip any that have been tombstoned
+    /// that case.
     pub fn get_content_from_ids(
         &self,
         content_ids: impl IntoIterator<Item = String>,
@@ -2067,8 +2150,9 @@ impl IndexifyState {
             .get(&namespace.to_string())
             .into_iter()
             .collect_vec();
+        let txn = db.transaction();
         let extraction_graphs = self
-            .get_extraction_graphs(&extraction_graphs_ids, db)?
+            .get_extraction_graphs(&extraction_graphs_ids, db, &txn)?
             .into_iter()
             .flatten()
             .collect();
@@ -2103,26 +2187,24 @@ impl IndexifyState {
 
     pub fn get_extraction_graphs(
         &self,
-        extraction_graph_ids: &Vec<ExtractionGraphId>,
+        extraction_graph_ids: &[impl AsRef<str>],
         db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
     ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> = extraction_graph_ids
             .iter()
-            .map(|egid| (cf, egid.as_bytes()))
+            .map(|egid| (cf, egid.as_ref().as_bytes()))
             .collect();
-        let serialized_graphs = db.multi_get_cf(keys);
+        let serialized_graphs = txn.multi_get_cf(keys);
         let mut graphs: Vec<Option<ExtractionGraph>> = Vec::new();
         for serialized_graph in serialized_graphs {
             match serialized_graph {
-                Ok(graph) => {
-                    if graph.is_some() {
-                        let deserialized_graph =
-                            JsonEncoder::decode::<ExtractionGraph>(&graph.unwrap())?;
-                        graphs.push(Some(deserialized_graph));
-                    } else {
-                        graphs.push(None);
-                    }
+                Ok(Some(graph)) => {
+                    graphs.push(Some(JsonEncoder::decode::<ExtractionGraph>(&graph)?));
+                }
+                Ok(None) => {
+                    graphs.push(None);
                 }
                 Err(e) => {
                     return Err(StateMachineError::TransactionError(e.to_string()));
@@ -2135,12 +2217,12 @@ impl IndexifyState {
     pub fn get_extraction_graphs_by_name(
         &self,
         namespace: &str,
-        graph_names: &[String],
+        graph_names: &[impl AsRef<str>],
         db: &OptimisticTransactionDB,
     ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
         let eg_ids: Vec<String> = graph_names
             .iter()
-            .map(|name| ExtractionGraph::create_id(name, namespace))
+            .map(|name| ExtractionGraph::create_id(name.as_ref(), namespace))
             .collect();
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> =

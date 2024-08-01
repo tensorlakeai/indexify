@@ -11,7 +11,12 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
-use indexify_internal_api::{self as internal_api, ExtractionGraphNode};
+use indexify_internal_api::{
+    self as internal_api,
+    ChangeType,
+    ExtractionGraphNode,
+    GarbageCollectionTask,
+};
 use indexify_proto::{
     indexify_coordinator,
     indexify_coordinator::CreateContentStatus,
@@ -35,9 +40,11 @@ use openraft::{
     BasicNode,
     TokioRuntime,
 };
+use rocksdb::IteratorMode;
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    serializer::{JsonEncode, JsonEncoder},
     ExecutorId,
     ExecutorIdRef,
     Response,
@@ -166,7 +173,7 @@ fn add_update_entry(
     // Hold a reference to the content until the tasks are created if any.
     state_changes.push(StateChange::new_with_refcnt(
         content.id.id.clone(),
-        internal_api::ChangeType::NewContent,
+        ChangeType::NewContent,
         timestamp_secs(),
         content.get_root_id().to_string(),
     ));
@@ -409,6 +416,99 @@ impl App {
         Ok(())
     }
 
+    pub async fn delete_content_by_graph(
+        &self,
+        start_content_id: Vec<u8>,
+        state_change: StateChange,
+    ) -> Result<()> {
+        let req = {
+            let db = self.state_machine.get_db();
+            let iter = db.iterator_cf(
+                StateMachineColumns::ContentTable.cf(&db),
+                IteratorMode::From(&start_content_id, rocksdb::Direction::Forward),
+            );
+            let mut content_metadata = Vec::new();
+            let mut new_state_changes = Vec::new();
+            let mut num_processed = 0;
+            for item in iter {
+                let (_, value) = item?;
+                let mut content: internal_api::ContentMetadata = JsonEncoder::decode(&value)?;
+                if num_processed >= 100 {
+                    // Continue iterating with new state change.
+                    let mut cont_state_change = state_change.clone();
+                    cont_state_change.change_type = ChangeType::ExtractionGraphDeleted {
+                        start_content_id: content.id_key().into(),
+                    };
+                    new_state_changes.push(cont_state_change);
+                    break;
+                }
+                num_processed += 1;
+                if !content.tombstoned &&
+                    content
+                        .extraction_graph_names
+                        .contains(&state_change.object_id)
+                {
+                    if content.extraction_graph_names.len() == 1 {
+                        content.tombstoned = true;
+                        new_state_changes.push(StateChange::new(
+                            content.id.to_string(),
+                            ChangeType::TombstoneContent {
+                                is_root: content.root_content_id.is_none(),
+                            },
+                            timestamp_secs(),
+                        ));
+                    } else {
+                        content
+                            .extraction_graph_names
+                            .retain(|g| g != &state_change.object_id);
+                    }
+                    content_metadata.push(content);
+                }
+            }
+            StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneContent { content_metadata },
+                new_state_changes,
+                state_changes_processed: vec![StateChangeProcessed {
+                    state_change_id: state_change.id,
+                    processed_at: timestamp_secs(),
+                }],
+            }
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn delete_extraction_graph(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        gc_task: GarbageCollectionTask,
+    ) -> Result<()> {
+        let graph_id = ExtractionGraph::create_id(&extraction_graph, &namespace);
+        let graph = self
+            .state_machine
+            .get_extraction_graphs(&[graph_id.clone()])?;
+        if !matches!(graph.first(), Some(Some(_))) {
+            return Err(anyhow!("extraction graph with id {} not found", graph_id));
+        }
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::DeleteExtractionGraph {
+                graph_id: graph_id.to_string(),
+                gc_task,
+            },
+            new_state_changes: vec![StateChange::new(
+                extraction_graph,
+                ChangeType::ExtractionGraphDeleted {
+                    start_content_id: vec![],
+                },
+                timestamp_secs(),
+            )],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     /// This method uses the content id to fetch the associated extraction
     /// policies based on certain filters and checks which policies can be
     /// applied to the content It's the mirror equivalent to
@@ -553,7 +653,7 @@ impl App {
             },
             new_state_changes: vec![StateChange::new(
                 executor_id.to_string(),
-                internal_api::ChangeType::ExecutorRemoved,
+                ChangeType::ExecutorRemoved,
                 timestamp_secs(),
             )],
             state_changes_processed: vec![],
@@ -577,7 +677,7 @@ impl App {
             .map(|id| {
                 StateChange::new_with_refcnt(
                     id.to_string(),
-                    internal_api::ChangeType::AddGraphToContent {
+                    ChangeType::AddGraphToContent {
                         extraction_graph: extraction_graph.clone(),
                     },
                     timestamp_secs(),
@@ -687,7 +787,7 @@ impl App {
     pub fn get_extraction_graphs_by_name(
         &self,
         namespace: &str,
-        graph_names: &[String],
+        graph_names: &[impl AsRef<str>],
     ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.state_machine
             .get_extraction_graphs_by_name(namespace, graph_names)
@@ -710,7 +810,7 @@ impl App {
         let new_state_changes = match root_content_id {
             Some(id) if id.version > 1 => vec![StateChange::new(
                 id.to_string(),
-                indexify_internal_api::ChangeType::TaskCompleted {
+                ChangeType::TaskCompleted {
                     root_content_id: id,
                 },
                 timestamp_secs(),
@@ -730,10 +830,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_gc_tasks(
-        &self,
-        gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>,
-    ) -> Result<()> {
+    pub async fn create_gc_tasks(&self, gc_tasks: Vec<GarbageCollectionTask>) -> Result<()> {
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
             new_state_changes: vec![],
@@ -743,7 +840,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {
+    pub async fn update_gc_task(&self, gc_task: GarbageCollectionTask) -> Result<()> {
         let mark_finished = gc_task.outcome != internal_api::TaskOutcome::Unknown;
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateGarbageCollectionTask {
@@ -839,7 +936,7 @@ impl App {
     ) -> Result<()> {
         let state_change = StateChange::new(
             executor_id.to_string(),
-            internal_api::ChangeType::ExecutorAdded,
+            ChangeType::ExecutorAdded,
             timestamp_secs(),
         );
         let req = StateMachineUpdateRequest {
@@ -1065,7 +1162,7 @@ impl App {
         for root in roots.iter() {
             state_changes.push(StateChange::new(
                 root.id.to_string(),
-                internal_api::ChangeType::TombstoneContentTree,
+                ChangeType::TombstoneContentTree,
                 timestamp_secs(),
             ));
         }
@@ -1150,7 +1247,6 @@ impl App {
         &self,
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content_ids: HashSet<String> = content_ids.into_iter().collect();
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
@@ -1230,7 +1326,7 @@ impl App {
         }
         let new_state_changes = vec![StateChange::new(
             content.id.id.clone(),
-            internal_api::ChangeType::ContentUpdated,
+            ChangeType::ContentUpdated,
             timestamp_secs(),
         )];
 
@@ -1269,10 +1365,10 @@ impl App {
     }
 
     #[cfg(test)]
-    pub async fn list_all_gc_tasks(&self) -> Result<Vec<internal_api::GarbageCollectionTask>> {
-        let gc_tasks: Vec<internal_api::GarbageCollectionTask> = self
+    pub async fn list_all_gc_tasks(&self) -> Result<Vec<GarbageCollectionTask>> {
+        let gc_tasks: Vec<GarbageCollectionTask> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::GarbageCollectionTask>(
+            .get_all_rows_from_cf::<GarbageCollectionTask>(
                 StateMachineColumns::GarbageCollectionTasks,
             )
             .await?
@@ -1290,10 +1386,7 @@ impl App {
         Ok(task)
     }
 
-    pub async fn gc_task_with_id(
-        &self,
-        gc_task_id: &str,
-    ) -> Result<internal_api::GarbageCollectionTask> {
+    pub async fn gc_task_with_id(&self, gc_task_id: &str) -> Result<GarbageCollectionTask> {
         let gc_task = self
             .state_machine
             .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)?
@@ -1433,9 +1526,7 @@ impl App {
         }
     }
 
-    pub async fn subscribe_to_gc_task_events(
-        &self,
-    ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
+    pub async fn subscribe_to_gc_task_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
         self.state_machine.subscribe_to_gc_task_events().await
     }
 

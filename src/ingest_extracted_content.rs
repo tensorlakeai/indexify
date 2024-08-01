@@ -406,7 +406,6 @@ mod tests {
     use anyhow::Result;
     use indexify_internal_api::{
         ContentMetadata,
-        ContentSource,
         ExtractedEmbeddings,
         ExtractionGraph,
         ExtractionPolicy,
@@ -1198,6 +1197,167 @@ mod tests {
         assert_eq!(points.len(), 2);
         assert_eq!(points[0].metadata, labels);
         assert_eq!(points[1].metadata, labels);
+
+        shutdown_tx.send(true)?;
+
+        test_coordinator.stop().await;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_graph_delete() -> Result<()> {
+        set_tracing();
+
+        let state = new_endpoint_state().await.unwrap();
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let server = Server::new(Arc::new(make_test_config()))?;
+        let server_id = "1";
+
+        let test_coordinator = TestCoordinator::new().await;
+        let coordinator = &test_coordinator.coordinator;
+
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        state
+            .data_manager
+            .metadata_index_manager
+            .create_metadata_table(DEFAULT_TEST_NAMESPACE)
+            .await?;
+
+        server.start_gc_tasks_stream(
+            state.coordinator_client.clone(),
+            server_id,
+            state.data_manager.clone(),
+            shutdown_rx,
+        );
+
+        let _ = state
+            .data_manager
+            .vector_index_manager
+            .drop_index("test_table")
+            .await;
+
+        let schema = indexify_internal_api::EmbeddingSchema {
+            dim: 3,
+            distance: "cosine".to_string(),
+        };
+        state
+            .data_manager
+            .vector_index_manager
+            .create_index("test_table", schema)
+            .await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(
+                "localhost:8956",
+                "test_executor_id",
+                vec![extractor_1.clone()],
+            )
+            .await?;
+
+        //  Create an extraction graph
+        let eg = create_test_extraction_graph_with_children(
+            "test_extraction_graph",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0), Child(1), Child(3), Child(3)],
+        );
+        coordinator.create_extraction_graph(eg.clone()).await?;
+        coordinator.run_scheduler().await?;
+
+        let parent_content = test_mock_content_metadata("200", "", &eg.name);
+        let create_res = coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        coordinator.run_scheduler().await?;
+
+        let mut child_id = 100;
+        perform_all_tasks(coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let tree = coordinator
+            .shared_state
+            .get_content_tree_metadata(&parent_content.id.id)?;
+        assert_eq!(tree.len(), 7);
+
+        for content in &tree {
+            if content.extraction_policy_ids.is_empty() {
+                continue;
+            }
+            let embedding = ExtractedEmbeddings {
+                content_id: content.id.id.clone(),
+                embedding: vec![1.0, 2.0, 3.0],
+                metadata: HashMap::new(),
+                content_metadata: content.clone(),
+                root_content_metadata: None,
+            };
+            state
+                .data_manager
+                .vector_index_manager
+                .add_embedding("test_table", vec![embedding])
+                .await?;
+        }
+
+        let indexes = test_coordinator
+            .coordinator
+            .list_indexes(DEFAULT_TEST_NAMESPACE)
+            .await?;
+        assert_eq!(indexes.len(), 6);
+
+        let schemas = test_coordinator
+            .coordinator
+            .list_schemas(DEFAULT_TEST_NAMESPACE)
+            .await?;
+        assert_eq!(schemas.len(), 1);
+
+        let res = test_coordinator
+            .coordinator
+            .get_namespace(DEFAULT_TEST_NAMESPACE)
+            .await?
+            .unwrap();
+        assert_eq!(res.extraction_graphs.len(), 2);
+
+        test_coordinator
+            .coordinator
+            .delete_extraction_graph(
+                DEFAULT_TEST_NAMESPACE.to_string(),
+                "test_extraction_graph".to_string(),
+            )
+            .await?;
+
+        wait_changes_processed(coordinator).await?;
+        wait_gc_tasks_completed(coordinator).await?;
+
+        let schemas = test_coordinator
+            .coordinator
+            .list_schemas(DEFAULT_TEST_NAMESPACE)
+            .await?;
+        assert_eq!(schemas.len(), 0);
+
+        let res = test_coordinator
+            .coordinator
+            .get_namespace(DEFAULT_TEST_NAMESPACE)
+            .await?
+            .unwrap();
+        assert_eq!(res.extraction_graphs.len(), 1);
+
+        let indexes = test_coordinator
+            .coordinator
+            .list_indexes(DEFAULT_TEST_NAMESPACE)
+            .await?;
+        assert_eq!(indexes.len(), 0);
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         shutdown_tx.send(true)?;
 

@@ -17,6 +17,7 @@ use indexify_internal_api::{
 };
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
+    ChangeType,
     ContentMetadataId,
     ExtractionGraph,
     GarbageCollectionTask,
@@ -77,6 +78,27 @@ impl Coordinator {
             my_executors: std::sync::Mutex::new(HashSet::new()),
             all_executors: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub async fn delete_extraction_graph(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+    ) -> Result<()> {
+        let graph = self
+            .shared_state
+            .get_extraction_graphs_by_name(&namespace, &[&extraction_graph])?;
+        let graph = match graph.first() {
+            Some(Some(graph)) => graph,
+            _ => return Err(anyhow!("extraction graph not found")),
+        };
+        let gc_task = self
+            .garbage_collector
+            .create_delete_index_task(&graph)
+            .await;
+        self.shared_state
+            .delete_extraction_graph(namespace, extraction_graph, gc_task)
+            .await
     }
 
     pub fn new_content_stream(&self, start: NewContentStreamStart) -> ContentStream {
@@ -602,7 +624,8 @@ impl Coordinator {
         }
 
         let task_type = match state_change.change_type {
-            indexify_internal_api::ChangeType::TombstoneContentTree => ServerTaskType::Delete,
+            ChangeType::TombstoneContentTree => ServerTaskType::Delete,
+            ChangeType::TombstoneContent { .. } => ServerTaskType::DeleteBlobStore,
             _ => ServerTaskType::UpdateLabels,
         };
         let tasks = self
@@ -616,6 +639,33 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn create_content_gc_task(
+        &self,
+        state_change: StateChange,
+        is_root: bool,
+    ) -> Result<()> {
+        let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
+        let content = if is_root {
+            self.shared_state
+                .state_machine
+                .get_content_by_id_and_version(&content_id)
+                .await?
+        } else {
+            self.shared_state
+                .state_machine
+                .get_latest_version_of_content(&content_id.id)?
+        };
+        if let Some(content) = content {
+            self.create_content_tree_tasks(vec![content], state_change)
+                .await
+        } else {
+            self.shared_state
+                .mark_change_events_as_processed(vec![state_change], Vec::new())
+                .await?;
+            Ok(())
+        }
+    }
+
     pub async fn create_gc_tasks(&self, state_change: StateChange) -> Result<()> {
         let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
         let content_tree_metadata = self
@@ -623,6 +673,18 @@ impl Coordinator {
             .get_content_tree_metadata_with_version(&content_id)?;
         self.create_content_tree_tasks(content_tree_metadata, state_change)
             .await
+    }
+
+    async fn handle_tombstone_content_state_change(
+        &self,
+        change: StateChange,
+        is_root: bool,
+    ) -> Result<()> {
+        if self.shared_state.ensure_leader().await?.is_some() {
+            Ok(())
+        } else {
+            self.create_content_gc_task(change, is_root).await
+        }
     }
 
     async fn handle_tombstone_content_tree_state_change(&self, change: StateChange) -> Result<()> {
@@ -643,6 +705,16 @@ impl Coordinator {
 
         //  this coordinator node is the leader
         self.create_gc_tasks(change).await
+    }
+
+    pub async fn handle_extraction_graph_deleted_state_change(
+        &self,
+        start_content_id: Vec<u8>,
+        state_change: StateChange,
+    ) -> Result<()> {
+        self.shared_state
+            .delete_content_by_graph(start_content_id, state_change)
+            .await
     }
 
     async fn handle_content_updated(&self, state_change: StateChange) -> Result<()> {
@@ -706,12 +778,15 @@ impl Coordinator {
             );
 
             match change.change_type {
-                indexify_internal_api::ChangeType::TombstoneContentTree => {
+                ChangeType::TombstoneContentTree => {
                     self.handle_tombstone_content_tree_state_change(change)
                         .await?;
-                    continue;
                 }
-                indexify_internal_api::ChangeType::TaskCompleted {
+                ChangeType::TombstoneContent { is_root } => {
+                    self.handle_tombstone_content_state_change(change, is_root)
+                        .await?;
+                }
+                ChangeType::TaskCompleted {
                     ref root_content_id,
                 } => {
                     self.handle_task_completion_state_change(
@@ -719,22 +794,24 @@ impl Coordinator {
                         root_content_id.clone(),
                     )
                     .await?;
-                    continue;
                 }
-                indexify_internal_api::ChangeType::ExecutorAdded => {
-                    self.scheduler.redistribute_tasks(&change).await?
-                }
-                indexify_internal_api::ChangeType::NewContent => {
+                ChangeType::ExecutorAdded => self.scheduler.redistribute_tasks(&change).await?,
+                ChangeType::NewContent => self.scheduler.create_new_tasks(change).await?,
+                ChangeType::AddGraphToContent { .. } => {
                     self.scheduler.create_new_tasks(change).await?
                 }
-                indexify_internal_api::ChangeType::AddGraphToContent { .. } => {
-                    self.scheduler.create_new_tasks(change).await?
-                }
-                indexify_internal_api::ChangeType::ExecutorRemoved => {
+                ChangeType::ExecutorRemoved => {
                     self.scheduler.handle_executor_removed(change).await?
                 }
-                indexify_internal_api::ChangeType::ContentUpdated => {
-                    self.handle_content_updated(change).await?
+                ChangeType::ContentUpdated => self.handle_content_updated(change).await?,
+                ChangeType::ExtractionGraphDeleted {
+                    ref start_content_id,
+                } => {
+                    self.handle_extraction_graph_deleted_state_change(
+                        start_content_id.clone(),
+                        change,
+                    )
+                    .await?
                 }
             }
         }

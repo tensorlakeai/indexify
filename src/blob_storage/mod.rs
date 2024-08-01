@@ -170,6 +170,8 @@ impl BlobStorageWriter for BlobStorage {
             )
             .delete(key)
             .await;
+        } else if key.starts_with("http://") || key.starts_with("https://") {
+            return Ok(());
         }
 
         // If it's not S3, assume it's a file

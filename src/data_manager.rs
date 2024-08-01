@@ -48,7 +48,7 @@ fn index_in_features(
 
 pub struct DataManager {
     pub vector_index_manager: Arc<VectorIndexManager>,
-    metadata_index_manager: MetadataStorageTS,
+    pub metadata_index_manager: MetadataStorageTS,
     metadata_reader: MetadataReaderTS,
     blob_storage: Arc<BlobStorage>,
     coordinator_client: Arc<CoordinatorClient>,
@@ -79,6 +79,22 @@ impl DataManager {
 
     pub async fn get_coordinator_client(&self) -> Result<CoordinatorServiceClient> {
         self.coordinator_client.get().await
+    }
+
+    pub async fn delete_extraction_graph(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+    ) -> Result<()> {
+        let req = indexify_coordinator::DeleteExtractionGraphRequest {
+            namespace,
+            extraction_graph,
+        };
+        self.get_coordinator_client()
+            .await?
+            .delete_extraction_graph(req)
+            .await?;
+        Ok(())
     }
 
     pub async fn add_graph_to_content(
@@ -379,11 +395,26 @@ impl DataManager {
     pub async fn perform_gc_task(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
         match gc_task.task_type.try_into() {
             Ok(indexify_coordinator::GcTaskType::Delete) => self.delete_content(gc_task).await,
+            Ok(indexify_coordinator::GcTaskType::DeleteBlobStore) => {
+                self.blob_storage.delete(&gc_task.blob_store_path).await?;
+                self.metadata_index_manager
+                    .remove_metadata(&gc_task.namespace, &gc_task.content_id)
+                    .await?;
+                Ok(())
+            }
             Ok(indexify_coordinator::GcTaskType::UpdateLabels) => {
                 self.update_index_labels(gc_task).await
             }
+            Ok(indexify_coordinator::GcTaskType::DropIndexes) => self.drop_indexes(gc_task).await,
             _ => Ok(()),
         }
+    }
+
+    async fn drop_indexes(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
+        for table in &gc_task.output_tables {
+            self.vector_index_manager.drop_index(table).await?;
+        }
+        Ok(())
     }
 
     #[tracing::instrument]

@@ -602,6 +602,8 @@ impl From<indexify_coordinator::TaskOutcomeFilter> for TaskOutcomeFilter {
 pub enum ServerTaskType {
     Delete = 0,
     UpdateLabels = 1,
+    DeleteBlobStore = 2,
+    DropIndexes = 3,
 }
 
 pub type GarbageCollectionTaskId = String;
@@ -622,6 +624,12 @@ pub struct GarbageCollectionTask {
     pub task_type: ServerTaskType,
     #[serde(default)]
     pub change_offset: ContentOffset,
+}
+
+impl AsRef<GarbageCollectionTask> for GarbageCollectionTask {
+    fn as_ref(&self) -> &GarbageCollectionTask {
+        self
+    }
 }
 
 impl GarbageCollectionTask {
@@ -1217,6 +1225,8 @@ pub enum ChangeType {
     ContentUpdated,
     TaskCompleted { root_content_id: ContentMetadataId },
     AddGraphToContent { extraction_graph: String },
+    ExtractionGraphDeleted { start_content_id: Vec<u8> },
+    TombstoneContent { is_root: bool },
 }
 
 impl fmt::Display for ChangeType {
@@ -1235,6 +1245,12 @@ impl fmt::Display for ChangeType {
                 "AddGraphToContent(extraction_graph: {})",
                 extraction_graph,
             ),
+            ChangeType::ExtractionGraphDeleted { start_content_id } => write!(
+                f,
+                "ExtractionGraphDeleted(start_content_id: {:?})",
+                start_content_id
+            ),
+            ChangeType::TombstoneContent { is_root } => write!(f, "TombstoneContent: {}", is_root),
         }
     }
 }

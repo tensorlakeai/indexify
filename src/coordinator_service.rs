@@ -224,6 +224,18 @@ impl CoordinatorService for CoordinatorServiceServer {
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
 
+    async fn delete_extraction_graph(
+        &self,
+        request: tonic::Request<indexify_coordinator::DeleteExtractionGraphRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::Empty>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .delete_extraction_graph(request.namespace, request.extraction_graph)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(indexify_coordinator::Empty {}))
+    }
+
     async fn content_stream(
         &self,
         request: tonic::Request<indexify_coordinator::ContentStreamRequest>,
