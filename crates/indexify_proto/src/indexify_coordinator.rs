@@ -87,8 +87,6 @@ pub struct ListTasksRequest {
     pub start_id: ::prost::alloc::string::String,
     #[prost(uint64, tag = "5")]
     pub limit: u64,
-    #[prost(bool, tag = "6")]
-    pub return_total: bool,
     #[prost(enumeration = "TaskOutcomeFilter", tag = "7")]
     pub outcome: i32,
     #[prost(string, tag = "8")]
@@ -429,8 +427,6 @@ pub struct ListContentRequest {
     pub limit: u64,
     #[prost(string, tag = "6")]
     pub start_id: ::prost::alloc::string::String,
-    #[prost(bool, tag = "7")]
-    pub return_total: bool,
     #[prost(string, tag = "8")]
     pub graph: ::prost::alloc::string::String,
     #[prost(string, tag = "9")]
