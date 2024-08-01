@@ -45,7 +45,6 @@ extraction_policies:
     ```bash cURL
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/extraction_graphs' \
-    -H 'accept: application/x-yaml' \
     -H 'Content-Type: application/x-yaml' \
     --data-binary @graph.yaml
     ```
@@ -65,7 +64,6 @@ extraction_policies:
     ```bash cURL
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
-    -H 'accept: */*' \
     -H 'Content-Type: multipart/form-data' \
     -F 'file=@file.pdf;type=application/pdf' \
     -F 'labels={"source":"arxiv"}'
@@ -106,7 +104,6 @@ Search vector indexes populated by embeddings
     ```bash cURL
     curl -X 'POST' \
     'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
-    -H 'accept: application/json' \
     -H 'Content-Type: application/json' \
     -d '{
         "filters": [],

@@ -6,12 +6,12 @@ title: 'Basic'
 
 In this guide, we'll walk you through creating an online ingestion pipeline for Wikipedia pages. This pipeline will demonstrate how to:
 
-1. Extract structured information (Named Entity Recognition) from web pages using Large Language Models (LLMs)
+1. Extract structured information (Named Entity Recognition) from web pages using LLMs
 2. Break down (chunk) the text, create embeddings, and store them in a vector database (LanceDB in this example)
 
 By the end of this tutorial, you'll be able to:
 
-1. Use advanced LLMs like Mistral or Multimodal GPT-4 via API calls and Llama 3.1 or Phi-3 locally via Llama.CPP to answer questions based on indexed information (Retrieval-Augmented Generation or RAG)
+1. Use Mistral or OpenAI GPT-4 via API calls and Llama 3.1 or Phi-3 locally to answer questions based on indexed information (Retrieval-Augmented Generation or RAG)
 2. Retrieve the Named Entities extracted from the text
 3. Use a User Interface to visually debug your pipelines and inspect how pages are broken down into chunks
 
@@ -20,16 +20,16 @@ By the end of this tutorial, you'll be able to:
 Mac OS(M series).  
 Linux: Ubuntu 20.04 and above, Red Hat 9 and above.  
 Windows: Use WSL, but we don't actively test.
+**Python Versions**: 3.9-3.11
 </Info>
 
 ## Prerequisites
 
 Before we begin, make sure you have:
 
-1. Python 3.9 or higher installed
 2. Basic knowledge of Python programming
 3. Familiarity with command-line interfaces
-4. An OpenAI API key (only if using GPT models)
+4. An OpenAI or Mistal API key (only if using them)
 
 ## Setup
 
@@ -314,21 +314,7 @@ You can query Indexify to -
 3. Perform semantic search on vector indexes populated by embedding extractors.
 4. Run SQL Queries on structured data(not in this tutorial).
 
-<CodeGroup>
-```bash Terminal 3 - Run our RAG query for Llama.CPP
-python3 ./query.py
-```
-```bash Terminal 3 - Run our RAG query for OpenAI
-export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
-python3 ./query.py
-```
-```bash Terminal 3 - Run our RAG query for Mistral
-export MISTRAL_API_KEY="YOUR_MISTRAL_API_KEY"
-python3 ./query.py
-```
-</CodeGroup>
-
-For now let us create a file named `query.py` with the following content:
+Let us create a file named `query.py` with the following content:
 
 <CodeGroup>
 ```python query.py for Llama.CPP
@@ -474,6 +460,21 @@ if __name__ == "__main__":
 
 Run this script to query the indexed data:
 
+<CodeGroup>
+```bash Terminal 3 - Run our RAG query for Llama.CPP
+python3 ./query.py
+```
+```bash Terminal 3 - Run our RAG query for OpenAI
+export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+python3 ./query.py
+```
+```bash Terminal 3 - Run our RAG query for Mistral
+export MISTRAL_API_KEY="YOUR_MISTRAL_API_KEY"
+python3 ./query.py
+```
+</CodeGroup>
+
+
 You should see a response summarizing Kevin Durant's career accomplishments based on the indexed Wikipedia data.
 
 ```text Output
@@ -503,15 +504,9 @@ Congratulations, You've successfully set up an Indexify pipeline for ingesting, 
 Indexify's fault-tolerant design ensures reliability and scalability, making it suitable for mission-critical applications. You can now explore more advanced topics and integrations to further enhance your information retrieval and processing capabilities.
 
 ## Next Steps
-
-To continue your journey with Indexify, consider exploring the following topics in order:
-
-| Topics | Subtopics |
-|--------|-----------|
-| [Intermediate Use Case: Unstructured Data Extraction from a Tax PDF](https://docs.getindexify.ai/docs/getting-started-intermediate) | - Understanding the challenge of tax document processing \n  -  Setting up an Indexify pipeline for PDF extraction \n  -  Implementing extractors for key tax information \n  -  Querying and retrieving processed tax data |
-| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors \n  - Transformation \n  - Structured Data Extraction \n  - Embedding Extraction \n  - Combined Transformation, Embedding, and Metadata Extraction \n  -  Namespaces \n  -  Content \n  -  Extraction Graphs \n  -  Vector Index and Retrieval APIs \n  -  Structured Data Tables |
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Indexify Server \n  - Coordinator \n  - Ingestion Server \n  -  Extractors \n  -  Deployment Layouts \n  - Local Mode \n  - Production Mode |
-| [Building a Custom Extractor for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK \n  -  Designing your extractor's functionality \n  -  Implementing the extractor class \n  -  Testing and debugging your custom extractor \n  -  Integrating the custom extractor into your Indexify pipeline |
-| [Examples and Use Cases](https://docs.getindexify.ai/examples/index/) | - Document processing and analysis \n  -  Image and video content extraction \n  -  Audio transcription and analysis \n  -  Multi-modal data processing \n  -  Large-scale data ingestion and retrieval systems |
-
-Each section builds upon the previous ones, providing a logical progression from practical application to deeper technical understanding and finally to customization and real-world examples.
+<Card title="Intermediate Tutorial" icon="link" href="docs/getting-started-intermediate">
+  Build a tax document processing and Q&A system. The tutorial covers text extraction from PDFs and building a RAG pipeline.
+</Card>
+<Card title="Key Concepts of Indexify" icon="link" href="../key-concepts">
+  Learn about the core concepts of Indexify, including extractors, transformation, and structured data extraction.
+</Card>
