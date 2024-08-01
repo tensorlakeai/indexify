@@ -206,17 +206,6 @@ The following diagram expresses the pipeline in detail.
 
 ![Indexify Extractors Presentation](https://github.com/user-attachments/assets/80149ab7-e698-47a3-b853-7add9a7b60d6)
 
-The `setup_extraction_graph.py` script is responsible for defining and creating the extraction graph that will process our PDF documents. Its design incorporates several key patterns:
-
-1. **Configuration Management**: 
-   The script uses a YAML-based configuration approach. This allows for easy modification of extraction graph parameters without changing the code. It's flexible because you can easily switch between different configurations for various use cases.
-
-2. **Extraction Graph Definition**:
-   The script defines the extraction graph using a declarative YAML structure. This approach makes it easy to understand and modify the pipeline structure. Each extractor in the graph is defined with its name, type, and any specific parameters it needs.
-
-3. **Extractor Chaining**:
-   The script sets up a chain of extractors, where the output of one becomes the input of the next. This is done by specifying the 'content_source' for each extractor after the first one. This pattern allows for flexible pipeline creation, where you can easily add, remove, or reorder processing steps.
-
 ## Stage 5: Document Ingestion
 
 Add the PDF document to the "pdfqa" extraction graph:
@@ -398,12 +387,3 @@ The key strengths of this pipeline would be:
 2. Efficient chunking and embedding of text for quick retrieval
 3. Use of up-to-date, specific information for answer generation
 4. Scalability to handle multiple documents or more complex queries
-
-## Next Steps
-
-| Topics | Subtopics |
-|--------|-----------|
-| [Key Concepts of Indexify](https://docs.getindexify.ai/concepts/) | - Extractors  \n  - Transformation techniques \n  - Structured Data Extraction methods \n  - Advanced Embedding Extraction \n  - Combining Transformation, Embedding, and Metadata Extraction \n- Namespaces and data organization \n- Content management strategies \n- Designing complex Extraction Graphs \n- Advanced Vector Index and Retrieval API usage \n- Optimizing Structured Data Tables |
-| [Architecture of Indexify](https://docs.getindexify.ai/architecture/) | - Deep dive into the Indexify Server \n  - Coordinator functionality and optimization \n  - Ingestion Server scalability \n- Advanced Extractor configurations \n- Deployment Layouts \n  - Optimizing Local Mode for development \n  - Scaling Production Mode for high-volume applications |
-| [Building Custom Extractors for Your Use Case](https://docs.getindexify.ai/apis/develop_extractors/) | - Understanding the Extractor SDK in depth \n- Designing extractors for specific data types or industries \n- Implementing advanced extractor classes \n- Strategies for testing and debugging complex extractors \n- Integrating custom extractors into large-scale Indexify pipelines |
-| [Advanced Examples and Use Cases](https://docs.getindexify.ai/examples/index/) | - Multi-lingual document processing and analysis \n- Real-time image and video content extraction systems \n- Audio transcription and sentiment analysis pipelines \n- Creating multi-modal data processing systems \n- Implementing large-scale, distributed data ingestion and retrieval systems \n- Building domain-specific question-answering systems (e.g., legal, medical, financial) |

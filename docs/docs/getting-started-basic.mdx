@@ -27,9 +27,9 @@ Windows: Use WSL, but we don't actively test.
 
 Before we begin, make sure you have:
 
-2. Basic knowledge of Python programming
-3. Familiarity with command-line interfaces
-4. An OpenAI or Mistal API key (only if using them)
+- Basic knowledge of Python programming
+- Familiarity with command-line interfaces
+- An OpenAI or Mistal API key (only if using them)
 
 ## Setup
 
@@ -137,7 +137,7 @@ Indexify provides tools to test extractors locally, package and deploy them to p
 
 As mentioned before, for the purpose of this tutorial, we already have Extractors written, deployed and tested.
 
-Now, let's download three essential extractors:
+Now, let's download the extractors:
 
 <CodeGroup>
 ```bash Terminal 2 - Download Indexify Extractors for Llama.CPP
@@ -165,7 +165,7 @@ indexify-extractor join-server
 ```
 </CodeGroup>
 
-Now, let's start all available extractors:
+Start all the extractors:
 
 ```bash Terminal 2 - Starting Extractor Workers
 indexify-extractor join-server
@@ -237,7 +237,7 @@ This YAML file defines three extraction policies:
 2. `chunker`: Splits the text into smaller chunks
 3. `wikiembedding`: Creates embeddings for the chunks
 
-These are the three key extractors are utilized to process and analyze the input content from Wikipedia:
+These three extractors are utilized to process and analyze the input content from Wikipedia:
 
 1. LLM Extractors: We use one of these LLMs to extract named entities from text. All these can be customized with specific system prompts to tailor its output.
     * Llama CPP Extractor(`tensorlake/llama_cpp`): Uses Phi-3-mini-4k-instruct model.
