@@ -120,4 +120,5 @@ const IndexTable = ({
   )
 }
 
-export default IndexTable
+export default IndexTable;
+
