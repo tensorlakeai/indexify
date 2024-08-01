@@ -166,6 +166,7 @@
         "api-reference/operations/list-all-executors-running-extractors-in-the-cluster",
         "api-reference/operations/list-all-extractors-available-in-the-cluster",
         "api-reference/operations/get-all-the-extraction-graph-links-for-a-given-extraction-graph",
+        "api-reference/operations/get-analytics-for-an-extraction-graph",
         "api-reference/operations/create-a-link-with-a-given-extraction-graph",
         "api-reference/operations/list-all-namespaces-registered-on-the-server",
         "api-reference/operations/create-a-new-namespace",
