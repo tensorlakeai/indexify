@@ -585,6 +585,7 @@ message GetIngestionInfoRequest {
 message GetIngestionInfoResponse {
     Task task = 1;
     ContentMetadata root_content = 2;
+    ExtractionPolicy extraction_policy = 3;
 }
 
 // wait for content to complete all extraction tasks
