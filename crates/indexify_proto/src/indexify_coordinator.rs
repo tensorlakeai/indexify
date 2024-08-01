@@ -829,6 +829,8 @@ pub struct GetIngestionInfoResponse {
     pub task: ::core::option::Option<Task>,
     #[prost(message, optional, tag = "2")]
     pub root_content: ::core::option::Option<ContentMetadata>,
+    #[prost(message, optional, tag = "3")]
+    pub extraction_policy: ::core::option::Option<ExtractionPolicy>,
 }
 /// wait for content to complete all extraction tasks
 #[allow(clippy::derive_partial_eq_without_eq)]

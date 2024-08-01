@@ -465,7 +465,7 @@ impl App {
         Ok(matched_policies)
     }
 
-    pub fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
+    pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let extraction_policy = self
             .state_machine
             .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)?
@@ -1831,7 +1831,9 @@ mod tests {
             .await?;
 
         //  Read the policy back using the id
-        let read_policy = node.get_extraction_policy(&eg.extraction_policies[0].id)?;
+        let read_policy = node
+            .get_extraction_policy(&eg.extraction_policies[0].id)
+            .await?;
         assert_eq!(read_policy, eg.extraction_policies[0]);
 
         //  Create some content

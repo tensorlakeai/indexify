@@ -257,11 +257,11 @@ impl Coordinator {
             .await
     }
 
-    pub fn get_extraction_policy(
+    pub async fn get_extraction_policy(
         &self,
         id: ExtractionPolicyId,
     ) -> Result<internal_api::ExtractionPolicy> {
-        self.shared_state.get_extraction_policy(&id)
+        self.shared_state.get_extraction_policy(&id).await
     }
 
     pub async fn update_task(
@@ -1835,8 +1835,9 @@ mod tests {
         let mut content =
             create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
                 .await?;
-        let policy =
-            coordinator.get_extraction_policy(all_tasks[0].extraction_policy_name.clone())?;
+        let policy = coordinator
+            .get_extraction_policy(all_tasks[0].extraction_policy_name.clone())
+            .await?;
         let prev_content = tree
             .iter()
             .find(|c| c.source == ContentSource::ExtractionPolicyName(policy.name.clone()))

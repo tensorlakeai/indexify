@@ -5,8 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Ok, Result};
-use indexify_internal_api as internal_api;
-use indexify_internal_api::StateChange;
+use indexify_internal_api::{self as internal_api, ExtractionPolicy, StateChange};
 use tracing::{error, info};
 
 use crate::{
@@ -108,7 +107,7 @@ impl Scheduler {
         let tables = self.tables_for_policies(&extraction_policies).await?;
         for extraction_policy in extraction_policies {
             let task = self
-                .create_task(&extraction_policy.id, &content, &tables)
+                .create_task(&extraction_policy, &content, &tables)
                 .await?;
             tasks.push(task);
         }
@@ -195,13 +194,10 @@ impl Scheduler {
 
     pub async fn create_task(
         &self,
-        extraction_policy_id: &str,
+        extraction_policy: &ExtractionPolicy,
         content: &internal_api::ContentMetadata,
         index_tables: &[String],
     ) -> Result<internal_api::Task> {
-        let extraction_policy = self
-            .shared_state
-            .get_extraction_policy(extraction_policy_id)?;
         let extractor = self
             .shared_state
             .extractor_with_name(&extraction_policy.extractor)?;
@@ -222,7 +218,7 @@ impl Scheduler {
             id,
             extractor: extraction_policy.extractor.clone(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
-            extraction_policy_name: extraction_policy.id.clone(),
+            extraction_policy_name: extraction_policy.name.clone(),
             output_index_table_mapping: output_mapping.clone(),
             namespace: extraction_policy.namespace.clone(),
             content_metadata: content.clone(),
