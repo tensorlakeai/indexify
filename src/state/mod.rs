@@ -1543,7 +1543,7 @@ mod tests {
             id: task_id.into(),
             namespace: content_metadata.namespace.clone(),
             extractor: "".to_string(),
-            extraction_policy_id: "".to_string(),
+            extraction_policy_name: "".to_string(),
             extraction_graph_name: "".to_string(),
             content_metadata: content_metadata.clone(),
             output_index_table_mapping: Default::default(),

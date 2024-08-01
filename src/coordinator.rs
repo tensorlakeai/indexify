@@ -1845,7 +1845,7 @@ mod tests {
             create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
                 .await?;
         let policy =
-            coordinator.get_extraction_policy(all_tasks[0].extraction_policy_id.clone())?;
+            coordinator.get_extraction_policy(all_tasks[0].extraction_policy_name.clone())?;
         let prev_content = tree
             .iter()
             .find(|c| c.source == ContentSource::ExtractionPolicyName(policy.name.clone()))

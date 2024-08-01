@@ -842,7 +842,7 @@ impl IndexifyState {
                     db,
                     txn,
                     &task.content_metadata.id,
-                    &task.extraction_policy_id,
+                    &task.extraction_policy_name,
                     update_time,
                 )?;
             }
@@ -867,7 +867,7 @@ impl IndexifyState {
     ) -> Result<(), StateMachineError> {
         let key = format!(
             "{}_{}_{}",
-            new_task.namespace, new_task.extraction_graph_name, new_task.extraction_policy_id
+            new_task.namespace, new_task.extraction_graph_name, new_task.extraction_policy_name
         );
         let task_analytics = db
             .get_cf(StateMachineColumns::TaskAnalytics.cf(db), key.clone())

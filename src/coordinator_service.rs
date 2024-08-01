@@ -1121,7 +1121,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let filter = |task: &Task| {
             task.namespace == req.namespace &&
-                (policy_id.is_empty() || task.extraction_policy_id == policy_id) &&
+                (policy_id.is_empty() || task.extraction_policy_name == policy_id) &&
                 (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
                 outcome.matches(task.outcome)
         };

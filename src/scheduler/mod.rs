@@ -222,7 +222,7 @@ impl Scheduler {
             id,
             extractor: extraction_policy.extractor.clone(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
-            extraction_policy_id: extraction_policy.id.clone(),
+            extraction_policy_name: extraction_policy.id.clone(),
             output_index_table_mapping: output_mapping.clone(),
             namespace: extraction_policy.namespace.clone(),
             content_metadata: content.clone(),
