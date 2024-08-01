@@ -96,6 +96,7 @@ pub struct NamespaceEndpointState {
             index_search,
             get_content_tree_metadata,
             download_content,
+            extraction_graph_analytics,
         ),
         components(
             schemas(IndexDistance,
@@ -106,7 +107,7 @@ pub struct NamespaceEndpointState {
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse, ListTasks,
             ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
-            AddGraphToContent, NewContentStreamResponse
+            AddGraphToContent, NewContentStreamResponse, ExtractionGraphAnalytics, TaskAnalytics
         )
         ),
         tags(
@@ -220,6 +221,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
                 get(list_tasks).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/analytics",
+                get(extraction_graph_analytics).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/new_content",
@@ -1479,6 +1484,35 @@ async fn list_state_changes(
         .collect();
 
     Ok(Json(ListStateChangesResponse { state_changes }))
+}
+
+/// Get Analytics for an extraction graph
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/analytics",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+    ),
+    tag = "operations",
+    responses(
+        (status = 200, description = "Return Analytics", body = ExtractionGraphAnalytics),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
+    ),
+)]
+async fn extraction_graph_analytics(
+    Path((namespace, extraction_graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Query(query): Query<ListTasks>,
+) -> Result<Json<ExtractionGraphAnalytics>, IndexifyAPIError> {
+    let resp = state
+        .coordinator_client
+        .get_extraction_graph_analytics(&namespace, &extraction_graph)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+
+    Ok(Json(resp.into()))
 }
 
 /// List Tasks generated for a given content and a given extraction policy

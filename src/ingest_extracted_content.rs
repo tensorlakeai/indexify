@@ -451,7 +451,7 @@ mod tests {
         let mut task = Task {
             id: task_id.to_string(),
             extractor: "".to_string(),
-            extraction_policy_id: extraction_policy.id.to_string(),
+            extraction_policy_name: extraction_policy.id.to_string(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
             output_index_table_mapping: HashMap::new(),
             namespace: content_metadata.namespace.clone(),

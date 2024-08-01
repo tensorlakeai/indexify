@@ -759,6 +759,16 @@ impl App {
         Ok(())
     }
 
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<indexify_internal_api::ExtractionGraphAnalytics>> {
+        self.state_machine
+            .get_graph_analytics(namespace, graph_name)
+            .await
+    }
+
     pub fn extractor_with_name(
         &self,
         extractor: &str,
@@ -1516,7 +1526,7 @@ mod tests {
             id: task_id.into(),
             namespace: content_metadata.namespace.clone(),
             extractor: "".to_string(),
-            extraction_policy_id: "".to_string(),
+            extraction_policy_name: "".to_string(),
             extraction_graph_name: "".to_string(),
             content_metadata: content_metadata.clone(),
             output_index_table_mapping: Default::default(),

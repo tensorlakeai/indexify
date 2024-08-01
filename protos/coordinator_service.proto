@@ -40,6 +40,8 @@ service CoordinatorService {
 
     rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
 
+    rpc GetExtractionGraphAnalytics(GetExtractionGraphAnalyticsRequest) returns (GetExtractionGraphAnalyticsResponse) {}
+
     rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
 
     rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
@@ -285,6 +287,21 @@ message GCTask {
 message HeartbeatRequest {
     string executor_id = 1;
     int64 pending_tasks = 2;
+}
+
+message GetExtractionGraphAnalyticsRequest {
+    string namespace = 1;
+    string extraction_graph = 2;
+}
+
+message TaskAnalytics {
+    uint64 pending = 1;
+    uint64 success = 2;
+    uint64 failure = 3;
+}
+
+message GetExtractionGraphAnalyticsResponse {
+    map<string, TaskAnalytics> task_analytics = 1;
 }
 
 message HeartbeatResponse {
