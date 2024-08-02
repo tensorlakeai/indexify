@@ -5,31 +5,27 @@ import {
   Button,
   Modal,
   Typography,
-  MenuItem,
-  Select,
   Paper,
   CircularProgress,
   OutlinedInput,
+  FormHelperText,
 } from '@mui/material';
-import { ExtractionGraph, IndexifyClient } from 'getindexify';
+import { IndexifyClient } from 'getindexify';
 import LabelsInput from './Inputs/LabelsInput';
 import FileDropZone from './Inputs/DropZone';
 
 interface Props {
   client: IndexifyClient;
-  extractionGraphs: ExtractionGraph[]
+  extractionGraph: string;
 }
 
-const UploadButton = ({ client, extractionGraphs }: Props) => {
+const UploadButton = ({ client, extractionGraph }: Props) => {
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
-  const [extractionGraphName, setExtractionGraphName] = useState('');
   const [loading, setLoading] = useState(false);
   const [newContentId, setNewContentId] = useState("");
-  const [localExtractionGraphs, setLocalExtractionGraphs] = useState<ExtractionGraph[]>(
-    extractionGraphs
-  );
+  const [contentIdError, setContentIdError] = useState("");
 
   const handleFileSelect = (selectedFiles: File[]) => {
     setFiles(selectedFiles);
@@ -37,6 +33,16 @@ const UploadButton = ({ client, extractionGraphs }: Props) => {
 
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
+
+  const validateContentId = (value: string) => {
+    const hexRegex = /^[0-9A-Fa-f]*$/;
+    if (value === "" || hexRegex.test(value)) {
+      setNewContentId(value);
+      setContentIdError("");
+    } else {
+      setContentIdError("Content ID must be a valid hexadecimal string");
+    }
+  };
 
   const modalStyle = {
     position: 'absolute' as 'absolute',
@@ -54,20 +60,25 @@ const UploadButton = ({ client, extractionGraphs }: Props) => {
   };
 
   const upload = async () => {
-    if (files.length > 0 && extractionGraphName) {
+    if (files.length > 0 && extractionGraph && !contentIdError) {
       setLoading(true);
-      const uploadPromises = files.map(file => client.uploadFile(extractionGraphName, file, labels, newContentId));
-      await Promise.all(uploadPromises);
-      window.location.reload();
+      try {
+        const uploadPromises = files.map(file => 
+          client.uploadFile(extractionGraph, file, labels, newContentId || undefined)
+        );
+        const results = await Promise.all(uploadPromises);
+        console.log('Upload results:', results);
+        handleClose();
+        window.location.reload();
+      } catch (error) {
+        console.error('Error during upload:', error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const updateExtractionGraphs = async () => {
-    const graphs = await client.getExtractionGraphs();
-    setLocalExtractionGraphs(graphs);
-  };
-
-  const isUploadButtonDisabled = files.length === 0 || !extractionGraphName || loading;
+  const isUploadButtonDisabled = files.length === 0 || !extractionGraph || loading || !!contentIdError;
 
   return (
     <>
@@ -84,36 +95,29 @@ const UploadButton = ({ client, extractionGraphs }: Props) => {
           <Typography id="modal-modal-description" sx={{ mt: 2, fontWeight: 500, color: "#4A4F56" }}>
             Select a file to upload and choose an extraction graph.
           </Typography>
-          <Select
-            disabled={loading}
-            onFocus={updateExtractionGraphs}
-            value={extractionGraphName}
-            onChange={(e) => setExtractionGraphName(e.target.value)}
-            displayEmpty
-            fullWidth
-            variant="outlined"
-            sx={{ mt: 2, color: '#757A82' }}
-            size="small"
-          >
-            <MenuItem value="" disabled>
-              Select Extraction Graph
-            </MenuItem>
-            {localExtractionGraphs.map((graph) => (
-              <MenuItem key={graph.name} value={graph.name}>
-                {graph.name}
-              </MenuItem>
-            ))}
-          </Select>
           <OutlinedInput
-            label="Content Id"
-            value={newContentId}
-            onChange={(event) => setNewContentId(event.target.value)}
+            label="Extraction Graph"
+            value={extractionGraph}
             fullWidth
             notched={false}
-            placeholder="Content Id"
+            disabled
             sx={{ backgroundColor: "white", mt: 2 }}
             size="small"
           />
+          <OutlinedInput
+            label="Content Id (optional)"
+            value={newContentId}
+            onChange={(event) => validateContentId(event.target.value)}
+            error={!!contentIdError}
+            fullWidth
+            notched={false}
+            placeholder="Content Id (optional, hex string)"
+            sx={{ backgroundColor: "white", mt: 2 }}
+            size="small"
+          />
+          {contentIdError && (
+            <FormHelperText error>{contentIdError}</FormHelperText>
+          )}
           <FileDropZone onFileSelect={handleFileSelect} />
           <LabelsInput
             disabled={loading}
