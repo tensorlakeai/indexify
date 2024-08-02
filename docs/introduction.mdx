@@ -55,7 +55,7 @@ extraction_policies:
     client.create_extraction_graph(graph)
     ```
     ```typescript Typescript
-    import { IndexifyClient, ExtractionGraph } from './indexify';
+    import { IndexifyClient, ExtractionGraph } from 'getindexify';
     import * as fs from 'fs';
     import * as yaml from 'js-yaml';
 
@@ -98,7 +98,7 @@ extraction_policies:
     client.upload_file("pdf-ingestion-pipeline", file)
     ```
     ```typescript
-    import { IndexifyClient } from './indexify';
+    import { IndexifyClient } from 'getindexify';
     import * as fs from 'fs';
     import * as path from 'path';
 
@@ -141,7 +141,7 @@ Retrieve extracted named entities
     named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
     ```
     ```typescript TypeScript
-    import { IndexifyClient, IContentMetadata } from './indexify';
+    import { IndexifyClient, IContentMetadata } from 'getindexify';
 
     async function listAndExtractContent() {
       const client = await IndexifyClient.createClient();
@@ -201,7 +201,7 @@ Search vector indexes populated by embeddings
     results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
     ```
     ```typescript
-    import { IndexifyClient, ISearchIndexResponse } from './indexify';
+    import { IndexifyClient, ISearchIndexResponse } from 'getindexify';
 
     async function performSemanticSearch() {
       const client = await IndexifyClient.createClient();
