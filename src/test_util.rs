@@ -179,9 +179,12 @@ pub mod db_utils {
         task: &Task,
         id: &str,
     ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
-        let policy = coordinator
-            .get_extraction_policy(task.extraction_policy_name.clone())
-            .await?;
+        let ep_id = ExtractionPolicy::create_id(
+            &task.extraction_graph_name,
+            &task.extraction_policy_name,
+            &task.namespace,
+        );
+        let policy = coordinator.get_extraction_policy(ep_id).await?;
         let mut content =
             test_mock_content_metadata(id, task.content_metadata.get_root_id(), &policy.graph_name);
         content.parent_id = Some(task.content_metadata.id.clone());
