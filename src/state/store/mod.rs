@@ -11,6 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use compat::init_task_analytics;
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
     ContentMetadata,
@@ -143,7 +144,7 @@ pub enum StateMachineColumns {
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
 const LAST_APPLIED_LOG_ID_KEY: &[u8] = b"last_applied_log_id";
 const STORE_VERSION: &[u8] = b"store_version";
-const CURRENT_STORE_VERSION: u64 = 3;
+const CURRENT_STORE_VERSION: u64 = 4;
 const LOG_STORE_LOGS_COLUMN: &str = "logs";
 const LOG_STORE_STORE_COLUMN: &str = "store";
 
@@ -519,6 +520,8 @@ impl StateMachineStore {
                     CURRENT_STORE_VERSION
                 ))
                 .into());
+            } else if store_version == 3 {
+                compat::convert_v3(&db, &log_store.db)?;
             } else if store_version == 2 {
                 compat::convert_v2(&db, &log_store.db)?;
             } else if store_version == 1 {
@@ -1579,7 +1582,8 @@ fn apply_v1_snapshot(
     }
     for (task_id, task) in &snapshot.tasks {
         let cf = StateMachineColumns::Tasks.cf(db);
-        let task: Task = task.clone().into();
+        let task = compat::convert_v1_task(task.clone(), db)
+            .map_err(|e| StorageIOError::read_snapshot(None, e))?;
         put_cf(&txn, cf, task_id, &task)?;
     }
     for (gc_task_id, gc_task) in &snapshot.gc_tasks {
@@ -1625,7 +1629,8 @@ fn apply_v1_snapshot(
         put_cf(&txn, cf, &node_id.to_string(), &addr)?;
     }
     txn.commit()
-        .map_err(|e| StorageIOError::write_state_machine(&e).into())
+        .map_err(|e| StorageIOError::write_state_machine(&e))?;
+    init_task_analytics(db)
 }
 
 // Convert the v1 store to the new store.
@@ -1664,7 +1669,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
         let entry: Entry<V1TypeConfig> = JsonEncoder::decode(&value).unwrap();
 
         if let EntryPayload::Normal(req) = entry.payload {
-            let log = convert_v1_log(req);
+            let log = convert_v1_log(req, &v1_db).map_err(|e| StorageIOError::read_logs(e))?;
             let updated_entry: typ::Entry = Entry {
                 log_id: entry.log_id,
                 payload: EntryPayload::Normal(log),
@@ -1725,7 +1730,10 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
     Ok(())
 }
 
-fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest {
+fn convert_v1_log(
+    log: V1StateMachineUpdateRequest,
+    db: &OptimisticTransactionDB,
+) -> Result<StateMachineUpdateRequest, anyhow::Error> {
     let payload = match log.payload {
         V1RequestPayload::JoinCluster {
             node_id,
@@ -1752,8 +1760,11 @@ fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest
         }
         V1RequestPayload::CreateNamespace { name } => RequestPayload::CreateNamespace { name },
         V1RequestPayload::CreateTasks { tasks } => {
-            let tasks: Vec<Task> = tasks.into_iter().map(|t| t.into()).collect();
-            RequestPayload::CreateTasks { tasks }
+            let tasks: Result<Vec<Task>, _> = tasks
+                .into_iter()
+                .map(|t| compat::convert_v1_task(t, db))
+                .collect();
+            RequestPayload::CreateTasks { tasks: tasks? }
         }
         V1RequestPayload::AssignTask { assignments } => RequestPayload::AssignTask { assignments },
         V1RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
@@ -1793,24 +1804,21 @@ fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest
             task,
             executor_id,
             update_time,
-        } => {
-            let task: Task = task.into();
-            RequestPayload::UpdateTask {
-                task,
-                executor_id,
-                update_time,
-            }
-        }
+        } => RequestPayload::UpdateTask {
+            task: compat::convert_v1_task(task, db)?,
+            executor_id,
+            update_time,
+        },
         V1RequestPayload::MarkStateChangesProcessed { state_changes } => {
             RequestPayload::MarkStateChangesProcessed { state_changes }
         }
     };
 
-    StateMachineUpdateRequest {
+    Ok(StateMachineUpdateRequest {
         payload,
         new_state_changes: log.new_state_changes,
         state_changes_processed: log.state_changes_processed,
-    }
+    })
 }
 
 pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<StateMachineStore>) {

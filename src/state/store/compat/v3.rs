@@ -1,15 +1,11 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use anyhow::anyhow;
-use indexify_internal_api::{
-    v2::{ExtractionGraph, Task},
-    *,
-};
+use indexify_internal_api::{v3::Task, *};
 use rocksdb::OptimisticTransactionDB;
 use serde::{Deserialize, Serialize};
 
 use crate::state::{
-    store::{ExecutorId, JsonEncode, JsonEncoder, StateMachineColumns, TaskId},
+    store::{compat::convert_v2_task, ExecutorId, TaskId},
     BasicNode,
     CreateOrUpdateContentEntry,
     NodeId,
@@ -76,34 +72,7 @@ pub enum RequestPayload {
     },
 }
 
-pub fn convert_v2_task(
-    task: Task,
-    db: &OptimisticTransactionDB,
-) -> Result<indexify_internal_api::Task, anyhow::Error> {
-    let policy = db
-        .get_cf(
-            StateMachineColumns::ExtractionPolicies.cf(db),
-            &task.extraction_policy_id,
-        )?
-        .ok_or_else(|| anyhow!("Extraction policy not found"))?;
-    let policy: ExtractionPolicy =
-        JsonEncoder::decode(&policy).map_err(|e| anyhow!("Failed to decode policy: {:?}", e))?;
-    Ok(indexify_internal_api::Task {
-        id: task.id,
-        extractor: task.extractor,
-        extraction_policy_name: policy.name,
-        extraction_graph_name: task.extraction_graph_name,
-        output_index_table_mapping: task.output_index_table_mapping,
-        namespace: task.namespace,
-        content_metadata: task.content_metadata.into(),
-        input_params: task.input_params,
-        outcome: task.outcome,
-        index_tables: task.index_tables,
-        creation_time: task.creation_time,
-    })
-}
-
-pub fn convert_v2_payload(
+pub fn convert_v3_payload(
     payload: RequestPayload,
     db: &OptimisticTransactionDB,
 ) -> Result<crate::state::store::RequestPayload, anyhow::Error> {
@@ -157,7 +126,7 @@ pub fn convert_v2_payload(
             structured_data_schema,
             indexes,
         } => crate::state::store::RequestPayload::CreateExtractionGraph {
-            extraction_graph: extraction_graph.into(),
+            extraction_graph,
             structured_data_schema,
             indexes,
         },
@@ -197,12 +166,12 @@ pub struct StateMachineUpdateRequest {
     pub state_changes_processed: Vec<StateChangeProcessed>,
 }
 
-pub fn convert_v2_sm_request(
+pub fn convert_v3_sm_request(
     request: StateMachineUpdateRequest,
     db: &OptimisticTransactionDB,
 ) -> Result<crate::state::StateMachineUpdateRequest, anyhow::Error> {
     Ok(crate::state::StateMachineUpdateRequest {
-        payload: convert_v2_payload(request.payload, db)?,
+        payload: convert_v3_payload(request.payload, db)?,
         new_state_changes: request.new_state_changes,
         state_changes_processed: request.state_changes_processed,
     })
@@ -231,7 +200,7 @@ fn convert_log_payload(
 ) -> Result<NewPayload, anyhow::Error> {
     Ok(match payload {
         OldPayload::Blank => NewPayload::Blank,
-        OldPayload::Normal(request) => NewPayload::Normal(convert_v2_sm_request(request, db)?),
+        OldPayload::Normal(request) => NewPayload::Normal(convert_v3_sm_request(request, db)?),
         OldPayload::Membership(v) => NewPayload::Membership(v),
     })
 }

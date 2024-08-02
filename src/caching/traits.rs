@@ -4,6 +4,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::prelude::IndexifyCachingError;
 
+#[allow(dead_code)]
 #[async_trait]
 pub trait Cache<K, V>: Send + Sync
 where
