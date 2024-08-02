@@ -7,8 +7,7 @@ import {
   TableHead as MuiTableHead, 
   TableRow as MuiTableRow, 
   TableCell as MuiTableCell,
-  Alert,
-  TablePagination
+  Alert
 } from '@mui/material'
 import { TableVirtuoso } from 'react-virtuoso';
 import {
@@ -36,7 +35,6 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
 }) => {
   const [content, setContent] = useState<IContentMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const loadContent = async () => {
     setIsLoading(true);
@@ -60,10 +58,6 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, contentId, extractorName, namespace, policyName]);
 
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-  };
-
   if (isLoading && content.length === 0) {
     return <Typography>Loading...</Typography>;
   }
@@ -80,7 +74,7 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
 
   const TableComponents = {
     Scroller: React.forwardRef<HTMLDivElement>((props, ref) => (
-      <MuiTableContainer component={Paper} {...props} ref={ref} />
+      <MuiTableContainer component={Paper} {...props} ref={ref} sx={{boxShadow: "0px 0px 2px -1px rgba(51, 132, 252, 0.5) inset"}} />
     )),
     Table: (props: React.HTMLAttributes<HTMLTableElement>) => (
       <table {...props} style={{ borderCollapse: 'separate', tableLayout: 'fixed' }} />
@@ -193,26 +187,15 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   );
 
   return (
-    <Box>
-      <Paper style={{ height: 400, width: '100%', overflow: 'hidden' }}>
-        <TableVirtuoso
-          style={{ height: '100%' }}
-          data={content.slice(0, rowsPerPage)}
-          components={TableComponents}
-          fixedHeaderContent={fixedHeaderContent}
-          itemContent={rowContent}
-        />
-      </Paper>
-      <TablePagination
-        rowsPerPageOptions={[5, 10, 25]}
-        component="div"
-        count={content.length}
-        rowsPerPage={rowsPerPage}
-        page={0}
-        onPageChange={() => {}}
-        onRowsPerPageChange={handleChangeRowsPerPage}
+    <Paper style={{ height: 500, width: '100%', overflow: 'hidden'}}>
+      <TableVirtuoso
+        style={{ height: '100%' }}
+        data={content}
+        components={TableComponents}
+        fixedHeaderContent={fixedHeaderContent}
+        itemContent={rowContent}
       />
-    </Box>
+    </Paper>
   );
 };
 
