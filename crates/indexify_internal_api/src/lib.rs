@@ -1000,6 +1000,7 @@ pub struct ContentMetadata {
                                                                   * each extraction policy id */
     pub extraction_graph_names: Vec<ExtractionGraphName>,
     /// monotonically increasing change id
+    #[serde(default)]
     pub change_offset: ContentOffset,
 }
 
