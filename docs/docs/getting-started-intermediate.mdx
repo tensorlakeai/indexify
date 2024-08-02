@@ -163,15 +163,16 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
     client.create_extraction_graph(extraction_graph)
     ```
     ```typescript setup_extraction_graph.ts
-    import { ExtractionGraph, IndexifyClient } from "getindexify"
+    import { IndexifyClient, ExtractionGraph } from 'getindexify';
+    import * as yaml from 'js-yaml';
 
-    (async () => {
-        const client = await IndexifyClient.createClient();
+    async function createExtractionGraph() {
+      const client = await IndexifyClient.createClient();
 
-        const graph = ExtractionGraph.fromYaml(`
+      const extractionGraphSpec = `
         name: 'pdfqa'
         extraction_policies:
-          - extractor: 'tensorlake/marker'
+          - extractor: 'tensorlake/marker' 
             name: 'mdextract'
           - extractor: 'tensorlake/chunk-extractor'
             name: 'chunker'
@@ -182,10 +183,28 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
           - extractor: 'tensorlake/minilm-l6'
             name: 'pdfembedding'
             content_source: 'chunker'
-        `)
+        `;
 
-        await client.createExtractionGraph(graph)
-      })()
+      const parsedSpec = yaml.load(extractionGraphSpec) as {
+        name: string;
+        extraction_policies: Array<{
+          extractor: string;
+          name: string;
+          input_params?: Record<string, number>;
+          content_source?: string;
+        }>;
+      };
+
+      const extractionGraph = new ExtractionGraph(
+        parsedSpec.name,
+        parsedSpec.extraction_policies
+      );
+
+      await client.createExtractionGraph(extractionGraph);
+      console.log('Extraction graph created successfully');
+    }
+
+    createExtractionGraph().catch(console.error);
     ```
 </CodeGroup>
 

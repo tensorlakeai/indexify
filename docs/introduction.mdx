@@ -55,6 +55,28 @@ extraction_policies:
     client.create_extraction_graph(graph)
     ```
     ```typescript Typescript
+    import { IndexifyClient, ExtractionGraph } from 'getindexify';
+    import * as fs from 'fs';
+    import * as yaml from 'js-yaml';
+
+    async function main() {
+      // Load the YAML file
+      const graphYaml = fs.readFileSync('graph.yaml', 'utf8');
+      const graphData = yaml.load(graphYaml) as Record<string, any>;
+
+      // Create ExtractionGraph from the YAML data
+      const graph = new ExtractionGraph(graphData.name, graphData.extraction_policies);
+
+      // Create IndexifyClient
+      const client = await IndexifyClient.createClient();
+
+      // Create extraction graph
+      await client.createExtractionGraph(graph);
+
+      console.log('Extraction graph created successfully');
+    }
+
+    main().catch(console.error);
     ```
 </CodeGroup>
 
@@ -76,6 +98,30 @@ extraction_policies:
     client.upload_file("pdf-ingestion-pipeline", file)
     ```
     ```typescript
+    import { IndexifyClient } from 'getindexify';
+    import * as fs from 'fs';
+    import * as path from 'path';
+
+    async function uploadFiles() {
+      const client = await IndexifyClient.createClient();
+
+      const files = Array.from({ length: 100 }, (_, i) => `file${i + 1}.pdf`);
+
+      for (const file of files) {
+        try {
+          const filePath = path.join(__dirname, file);
+          const fileContent = fs.readFileSync(filePath);
+          const fileBlob = new Blob([fileContent], { type: 'application/pdf' });
+
+          const contentId = await client.uploadFile('pdf-ingestion-pipeline', fileBlob, { filename: file });
+          console.log(`Successfully uploaded ${file}. Content ID: ${contentId}`);
+        } catch (error) {
+          console.error(`Error uploading ${file}:`, error);
+        }
+      }
+    }
+
+    uploadFiles().catch(console.error);
     ```
 </CodeGroup>
 
@@ -95,6 +141,45 @@ Retrieve extracted named entities
     named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
     ```
     ```typescript TypeScript
+    import { IndexifyClient, IContentMetadata } from 'getindexify';
+
+    async function listAndExtractContent() {
+      const client = await IndexifyClient.createClient();
+
+      // List content and extract content IDs
+      const { contentList } = await client.listContent('pdf-ingestion-pipeline');
+      const contentIds = contentList.map(content => content.id);
+
+      if (contentIds.length === 0) {
+        console.log('No content found in the pdf-ingestion-pipeline');
+        return;
+      }
+
+      // Get extracted content for the first content ID
+      const firstContentId = contentIds[0];
+
+      try {
+        const { contentList: markdownContent } = await client.getExtractedContent({
+          contentId: firstContentId,
+          graphName: 'pdf-ingestion-pipeline',
+          policyName: 'pdf_to_markdown'
+        });
+
+        console.log('Markdown content:', markdownContent);
+
+        const { contentList: namedEntities } = await client.getExtractedContent({
+          contentId: firstContentId,
+          graphName: 'pdf-ingestion-pipeline',
+          policyName: 'entity_extractor'
+        });
+
+        console.log('Named entities:', namedEntities);
+      } catch (error) {
+        console.error('Error getting extracted content:', error);
+      }
+    }
+
+    listAndExtractContent().catch(console.error);
     ```
 </CodeGroup>
 
@@ -116,6 +201,34 @@ Search vector indexes populated by embeddings
     results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
     ```
     ```typescript
+    import { IndexifyClient, ISearchIndexResponse } from 'getindexify';
+
+    async function performSemanticSearch() {
+      const client = await IndexifyClient.createClient();
+
+      try {
+        const results: ISearchIndexResponse[] = await client.searchIndex(
+          'pdf-ingestion-pipeline.embedding.embedding',
+          'Who won the 2017 NBA finals?',
+          3  // This is the 'k' parameter in the Python version
+        );
+
+        console.log('Search results:', results);
+
+        // Process and display the results
+        results.forEach((result, index) => {
+          console.log(`Result ${index + 1}:`);
+          console.log(`Content:`, result.content);
+          console.log(`Score:`, result.score);
+          console.log(`Metadata:`, result.metadata);
+          console.log('---');
+        });
+      } catch (error) {
+        console.error('Error performing semantic search:', error);
+      }
+    }
+
+    performSemanticSearch().catch(console.error);
     ```
 </CodeGroup>
 
