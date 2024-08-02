@@ -1,9 +1,25 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::SystemTime};
 
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
 use super::{ExtractionGraphId, ExtractionGraphName};
+
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+pub struct Task {
+    pub id: String,
+    pub extractor: String,
+    pub extraction_policy_id: String,
+    pub extraction_graph_name: String,
+    pub output_index_table_mapping: HashMap<String, String>,
+    pub namespace: String,
+    pub content_metadata: super::ContentMetadata,
+    pub input_params: serde_json::Value,
+    pub outcome: super::TaskOutcome,
+    pub index_tables: Vec<String>, // list of index tables that this content may be present in
+    #[serde(default = "super::default_creation_time")]
+    pub creation_time: SystemTime,
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Deserialize, Default)]
 pub struct ExtractionPolicy {
