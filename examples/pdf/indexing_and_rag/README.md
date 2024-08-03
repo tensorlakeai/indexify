@@ -50,19 +50,15 @@ indexify-extractor join-server
 
 ### Creating the Extraction Graph
 
-Create a new Python file called `rag_extraction_graph.py` and add the following code:
-
-```python
-from indexify import IndexifyClient, ExtractionGraph
-
-client = IndexifyClient()
-
-extraction_graph_spec = """
+Define an extraction graph in a file `graph.yaml` - 
+```yaml
 name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'text_extractor'
-  - extractor: 'tensorlake/chunk-extractor'
+    input_params:
+      output_format: 'text'
+  - extractor: 'tensorlake/text-chunker'
     name: 'text_chunker
     input_params:
       text_splitter: 'recursive'
@@ -72,15 +68,25 @@ extraction_policies:
   - extractor: 'tensorlake/minilm-l6'
     name: 'chunk_embedding'
     content_source: 'text_chunker'
-"""
+```
 
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+Create a new Python file called `setup_graph.py` and add the following code:
+
+```python
+import os
+from indexify import IndexifyClient, ExtractionGraph
+
+client = IndexifyClient()
+script_dir = os.path.dirname(os.path.abspath(__file__))
+yaml_file_path = os.path.join(script_dir, "graph.yaml")
+
+extraction_graph = ExtractionGraph.from_yaml_file(yaml_file_path)
 client.create_extraction_graph(extraction_graph)
 ```
 
 Run this script to set up the pipeline:
 ```bash
-python rag_extraction_graph.py
+python setup_graph.py
 ```
 
 ### Implementing the RAG Pipeline
@@ -157,7 +163,7 @@ Reference from PDF file from which answer should be generated:
 
 You can run the Python script to process a PDF and answer questions:
 ```bash
-python upload_and_retreive.py
+python upload_and_retrieve.py
 ```
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/carbon.png" width="600"/>
 
@@ -165,49 +171,56 @@ python upload_and_retreive.py
 
 ### Creating the Multi-Modal Extraction Graph
 
-Create a new Python file called `mm_extraction_graph.py` and add the following code:
-
-```python
-from indexify import IndexifyClient, ExtractionGraph
-
-client = IndexifyClient()
-
-extraction_graph_spec = """
+Define the extraction graph in a file `graph_mm.yaml` -
+```yaml
 name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
-    name: 'text_extractor'
+    name: 'pdf_to_text'
+    input_params:
+      output_format: 'text'
   - extractor: 'tensorlake/pdfextractor'
-    name: 'image_extractor'
+    name: 'pdf_to_image'
     input_params:
       output_types: ["image"]
   - extractor: 'tensorlake/chunk-extractor'
-    name: 'text_chunker'
+    name: 'text_to_chunks'
     input_params:
       text_splitter: 'recursive'
       chunk_size: 1000
       overlap: 200
-    content_source: 'text_extractor'
+    content_source: 'pdf_to_text'
   - extractor: 'tensorlake/minilm-l6'
-    name: 'chunk_embeddings'
-    content_source: 'text_chunker'
+    name: 'chunks_to_embeddings'
+    content_source: 'text_to_chunks'
   - extractor: 'tensorlake/clip-extractor'
-    name: 'image_embeddings'
-    content_source: 'image_extractor'
-"""
+    name: 'image_to_embeddings'
+    content_source: 'pdf_to_image'
+```
 
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+Create a new Python file called `setup_graph_mm.py` and add the following code:
+
+```python
+import os
+from indexify import IndexifyClient, ExtractionGraph
+
+client = IndexifyClient()
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+yaml_file_path = os.path.join(script_dir, "graph_mm.yaml")
+
+extraction_graph = ExtractionGraph.from_yaml_file(yaml_file_path)
 client.create_extraction_graph(extraction_graph)
 ```
 
 Run this script to set up the multi-modal pipeline:
 ```bash
-python mm_extraction_graph.py
+python setup_graph_mm.py
 ```
 
-### Implementing the Multimodal RAG Pipeline
+### Implementing the Multi-Modal RAG Pipeline
 
-Create a file `mm_upload_and_retrieve.py`:
+Create a file `upload_and_retrieve_mm.py`:
 
 ```python
 import os
@@ -235,6 +248,9 @@ def get_context(question: str, index: str, top_k=3):
     for result in results:
         context = context + f"content id: {result['content_id']} \n\n passage: {result['text']}\n"
     return context
+
+def get_page_number(content_id: str) -> int:
+    pass
 
 def create_prompt(question, context):
     return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
@@ -344,7 +360,7 @@ You can customize both RAG systems in several ways:
 
 4. Experiment with different OpenAI models or adjust the prompt structure in the `create_prompt` function.
 
-5. For the multimodal RAG, you can adjust the number of images retrieved or how they are incorporated into the prompt.
+5. For the multi-modal RAG, you can adjust the number of images retrieved or how they are incorporated into the prompt.
 
 ## Conclusion
 
