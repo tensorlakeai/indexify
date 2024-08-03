@@ -2,18 +2,19 @@ from indexify import IndexifyClient
 import requests
 from openai import OpenAI
 import base64
+import tempfile
 
 client = IndexifyClient()
 client_openai = OpenAI()
 
-def download_pdf(url, save_path):
+def upload_file(url):
     response = requests.get(url)
-    with open(save_path, 'wb') as f:
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as f:
         f.write(response.content)
-    print(f"PDF downloaded and saved to {save_path}")
+        pdf_path = f.name
+        content_id = client.upload_file("rag_pipeline_mm", pdf_path)
+        print(f"PDF uploaded with content id: {content_id}")
 
-def process_pdf(pdf_path):
-    content_id = client.upload_file("rag_pipeline_mm", pdf_path)
     client.wait_for_extraction(content_id)
 
 def get_page_number(content_id: str) -> int:
@@ -66,11 +67,8 @@ def answer_question(question):
     return chat_completion.choices[0].message.content
 
 def process_pdf_url(url, index):
-    pdf_path = f"reference_document_{index}.pdf"
     try:
-        download_pdf(url, pdf_path)
-        process_pdf(pdf_path)
-        print(f"Successfully processed: {url}")
+        upload_file(url)
     except Exception as exc:
         print(f"Error processing {url}: {exc}")
 

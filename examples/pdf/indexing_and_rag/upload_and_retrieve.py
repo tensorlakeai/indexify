@@ -1,20 +1,20 @@
-import os
 from indexify import IndexifyClient
 import requests
 from openai import OpenAI
+import tempfile
 
 client = IndexifyClient()
 
 client_openai = OpenAI()
 
-def download_pdf(url, save_path):
+def upload_file(url):
     response = requests.get(url)
-    with open(save_path, 'wb') as f:
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as f:
         f.write(response.content)
-    print(f"PDF downloaded and saved to {save_path}")
+        pdf_path = f.name
+        content_id = client.upload_file("rag_pipeline", pdf_path)
+        print(f"PDF uploaded with content id: {content_id}")
 
-def process_pdf(pdf_path):
-    content_id = client.upload_file("rag_pipeline", pdf_path)
     client.wait_for_extraction(content_id)
 
 def get_page_number(content_id: str) -> int:
@@ -61,12 +61,8 @@ def answer_question(question):
 # Example usage
 if __name__ == "__main__":
     pdf_url = "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf"
-    pdf_path = "reference_document.pdf"
-    
-    # Download the PDF
-    download_pdf(pdf_url, pdf_path)
 
-    process_pdf(pdf_path)
+    upload_file(pdf_url)
     
     question = "What was the hardware the model was trained on and how long it was trained?"
     answer = answer_question(question)

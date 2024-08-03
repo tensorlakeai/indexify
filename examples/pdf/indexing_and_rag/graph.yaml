@@ -8,8 +8,8 @@ extraction_policies:
     name: 'text_chunker'
     input_params:
       text_splitter: 'recursive'
-      chunk_size: 1000
-      overlap: 200
+      chunk_size: 4000
+      overlap: 1500
     content_source: 'text_extractor'
   - extractor: 'tensorlake/minilm-l6'
     name: 'chunk_embedding'
