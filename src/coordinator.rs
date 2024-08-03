@@ -9,12 +9,16 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use futures::Stream;
-use indexify_internal_api::{self as internal_api, ContentMetadata, ExtractionGraphLink};
+use indexify_internal_api::{
+    self as internal_api,
+    ContentMetadata,
+    ExtractionGraphLink,
+    ExtractionPolicy,
+};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
 use internal_api::{
     ContentMetadataId,
     ExtractionGraph,
-    ExtractionPolicyId,
     GarbageCollectionTask,
     OutputSchema,
     ServerTaskType,
@@ -259,8 +263,11 @@ impl Coordinator {
 
     pub async fn get_extraction_policy(
         &self,
-        id: ExtractionPolicyId,
+        namespace: &str,
+        extraction_graph: &str,
+        extraction_policy: &str,
     ) -> Result<internal_api::ExtractionPolicy> {
+        let id = ExtractionPolicy::create_id(extraction_graph, extraction_policy, namespace);
         self.shared_state.get_extraction_policy(&id).await
     }
 
@@ -1832,11 +1839,15 @@ mod tests {
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
         assert_eq!(all_tasks.len(), 1);
+        let task = all_tasks.first().unwrap();
         let mut content =
-            create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
-                .await?;
+            create_content_for_task(&coordinator, task, &next_child(&mut child_id)).await?;
         let policy = coordinator
-            .get_extraction_policy(all_tasks[0].extraction_policy_name.clone())
+            .get_extraction_policy(
+                &task.namespace,
+                &task.extraction_graph_name,
+                &task.extraction_policy_name,
+            )
             .await?;
         let prev_content = tree
             .iter()

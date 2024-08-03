@@ -461,7 +461,7 @@ mod tests {
         let mut task = Task {
             id: task_id.to_string(),
             extractor: "".to_string(),
-            extraction_policy_name: extraction_policy.id.to_string(),
+            extraction_policy_name: extraction_policy.name.to_string(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
             output_index_table_mapping: HashMap::new(),
             namespace: content_metadata.namespace.clone(),
@@ -520,6 +520,11 @@ mod tests {
                 handle,
                 coordinator,
             };
+            test_coordinator
+                .coordinator
+                .create_namespace(DEFAULT_TEST_NAMESPACE)
+                .await
+                .unwrap();
             let extractor = mock_extractor();
             test_coordinator
                 .create_extractor(extractor.clone())
@@ -811,19 +816,15 @@ mod tests {
         assert_eq!(points[0].content_id, id);
         assert_eq!(points[0].metadata, metadata1_out);
 
-        let extraction_policy = ExtractionPolicy {
-            id: "extraction_policy_id".to_string(),
-            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
-            name: "extraction_policy_name".to_string(),
-            extractor: "extractor_name".to_string(),
-            graph_name: "extraction_graph_id".to_string(),
-            filter: filter::LabelsFilter::default(),
-            content_source: ContentSource::Ingestion,
-            output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
+        let ep = coordinator
+            .coordinator
+            .get_namespace(DEFAULT_TEST_NAMESPACE)
+            .await
+            .unwrap()
+            .unwrap()
+            .extraction_graphs[0]
+            .extraction_policies[0]
+            .clone();
         let content_metadata = coordinator
             .coordinator
             .shared_state
@@ -834,7 +835,7 @@ mod tests {
             .create_task(make_test_task(
                 "test_1",
                 content_metadata.first().unwrap(),
-                extraction_policy,
+                ep,
             ))
             .await
             .unwrap();
@@ -941,29 +942,27 @@ mod tests {
 
         let id = ingest_state.finish_content(payload).await.unwrap();
 
-        let extraction_policy = ExtractionPolicy {
-            id: "extraction_policy_id".to_string(),
-            namespace: "test".to_string(),
-            name: "extraction_policy_name".to_string(),
-            extractor: "extractor_name".to_string(),
-            graph_name: "extraction_graph_id".to_string(),
-            content_source: ContentSource::Ingestion,
-            output_table_mapping: vec![("test_output".to_string(), "test_table".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
         let content_metadata = coordinator
             .coordinator
             .shared_state
             .get_content_metadata_batch(vec![id.clone()])
             .await
             .unwrap();
+
+        let ep = coordinator
+            .coordinator
+            .get_namespace(DEFAULT_TEST_NAMESPACE)
+            .await
+            .unwrap()
+            .unwrap()
+            .extraction_graphs[0]
+            .extraction_policies[0]
+            .clone();
         coordinator
             .create_task(make_test_task(
                 "test_1",
                 content_metadata.first().unwrap(),
-                extraction_policy,
+                ep,
             ))
             .await
             .unwrap();

@@ -791,11 +791,16 @@ impl IndexifyState {
             // If the task is newly created, we need to add an entry to the content metadata
             // that a new task was created for that content.
             if task.terminal_state() || update_time == SystemTime::UNIX_EPOCH {
+                let extraction_policy_id = ExtractionPolicy::create_id(
+                    &task.extraction_graph_name,
+                    &task.extraction_policy_name,
+                    &task.namespace,
+                );
                 self.update_content_extraction_policy_state(
                     db,
                     txn,
                     &task.content_metadata.id,
-                    &task.extraction_policy_name,
+                    &extraction_policy_id,
                     update_time,
                 )?;
             }

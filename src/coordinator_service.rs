@@ -19,7 +19,6 @@ use indexify_internal_api::{
     ContentOffset,
     ContentSourceFilter,
     ExtractionGraphLink,
-    ExtractionPolicy,
 };
 use indexify_proto::indexify_coordinator::{
     self,
@@ -43,8 +42,6 @@ use indexify_proto::indexify_coordinator::{
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
     GetContentTreeMetadataRequest,
-    GetExtractionPolicyRequest,
-    GetExtractionPolicyResponse,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
@@ -557,25 +554,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn get_extraction_policy(
-        &self,
-        request: tonic::Request<GetExtractionPolicyRequest>,
-    ) -> Result<tonic::Response<GetExtractionPolicyResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let extraction_policy = self
-            .coordinator
-            .get_extraction_policy(request.extraction_policy_id)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(GetExtractionPolicyResponse {
-            policy: Some(
-                extraction_policy
-                    .try_into()
-                    .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
-            ),
-        }))
-    }
-
     async fn create_ns(
         &self,
         request: tonic::Request<indexify_coordinator::CreateNamespaceRequest>,
@@ -1034,14 +1012,13 @@ impl CoordinatorService for CoordinatorServiceServer {
                 None
             };
 
-        let extraction_policy_id = ExtractionPolicy::create_id(
-            &task.extraction_graph_name,
-            &task.extraction_policy_name,
-            &task.namespace,
-        );
         let extraction_policy = self
             .coordinator
-            .get_extraction_policy(extraction_policy_id)
+            .get_extraction_policy(
+                &task.namespace,
+                &task.extraction_graph_name,
+                &task.extraction_policy_name,
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
