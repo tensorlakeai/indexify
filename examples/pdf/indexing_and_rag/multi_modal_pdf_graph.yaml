@@ -2,6 +2,8 @@ name: 'rag_pipeline'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
+    input_params:
+      output_format: 'text'
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_image'
     input_params:
