@@ -83,6 +83,7 @@ pub struct ContentMetadata {
     pub hash: String,
     pub extraction_policy_ids: HashMap<super::ExtractionPolicyId, u64>,
     pub extraction_graph_names: Vec<super::ExtractionGraphName>,
+    pub extracted_metadata: serde_json::Value,
 }
 
 impl From<ContentMetadata> for super::ContentMetadata {
@@ -109,6 +110,7 @@ impl From<ContentMetadata> for super::ContentMetadata {
             hash: metadata.hash,
             content_type: metadata.content_type,
             change_offset: super::ContentOffset(0),
+            extracted_metadata: metadata.extracted_metadata,
         }
     }
 }

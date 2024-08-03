@@ -618,6 +618,8 @@ pub struct ContentMetadata {
     pub root_content_id: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "14")]
     pub extraction_graph_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "15")]
+    pub extracted_metadata: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

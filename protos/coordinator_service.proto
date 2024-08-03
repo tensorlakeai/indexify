@@ -464,6 +464,7 @@ message ContentMetadata {
     map<string, uint64> extraction_policy_ids = 12;
     string root_content_id = 13;
     repeated string extraction_graph_names = 14;
+    string extracted_metadata = 15;
 }
 
 message ContentStreamItem {
