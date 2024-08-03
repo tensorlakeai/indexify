@@ -281,11 +281,8 @@ def answer_question(question):
     return chat_completion.choices[0].message.content
 
 def process_pdf_url(url, index):
-    pdf_path = f"reference_document_{index}.pdf"
     try:
-        download_pdf(url, pdf_path)
-        process_pdf(pdf_path)
-        print(f"Successfully processed: {url}")
+        upload_file(url)
     except Exception as exc:
         print(f"Error processing {url}: {exc}")
 
