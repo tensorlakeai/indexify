@@ -107,12 +107,17 @@ impl TaskAnalytics {
 
     pub fn success(&mut self) {
         self.successful_tasks += 1;
-        self.pending_tasks -= 1;
+        // This is for upgrade path from older versions
+        if self.pending_tasks > 0 {
+            self.pending_tasks -= 1;
+        }
     }
 
     pub fn fail(&mut self) {
         self.failed_tasks += 1;
-        self.pending_tasks -= 1;
+        if self.pending_tasks > 0 {
+            self.pending_tasks -= 1;
+        }
     }
 }
 
