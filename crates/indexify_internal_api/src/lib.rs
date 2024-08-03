@@ -1002,6 +1002,9 @@ pub struct ContentMetadata {
     /// monotonically increasing change id
     #[serde(default)]
     pub change_offset: ContentOffset,
+
+    #[serde(default)]
+    pub extracted_metadata: serde_json::Value,
 }
 
 impl ContentMetadata {
@@ -1051,6 +1054,7 @@ impl TryFrom<ContentMetadata> for indexify_coordinator::ContentMetadata {
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
+            extracted_metadata: value.extracted_metadata.to_string(),
         })
     }
 }
@@ -1092,6 +1096,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
             change_offset: ContentOffset(0),
+            extracted_metadata: serde_json::from_str(&value.extracted_metadata)?,
         })
     }
 }
@@ -1123,6 +1128,7 @@ impl Default for ContentMetadata {
             hash: "test_hash".to_string(),
             extraction_graph_names: vec![],
             change_offset: ContentOffset(0),
+            extracted_metadata: serde_json::Value::Null,
         }
     }
 }

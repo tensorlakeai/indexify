@@ -15,6 +15,7 @@ use indexify_internal_api::{self as internal_api};
 use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
 use mime::Mime;
 use nanoid::nanoid;
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
@@ -476,6 +477,7 @@ impl DataManager {
             extraction_policy_ids: HashMap::new(),
             root_content_id: "".to_string(),
             extraction_graph_names: extraction_graph_names.clone(),
+            extracted_metadata: "null".to_string(),
         };
         let req: indexify_coordinator::CreateContentRequest =
             indexify_coordinator::CreateContentRequest {
@@ -677,6 +679,7 @@ impl DataManager {
             hash: content_hash,
             extraction_policy_ids: HashMap::new(),
             extraction_graph_names: extraction_graph_names.to_vec(),
+            extracted_metadata: json!({}).to_string(),
         })
     }
 

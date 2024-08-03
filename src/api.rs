@@ -478,6 +478,7 @@ pub struct ContentMetadata {
     pub source: String,
     pub size: u64,
     pub hash: String,
+    pub extracted_metadata: serde_json::Value,
 }
 
 impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
@@ -500,6 +501,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             size: value.size_bytes,
             hash: value.hash,
             extraction_graph_names: value.extraction_graph_names,
+            extracted_metadata: serde_json::from_str(&value.extracted_metadata)?,
         })
     }
 }
@@ -520,6 +522,7 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
             size: value.size_bytes,
             hash: value.hash,
             extraction_graph_names: value.extraction_graph_names,
+            extracted_metadata: value.extracted_metadata,
         }
     }
 }

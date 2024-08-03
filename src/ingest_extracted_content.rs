@@ -174,6 +174,12 @@ impl ContentStateWriting {
                     .root_content_metadata
                     .clone()
                     .unwrap_or(self.task.content_metadata.clone().unwrap().try_into()?);
+                let mut extracted_metadata = serde_json::json!({});
+                for feature in &payload.features {
+                    if let FeatureType::Metadata = feature.feature_type {
+                        extracted_metadata[&feature.name] = feature.data.clone();
+                    }
+                }
                 let content_metadata = indexify_coordinator::ContentMetadata {
                     id: id.clone(),
                     file_name: frame_state.file_name.clone(),
@@ -189,6 +195,7 @@ impl ContentStateWriting {
                     hash: content_hash,
                     extraction_policy_ids: HashMap::new(),
                     extraction_graph_names: vec![self.extraction_policy.graph_name.clone()],
+                    extracted_metadata: serde_json::to_string(&extracted_metadata)?,
                 };
                 state
                     .data_manager
