@@ -1160,7 +1160,15 @@ async fn upload_file_inner(
     }
     if let Some(write_result) = write_result {
         let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
-        let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
+        let content_mime = content_mime
+            .map(|v| Mime::from_str(v))
+            .transpose()
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("invalid mime type: {}", e),
+                )
+            })?;
         let content_mime =
             content_mime.unwrap_or(mime_guess::from_ext(&ext).first_or_octet_stream());
         let labels = internal_api::utils::convert_map_serde_to_prost_json(labels).map_err(|e| {
