@@ -1,4 +1,10 @@
-use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -29,6 +35,7 @@ use indexify_ui::Assets as UiAssets;
 use internal_api::ContentOffset;
 use mime::Mime;
 use prometheus::Encoder;
+use serde_json::json;
 use tokio::{
     signal,
     sync::{mpsc, watch},
@@ -1068,29 +1075,13 @@ struct UploadType {
     file: String,
 }
 
-/// Upload a file to an extraction graph in a namespace
-#[tracing::instrument(skip(state))]
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract",
-    params(
-        ("namespace" = String, Path, description = "Namespace of the content"),
-        ("extraction_graph" = String, Path, description = "Extraction graph name"),
-        ("id" = Option<String>, Query, description = "id of content to create, if not provided a random id will be generated"),
-    ),
-    request_body(content_type = "multipart/form-data", content = inline(UploadType)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Uploads a file to the namespace"),
-        (status = BAD_REQUEST, description = "Unable to upload file")
-    ),
-)]
-#[axum::debug_handler]
-async fn upload_file(
-    Path((namespace, extraction_graph)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Query(params): Query<UploadFileQueryParams>,
+async fn upload_file_inner(
+    state: &NamespaceEndpointState,
+    namespace: String,
+    extraction_graph: String,
+    params: UploadFileQueryParams,
     mut files: Multipart,
+    url: &mut String,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels: HashMap<String, serde_json::Value> = HashMap::new();
 
@@ -1115,62 +1106,45 @@ async fn upload_file(
         ));
     }
 
+    let mut write_result = None;
+    let mut ext = String::new();
     while let Some(field) = files.next_field().await.unwrap() {
         if let Some(name) = field.file_name() {
+            if write_result.is_some() {
+                return Err(IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    "multiple files provided",
+                ));
+            }
             info!("user provided file name = {:?}", name);
-            let ext = std::path::Path::new(&name)
+            ext = std::path::Path::new(&name)
                 .extension()
                 .unwrap_or_default()
                 .to_str()
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .to_string();
             let name = nanoid::nanoid!(16);
             let name = if !ext.is_empty() {
                 format!("{}.{}", name, ext)
             } else {
                 name
             };
-            let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
-            let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
-            let content_mime =
-                content_mime.unwrap_or(mime_guess::from_ext(ext).first_or_octet_stream());
             info!("writing to blob store, file name = {:?}", name);
 
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-            let content_metadata = state
-                .data_manager
-                .upload_file(
-                    &namespace,
-                    stream,
-                    &name,
-                    content_mime,
-                    labels,
-                    Some(&id),
-                    vec![extraction_graph],
-                )
-                .await
-                .map_err(|e| {
-                    IndexifyAPIError::new(
-                        StatusCode::BAD_REQUEST,
-                        &format!("failed to upload file: {}", e),
-                    )
-                })?;
-            let size_bytes = content_metadata.size_bytes;
-            state
-                .data_manager
-                .create_content_metadata(content_metadata)
-                .await
-                .map_err(|e| {
-                    IndexifyAPIError::new(
-                        StatusCode::BAD_REQUEST,
-                        &format!("failed to create content for file: {}", e),
-                    )
-                })?;
-            state.metrics.node_content_uploads.add(1, &[]);
-            state
-                .metrics
-                .node_content_bytes_uploaded
-                .add(size_bytes, &[]);
-            return Ok(Json(UploadFileResponse { content_id: id }));
+            write_result = Some(
+                state
+                    .data_manager
+                    .write_stream(&namespace, stream, Some(&name))
+                    .await
+                    .map_err(|e| {
+                        IndexifyAPIError::new(
+                            StatusCode::BAD_REQUEST,
+                            &format!("failed to upload file: {}", e),
+                        )
+                    })?,
+            );
+            *url = write_result.as_ref().unwrap().url.clone();
         } else if let Some(name) = field.name() {
             if name != "labels" {
                 continue;
@@ -1184,10 +1158,92 @@ async fn upload_file(
             })?;
         }
     }
-    Err(IndexifyAPIError::new(
-        StatusCode::BAD_REQUEST,
-        "no file provided",
-    ))
+    if let Some(write_result) = write_result {
+        let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
+        let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
+        let content_mime =
+            content_mime.unwrap_or(mime_guess::from_ext(&ext).first_or_octet_stream());
+        let labels = internal_api::utils::convert_map_serde_to_prost_json(labels).map_err(|e| {
+            IndexifyAPIError::new(StatusCode::BAD_REQUEST, &format!("invalid labels: {}", e))
+        })?;
+        let current_ts_secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|_| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid time"))?
+            .as_secs();
+        let size_bytes = write_result.size_bytes;
+        let content_metadata = indexify_coordinator::ContentMetadata {
+            id: id.clone(),
+            file_name: write_result.file_name,
+            storage_url: write_result.url,
+            parent_id: "".to_string(),
+            root_content_id: "".to_string(),
+            created_at: current_ts_secs as i64,
+            mime: content_mime.to_string(),
+            namespace,
+            labels,
+            source: "".to_string(),
+            size_bytes: write_result.size_bytes,
+            hash: write_result.hash,
+            extraction_policy_ids: HashMap::new(),
+            extraction_graph_names: vec![extraction_graph],
+            extracted_metadata: json!({}).to_string(),
+        };
+        state
+            .data_manager
+            .create_content_metadata(content_metadata)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to create content for file: {}", e),
+                )
+            })?;
+        state.metrics.node_content_uploads.add(1, &[]);
+        state
+            .metrics
+            .node_content_bytes_uploaded
+            .add(size_bytes, &[]);
+        Ok(Json(UploadFileResponse { content_id: id }))
+    } else {
+        Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "no file provided",
+        ))
+    }
+}
+
+/// Upload a file to an extraction graph in a namespace
+#[tracing::instrument(skip(state))]
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("id" = Option<String>, Query, description = "id of content to create, if not provided a random id will be generated"),
+    ),
+    request_body(content_type = "multipart/form-data", content = inline(UploadType)),
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Uploads a file to the namespace"),
+        (status = BAD_REQUEST, description = "Unable to upload file")
+    ),
+)]
+#[axum::debug_handler]
+async fn upload_file(
+    Path((namespace, extraction_graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Query(params): Query<UploadFileQueryParams>,
+    files: Multipart,
+) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
+    let mut url = String::new();
+    let res = upload_file_inner(&state, namespace, extraction_graph, params, files, &mut url).await;
+    if res.is_err() && !url.is_empty() {
+        let _ = state.data_manager.delete_file(&url).await.map_err(|e| {
+            tracing::error!("failed to delete file: {}", e);
+        });
+    }
+    res
 }
 
 /// Update a content. All the extraction graphs associated with the content will

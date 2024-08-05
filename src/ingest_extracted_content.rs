@@ -406,7 +406,6 @@ mod tests {
     use anyhow::Result;
     use indexify_internal_api::{
         ContentMetadata,
-        ContentSource,
         ExtractedEmbeddings,
         ExtractionGraph,
         ExtractionPolicy,
