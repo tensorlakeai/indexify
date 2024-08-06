@@ -1286,16 +1286,23 @@ async fn upload_file(
     res
 }
 
+#[allow(dead_code)]
+#[derive(ToSchema)]
+struct UpdateContentType {
+    #[schema(format = "binary")]
+    file: String,
+}
+
 /// Update a content. All the extraction graphs associated with the content will
 /// be run if the content has changed.
 #[tracing::instrument]
 #[utoipa::path(
     put,
     path = "/namespaces/{namespace}/content/{content_id}",
-    request_body(content_type = "multipart/form-data", content = Vec<u8>),
+    request_body(content_type = "multipart/form-data", content = inline(UpdateContentType)),
     tag = "ingestion",
     responses(
-        (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
+        (status = 200, description = "Updates a specified piece of content"),
         (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
     ),
 )]
