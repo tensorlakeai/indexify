@@ -47,7 +47,7 @@ hyper-util = { version = "0.1", features = ["service"] }
 itertools = "0.12"
 indexify_internal_api = { path = "crates/indexify_internal_api" }
 indexify_proto = { path = "crates/indexify_proto" }
-jsonschema = { version = "0.17", default_features = false, features = [
+jsonschema = { version = "0.17", default-features = false, features = [
     "draft202012",
 ] }
 mime = { version = "0.3" }
@@ -60,7 +60,7 @@ openraft = { version = "0.9.11", features = [
     "storage-v2",
     "generic-snapshot-data",
 ] }
-opensearch = { version = "2", default_features = false, features = [
+opensearch = { version = "2", default-features = false, features = [
     "rustls-tls",
 ] }
 opentelemetry = { version = "0.22", features = ["metrics"] }
@@ -131,9 +131,9 @@ local-ip-address = { version = "0.6" }
 flate2 = "1"
 tar = "0.4"
 walkdir = { version = "2" }
-lance = { version = "0.12.1", default_features = false }
-lancedb = { version = "0.5.2", default_features = false }
-gluesql = { git = "https://github.com/gluesql/gluesql.git", rev = "07dd839", default_features = false }
+lance = { version = "0.12.1", default-features = false }
+lancedb = { version = "0.5.2", default-features = false }
+gluesql = { git = "https://github.com/gluesql/gluesql.git", rev = "07dd839", default-features = false }
 tracing-opentelemetry = { version = "0.23.0", features = [
     "async-trait",
     "futures-util",
