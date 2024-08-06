@@ -33,6 +33,13 @@ use crate::{
     vector_index::{ScoredText, VectorIndexManager},
 };
 
+pub struct WriteStreamResult {
+    pub url: String,
+    pub size_bytes: u64,
+    pub hash: String,
+    pub file_name: String,
+}
+
 fn index_in_features(
     output_index_map: &HashMap<String, String>,
     features: &[api::Feature],
@@ -624,6 +631,37 @@ impl DataManager {
         s.chars().all(|c| c.is_ascii_hexdigit())
     }
 
+    pub async fn write_stream(
+        &self,
+        namespace: &str,
+        data: impl Stream<Item = Result<Bytes>> + Send + Unpin,
+        file_name: Option<&str>,
+    ) -> Result<WriteStreamResult> {
+        let mut hasher = Sha256::new();
+        let hashed_stream = data.map(|item| {
+            item.map(|bytes| {
+                hasher.update(&bytes);
+                bytes
+            })
+        });
+
+        let file_name = DataManager::make_file_name(file_name);
+
+        let res = self
+            .write_to_blob_store(namespace, &file_name, hashed_stream)
+            .await
+            .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
+
+        let hash_result = hasher.finalize();
+
+        Ok(WriteStreamResult {
+            url: res.url,
+            size_bytes: res.size_bytes,
+            hash: format!("{:x}", hash_result),
+            file_name,
+        })
+    }
+
     async fn write_content_bytes(
         &self,
         namespace: &str,
@@ -638,35 +676,19 @@ impl DataManager {
         let current_ts_secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
-        let file_name = DataManager::make_file_name(file_name);
-
-        let mut hasher = Sha256::new();
-        let hashed_stream = data.map(|item| match item {
-            Ok(bytes) => {
-                hasher.update(&bytes);
-                Ok(bytes)
-            }
-            Err(e) => Err(e),
-        });
-
-        let res = self
-            .write_to_blob_store(namespace, &file_name, hashed_stream)
-            .await
-            .map_err(|e| anyhow!("unable to write text to blob store: {}", e))?;
-
-        let hash_result = hasher.finalize();
-        let content_hash = format!("{:x}", hash_result);
 
         let mut id = DataManager::make_id();
         if original_content_id.is_some() {
             id = original_content_id.unwrap().to_string();
         }
 
+        let res = self.write_stream(namespace, data, file_name).await?;
+
         let labels = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
 
         Ok(indexify_coordinator::ContentMetadata {
             id: id.clone(),
-            file_name,
+            file_name: res.file_name,
             storage_url: res.url,
             parent_id: "".to_string(),
             root_content_id: "".to_string(),
@@ -676,7 +698,7 @@ impl DataManager {
             labels,
             source: source.to_string(),
             size_bytes: res.size_bytes,
-            hash: content_hash,
+            hash: res.hash,
             extraction_policy_ids: HashMap::new(),
             extraction_graph_names: extraction_graph_names.to_vec(),
             extracted_metadata: json!({}).to_string(),
