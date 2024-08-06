@@ -4,11 +4,11 @@ This guide demonstrates how to create a pipeline for extracting information from
 
 **Input**
 
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/screenshot.jpg" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/invoices/donut_invoice/screenshot.jpg" width="600"/>
 
 **Output**
 
-<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/invoice/carbon.png" width="600"/>
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/invoices/donut_invoice/carbon.png" width="600"/>
 
 ## Prerequisites
 
