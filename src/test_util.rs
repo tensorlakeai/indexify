@@ -238,7 +238,6 @@ pub mod db_utils {
             .await?
             .is_empty()
         {
-            coordinator.run_scheduler().await?;
             sleep(Duration::from_millis(1)).await;
         }
         Ok(())
@@ -255,7 +254,6 @@ pub mod db_utils {
 
     pub async fn wait_gc_tasks_completed(coordinator: &Coordinator) -> Result<(), anyhow::Error> {
         while gc_tasks_pending(coordinator).await? {
-            coordinator.run_scheduler().await?;
             sleep(Duration::from_millis(1)).await;
         }
         Ok(())

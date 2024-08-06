@@ -94,6 +94,7 @@ pub struct NamespaceEndpointState {
             get_content_metadata,
             list_state_changes,
             create_extraction_graph,
+            delete_extraction_graph,
             list_extraction_graphs,
             link_extraction_graphs,
             extraction_graph_links,
@@ -212,6 +213,10 @@ impl Server {
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract",
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph",
+                delete(delete_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
@@ -1065,6 +1070,33 @@ async fn list_extraction_graphs(
     Ok(Json(ListExtractionGraphResponse {
         extraction_graphs: graphs,
     }))
+}
+
+/// Delete extraction graph
+#[utoipa::path(
+    delete,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}",
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Extraction graph deleted successfully"),
+        (status = BAD_REQUEST, description = "Unable to delete extraction graph")
+    ),
+)]
+async fn delete_extraction_graph(
+    Path((namespace, graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .delete_extraction_graph(namespace, graph)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to delete extraction graph: {}", e),
+            )
+        })?;
+    Ok(())
 }
 
 #[allow(dead_code)]

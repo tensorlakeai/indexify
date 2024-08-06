@@ -5,7 +5,7 @@ use std::{
     io::{BufReader, Cursor, Read},
     ops::RangeBounds,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLockReadGuard},
     time::SystemTime,
 };
 
@@ -565,6 +565,10 @@ impl StateMachineStore {
         Ok(sm)
     }
 
+    pub fn get_db(&self) -> RwLockReadGuard<OptimisticTransactionDB> {
+        self.db.read().unwrap()
+    }
+
     // Check if adding a link will create a cycle in the graph.
     pub fn creates_cycle(&self, link: &ExtractionGraphLink) -> Result<bool> {
         let db = self.db.read().unwrap();
@@ -627,6 +631,22 @@ impl StateMachineStore {
         })
     }
 
+    fn send_gc_tasks(&self, gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>) {
+        let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
+        for gc_task in gc_tasks {
+            match self.data.gc_tasks_tx.send(gc_task.clone()) {
+                Ok(sent_count) => {
+                    if sent_count < expected_receiver_count {
+                        tracing::error!("The gc task event did not reach all listeners");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                }
+            }
+        }
+    }
+
     async fn apply_entry(&self, entry: typ::Entry) -> Result<Option<String>, StateMachineError> {
         {
             let mut guard = self.data.last_applied_log_id.write().await;
@@ -655,24 +675,17 @@ impl StateMachineStore {
                 }
 
                 //  if the payload is a GC task, send it via channel
-                if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
-                    req.payload
-                {
-                    let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
-                    for gc_task in gc_tasks {
-                        match self.data.gc_tasks_tx.send(gc_task.clone()) {
-                            Ok(sent_count) => {
-                                if sent_count < expected_receiver_count {
-                                    tracing::error!(
-                                        "The gc task event did not reach all listeners"
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to send task {:?}: {}", gc_task, e);
-                            }
-                        }
+                match req.payload {
+                    RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
+                        self.send_gc_tasks(gc_tasks);
                     }
+                    RequestPayload::DeleteExtractionGraph {
+                        graph_id: _,
+                        gc_task,
+                    } => {
+                        self.send_gc_tasks(vec![gc_task]);
+                    }
+                    _ => {}
                 }
             }
             EntryPayload::Membership(membership) => {
@@ -867,7 +880,7 @@ impl StateMachineStore {
 
     pub async fn get_content_from_ids(
         &self,
-        content_ids: HashSet<String>,
+        content_ids: Vec<String>,
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
@@ -935,18 +948,20 @@ impl StateMachineStore {
 
     pub fn get_extraction_graphs(
         &self,
-        extraction_graph_ids: &Vec<String>,
+        extraction_graph_ids: &[impl AsRef<str>],
     ) -> Result<Vec<Option<ExtractionGraph>>> {
+        let db = self.db.read().unwrap();
+        let txn = db.transaction();
         self.data
             .indexify_state
-            .get_extraction_graphs(extraction_graph_ids, &self.db.read().unwrap())
+            .get_extraction_graphs(extraction_graph_ids, &db, &txn)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub fn get_extraction_graphs_by_name(
         &self,
         namespace: &str,
-        graph_names: &[String],
+        graph_names: &[impl AsRef<str>],
     ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.data
             .indexify_state

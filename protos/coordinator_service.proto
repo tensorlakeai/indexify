@@ -81,6 +81,13 @@ service CoordinatorService {
     rpc AddGraphToContent(AddGraphToContentRequest) returns (AddGraphToContentResponse) {}
 
     rpc ContentStream(ContentStreamRequest) returns (stream ContentStreamItem) {}
+
+    rpc DeleteExtractionGraph(DeleteExtractionGraphRequest) returns (Empty) {}
+}
+
+message DeleteExtractionGraphRequest {
+    string namespace = 1;
+    string extraction_graph = 2;
 }
 
 message ContentStreamRequest {
@@ -270,6 +277,8 @@ message GCTaskAcknowledgement {
 enum GcTaskType {
     Delete = 0;
     UpdateLabels = 1;
+    DeleteBlobStore = 2;
+    DropIndexes = 3;
 }
 
 message GCTask {

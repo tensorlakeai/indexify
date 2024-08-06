@@ -56,7 +56,7 @@ impl TryFrom<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
             Some(value.description)
         };
         Ok(Self {
-            id: value.namespace.clone(),
+            id: value.id,
             namespace: value.namespace,
             name: value.name,
             description,
