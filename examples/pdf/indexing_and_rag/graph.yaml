@@ -3,13 +3,13 @@ extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'text_extractor'
     input_params:
-      output_format: 'text'
+      output_types: ["text", "table"]
   - extractor: 'tensorlake/chunk-extractor'
     name: 'text_chunker'
     input_params:
       text_splitter: 'recursive'
-      chunk_size: 4000
-      overlap: 1500
+      chunk_size: 2000
+      overlap: 200
     content_source: 'text_extractor'
   - extractor: 'tensorlake/minilm-l6'
     name: 'chunk_embedding'
