@@ -4,7 +4,7 @@ import { useLoaderData } from "react-router-dom";
 import ExtractionGraphs from "../../components/ExtractionGraphs";
 
 const ExtractionGraphsPage = () => {
-  const { client, extractionGraphs, namespace } = useLoaderData() as {
+  const { client, namespace } = useLoaderData() as {
     client: IndexifyClient;
     extractionGraphs: ExtractionGraph[];
     namespace: string;
@@ -14,7 +14,6 @@ const ExtractionGraphsPage = () => {
       <ExtractionGraphs
         client={client}
         namespace={namespace}
-        extractionGraphs={extractionGraphs}
       />
     </Box>
   );

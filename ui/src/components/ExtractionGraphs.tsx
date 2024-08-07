@@ -1,5 +1,6 @@
+import React, { useState, useEffect } from 'react';
 import { ExtractionGraph, IndexifyClient } from 'getindexify'
-import { Alert, Card, CardContent, Grid, IconButton, Typography } from '@mui/material'
+import { Alert, Card, CardContent, Grid, IconButton, Typography, CircularProgress } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import CopyText from './CopyText'
 import { Cpu, InfoCircle } from 'iconsax-react'
@@ -9,23 +10,63 @@ import TruncatedText from './TruncatedText'
 
 const ExtractionGraphs = ({
   client,
-  extractionGraphs,
   namespace,
 }: {
   client: IndexifyClient
-  extractionGraphs: ExtractionGraph[]
   namespace: string
 }) => {
+  const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchExtractionGraphs = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const graphs = await client.getExtractionGraphs();
+      setExtractionGraphs(graphs);
+    } catch (err) {
+      setError('Failed to fetch extraction graphs. Please try again.');
+      console.error("Error fetching extraction graphs:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchExtractionGraphs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [namespace]);
 
   const handleDeleteExtractionGraph = async (extractionGraphName: string) => {
     try {
       await client.deleteExtractionGraph(namespace, extractionGraphName);
+      await fetchExtractionGraphs();
     } catch (error) {
       console.error("Error deleting content:", error);
+      setError('Failed to delete extraction graph. Please try again.');
     }
   };
 
   const renderContent = () => {
+    if (isLoading) {
+      return (
+        <Box display="flex" justifyContent="center" alignItems="center" height="200px">
+          <CircularProgress />
+        </Box>
+      );
+    }
+
+    if (error) {
+      return (
+        <Box mt={2} mb={2}>
+          <Alert variant="outlined" severity="error">
+            {error}
+          </Alert>
+        </Box>
+      );
+    }
+
     if (extractionGraphs.length === 0) {
       return (
         <Box mt={2} mb={2}>
@@ -33,7 +74,7 @@ const ExtractionGraphs = ({
             No Graphs Found
           </Alert>
         </Box>
-      )
+      );
     }
 
     return (
@@ -73,8 +114,8 @@ const ExtractionGraphs = ({
           ))}
         </Grid>
       </Box>
-    )
-  }
+    );
+  };
 
   return (
     <>
@@ -99,7 +140,7 @@ const ExtractionGraphs = ({
       </Stack>
       {renderContent()}
     </>
-  )
-}
+  );
+};
 
-export default ExtractionGraphs
+export default ExtractionGraphs;

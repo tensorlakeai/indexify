@@ -25,14 +25,10 @@ export async function ExtractionGraphsPageLoader({
 }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const [ extractionGraphs ] = await Promise.all([
-    client.getExtractionGraphs(),
-  ])
 
   return {
     client: client,
     namespace: client.namespace,
-    extractionGraphs,
   }
 }
 
