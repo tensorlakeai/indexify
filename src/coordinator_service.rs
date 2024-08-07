@@ -106,6 +106,7 @@ use tokio::{
     select,
     signal,
     sync::{
+        broadcast,
         mpsc,
         watch::{self, Receiver, Sender},
     },
@@ -125,7 +126,6 @@ use crate::{
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
     state::{self, grpc_config::GrpcConfig},
-    tonic_streamer::DropReceiver,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -816,76 +816,78 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<Streaming<HeartbeatRequest>>,
     ) -> Result<tonic::Response<Self::HeartbeatStream>, tonic::Status> {
+        struct Context {
+            coordinator: Arc<Coordinator>,
+            executor_id: Option<String>,
+        }
+
+        impl Drop for Context {
+            fn drop(&mut self) {
+                let coordinator = self.coordinator.clone();
+                if let Some(executor_id) = self.executor_id.clone() {
+                    tokio::spawn(async move {
+                        if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                            error!("error removing executor: {}", err);
+                        }
+                    });
+                }
+            }
+        }
+
         let mut in_stream = request.into_inner();
-        let (tx, rx) = mpsc::channel(4);
-        let rx = DropReceiver { inner: rx };
         let coordinator = self.coordinator.clone();
         let mut shutdown_rx = self.shutdown_rx.clone();
-        tokio::spawn(async move {
-            let mut executor_id: Option<String> = None;
+        let stream = async_stream::stream! {
+            let mut ctx = Context {
+                coordinator,
+                executor_id: None,
+            };
+            let mut new_task_channel: Option<broadcast::Receiver<()>> = None;
             loop {
                 select! {
                     _ = shutdown_rx.changed() => {
-                        info!("shutting down server, stopping heartbeats from executor: {:?}", executor_id);
+                        info!("shutting down server, stopping heartbeats");
                         break;
                     }
-                    result = timeout(EXECUTOR_HEARTBEAT_PERIOD * 3, in_stream.next()) => {
+                    result =  timeout(EXECUTOR_HEARTBEAT_PERIOD * 3, in_stream.next()) => {
                         match result {
-                            Ok(frame) => {
-                        // Ensure the frame has something
-                        if frame.as_ref().is_none() {
-                            break;
-                        }
-                        if let Err(err) = frame.as_ref().unwrap() {
-                            info!("error receiving heartbeat request: {:?}", err);
-                            break;
-                        }
-                        // We could have used Option<> here but it would be inconvenient to dereference
-                        // it every time we need to use it below
-                        if executor_id.is_none() {
-                            if let Some(Ok(hb_request)) = frame {
-                                executor_id.replace(hb_request.executor_id.clone());
-                            }
-                        }
-                        if let Some(executor_id) = executor_id.clone() {
-                            let tasks = coordinator.heartbeat(&executor_id).await;
-                            match tasks {
-                                Err(err) => {
-                                    if let Err(err) = tx.send(Err(tonic::Status::internal(err.to_string()))).await {
-                                        error!("error sending error message in heartbeat response: {}",err);
-                                        break;
-                                    }
-                                }
-                                Ok(tasks) => {
-                                    // let tasks = tasks.into_iter().map(|t| t.into()).collect::<Vec<indexify_coordinator::Task>>();
-                                    let resp = HeartbeatResponse {
-                                        executor_id: executor_id.clone(),
-                                        tasks,
-                                    };
-                                    if let Err(err) = tx.send(Ok(resp)).await {
-                                        error!("error sending heartbeat response: {:?}", err);
-                                        break;
-                                    }
+                            Ok(Some(Ok(hb_request))) => {
+                                if ctx.executor_id.is_none() {
+                                    ctx.executor_id.replace(hb_request.executor_id.clone());
+                                    new_task_channel.replace(ctx.coordinator.subscribe_to_new_tasks(&hb_request.executor_id).await);
+                                    yield ctx.coordinator.heartbeat(&hb_request.executor_id).await.map_err(|e| tonic::Status::aborted(e.to_string()));
                                 }
                             }
-                        }
+                            Ok(Some(Err(err))) => {
+                                error!("error receiving heartbeat request: {:?}", err);
+                                break;
+                            }
+                            Ok(None) => {
+                                info!("heartbeat stream ended, client disconnected");
+                                break;
                             }
                             Err(_) => {
-                                warn!("heartbeat timed out, stopping executor: {:?}", executor_id);
+                                warn!("executor heartbeat timeout");
                                 break;
                             }
                         }
                     }
+                    _ = async {
+                        if let Some(ref mut channel) = new_task_channel {
+                            channel.recv().await
+                        } else {
+                            futures::future::pending().await
+                        }
+                    } => {
+                        if let Some(ref executor_id) = ctx.executor_id {
+                            yield ctx.coordinator.heartbeat(executor_id).await.map_err(|e| tonic::Status::aborted(e.to_string()));
+                        }
+                    }
                 }
             }
-            info!("heartbeats stopped, removing executor: {:?}", executor_id);
-            if let Some(executor_id) = executor_id {
-                if let Err(err) = coordinator.remove_executor(&executor_id).await {
-                    error!("error removing executor: {}", err);
-                }
-            }
-        });
-        Ok(tonic::Response::new(Box::pin(rx) as HBResponseStream))
+        };
+
+        Ok(tonic::Response::new(Box::pin(stream)))
     }
 
     async fn update_task(
