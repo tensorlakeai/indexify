@@ -4,6 +4,7 @@ extraction_policies:
     name: 'text_extractor'
     input_params:
       output_types: ["text", "table"]
+      output_format: "text"
   - extractor: 'tensorlake/chunk-extractor'
     name: 'text_chunker'
     input_params:
