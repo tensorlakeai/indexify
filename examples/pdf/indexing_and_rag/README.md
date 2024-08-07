@@ -192,11 +192,11 @@ python upload_and_retrieve.py
 ```
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/carbon.png" width="600"/>
 
-The high quality and accurate response even when asked complex questions related to information from tables is due to our usage of Table Transformers under the hood instead of just passing the PDF through readers like PyPDF. Tables get parsed as structured JSON, for example:
+The answer above incorporates information from tables in addition to text. Tables get parsed as structured JSON, for example:
 
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/tt_output.png" width="600"/>
 
-For more information visit: https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/table_extraction
+Here is another table extraction [example](https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/table_extraction).
 
 ## Part 2: Multi-Modal RAG with GPT-4o mini
 
