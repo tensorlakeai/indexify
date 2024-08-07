@@ -2,8 +2,8 @@
 
 We show how to create a Retrieval-Augmented Generation (RAG) system using Indexify. We'll cover two approaches: a text-based RAG system and a multi-modal RAG system.
 
-1. A text-based RAG system using `tensorlake/pdfextractor`, `tensorlake/chunk-extractor`, and `tensorlake/minilm-l6`.
-2. A multi-modal RAG system that includes image processing using `tensorlake/clip-extractor` and GPT-4o mini for answer generation.
+1. A basic RAG leveraging a pipeline that extracts text, chunks, and indexes vector embeddings in LanceDB.
+2. A multi-modal RAG leveraging a pipeline that extracts tables, images and text from PDFs. Text and Tables are indexed using text embedding models and images are indexed using CLIP. 
 
 ## Prerequisites
 
