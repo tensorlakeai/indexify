@@ -32,7 +32,13 @@ def get_context(question: str, index: str, top_k=3):
     return context
 
 def create_prompt(question, context):
-    return f"Answer the question, based on the context.\n question: {question} \n context: {context}"
+    return f"""Answer the question, based on the context.
+    Mention the content ids and page numbers as citation at the end of the response, format -
+    Citations: 
+    Content ID: <> Page Number <>.
+
+    question: {question}
+    context: {context}"""
 
 def answer_question(question):
     text_context = get_context(question, "rag_pipeline_mm.chunks_to_embeddings.embedding")

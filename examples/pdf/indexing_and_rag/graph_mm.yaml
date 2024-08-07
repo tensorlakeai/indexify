@@ -3,6 +3,7 @@ extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
     input_params:
+      output_types: ["text", "table"]
       output_format: 'text'
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_image'

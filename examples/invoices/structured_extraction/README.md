@@ -1,10 +1,10 @@
 # Structured Extraction from PDFs with GPT-4
 
-Structured Extraction from PDF involves extracting specific information from documents. We show how to create a pipeline, which accepts a schema and extracts information from PDFs into the provided schema.
+Structured Extraction from PDF involves extracting specific information from documents. We show how to create a pipeline, which extracts information from PDFs into a provided schema.
 
 The pipeline is composed of two steps:
 - PDF to Text extraction using the extractor `tensorlake/marker`.
-- Schema-based information extraction using `tensorlake/schema` with OpenAI's language models.
+- Schema-based information extraction using `tensorlake/schema` with GPT-4.
 
 ## Prerequisites
 
@@ -17,7 +17,6 @@ Before we begin, ensure you have the following:
   ```
 - `pip` (Python package manager)
 - An OpenAI API key
-- Basic familiarity with Python and command-line interfaces
 
 ## Setup
 
