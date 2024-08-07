@@ -1093,18 +1093,12 @@ impl CoordinatorService for CoordinatorServiceServer {
             tonic::Status::aborted(format!("unable to convert task outcome filter: {}", e))
         })?;
         let outcome: internal_api::TaskOutcomeFilter = outcome.into();
-        let policy_id = if !req.extraction_policy.is_empty() {
-            internal_api::ExtractionPolicy::create_id(
-                &req.extraction_graph,
-                &req.extraction_policy,
-                &req.namespace,
-            )
-        } else {
-            req.extraction_policy
-        };
         let filter = |task: &Task| {
             task.namespace == req.namespace &&
-                (policy_id.is_empty() || task.extraction_policy_name == policy_id) &&
+                (req.extraction_graph.is_empty() ||
+                    task.extraction_graph_name == req.extraction_graph) &&
+                (req.extraction_policy.is_empty() ||
+                    task.extraction_policy_name == req.extraction_policy) &&
                 (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
                 outcome.matches(task.outcome)
         };
