@@ -47,7 +47,7 @@ Before we begin, ensure you have the following:
    python table_pipeline.py
    ```
 
-2. Then, run the [`upload_and_retrieve.py`](upload_and_retreive.py) script to process a PDF and extract tables:
+2. Then, run the [`upload_and_retrieve.py`](upload_and_retrieve.py) script to process a PDF and extract tables:
    ```bash
    python upload_and_retreive.py
    ```
