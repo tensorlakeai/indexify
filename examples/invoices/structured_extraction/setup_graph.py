@@ -19,14 +19,15 @@ client = IndexifyClient()
 extraction_graph_spec = f"""
 name: 'pdf_schema_extractor'
 extraction_policies:
-  - extractor: 'tensorlake/marker'
+  - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
+    input_params:
+      output_format: 'markdown'
   - extractor: 'tensorlake/schema'
     name: 'text_to_schema'
     input_params:
       service: 'openai'
       model_name: 'gpt-4o-mini'
-      key: 'YOUR_OPENAI_API_KEY'
       schema_config: {schema}
       additional_messages: 'Extract information in JSON according to this schema and return only the output. Do not include any explanations, only provide a  RFC8259 compliant JSON response.'
     content_source: 'pdf_to_text'
