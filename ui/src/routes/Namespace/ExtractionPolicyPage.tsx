@@ -47,6 +47,7 @@ const ExtractionPolicyPage = () => {
           returnTotal: true
         }
       );
+      console.log('Tasks', tasks);
 
       let hasNextPage = false;
       if (tasks.tasks.length > pageSize) {
