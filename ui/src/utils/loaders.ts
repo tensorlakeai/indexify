@@ -1,7 +1,6 @@
 import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
-  getExtractionPolicyTaskCounts,
   getIndexifyServiceURL,
 } from './helpers'
 import axios from 'axios'
@@ -67,9 +66,8 @@ export async function ExtractionPolicyPageLoader({
   if (!namespace || !policyName) return redirect('/')
 
   const client = await createClient(namespace)
-  const [extractionGraphs, taskCounts] = await Promise.all([
-    client.getExtractionGraphs(),
-    getExtractionPolicyTaskCounts(extraction_graph!, policyName, client)
+  const [extractionGraphs] = await Promise.all([
+    client.getExtractionGraphs()
   ])
 
   const extractionGraph = extractionGraphs.find(
@@ -81,7 +79,7 @@ export async function ExtractionPolicyPageLoader({
       (policy) => policy.name === policyName && policy.graph_name === extraction_graph
     )
 
-  return { policy, namespace, extractionGraph, client, taskCounts }
+  return { policy, namespace, extractionGraph, client }
 }
 
 export async function ExtractorsPageLoader({ params }: LoaderFunctionArgs) {
