@@ -28,7 +28,7 @@ extraction_policies:
       model_name: 'gpt-3.5-turbo'
       key: 'YOUR_OPENAI_API_KEY'
       schema_config: {schema}
-      additional_messages: 'Extract information in JSON according to this schema and return only the output.'
+      additional_messages: 'Extract information in JSON according to this schema and return only the output. Do not include any explanations, only provide a  RFC8259 compliant JSON response.'
     content_source: 'pdf_to_text'
 """
 
