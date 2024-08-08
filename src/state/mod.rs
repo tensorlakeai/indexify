@@ -622,6 +622,18 @@ impl App {
         self.state_machine.get_executor_running_task_count().await
     }
 
+    pub async fn subscribe_to_new_tasks(&self, executor_id: &str) -> broadcast::Receiver<()> {
+        self.state_machine
+            .data
+            .indexify_state
+            .unfinished_tasks_by_executor
+            .write()
+            .unwrap()
+            .entry(executor_id.to_string())
+            .or_default()
+            .subscribe()
+    }
+
     pub async fn unfinished_tasks_by_extractor(
         &self,
         extractor: &str,

@@ -611,7 +611,7 @@ pub mod coordinator {
                             .unwrap();
                         for (executor_id, tasks) in counts.iter() {
                             observer.observe(
-                                tasks.len() as u64,
+                                tasks.tasks.len() as u64,
                                 &[KeyValue::new("executor_id", executor_id.to_string())],
                             );
                         }
