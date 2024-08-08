@@ -36,7 +36,7 @@ Next, we'll install the necessary extractors in a new terminal:
 
 ```bash
 pip install indexify-extractor-sdk
-indexify-extractor download tensorlake/marker
+indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/schema
 ```
 
@@ -73,16 +73,15 @@ client = IndexifyClient()
 extraction_graph_spec = f"""
 name: 'pdf_schema_extractor'
 extraction_policies:
-  - extractor: 'tensorlake/marker'
+  - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
   - extractor: 'tensorlake/schema'
     name: 'text_to_schema'
     input_params:
       service: 'openai'
-      model_name: 'gpt-3.5-turbo'
-      key: 'YOUR_OPENAI_API_KEY'
+      model_name: 'gpt-4o-mini'
       schema_config: {schema}
-      additional_messages: 'Extract information in JSON according to this schema and return only the output.'
+      additional_messages: 'Extract information in JSON according to this schema and return only the output. Do not include any explanations, only provide a  RFC8259 compliant JSON response.'
     content_source: 'pdf_to_text'
 """
 
@@ -94,14 +93,14 @@ Replace `'YOUR_OPENAI_API_KEY'` with your actual OpenAI API key.
 
 You can run this script to set up the pipeline:
 ```bash
-python pdf_schema_extraction_graph.py
+python setup_graph.py
 ```
 
 ## Ingestion and Retreival from Schema Extraction Pipeline
 
 Now that we have our extraction graph set up, we can upload files and make the pipeline extract structured information:
 
-Create a file `upload_and_retreive.py`:
+Create a file `upload_and_retrieve.py`:
 
 ```python
 import os
