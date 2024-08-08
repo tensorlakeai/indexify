@@ -25,7 +25,7 @@ extraction_policies:
     name: 'text_to_schema'
     input_params:
       service: 'openai'
-      model_name: 'gpt-3.5-turbo'
+      model_name: 'gpt-4o-mini'
       key: 'YOUR_OPENAI_API_KEY'
       schema_config: {schema}
       additional_messages: 'Extract information in JSON according to this schema and return only the output. Do not include any explanations, only provide a  RFC8259 compliant JSON response.'
