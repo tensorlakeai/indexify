@@ -93,6 +93,7 @@ const IndividualContentPage = () => {
         mimeType={contentMetadata.mime_type}
         contentUrl={`${contentMetadata.content_url}`}
         textContent={textContent}
+        extractionGraph={extractorName}
       />
       
       {currentExtractionGraph && currentExtractionGraph.extraction_policies.map((policy) => (
