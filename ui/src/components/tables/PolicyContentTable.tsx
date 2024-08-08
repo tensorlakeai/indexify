@@ -7,7 +7,9 @@ import {
   TableHead as MuiTableHead, 
   TableRow as MuiTableRow, 
   TableCell as MuiTableCell,
-  Alert
+  Alert,
+  TextField,
+  Button
 } from '@mui/material'
 import { TableVirtuoso } from 'react-virtuoso';
 import {
@@ -35,17 +37,20 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
 }) => {
   const [content, setContent] = useState<IContentMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [searchContentId, setSearchContentId] = useState("");
+  const [filteredContent, setFilteredContent] = useState<IContentMetadata[]>([]);
 
   const loadContent = async () => {
     setIsLoading(true);
     try {
       const result = await client.getExtractionPolicyContent({
-        contentId: contentId,
+        contentId: searchContentId ? searchContentId : contentId,
         graphName: extractorName,
         policyName: policyName
       })
       
       setContent(result);
+      setFilteredContent(result);
     } catch (error) {
       console.error(`Error loading content for policy ${policyName}:`, error);
     } finally {
@@ -56,7 +61,17 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   useEffect(() => {
     loadContent();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, contentId, extractorName, namespace, policyName]);
+  }, [client, searchContentId, extractorName, namespace, policyName]);
+
+  const handleSearch = () => {
+    loadContent();
+  };
+
+  const handleOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      handleSearch();
+    }
+  };
 
   if (isLoading && content.length === 0) {
     return <Typography>Loading...</Typography>;
@@ -187,15 +202,31 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   );
 
   return (
-    <Paper style={{ height: 500, width: '100%', overflow: 'hidden'}}>
-      <TableVirtuoso
-        style={{ height: '100%' }}
-        data={content}
-        components={TableComponents}
-        fixedHeaderContent={fixedHeaderContent}
-        itemContent={rowContent}
-      />
-    </Paper>
+    <>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+        <TextField
+          placeholder="Search by Content Id"
+          variant="outlined"
+          size="small"
+          value={searchContentId}
+          onChange={(e) => setSearchContentId(e.target.value)}
+          onKeyDown={handleOnEnter}
+          sx={{ flexGrow: 1 }}
+        />
+        <Button variant="contained" onClick={handleSearch} disabled={isLoading || !searchContentId}>
+          Search
+        </Button>
+      </Box>
+      <Paper style={{ height: 500, width: '100%', overflow: 'hidden'}}>
+        <TableVirtuoso
+          style={{ height: '100%' }}
+          data={filteredContent}
+          components={TableComponents}
+          fixedHeaderContent={fixedHeaderContent}
+          itemContent={rowContent}
+        />
+      </Paper>
+    </>
   );
 };
 

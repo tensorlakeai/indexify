@@ -1,92 +1,72 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { ExtractionGraph, IExtractionPolicy, IExtractor } from 'getindexify'
-import { Alert, Card, CardContent, Grid, IconButton, Typography } from '@mui/material'
+import React, { useState, useEffect } from 'react';
+import { ExtractionGraph, IndexifyClient } from 'getindexify'
+import { Alert, Card, CardContent, Grid, IconButton, Typography, CircularProgress } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import { ReactElement } from 'react'
-import ExtractionPolicyItem from './ExtractionPolicyItem'
-import {
-  IExtractionGraphCol,
-  IExtractionGraphColumns,
-  TaskCountsMap,
-} from '../types'
 import CopyText from './CopyText'
 import { Cpu, InfoCircle } from 'iconsax-react'
 import { Link } from 'react-router-dom'
+import DeleteIcon from '@mui/icons-material/Delete';
+import TruncatedText from './TruncatedText'
 
 const ExtractionGraphs = ({
-  extractionGraphs,
+  client,
   namespace,
-  extractors,
-  taskCountsMap,
 }: {
-  extractionGraphs: ExtractionGraph[]
+  client: IndexifyClient
   namespace: string
-  extractors: IExtractor[]
-  taskCountsMap: TaskCountsMap
 }) => {
-  const itemheight = 60
-  const cols: IExtractionGraphColumns = {
-    name: { displayName: 'Name', width: 350 },
-    extractor: { displayName: 'Extractor', width: 225 },
-    mimeTypes: { displayName: 'Input MimeTypes', width: 225 },
-    inputParams: { displayName: 'Input Parameters', width: 225 },
-    taskCount: { displayName: 'Tasks', width: 75 },
-  }
+  const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const renderHeader = () => {
-    return (
-      <Stack
-        direction={'row'}
-        px={2}
-        py={2}
-        sx={{
-          width: '100%',
-          borderBottom: '1px solid #e5e5e5',
-        }}
-      >
-        {Object.values(cols).map((col: IExtractionGraphCol) => {
-          return (
-            <Box key={col.displayName} minWidth={`${col.width}px`}>
-              <Typography variant="label">{col.displayName}</Typography>
-            </Box>
-          )
-        })}
-      </Stack>
-    )
-  }
+  const fetchExtractionGraphs = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const graphs = await client.getExtractionGraphs();
+      setExtractionGraphs(graphs);
+    } catch (err) {
+      setError('Failed to fetch extraction graphs. Please try again.');
+      console.error("Error fetching extraction graphs:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const renderGraphItems = (
-    policies: IExtractionPolicy[],
-    source: string,
-    depth = 0
-  ): ReactElement[] => {
-    let items: ReactElement[] = []
-    // use sibling count to keep track of how many are above
-    let siblingCount = items.length
-    policies
-      .filter((policy) => policy.content_source === source)
-      .forEach((policy, i) => {
-        items.push(
-          <ExtractionPolicyItem
-            key={policy.name}
-            taskCounts={taskCountsMap.get(policy.id!)!}
-            extractionPolicy={policy}
-            namespace={namespace}
-            cols={cols}
-            extractors={extractors}
-            depth={depth}
-            siblingCount={siblingCount}
-            itemHeight={itemheight}
-          />
-        )
-        const children = renderGraphItems(policies, policy.name, depth + 1)
-        items = items.concat(children)
-        siblingCount = children.length
-      })
-    return items
-  }
+  useEffect(() => {
+    fetchExtractionGraphs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [namespace]);
+
+  const handleDeleteExtractionGraph = async (extractionGraphName: string) => {
+    try {
+      await client.deleteExtractionGraph(namespace, extractionGraphName);
+      await fetchExtractionGraphs();
+    } catch (error) {
+      console.error("Error deleting content:", error);
+      setError('Failed to delete extraction graph. Please try again.');
+    }
+  };
 
   const renderContent = () => {
+    if (isLoading) {
+      return (
+        <Box display="flex" justifyContent="center" alignItems="center" height="200px">
+          <CircularProgress />
+        </Box>
+      );
+    }
+
+    if (error) {
+      return (
+        <Box mt={2} mb={2}>
+          <Alert variant="outlined" severity="error">
+            {error}
+          </Alert>
+        </Box>
+      );
+    }
+
     if (extractionGraphs.length === 0) {
       return (
         <Box mt={2} mb={2}>
@@ -94,7 +74,7 @@ const ExtractionGraphs = ({
             No Graphs Found
           </Alert>
         </Box>
-      )
+      );
     }
 
     return (
@@ -113,11 +93,14 @@ const ExtractionGraphs = ({
                 <CardContent>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Link to={`/${namespace}/extraction-graphs/${graph.name}`}>
-                      <Typography variant="h6" component="div">
-                        {graph.name}
-                      </Typography>
+                      <TruncatedText text={graph.name} maxLength={20} />
                     </Link>
-                    <CopyText text={graph.name} />
+                    <Box display="flex" flexDirection="row">
+                      <CopyText text={graph.name} />
+                      <IconButton onClick={() => handleDeleteExtractionGraph(graph.name)} aria-label="delete extraction graph">
+                        <DeleteIcon color="error" />
+                      </IconButton>
+                    </Box>
                   </div>
                   <Typography variant="subtitle2" color="text.secondary">
                     Namespace: {graph.namespace}
@@ -131,8 +114,8 @@ const ExtractionGraphs = ({
           ))}
         </Grid>
       </Box>
-    )
-  }
+    );
+  };
 
   return (
     <>
@@ -157,7 +140,7 @@ const ExtractionGraphs = ({
       </Stack>
       {renderContent()}
     </>
-  )
-}
+  );
+};
 
-export default ExtractionGraphs
+export default ExtractionGraphs;

@@ -1,24 +1,19 @@
 import { Box } from "@mui/material";
-import { ExtractionGraph } from "getindexify";
+import { ExtractionGraph, IndexifyClient } from "getindexify";
 import { useLoaderData } from "react-router-dom";
 import ExtractionGraphs from "../../components/ExtractionGraphs";
-import { Extractor } from "getindexify";
-import { TaskCountsMap } from "../../types";
 
 const ExtractionGraphsPage = () => {
-  const { extractors, extractionGraphs, namespace, taskCountsMap } = useLoaderData() as {
+  const { client, namespace } = useLoaderData() as {
+    client: IndexifyClient;
     extractionGraphs: ExtractionGraph[];
     namespace: string;
-    extractors: Extractor[];
-    taskCountsMap: TaskCountsMap
   };
   return (
     <Box>
       <ExtractionGraphs
-        extractors={extractors}
+        client={client}
         namespace={namespace}
-        extractionGraphs={extractionGraphs}
-        taskCountsMap={taskCountsMap}
       />
     </Box>
   );

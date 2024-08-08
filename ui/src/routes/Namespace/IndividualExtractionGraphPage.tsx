@@ -29,8 +29,8 @@ const IndividualExtractionGraphPage = () => {
       extractorName: string
     }
 
-  const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
-  const extractorString = JSON.parse(JSON.stringify(extractors));  
+  const extractionGraphString = structuredClone(extractionGraph);
+  const extractorString = structuredClone(extractors);  
   const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName);
 
   return (
