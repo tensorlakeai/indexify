@@ -66,7 +66,8 @@ class Invoice(BaseModel):
     registration_key: str
     due_date: str
 
-schema = Invoice.model_json_schema()
+schema = Invoice.schema()
+schema["additionalProperties"] = False
 
 client = IndexifyClient()
 
@@ -78,10 +79,8 @@ extraction_policies:
   - extractor: 'tensorlake/schema'
     name: 'text_to_schema'
     input_params:
-      service: 'openai'
-      model_name: 'gpt-4o-mini'
-      schema_config: {schema}
-      additional_messages: 'Extract information in JSON according to this schema and return only the output. Do not include any explanations, only provide a  RFC8259 compliant JSON response.'
+      model: 'gpt-4o-2024-08-06'
+      response_format: {schema}
     content_source: 'pdf_to_text'
 """
 
