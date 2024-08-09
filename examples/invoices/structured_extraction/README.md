@@ -49,7 +49,7 @@ indexify-extractor join-server
 
 The extraction graph defines the flow of data through our schema extraction pipeline. We'll create a graph that first extracts text from PDFs using Marker, then sends that text to the schema extractor for structured information extraction.
 
-Create a new Python file called `pdf_schema_extraction_graph.py` and add the following code:
+Create a new Python file called `setup_graph.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -76,6 +76,8 @@ name: 'pdf_schema_extractor'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
+    input_params:
+      output_format: 'markdown'
   - extractor: 'tensorlake/schema'
     name: 'text_to_schema'
     input_params:
