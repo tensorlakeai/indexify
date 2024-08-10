@@ -66,13 +66,22 @@ client.create_extraction_graph(extraction_graph)
 ```
 
 ### Upload Files
+
 Let's add some files stored remotely, which we can use for the rest of the tutorial.
 
-```
+Create a file named `ingest.py` with the following content:
+
+```python ingest.py
+from indexify import IndexifyClient
+
+client = IndexifyClient()
+
 file_names=["skate.jpg", "congestion.jpg", "bushwick-bred.jpg", "141900.jpg", "132500.jpg", "123801.jpg","120701.jpg", "103701.jpg"]
+
 file_urls = [f"https://extractor-files.diptanu-6d5.workers.dev/images/{file_name}" for file_name in file_names]
+
 for file_url in file_urls:
-    client.ingest_remote_file(file_url, "image/png", {})
+    client.ingest_remote_file("imageknowledgebase", file_url, "image/jpg", {})
 ```
 
 If you have local files, you can upload them by:
