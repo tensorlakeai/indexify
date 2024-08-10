@@ -37,9 +37,11 @@ indexify server -d
 Load Yolo Extractor in a notebook or terminal
 ```python
 from indexify_extractor_sdk import load_extractor, Content
+
 extractor, config_cls = load_extractor("indexify_extractors.yolo.yolo_extractor:YoloExtractor")
 content = Content.from_file("/path/to/file.jpg")
-results =  extractor.extract(content)
+results =  extractor.extract(content, config_cls())
+
 print(results)
 ```
 
