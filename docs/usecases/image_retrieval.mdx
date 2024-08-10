@@ -47,8 +47,10 @@ print(results)
 
 ### Create an Extraction Policy
 
-```python
-from indexify_extractor_sdk import load_extractor, Content, ExtractionGraph
+Create a file named `setup.py` with the following content:
+
+```python setup.py
+from indexify import IndexifyClient, ExtractionGraph
 
 client = IndexifyClient()
 
