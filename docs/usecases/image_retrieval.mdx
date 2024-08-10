@@ -47,13 +47,18 @@ print(results)
 
 ### Create an Extraction Policy
 
-```
+```python
+from indexify_extractor_sdk import load_extractor, Content, ExtractionGraph
+
+client = IndexifyClient()
+
 extraction_graph_spec = """
 name: 'imageknowledgebase'
 extraction_policies:
    - extractor: 'tensorlake/yolo-extractor'
      name: 'object_detection'
 """
+
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
 ```
