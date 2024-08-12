@@ -15,7 +15,7 @@ use indexify_internal_api::{
     ExtractionGraphLink,
     ExtractionPolicy,
 };
-use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
+use indexify_proto::indexify_coordinator::{self, CreateContentStatus, HeartbeatResponse};
 use internal_api::{
     ChangeType,
     ContentMetadataId,
@@ -78,6 +78,10 @@ impl Coordinator {
             my_executors: std::sync::Mutex::new(HashSet::new()),
             all_executors: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub async fn subscribe_to_new_tasks(&self, executor_id: &str) -> broadcast::Receiver<()> {
+        self.shared_state.subscribe_to_new_tasks(executor_id).await
     }
 
     pub async fn delete_extraction_graph(
@@ -350,7 +354,7 @@ impl Coordinator {
         self.shared_state.list_extractors().await
     }
 
-    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<indexify_coordinator::Task>> {
+    pub async fn heartbeat(&self, executor_id: &str) -> Result<HeartbeatResponse> {
         self.get_locked_my_executors()
             .insert(executor_id.to_string());
 
@@ -362,7 +366,10 @@ impl Coordinator {
             .into_iter()
             .map(|task| -> Result<indexify_coordinator::Task> { task.try_into() })
             .collect::<Result<Vec<_>>>()?;
-        Ok(tasks)
+        Ok(HeartbeatResponse {
+            executor_id: executor_id.to_string(),
+            tasks,
+        })
     }
 
     pub async fn all_task_assignments(&self) -> Result<HashMap<String, String>> {

@@ -569,6 +569,44 @@ fn max_content_offset(db: &OptimisticTransactionDB) -> Result<u64, StateMachineE
     }
 }
 
+#[derive(Debug)]
+pub struct ExecutorUnfinishedTasks {
+    pub tasks: BTreeSet<UnfinishedTask>,
+    pub new_task_channel: broadcast::Sender<()>,
+}
+
+impl ExecutorUnfinishedTasks {
+    pub fn new() -> Self {
+        let (new_task_channel, _) = broadcast::channel(1);
+        Self {
+            tasks: BTreeSet::new(),
+            new_task_channel,
+        }
+    }
+
+    pub fn insert(&mut self, task: UnfinishedTask) {
+        self.tasks.insert(task);
+        let _ = self.new_task_channel.send(());
+    }
+
+    // Send notification for remove because new task can be available if
+    // were at maximum number of tasks before task completion.
+    pub fn remove(&mut self, task: &UnfinishedTask) {
+        self.tasks.remove(task);
+        let _ = self.new_task_channel.send(());
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+        self.new_task_channel.subscribe()
+    }
+}
+
+impl Default for ExecutorUnfinishedTasks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub struct IndexifyState {
     // Reverse Indexes
@@ -590,7 +628,7 @@ pub struct IndexifyState {
     pub unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Pending tasks per executor, sorted by creation time
-    pub unfinished_tasks_by_executor: Arc<RwLock<HashMap<ExecutorId, BTreeSet<UnfinishedTask>>>>,
+    pub unfinished_tasks_by_executor: Arc<RwLock<HashMap<ExecutorId, ExecutorUnfinishedTasks>>>,
 
     /// Namespace -> Schemas
     pub schemas_by_namespace: SchemasByNamespace,
@@ -1501,7 +1539,7 @@ impl IndexifyState {
 
                 //  Put the tasks of the deleted executor into the unassigned tasks list
                 if let Some(executor_tasks) = executor_tasks {
-                    for task in executor_tasks {
+                    for task in executor_tasks.tasks {
                         self.unassigned_tasks.insert(&task.id, task.creation_time);
                     }
                 }
@@ -1828,13 +1866,14 @@ impl IndexifyState {
         db: &OptimisticTransactionDB,
     ) -> Result<Vec<Task>, StateMachineError> {
         let limit = limit.unwrap_or(u64::MAX);
-        let task_ids: Vec<_> = match self
+        let tasks: Vec<_> = match self
             .unfinished_tasks_by_executor
             .read()
             .unwrap()
             .get(executor_id)
         {
-            Some(task_ids) => task_ids
+            Some(tasks) => tasks
+                .tasks
                 .iter()
                 .take(limit as usize)
                 .map(|task| task.id.clone())
@@ -1844,7 +1883,7 @@ impl IndexifyState {
 
         let txn = db.transaction();
 
-        let tasks: Result<Vec<Task>, StateMachineError> = task_ids
+        let tasks: Result<Vec<Task>, StateMachineError> = tasks
             .iter()
             .map(|task_id| {
                 let task_bytes = txn
@@ -2376,7 +2415,7 @@ impl IndexifyState {
             .read()
             .unwrap()
             .iter()
-            .map(|(k, v)| (k.clone(), v.len() as u64))
+            .map(|(k, v)| (k.clone(), v.tasks.len() as u64))
             .collect()
     }
 
