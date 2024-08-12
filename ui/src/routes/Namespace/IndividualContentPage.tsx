@@ -5,11 +5,7 @@ import {
   Stack, 
   Breadcrumbs, 
   Box, 
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
 } from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
   IContentMetadata,
   IndexifyClient,
@@ -21,7 +17,6 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import DetailedContent from '../../components/DetailedContent'
 import CopyText from '../../components/CopyText'
 import PolicyContentTable from '../../components/tables/PolicyContentTable';
-import ContentAccordion from '../../components/ContentAccordion';
 
 const IndividualContentPage = () => {
   const {
@@ -41,8 +36,6 @@ const IndividualContentPage = () => {
   }
 
   const [textContent, setTextContent] = useState('')
-  const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
-  const [expandedAccordion, setExpandedAccordion] = useState<string | false>(false);
 
   useEffect(() => {
     if (
@@ -60,15 +53,6 @@ const IndividualContentPage = () => {
   }, [client, contentId, contentMetadata.mime_type])
 
   const currentExtractionGraph = extractionGraphs?.find(graph => graph.name === extractorName);
-
-  const handleContentClick = (content: IContentMetadata) => {
-    setSelectedContent(content);
-    setExpandedAccordion(content.id);
-  };
-
-  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
-    setExpandedAccordion(isExpanded ? panel : false);
-  };
 
   return (
     <Stack direction="column" spacing={2}>
@@ -119,29 +103,7 @@ const IndividualContentPage = () => {
             contentId={contentId}
             extractorName={extractorName}
             policyName={policy.name}
-            onContentClick={handleContentClick}
           />
-          {selectedContent && (
-            <Accordion
-              expanded={expandedAccordion === selectedContent.id}
-              onChange={handleAccordionChange(selectedContent.id)}
-            >
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon />}
-                aria-controls="panel-content"
-                id="panel-header"
-              >
-                <Typography>{selectedContent.id}</Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <ContentAccordion
-                  content={selectedContent}
-                  client={client}
-                  namespace={namespace}
-                />
-              </AccordionDetails>
-            </Accordion>
-          )}
         </Box>
       ))}
     </Stack>

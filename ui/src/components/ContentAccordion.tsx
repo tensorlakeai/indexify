@@ -8,7 +8,7 @@ import {
   Stack,
   Chip,
   styled
-} from '@mui/material';
+} from '@mui/material'
 import { IContentMetadata, IndexifyClient } from 'getindexify';
 import PdfDisplay from "./PdfViewer";
 import ReactJson from "@microlink/react-json-view";
@@ -17,9 +17,9 @@ import { formatBytes, formatTimestamp } from '../utils/helpers';
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
   padding: theme.spacing(2),
-  margin: theme.spacing(2),
   boxShadow: "0px 0px 2px 0px #D0D6DE",
-  borderRadius: "12px"
+  borderRadius: "12px",
+  width: '100%'
 }));
 
 interface ContentAccordionProps {
@@ -67,14 +67,12 @@ const ContentAccordion: React.FC<ContentAccordionProps> = ({ content, client, na
         <img
           alt="content"
           src={contentUrl}
-          width="100%"
-          style={{ maxWidth: "200px" }}
-          height="auto"
+          style={{ maxWidth: "100%", height: "auto" }}
         />
       );
     } else if (content.mime_type.startsWith("audio")) {
       return (
-        <audio controls>
+        <audio controls style={{ width: "100%" }}>
           <source src={contentUrl} type={content.mime_type} />
           Your browser does not support the audio element.
         </audio>
@@ -84,24 +82,24 @@ const ContentAccordion: React.FC<ContentAccordionProps> = ({ content, client, na
         <video
           src={contentUrl}
           controls
-          style={{ width: "100%", maxWidth: "400px", height: "auto" }}
+          style={{ width: "100%", height: "auto" }}
         />
       );
     } else if (content.mime_type.startsWith("text/html")) {
       return (
-        <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
+        <Box sx={{ maxHeight: "300px", overflow: "auto", width: "100%" }}>
           <code lang="html">{textContent}</code>
         </Box>
       );
     } else if (content.mime_type.startsWith("text/plain") && !content.mime_type.startsWith("text/html")) {
       return (
-        <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
+        <Box sx={{ maxHeight: "300px", overflow: "auto", width: "100%" }}>
           <InfoBox text={textContent} />
         </Box>
       );
     } else if (content.mime_type.startsWith("application/json")) {
       return (
-        <Box sx={{ maxHeight: "500px", overflow: "auto" }}>
+        <Box sx={{ maxHeight: "500px", overflow: "auto", width: "100%" }}>
           {textContent &&
             <ReactJson name={null} src={JSON.parse(textContent)} />}
         </Box>
@@ -128,45 +126,46 @@ const ContentAccordion: React.FC<ContentAccordionProps> = ({ content, client, na
   };
 
   return (
-    <Box>
-      <StyledPaper elevation={0} sx={{marginLeft: 0}}>
-        <Grid container spacing={1} paddingLeft={2} paddingRight={2}>
-          <Grid item xs={12} md={6} rowSpacing={4} marginTop={1}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-              <Typography variant="caption" sx={{ color: "#757A82" }}>Filename:</Typography>
+    <StyledPaper elevation={0}>
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={6}>
+          <Stack spacing={1}>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>Filename:</Typography>
               <Typography variant="subtitle2">{content.name}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-              <Typography variant="caption" sx={{ color: "#757A82" }}>Source:</Typography>
+            </Box>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>Source:</Typography>
               <Typography variant="subtitle2">{content.source ? content.source : "Ingestion"}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-              <Typography variant="caption" sx={{ color: "#757A82" }}>Size:</Typography>
+            </Box>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>Size:</Typography>
               <Typography variant="subtitle2">{formatBytes(content.size)}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-              <Typography variant="caption" sx={{ color: "#757A82" }}>Created at:</Typography>
+            </Box>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>Created at:</Typography>
               <Typography variant="subtitle2">{formatTimestamp(content.created_at)}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-              <Typography variant="caption" sx={{ color: "#757A82" }}>Storage URL:</Typography>
+            </Box>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>Storage URL:</Typography>
               <Typography variant="subtitle2">{content.storage_url}</Typography>
-            </Stack>
+            </Box>
             {content.parent_id && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-                <Typography variant="caption" sx={{ color: "#757A82" }}>Parent ID:</Typography>
+              <Box display="flex" alignItems="center">
+                <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>Parent ID:</Typography>
                 <Typography variant="subtitle2">{content.parent_id}</Typography>
-              </Stack>
+              </Box>
             )}
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-              <Typography variant="caption" sx={{ color: "#757A82" }}>MimeType:</Typography>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>MimeType:</Typography>
               <Chip label={content.mime_type} sx={{ backgroundColor: "#E5EFFB" }} />
-            </Stack>
-          </Grid>
+            </Box>
+          </Stack>
         </Grid>
-        {renderContent()}
-      </StyledPaper>
-
+        <Grid item xs={12} md={6}>
+          {renderContent()}
+        </Grid>
+      </Grid>
       <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
         <Button 
           variant="contained" 
@@ -177,7 +176,7 @@ const ContentAccordion: React.FC<ContentAccordionProps> = ({ content, client, na
           Download
         </Button>
       </Box>
-    </Box>
+    </StyledPaper>
   );
 };
 
