@@ -37,39 +37,57 @@ indexify server -d
 Load Yolo Extractor in a notebook or terminal
 ```python
 from indexify_extractor_sdk import load_extractor, Content
+
 extractor, config_cls = load_extractor("indexify_extractors.yolo.yolo_extractor:YoloExtractor")
 content = Content.from_file("/path/to/file.jpg")
-results =  extractor.extract(content)
+results =  extractor.extract(content, config_cls())
+
 print(results)
 ```
 
 ### Create an Extraction Policy
 
-```
+Create a file named `setup.py` with the following content:
+
+```python setup.py
+from indexify import IndexifyClient, ExtractionGraph
+
+client = IndexifyClient()
+
 extraction_graph_spec = """
 name: 'imageknowledgebase'
 extraction_policies:
    - extractor: 'tensorlake/yolo-extractor'
      name: 'object_detection'
 """
+
 extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
 client.create_extraction_graph(extraction_graph)
 ```
 
 ### Upload Files
+
 Let's add some files stored remotely, which we can use for the rest of the tutorial.
 
-```
+Create a file named `ingest.py` with the following content:
+
+```python ingest.py
+from indexify import IndexifyClient
+
+client = IndexifyClient()
+
 file_names=["skate.jpg", "congestion.jpg", "bushwick-bred.jpg", "141900.jpg", "132500.jpg", "123801.jpg","120701.jpg", "103701.jpg"]
+
 file_urls = [f"https://extractor-files.diptanu-6d5.workers.dev/images/{file_name}" for file_name in file_names]
+
 for file_url in file_urls:
-    client.ingest_remote_file(file_url, "image/png", {})
+    client.ingest_remote_file("imageknowledgebase", file_url, "image/jpg", {})
 ```
 
 If you have local files, you can upload them by:
 
-```
-client.upload_file("yourextractiongraphname", path="../path/to/file")
+```python
+client.upload_file("imageknowledgebase", path="../path/to/file")
 ```
 
 
@@ -79,17 +97,20 @@ client.upload_file("yourextractiongraphname", path="../path/to/file")
 
 Lets find a image with a skateboard!
 
-```
+```python
 result = client.sql_query("select * from ingestion where object_name='skateboard';")
 ```
 
 ### Make OpenAI find the images using Langchain! 
+
 We can make OpenAI generate the SQL query based on a language
 
 ```
 chain.invoke("Find the photos with a skateboard?")
 ```
+
 ## Semantic Search with CLIP Embeddings
+
 OpenAI's CLIP embedding model allows searching images with semantically similar description of images. 
 
 ### Download and start the Clip Embedding Extractor
@@ -107,7 +128,7 @@ OpenAI's CLIP embedding model allows searching images with semantically similar 
 
 ### Create an Extraction Graph
 
-```
+```python
 extraction_graph_spec = """
 name: 'imageknowledgebase'
 extraction_policies:
@@ -120,7 +141,7 @@ client.create_extraction_graph(extraction_graph)
 
 This creates an embedding index `imageknowledgebase.clip_embedding.embedding`. You can also find the index name via the following API - 
 
-```
+```python
 client.indexes()
 ```
 
@@ -129,6 +150,6 @@ Upload some images or search on the images which were already uploaded
 
 ### Search
 
-```
+```python
 client.search_index(name="imageknowledgebase.clip_embedding.embedding", query="skateboard", top_k=2)
 ```
