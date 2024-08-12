@@ -170,7 +170,7 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
           Search
         </Button>
       </Box>
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
         <Table aria-label="collapsible table">
           <TableHead>
             <TableRow>

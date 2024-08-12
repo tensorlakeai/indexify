@@ -166,7 +166,7 @@ const ContentAccordion: React.FC<ContentAccordionProps> = ({ content, client, na
           {renderContent()}
         </Grid>
       </Grid>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
         <Button 
           variant="contained" 
           color="primary" 
