@@ -63,32 +63,6 @@ YoloExtractor
 indexify-extractor download tensorlake/yolo-extractor
 ```
 
-## [GroundingDino](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/groundingdino)
-
-### Description
-This extractor uses Grounding DINO model and accepts an (image, text prompt) pair as inputs. It is based on [IDEA-Research GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) and can identify objects from categories it was not specifically trained on based on a prompt.
-
-### Input Parameters
-- **prompt** (default: "person"): Text prompt for object detection
-- **box_threshold** (default: 0.35): Threshold for bounding box detection
-- **text_threshold** (default: 0.25): Threshold for text detection
-
-### Input Data Types
-```
-["image/jpeg", "image/png"]
-```
-
-### Class Name
-```
-GroundingDinoExtractor
-```
-
-### Download Command
-
-```bash
-indexify-extractor download tensorlake/groundingdino
-```
-
 ## [Moondream](https://github.com/tensorlakeai/indexify-extractors/tree/main/image/moondream) ![Static Badge](https://img.shields.io/badge/GPU%20Accelerated-green?logo=nvidia&logoColor=ffffff)
 
 ### Description
