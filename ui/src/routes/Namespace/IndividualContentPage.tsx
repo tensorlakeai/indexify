@@ -5,7 +5,11 @@ import {
   Stack, 
   Breadcrumbs, 
   Box, 
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
   IContentMetadata,
   IndexifyClient,
@@ -16,9 +20,8 @@ import { formatBytes } from '../../utils/helpers'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import DetailedContent from '../../components/DetailedContent'
 import CopyText from '../../components/CopyText'
-import ContentDrawer from '../../components/ContentDrawer';
 import PolicyContentTable from '../../components/tables/PolicyContentTable';
-
+import ContentAccordion from '../../components/ContentAccordion';
 
 const IndividualContentPage = () => {
   const {
@@ -39,7 +42,7 @@ const IndividualContentPage = () => {
 
   const [textContent, setTextContent] = useState('')
   const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [expandedAccordion, setExpandedAccordion] = useState<string | false>(false);
 
   useEffect(() => {
     if (
@@ -60,7 +63,11 @@ const IndividualContentPage = () => {
 
   const handleContentClick = (content: IContentMetadata) => {
     setSelectedContent(content);
-    setDrawerOpen(true);
+    setExpandedAccordion(content.id);
+  };
+
+  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
+    setExpandedAccordion(isExpanded ? panel : false);
   };
 
   return (
@@ -102,9 +109,9 @@ const IndividualContentPage = () => {
         boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset", }}>
           <Box display={'flex'} flexDirection={'row'}>
             <Typography variant="h6" sx={{ marginBottom: 2 }}>
-            {policy.name}
-          </Typography>
-          <CopyText text={policy.name} />
+              {policy.name}
+            </Typography>
+            <CopyText text={policy.name} />
           </Box>
           <PolicyContentTable 
             client={client}
@@ -114,15 +121,29 @@ const IndividualContentPage = () => {
             policyName={policy.name}
             onContentClick={handleContentClick}
           />
+          {selectedContent && (
+            <Accordion
+              expanded={expandedAccordion === selectedContent.id}
+              onChange={handleAccordionChange(selectedContent.id)}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                aria-controls="panel-content"
+                id="panel-header"
+              >
+                <Typography>{selectedContent.id}</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <ContentAccordion
+                  content={selectedContent}
+                  client={client}
+                  namespace={namespace}
+                />
+              </AccordionDetails>
+            </Accordion>
+          )}
         </Box>
       ))}
-
-      <ContentDrawer 
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        content={selectedContent}
-        client={client}
-      />
     </Stack>
   )
 }
