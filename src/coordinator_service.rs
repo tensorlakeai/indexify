@@ -142,6 +142,8 @@ pub struct CoordinatorServiceServer {
     shutdown_rx: Receiver<()>,
 }
 
+const DEFAULT_MAX_PENDING_TASKS: u64 = 20;
+
 struct MetadataMap<'a>(&'a reqwest::header::HeaderMap);
 
 impl<'a> Extractor for MetadataMap<'a> {
@@ -820,6 +822,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             coordinator: Arc<Coordinator>,
             executor_id: Option<String>,
         }
+        let mut max_pending_tasks = DEFAULT_MAX_PENDING_TASKS;
 
         impl Drop for Context {
             fn drop(&mut self) {
@@ -855,7 +858,10 @@ impl CoordinatorService for CoordinatorServiceServer {
                                 if ctx.executor_id.is_none() {
                                     ctx.executor_id.replace(hb_request.executor_id.clone());
                                     new_task_channel.replace(ctx.coordinator.subscribe_to_new_tasks(&hb_request.executor_id).await);
-                                    yield ctx.coordinator.heartbeat(&hb_request.executor_id).await.map_err(|e| tonic::Status::aborted(e.to_string()));
+                                    if hb_request.max_pending_tasks > 0 {
+                                        max_pending_tasks = hb_request.max_pending_tasks;
+                                    }
+                                    yield ctx.coordinator.heartbeat(&hb_request.executor_id, max_pending_tasks).await.map_err(|e| tonic::Status::aborted(e.to_string()));
                                 }
                             }
                             Ok(Some(Err(err))) => {
@@ -880,7 +886,7 @@ impl CoordinatorService for CoordinatorServiceServer {
                         }
                     } => {
                         if let Some(ref executor_id) = ctx.executor_id {
-                            yield ctx.coordinator.heartbeat(executor_id).await.map_err(|e| tonic::Status::aborted(e.to_string()));
+                            yield ctx.coordinator.heartbeat(executor_id, max_pending_tasks).await.map_err(|e| tonic::Status::aborted(e.to_string()));
                         }
                     }
                 }

@@ -354,13 +354,17 @@ impl Coordinator {
         self.shared_state.list_extractors().await
     }
 
-    pub async fn heartbeat(&self, executor_id: &str) -> Result<HeartbeatResponse> {
+    pub async fn heartbeat(
+        &self,
+        executor_id: &str,
+        max_pending_tasks: u64,
+    ) -> Result<HeartbeatResponse> {
         self.get_locked_my_executors()
             .insert(executor_id.to_string());
 
         let tasks = self
             .shared_state
-            .tasks_for_executor(executor_id, Some(10))
+            .tasks_for_executor(executor_id, Some(max_pending_tasks))
             .await?;
         let tasks = tasks
             .into_iter()
