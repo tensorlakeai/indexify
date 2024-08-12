@@ -493,7 +493,7 @@ pub struct Metrics {
     /// Total number of bytes in uploaded contents
     pub content_bytes: u64,
 
-    /// Number of contents extacted
+    /// Number of contents extracted
     pub content_extracted: u64,
 
     /// Total number of bytes in extracted contents
