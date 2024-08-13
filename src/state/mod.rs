@@ -914,7 +914,7 @@ impl App {
         Ok(graphs)
     }
 
-    pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<String>> {
         //  Fetch the namespaces from the db
         let namespaces: Vec<String> = self
             .state_machine
@@ -924,16 +924,7 @@ impl App {
             .map(|(key, _)| key)
             .collect();
 
-        // Fetch extraction policies for each namespace
-        let mut result_namespaces = Vec::new();
-        for namespace_name in namespaces {
-            let ns = self.state_machine.get_namespace(&namespace_name).await?;
-            if let Some(ns) = ns {
-                result_namespaces.push(ns);
-            }
-        }
-
-        Ok(result_namespaces)
+        Ok(namespaces)
     }
 
     pub async fn namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
@@ -2026,7 +2017,7 @@ mod tests {
         // present along with the extraction policies
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
-        assert_eq!(namespaces.first().unwrap().name, namespace);
+        assert_eq!(namespaces.first().unwrap(), namespace);
 
         Ok(())
     }

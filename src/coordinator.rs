@@ -338,7 +338,7 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<String>> {
         self.shared_state.list_namespaces().await
     }
 
