@@ -327,15 +327,10 @@ impl Coordinator {
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
-        match self.shared_state.namespace(namespace).await {
-            Result::Ok(Some(_)) => {
-                return Ok(());
-            }
-            Result::Ok(None) => {}
-            Result::Err(_) => {}
+        if self.shared_state.namespace_exists(namespace).await? {
+            return Ok(());
         }
-        self.shared_state.create_namespace(namespace).await?;
-        Ok(())
+        self.shared_state.create_namespace(namespace).await
     }
 
     pub async fn list_namespaces(&self) -> Result<Vec<String>> {
@@ -344,10 +339,6 @@ impl Coordinator {
 
     pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
         self.shared_state.list_extraction_graphs(namespace).await
-    }
-
-    pub async fn get_namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
-        self.shared_state.namespace(namespace).await
     }
 
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {

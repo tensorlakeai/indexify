@@ -927,8 +927,8 @@ impl App {
         Ok(namespaces)
     }
 
-    pub async fn namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
-        self.state_machine.get_namespace(namespace).await
+    pub async fn namespace_exists(&self, namespace: &str) -> Result<bool> {
+        self.state_machine.namespace_exists(namespace).await
     }
 
     pub async fn register_executor(
@@ -1999,19 +1999,8 @@ mod tests {
 
         //  Read the namespace back and expect to get the extraction policies as well
         // which will be asserted
-        let retrieved_namespace = node.namespace(namespace).await?;
-        assert_eq!(retrieved_namespace.clone().unwrap().name, namespace);
-        assert_eq!(
-            retrieved_namespace
-                .clone()
-                .unwrap()
-                .extraction_graphs
-                .first()
-                .unwrap()
-                .extraction_policies
-                .len(),
-            3
-        );
+        let graphs = node.list_extraction_graphs(namespace).await?;
+        assert_eq!(graphs.first().unwrap().extraction_policies.len(), 3);
 
         // Read all namespaces back and assert that only the created namespace is
         // present along with the extraction policies

@@ -824,11 +824,9 @@ mod tests {
 
         let ep = coordinator
             .coordinator
-            .get_namespace(DEFAULT_TEST_NAMESPACE)
+            .list_extraction_graphs(DEFAULT_TEST_NAMESPACE)
             .await
-            .unwrap()
-            .unwrap()
-            .extraction_graphs[0]
+            .unwrap()[0]
             .extraction_policies[0]
             .clone();
         let content_metadata = coordinator
@@ -957,11 +955,9 @@ mod tests {
 
         let ep = coordinator
             .coordinator
-            .get_namespace(DEFAULT_TEST_NAMESPACE)
+            .list_extraction_graphs(DEFAULT_TEST_NAMESPACE)
             .await
-            .unwrap()
-            .unwrap()
-            .extraction_graphs[0]
+            .unwrap()[0]
             .extraction_policies[0]
             .clone();
         coordinator
@@ -1322,10 +1318,9 @@ mod tests {
 
         let res = test_coordinator
             .coordinator
-            .get_namespace(DEFAULT_TEST_NAMESPACE)
-            .await?
-            .unwrap();
-        assert_eq!(res.extraction_graphs.len(), 2);
+            .list_extraction_graphs(DEFAULT_TEST_NAMESPACE)
+            .await?;
+        assert_eq!(res.len(), 2);
 
         test_coordinator
             .coordinator
@@ -1346,10 +1341,9 @@ mod tests {
 
         let res = test_coordinator
             .coordinator
-            .get_namespace(DEFAULT_TEST_NAMESPACE)
-            .await?
-            .unwrap();
-        assert_eq!(res.extraction_graphs.len(), 1);
+            .list_extraction_graphs(DEFAULT_TEST_NAMESPACE)
+            .await?;
+        assert_eq!(res.len(), 1);
 
         let indexes = test_coordinator
             .coordinator
