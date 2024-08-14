@@ -10,8 +10,8 @@ extraction_policies:
   - extractor: 'tensorlake/openai'
     name: 'text_to_french'
     input_params:
-      model_name: 'gpt-3.5-turbo'
-      key: 'YOUR_OPENAI_API_KEY'
+      model: 'gpt-3.5-turbo'
+      api_key: 'YOUR_OPENAI_API_KEY'
       system_prompt: 'You are a professional translator. Translate the following English text to French. Maintain the original formatting and structure as much as possible.'
     content_source: 'pdf_to_text'
 """
