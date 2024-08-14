@@ -4,6 +4,7 @@ extraction_policies:
     name: "entity-extractor" 
     input_params:
       system_prompt: "Extract entities from text, and return the output in JSON format."
+      n_ctx: 50000
   - extractor: "tensorlake/chunk-extractor"
     name: "chunker"
     input_params:
