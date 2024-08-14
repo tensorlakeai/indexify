@@ -12,3 +12,4 @@ def load_data(player):
 if __name__ == "__main__":
     load_data("Kevin Durant")
     load_data("Stephen Curry")
+

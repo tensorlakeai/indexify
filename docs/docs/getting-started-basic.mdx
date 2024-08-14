@@ -23,6 +23,10 @@ Windows: Use WSL, but we don't actively test.
 **Python Versions**: 3.9-3.11
 </Info>
 
+<Info>
+The code of this guide can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/basic).
+</Info>
+
 ## Prerequisites
 
 Before we begin, make sure you have:
@@ -321,7 +325,7 @@ from indexify import IndexifyClient
 from llama_cpp import Llama
 
 client = IndexifyClient()
-llm = Llama.from_pretrained(repo_id='microsoft/Phi-3-mini-4k-instruct-gguf', filename='*q4.gguf', verbose=False)
+llm = Llama.from_pretrained(repo_id='microsoft/Phi-3-mini-4k-instruct-gguf', filename='*q4.gguf', verbose=False, n_ctx=2048)
 
 # Get entities
 ingested_content_list = client.list_content("wiki_extraction_pipeline")
