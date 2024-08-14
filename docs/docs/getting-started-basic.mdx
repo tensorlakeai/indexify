@@ -293,7 +293,8 @@ def load_data(player):
     docs = WikipediaLoader(query=player, load_max_docs=1).load()
 
     for doc in docs:
-        client.add_documents("wiki_extraction_pipeline", doc.page_content)
+        content_id = client.add_documents("wiki_extraction_pipeline", doc.page_content)
+        client.wait_for_extraction(content_id)
 
 if __name__ == "__main__":
     load_data("Kevin Durant")
