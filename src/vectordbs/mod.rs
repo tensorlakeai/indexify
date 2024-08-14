@@ -291,7 +291,7 @@ mod tests {
     }
 
     pub async fn search_filters(vector_db: VectorDBTS, index_name: &str) {
-        let content_ids = vec![make_id(), make_id(), make_id()];
+        let content_ids = [make_id(), make_id(), make_id()];
         let mut metadatas = Vec::new();
 
         // This metadata is used to test the filters

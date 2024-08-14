@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Drawer,
   Box,
@@ -36,6 +37,7 @@ interface ContentDrawerProps {
 const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, client }) => {
   const [textContent, setTextContent] = useState<string>('');
   const [downloadContent, setDownloadContent] = useState<string | Blob | undefined>(undefined);
+  const { namespace = 'default' } = useParams<{ namespace: string }>();
 
   useEffect(() => {
     if (content) {
@@ -63,13 +65,15 @@ const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, c
   const renderContent = () => {
     if (!content) return null;
 
+    const contentUrl = `${client.serviceUrl}/namespaces/${namespace}/content/${content.id}/download`;
+
     if (content.mime_type.startsWith("application/pdf")) {
-      return <PdfDisplay url={content.content_url} />;
+      return <PdfDisplay url={contentUrl} />;
     } else if (content.mime_type.startsWith("image")) {
       return (
         <img
           alt="content"
-          src={content.content_url}
+          src={contentUrl}
           width="100%"
           style={{ maxWidth: "200px" }}
           height="auto"
@@ -78,14 +82,14 @@ const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, c
     } else if (content.mime_type.startsWith("audio")) {
       return (
         <audio controls>
-          <source src={content.content_url} type={content.mime_type} />
+          <source src={contentUrl} type={content.mime_type} />
           Your browser does not support the audio element.
         </audio>
       );
     } else if (content.mime_type.startsWith("video")) {
       return (
         <video
-          src={content.content_url}
+          src={contentUrl}
           controls
           style={{ width: "100%", maxWidth: "400px", height: "auto" }}
         />
@@ -93,13 +97,13 @@ const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, c
     } else if (content.mime_type.startsWith("text/html")) {
       return (
         <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
-           <code lang="html">{textContent}</code>
+          <code lang="html">{textContent}</code>
         </Box>
       );
     } else if (content.mime_type.startsWith("text/plain") && !content.mime_type.startsWith("text/html")) {
       return (
         <Box sx={{ maxHeight: "300px", overflow: "auto" }}>
-           <InfoBox text={textContent} />
+          <InfoBox text={textContent} />
         </Box>
       );
     } else if (content.mime_type.startsWith("application/json")) {
@@ -159,7 +163,7 @@ const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, c
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Source:</Typography>
-                <Typography variant="subtitle2">{content.source}</Typography>
+                <Typography variant="subtitle2">{content.source ? content.source : "Ingestion"}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Size:</Typography>

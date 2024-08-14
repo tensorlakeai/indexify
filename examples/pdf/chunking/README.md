@@ -104,7 +104,7 @@ def retreive_chunks(pdf_path):
     
     # Retrieve the chunked content
     chunks = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_chunker",
         policy_name="text_to_chunks"
     )
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     # Chunk the PDF
     chunks = retreive_chunks(pdf_path)
     print(f"Number of chunks generated: {len(chunks)}")
-    print("\nFirst chunk:")
+    print("\nLast chunk:")
     print(chunks[0][:500] + "...")  # Print first 500 characters of the first chunk
 ```
 
@@ -132,7 +132,10 @@ You can run the Python script to process a PDF and generate chunks:
 ```bash
 python upload_and_retrieve.py
 ```
-<img src="https://docs.getindexify.ai/example_code/pdf/chunking/carbon.png" width="600"/>
+   Sample Page to extract chunk from:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/chunking/screenshot.png" width="600"/>
+   Sample Chunk extracted from page:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/chunking/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

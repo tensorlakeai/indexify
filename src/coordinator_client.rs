@@ -7,6 +7,7 @@ use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_client,
     ContentMetadata,
+    ExtractionPolicy,
     Task,
 };
 use itertools::Itertools;
@@ -156,6 +157,25 @@ impl CoordinatorClient {
         Ok(response.into_inner().graphs)
     }
 
+    pub async fn get_extraction_graph_analytics(
+        &self,
+        namespace: &str,
+        extraction_graph_name: &str,
+    ) -> Result<indexify_coordinator::GetExtractionGraphAnalyticsResponse> {
+        let request = tonic::Request::new(
+            indexify_proto::indexify_coordinator::GetExtractionGraphAnalyticsRequest {
+                namespace: namespace.to_string(),
+                extraction_graph: extraction_graph_name.to_string(),
+            },
+        );
+        let response = self
+            .get()
+            .await?
+            .get_extraction_graph_analytics(request)
+            .await?;
+        Ok(response.into_inner())
+    }
+
     pub async fn get_raft_metrics_snapshot(
         &self,
     ) -> Result<Json<RaftMetricsSnapshotResponse>, IndexifyAPIError> {
@@ -263,7 +283,11 @@ impl CoordinatorClient {
     pub async fn get_metadata_for_ingestion(
         &self,
         task_id: &str,
-    ) -> Result<(Option<Task>, Option<ContentMetadata>)> {
+    ) -> Result<(
+        Option<Task>,
+        Option<ContentMetadata>,
+        Option<ExtractionPolicy>,
+    )> {
         let req = tonic::Request::new(
             indexify_proto::indexify_coordinator::GetIngestionInfoRequest {
                 task_id: task_id.to_string(),
@@ -271,6 +295,6 @@ impl CoordinatorClient {
         );
         let response = self.get().await?.get_ingestion_info(req).await?;
         let resp = response.into_inner();
-        Ok((resp.task, resp.root_content))
+        Ok((resp.task, resp.root_content, resp.extraction_policy))
     }
 }

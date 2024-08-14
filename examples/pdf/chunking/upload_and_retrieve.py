@@ -19,7 +19,7 @@ def retreive_chunks(pdf_path):
     
     # Retrieve the chunked content
     chunks = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_chunker",
         policy_name="text_to_chunks"
     )
@@ -37,5 +37,5 @@ if __name__ == "__main__":
     # Chunk the PDF
     chunks = retreive_chunks(pdf_path)
     print(f"Number of chunks generated: {len(chunks)}")
-    print("\nFirst chunk:")
+    print("\nLast chunk:")
     print(chunks[0][:500] + "...")  # Print first 500 characters of the first chunk

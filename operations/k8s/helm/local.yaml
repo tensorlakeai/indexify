@@ -34,6 +34,8 @@ extractors:
     name: chunker
   - image: tensorlake/minilm-l6:latest
     name: minilm-l6
+  - image: tensorlake/pdfextractor:latest 
+    name: pdfextractor
 
 extraObjects:
   - |
@@ -68,15 +70,22 @@ minio:
 
 postgresql:
   enabled: true
-
   fullnameOverride: vector-store
-
   auth:
     enablePostgresUser: true
     postgresPassword: indexify
-
     database: indexify
-
   image:
-    repository: thomasr/pgvector
+    repository: pgvector/pgvector
     tag: pg16
+    debug: true
+  primary:
+    containerSecurityContext:
+      readOnlyRootFilesystem: false
+    initdb:
+      scripts:
+        initdb.sh: |
+          #!/bin/bash
+          echo "Creating database indexify..."
+          export PGPASSWORD=indexify   
+          psql -U postgres -c "CREATE DATABASE indexify;"

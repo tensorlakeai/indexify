@@ -1,165 +1,106 @@
 import { ExtractionGraph, Extractor, IExtractedMetadata, IndexifyClient } from 'getindexify'
-import { IHash } from '../types'
+import { IHash, Row } from '../types'
 
-export const stringToColor = (str: string) => {
-  let hash = 0
-  str.split('').forEach((char) => {
-    hash = char.charCodeAt(0) + ((hash << 5) - hash)
-  })
-  let color = '#'
-  for (let i = 0; i < 3; i++) {
-    const value = (hash >> (i * 8)) & 0xff
-    color += value.toString(16).padStart(2, '0')
+export const stringToColor = (str: string): string => {
+  let hash = 5381
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i)
   }
-  return color
+  return `#${(hash & 0xFFFFFF).toString(16).padStart(6, '0')}`
 }
+
 
 export const groupMetadataByExtractor = (
   metadataArray: IExtractedMetadata[]
-): Record<string, IExtractedMetadata[]> => {
+): Map<string, IExtractedMetadata[]> => {
   return metadataArray.reduce((accumulator, currentItem) => {
-    // Use the extractor_name as the key
     const key = currentItem.extractor_name
-
-    // If the key doesn't exist yet, initialize it
-    if (!accumulator[key]) {
-      accumulator[key] = []
+    if (!accumulator.has(key)) {
+      accumulator.set(key, [])
     }
-
-    // Add the current item to the appropriate group
-    accumulator[key].push(currentItem)
-
+    accumulator.get(key)!.push(currentItem)
     return accumulator
-  }, {} as Record<string, IExtractedMetadata[]>)
+  }, new Map<string, IExtractedMetadata[]>())
 }
+
 
 export const getIndexifyServiceURL = (): string => {
-  if (process.env.NODE_ENV === 'development') {
-    return 'http://localhost:8900'
-  }
-  return window.location.origin
+  return process.env.NODE_ENV === 'development' ? 'http://localhost:8900' : window.location.origin
 }
 
-export const formatBytes = (bytes: number, decimals: number = 2): string => {
-  if (!+bytes) return '0 Bytes'
 
-  const k = 1000
-  const dm = decimals < 0 ? 0 : decimals
+export const formatBytes = (() => {
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+  const k = 1000
+  return (bytes: number, decimals: number = 2): string => {
+    if (bytes === 0) return '0 Bytes'
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`
+  }
+})()
 
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
-}
 
 export const getExtractionPolicyTaskCounts = async (
   extractionGraph: string,
   extractionPolicyName: string,
   client: IndexifyClient
 ): Promise<any> => {
-  const tasks = client.getTasks(
-      extractionGraph,
-      extractionPolicyName,
-    );
-    return tasks;
+  return client.getTasks(extractionGraph, extractionPolicyName)
 }
 
-type KeyValueObject = { [key: string]: string };
 
-export const splitLabels = (data: KeyValueObject): string[] => {
-  return Object.entries(data).map(([key, value]) => `${key}: ${value}`);
+export const splitLabels = (data: { [key: string]: string }): string[] => {
+  return Object.entries(data).map(([key, value]) => `${key}: ${value}`)
 }
 
-export interface Row {
-    id: number;
-    name: string;
-    extractor: string;
-    inputTypes: string[];
-    inputParameters: string;
-    pending: number;
-    failed: number;
-    completed: number;
-}
 
 export const mapExtractionPoliciesToRows = (
-  extractionGraph: ExtractionGraph,
+  extractionGraph: ExtractionGraph | ExtractionGraph[],
   extractors: Extractor[],
-  graphName: string,
-  tasks: IHash
+  graphName: string
 ): Row[] => {
-  const extractorMap = new Map(extractors.map(e => [e.name, e]));
+  const extractorMap = new Map(extractors.map(e => [e.name, e]))
   
-  let targetGraph: ExtractionGraph | undefined;
-  
-  if (Array.isArray(extractionGraph)) {
-    targetGraph = extractionGraph.find(graph => graph.name === graphName);
-  } else if (extractionGraph.name === graphName) {
-    targetGraph = extractionGraph;
-  }
+  const targetGraph = Array.isArray(extractionGraph)
+    ? extractionGraph.find(graph => graph.name === graphName)
+    : extractionGraph.name === graphName ? extractionGraph : undefined
   
   if (!targetGraph) {
-    console.error(`No graph found with name: ${graphName}`);
-    return [];
+    console.error(`No graph found with name: ${graphName}`)
+    return []
   }
   
-  const rows: Row[] = targetGraph.extraction_policies.map((policy, index) => {
-    const extractor = extractorMap.get(policy.extractor);
-    const policyTasks = tasks[policy.name] || [];
-    const pendingTaskCount = policyTasks.totalTasks?.unknown ?? 0;
-    const failedTaskCount = policyTasks.totalTasks?.failure ?? 0;
-    const completedTaskCount = policyTasks.totalTasks?.success ?? 0;
+  return targetGraph.extraction_policies.map((policy, index) => {
+    const extractor = extractorMap.get(policy.extractor)
     
-    const finalRows = {
+    return {
       id: index + 1,
       name: policy.name,
       extractor: policy.extractor,
       inputTypes: extractor ? extractor.input_mime_types : ['Unknown'],
       inputParameters: policy.input_params ? JSON.stringify(policy.input_params) : 'None',
-      pending: pendingTaskCount,
-      failed: failedTaskCount,
-      completed: completedTaskCount,
-    };
-    return finalRows;
-  });
-
-  return rows;
-};
+    }
+  })
+}
 
 export async function getTasksForExtractionGraph(
   extractionGraph: ExtractionGraph,
   client: any,
 ): Promise<IHash> {
-  const tasks_by_policies: IHash = {};
+  const tasks_by_policies: IHash = {}
 
   for (const extractionPolicy of extractionGraph.extraction_policies) {
     tasks_by_policies[extractionPolicy.name] = await client.getTasks(
       extractionGraph.name,
       extractionPolicy.name
-    );
+    )
   }
-  return tasks_by_policies;
+  return tasks_by_policies
 }
 
-export const formatTimestamp = (value: string | number | null | undefined): string => {
-  if (value == null) return 'N/A';
-  
-  let timestamp: number;
-  
-  if (typeof value === 'string') {
-    timestamp = parseInt(value, 10);
-  } else if (typeof value === 'number') {
-    timestamp = value;
-  } else {
-    return 'Invalid Date';
-  }
-  
-  if (isNaN(timestamp)) return 'Invalid Date';
-
-  const milliseconds = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-  
-  const date = new Date(milliseconds);
-  
-  return date.toLocaleString(undefined, {
+export const formatTimestamp = (() => {
+  const MILLISECONDS_MULTIPLIER = 1e12
+  const dateFormatOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
@@ -167,5 +108,34 @@ export const formatTimestamp = (value: string | number | null | undefined): stri
     minute: '2-digit',
     second: '2-digit',
     hour12: true
-  });
-};
+  }
+
+  return (value: string | number | null | undefined): string => {
+    if (value == null) return 'N/A'
+    
+    const timestamp = typeof value === 'string' ? parseInt(value, 10) : value
+    
+    if (typeof timestamp !== 'number' || isNaN(timestamp)) return 'Invalid Date'
+
+    const milliseconds = timestamp < MILLISECONDS_MULTIPLIER ? timestamp * 1000 : timestamp
+    
+    return new Date(milliseconds).toLocaleString(undefined, dateFormatOptions)
+  }
+})()
+
+const keyPatterns: Set<string> = new Set(['key', 'api_key', 'key_api', 'api', 'api-key'].map(s => s.toLowerCase()))
+
+export function maskApiKeys(inputString: string): string {
+  try {
+    const data: { [key: string]: any } = JSON.parse(inputString)
+    for (const [key, value] of Object.entries(data)) {
+      if (keyPatterns.has(key.toLowerCase())) {
+        data[key] = '*'.repeat(String(value).length)
+      }
+    }
+    return JSON.stringify(data)
+  } catch (error) {
+    return inputString.replace(/"(key|api_key|key_api|api|api-key)":\s*"([^"]*)"/gi, 
+      (_, key, value) => `"${key}":"${'*'.repeat(value.length)}"`)
+  }
+}

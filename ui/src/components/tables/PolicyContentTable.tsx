@@ -3,20 +3,27 @@ import {
   Typography, 
   Box, 
   Paper, 
-  Table as MuiTable, 
-  TableContainer as MuiTableContainer, 
-  TableHead as MuiTableHead, 
-  TableRow as MuiTableRow, 
-  TableCell as MuiTableCell, 
-  TableBody as MuiTableBody,
-  Alert,
-  TablePagination
-} from '@mui/material'
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
+  Collapse,
+  IconButton,
+  TextField,
+  Button,
+  Alert
+} from '@mui/material';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import {
   IContentMetadata,
   IndexifyClient,
-} from 'getindexify'
-import CopyText from '../../components/CopyText'
+} from 'getindexify';
+import CopyText from '../../components/CopyText';
+import ContentAccordion from '../../components/ContentAccordion';
 
 interface PolicyContentTableProps {
   client: IndexifyClient;
@@ -24,48 +31,86 @@ interface PolicyContentTableProps {
   contentId: string;
   extractorName: string;
   policyName: string;
-  onContentClick: (content: IContentMetadata) => void;
 }
+
+const Row = (props: { row: IContentMetadata, client: IndexifyClient, namespace: string }) => {
+  const { row, client, namespace } = props;
+  const [open, setOpen] = useState(false);
+
+  return (
+    <React.Fragment>
+      <TableRow sx={{ '& > *': { borderBottom: 'unset' } }}>
+        <TableCell>
+          <IconButton
+            aria-label="expand row"
+            size="small"
+            onClick={() => setOpen(!open)}
+          >
+            {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+          </IconButton>
+        </TableCell>
+        <TableCell component="th" scope="row">
+          <Box sx={{ display: "flex", alignItems: "center" }}>
+            <Typography noWrap sx={{ mr: 1, maxWidth: 'calc(100% - 24px)' }}>{row.id}</Typography>
+            <CopyText text={row.id} />
+          </Box>
+        </TableCell>
+        <TableCell>{row.mime_type}</TableCell>
+        <TableCell>{row.source || "text_to_chunks"}</TableCell>
+        <TableCell>{row.parent_id || '\u00A0'}</TableCell>
+        <TableCell>
+          {typeof row.labels === 'object' && row.labels !== null
+            ? Object.entries(row.labels)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(', ')
+            : row.labels || '\u00A0'}
+        </TableCell>
+        <TableCell>
+          {row.created_at ? new Date(row.created_at * 1000).toLocaleString() : '\u00A0'}
+        </TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 1 }}>
+              <ContentAccordion
+                content={row}
+                client={client}
+                namespace={namespace}
+              />
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </React.Fragment>
+  );
+};
 
 const PolicyContentTable: React.FC<PolicyContentTableProps> = ({ 
   client, 
   namespace, 
   contentId, 
   extractorName, 
-  policyName,
-  onContentClick 
+  policyName
 }) => {
   const [content, setContent] = useState<IContentMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [searchContentId, setSearchContentId] = useState("");
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(5);
-  const [pageHistory, setPageHistory] = useState<{id: string, content: IContentMetadata[]}[]>([]);
-  const [isLastPage, setIsLastPage] = useState(false);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
-  const loadContent = async (startId?: string) => {
+  const loadContent = async () => {
     setIsLoading(true);
     try {
-      const result = await client.listContent(extractorName, namespace, {
-        namespace: namespace,
-        ingestedContentId: contentId,
-        extractionGraph: extractorName,
-        source: policyName,
-        limit: rowsPerPage + 1,
-        startId: startId,
+      const result = await client.getExtractionPolicyContent({
+        contentId: searchContentId ? searchContentId : contentId,
+        graphName: extractorName,
+        policyName: policyName
       });
       
-      if (result.contentList.length <= rowsPerPage) {
-        setIsLastPage(true);
-      } else {
-        result.contentList.pop();
-        setIsLastPage(false);
-      }
-      
-      setContent(result.contentList);
-      return result.contentList;
+      setContent(result);
     } catch (error) {
       console.error(`Error loading content for policy ${policyName}:`, error);
-      return [];
     } finally {
       setIsLoading(false);
     }
@@ -74,35 +119,25 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   useEffect(() => {
     loadContent();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, contentId, extractorName, namespace, policyName, rowsPerPage]);
+  }, [client, searchContentId, extractorName, namespace, policyName]);
 
-  const handleChangePage = async (event: unknown, newPage: number) => {
-    if (newPage > page) {
-      if (!isLastPage) {
-        const lastId = content[content.length - 1]?.id;
-        if (lastId) {
-          setPageHistory(prev => [...prev, {id: lastId, content: content}]);
-          const newContent = await loadContent(lastId);
-          setContent(newContent);
-        }
-      }
-    } else if (newPage < page && pageHistory.length > 0) {
-      const newPageHistory = [...pageHistory];
-      const prevPage = newPageHistory.pop();
-      if (prevPage) {
-        setPageHistory(newPageHistory);
-        setContent(prevPage.content);
-        setIsLastPage(false);
-      }
+  const handleSearch = () => {
+    loadContent();
+  };
+
+  const handleOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      handleSearch();
     }
+  };
+
+  const handleChangePage = (_event: unknown, newPage: number) => {
     setPage(newPage);
   };
 
   const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
-    setPageHistory([]);
-    loadContent();
   };
 
   if (isLoading && content.length === 0) {
@@ -120,81 +155,53 @@ const PolicyContentTable: React.FC<PolicyContentTableProps> = ({
   }
 
   return (
-    <Box>
-      <MuiTableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
-        <MuiTable>
-          <MuiTableHead>
-            <MuiTableRow>
-              <MuiTableCell>Content ID</MuiTableCell>
-              <MuiTableCell>Mime Type</MuiTableCell>
-              <MuiTableCell>Source</MuiTableCell>
-              <MuiTableCell>Parent ID</MuiTableCell>
-              <MuiTableCell>Labels</MuiTableCell>
-              <MuiTableCell>Created At</MuiTableCell>
-            </MuiTableRow>
-          </MuiTableHead>
-          <MuiTableBody>
-            {content.map((row) => (
-              <MuiTableRow key={row.id}>
-                <MuiTableCell>
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Typography
-                      onClick={() => onContentClick(row)}
-                      sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                    >
-                      {row.id}
-                    </Typography>
-                    <CopyText text={row.id}/>
-                  </Box>
-                </MuiTableCell>
-                <MuiTableCell>{row.mime_type}</MuiTableCell>
-                <MuiTableCell>{row.source}</MuiTableCell>
-                <MuiTableCell>{row.parent_id}</MuiTableCell>
-                <MuiTableCell>
-                  {typeof row.labels === 'object' && row.labels !== null
-                    ? Object.entries(row.labels)
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join(', ')
-                    : String(row.labels)}
-                </MuiTableCell>
-                <MuiTableCell>
-                  {row.created_at ? new Date(row.created_at * 1000).toLocaleString() : ''}
-                </MuiTableCell>
-              </MuiTableRow>
-            ))}
-          </MuiTableBody>
-        </MuiTable>
-      </MuiTableContainer>
+    <>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+        <TextField
+          placeholder="Search by Content Id"
+          variant="outlined"
+          size="small"
+          value={searchContentId}
+          onChange={(e) => setSearchContentId(e.target.value)}
+          onKeyDown={handleOnEnter}
+          sx={{ flexGrow: 1 }}
+        />
+        <Button variant="contained" onClick={handleSearch} disabled={isLoading}>
+          Search
+        </Button>
+      </Box>
+      <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}}>
+        <Table aria-label="collapsible table">
+          <TableHead>
+            <TableRow>
+              <TableCell />
+              <TableCell>Content ID</TableCell>
+              <TableCell>Mime Type</TableCell>
+              <TableCell>Source</TableCell>
+              <TableCell>Parent ID</TableCell>
+              <TableCell>Labels</TableCell>
+              <TableCell>Created At</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {content
+              .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+              .map((row) => (
+                <Row key={row.id} row={row} client={client} namespace={namespace} />
+              ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
       <TablePagination
-        rowsPerPageOptions={[5, 10, 20]}
+        rowsPerPageOptions={[5, 10, 25]}
         component="div"
-        count={-1}
+        count={content.length}
         rowsPerPage={rowsPerPage}
         page={page}
         onPageChange={handleChangePage}
         onRowsPerPageChange={handleChangeRowsPerPage}
-        labelDisplayedRows={() => ''}
-        slotProps={{
-          actions: {
-            nextButton: {
-              disabled: isLastPage
-            }, 
-            previousButton: {
-              disabled: page === 0
-            }
-          }
-        }}
-        sx={{ 
-          display: "flex", 
-          ".MuiTablePagination-toolbar": {
-            paddingLeft: "10px"
-          }, 
-          ".MuiTablePagination-actions": {
-            marginLeft: "0px !important"
-          }
-        }}
       />
-    </Box>
+    </>
   );
 };
 

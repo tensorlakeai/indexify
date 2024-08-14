@@ -30,13 +30,10 @@ interface TasksTableProps {
 }
 
 const TasksTable: React.FC<TasksTableProps> = ({
-  extractionPolicies,
-  namespace,
   hideContentId,
   hideExtractionPolicy,
   loadData,
-  onContentClick, 
-  client,
+  onContentClick,
 }) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [tasks, setTasks] = useState<ITask[]>([]);
@@ -94,7 +91,7 @@ const TasksTable: React.FC<TasksTableProps> = ({
     if (tasks.length === 0 && !loading) {
       return (
         <Box mt={1} mb={2}>
-          <Alert variant="outlined" severity="info">
+          <Alert variant="standard" severity="info">
             No Tasks Found
           </Alert>
         </Box>

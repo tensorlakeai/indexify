@@ -1,0 +1,31 @@
+Ingestion APIs are used to upload raw text and files to an Extraction Graph.
+
+## Upload File
+
+<CodeGroup>
+  ```python Python
+  content = client.upload_file(extraction_graphs="myextractiongraph",path="/path/to/file")
+  ```
+  ```typescript Typescript
+  await client.uploadFile("myextractiongraph", `files/test.txt`);
+  ```
+</CodeGroup>
+
+## Upload Raw Text
+
+<CodeGroup>
+  ```python Python
+  client.add_documents("myextractiongraph", [
+    "Indexify is amazing!",
+    "Indexify is a retrieval service for LLM agents!",
+    "Kevin Durant is the best basketball player in the world."
+  ])
+  ```
+  ```typescript Typescript
+  await client.addDocuments("myextractiongraph", [
+    "Indexify is amazing!",
+    "Indexify is a retrieval service for LLM agents!",
+    "Kevin Durant is the best basketball player in the world."
+  ]);
+  ```
+</CodeGroup>

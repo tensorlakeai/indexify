@@ -1,6 +1,7 @@
 target
 .vscode
 *.db
+*.pdf
 ve
 site
 *.pyc

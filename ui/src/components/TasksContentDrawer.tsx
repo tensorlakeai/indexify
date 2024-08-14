@@ -159,7 +159,7 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Source:</Typography>
-                <Typography variant="subtitle2">{content.source}</Typography>
+                <Typography variant="subtitle2">{content.source ? content.source : "Ingestion"}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Size:</Typography>
@@ -205,7 +205,7 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
         </StyledPaper>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
-          <Button variant="outlined" onClick={onClose} sx={{ mr: 1 }}>
+          <Button variant="outlined" onClick={onClose} sx={{ mr: 1, color: '#3296FE' }}>
             Close
           </Button>
           <Button 

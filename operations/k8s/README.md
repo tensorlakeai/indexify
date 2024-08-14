@@ -18,7 +18,7 @@ One way to create a cluster is using [k3d][k3d]. This will run a lightweight
 version of Kubernetes entirely within docker on your local system.
 
 ```bash
-k3d cluster create -p "8081:80@loadbalancer" indexify
+k3d cluster create -p "8900:80@loadbalancer" indexify
 ```
 
 When using this setup, Indexify will be exposed via k3d's ingress which will be
@@ -165,7 +165,7 @@ For each extractor you'd like to add, you'll want to create a new
 `kustomization.yaml`. These will be included in your parent installation the
 same way that the local example includes the chunker and minilm-l6 extractors.
 
-To add the PDF extractor, you'll want to create `pdf/kustomization.yaml`.
+For example , To add the PDF extractor, you'll want to create `pdfextractor/kustomization.yaml` under components.
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -176,8 +176,7 @@ components:
 
 images:
   - name: tensorlake/extractor:latest
-    # Path to the extractor's docker image
-    newName: tensorlake/pdf-extractor
+    newName: tensorlake/pdfextractor
     newTag: latest
 
 patches:
@@ -189,10 +188,19 @@ patches:
     patch: |-
       - op: replace
         path: /metadata/name
-        value: pdf
+        value: pdfextractor
       - op: add
         path: /spec/selector/matchLabels/app.kubernetes.io~1name
-        value: pdf
+        value: pdfextractor
+      - op: add
+        path: /metadata/labels/app.kubernetes.io~1name
+        value: pdfextractor
+      - op: add
+        path: /spec/template/metadata/labels/app.kubernetes.io~1name
+        value: pdfextractor
+      - op: add
+        path: /spec/template/spec/hostname
+        value: pdfextractor
   - target:
       version: v1
       kind: Service
@@ -200,7 +208,13 @@ patches:
     patch: |-
       - op: replace
         path: /metadata/name
-        value: pdf
+        value: pdfextractor
+      - op: add
+        path: /metadata/labels/app.kubernetes.io~1name
+        value: pdfextractor
+      - op: add
+        path: /spec/selector/app.kubernetes.io~1name
+        value: pdfextractor
 ```
 
 This new extractor can then be included in your own install
@@ -217,7 +231,7 @@ resources:
   - ../components/ingress
   - ../components/chunker
   - ../components/minilm-l6
-  - ../components/pdf
+  - ../components/pdfextractor
 ```
 
 ### Helm

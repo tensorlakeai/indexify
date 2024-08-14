@@ -5,25 +5,29 @@ use std::{
     io::{BufReader, Cursor, Read},
     ops::RangeBounds,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLockReadGuard},
     time::SystemTime,
 };
 
 use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use compat::init_task_analytics;
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
+    ContentOffset,
     ExecutorMetadata,
     ExtractionGraph,
+    ExtractionGraphAnalytics,
     ExtractionGraphLink,
     ExtractionPolicy,
     NamespaceName,
     StructuredDataSchema,
     Task,
+    TaskAnalytics,
 };
-use indexify_proto::indexify_coordinator;
+use indexify_proto::indexify_coordinator::{self};
 use openraft::{
     storage::{LogFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
     AnyError,
@@ -57,6 +61,7 @@ use rocksdb::{
     IteratorMode,
     OptimisticTransactionDB,
     Options,
+    ReadOptions,
     SingleThreaded,
 };
 use serde::{de::DeserializeOwned, Deserialize};
@@ -77,6 +82,8 @@ use self::{
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::{
+    api::NewContentStreamStart,
+    coordinator::ContentStream,
     metrics::{state_machine::Metrics, Timer},
     utils::OptionInspectNone,
 };
@@ -130,12 +137,14 @@ pub enum StateMachineColumns {
     ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
     RaftState,                          //  Raft state
     ExtractionGraphLinks,               //  Namespace/Graph/Source -> Linked graph name
+    ChangeIdContentIndex,               //  ChangeId -> ContentId
+    TaskAnalytics,                      //  Namespace_Graph_Policy -> TaskAnalytics
 }
 
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
 const LAST_APPLIED_LOG_ID_KEY: &[u8] = b"last_applied_log_id";
 const STORE_VERSION: &[u8] = b"store_version";
-const CURRENT_STORE_VERSION: u64 = 3;
+const CURRENT_STORE_VERSION: u64 = 4;
 const LOG_STORE_LOGS_COLUMN: &str = "logs";
 const LOG_STORE_STORE_COLUMN: &str = "store";
 
@@ -218,18 +227,19 @@ pub fn filter_cf<T, F>(
     filter: F,
     start: Option<&[u8]>,
     limit: Option<usize>,
-    return_total: bool,
 ) -> Result<FilterResponse<T>, anyhow::Error>
 where
     T: DeserializeOwned,
     F: Fn(&T) -> bool,
 {
     let cf = column.cf(db);
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
     let mode = match start {
         Some(start) => IteratorMode::From(start, Direction::Forward),
         None => IteratorMode::Start,
     };
-    let iter = db.iterator_cf(cf, mode);
+    let iter = db.iterator_cf_opt(cf, read_options, mode);
     let mut items = Vec::new();
     let mut total = 0;
     let limit = limit.unwrap_or(usize::MAX);
@@ -240,7 +250,7 @@ where
                 total += 1;
                 if items.len() < limit {
                     items.push(item);
-                    if items.len() >= limit && !return_total {
+                    if items.len() >= limit {
                         break;
                     }
                 }
@@ -290,7 +300,7 @@ fn delete_incomplete_snapshots(path: impl AsRef<Path>) -> std::io::Result<()> {
 
 // Read snapshot metadata from checkpoint directory
 fn snapshot_meta(path: &PathBuf) -> Result<SnapshotMeta<NodeId, Node>, StorageError<NodeId>> {
-    let db = open_db(&path).map_err(|e| {
+    let db = open_db(path).map_err(|e| {
         StorageIOError::read_snapshot(None, anyhow!("Failed to open snapshot: {}", e))
     })?;
     let last_membership = get_from_cf(&db, StateMachineColumns::RaftState, LAST_MEMBERSHIP_KEY)
@@ -376,6 +386,71 @@ pub struct StateMachineStore {
     metrics: Metrics,
 }
 
+fn content_stream_items(
+    state: &IndexifyState,
+    db: &OptimisticTransactionDB,
+    offset: ContentOffset,
+) -> Result<Vec<ContentMetadata>> {
+    let key = offset.0.to_be_bytes();
+    let iter = db.iterator_cf(
+        StateMachineColumns::ChangeIdContentIndex.cf(db),
+        IteratorMode::From(&key, Direction::Forward),
+    );
+    let mut ids: Vec<String> = Vec::new();
+    for item in iter {
+        match item {
+            Ok((_key, value)) => {
+                let id = String::from_utf8(value.to_vec())?;
+                ids.push(id);
+            }
+            Err(e) => {
+                return Err(anyhow!("Failed to read content stream: {}", e));
+            }
+        }
+        if ids.len() >= 100 {
+            break;
+        }
+    }
+    state
+        .get_content_from_ids(ids, db)
+        .map_err(|e| anyhow!("Failed to get content: {}", e))
+}
+
+pub fn new_content_stream(
+    store: Arc<StateMachineStore>,
+    start: NewContentStreamStart,
+) -> ContentStream {
+    let mut offset = match start {
+        NewContentStreamStart::FromOffset(offset) => offset.next(),
+        NewContentStreamStart::FromLast => {
+            *store.data.indexify_state.content_offset.lock().unwrap()
+        }
+    };
+    let stream = async_stream::stream! {
+        let mut rx = store.data.indexify_state.new_content_channel.subscribe();
+        loop {
+            let items = content_stream_items(&store.data.indexify_state, &store.db.read().unwrap(), offset);
+            match items {
+                Ok(items) => {
+                    if items.is_empty() {
+                        let _ = rx.recv().await;
+                    } else {
+                        offset = items.last().unwrap().change_offset.next();
+                        for item in items {
+                            yield Ok(item);
+                        }
+                    }
+                }
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            }
+        }
+    };
+    Box::pin(stream)
+}
+
 impl StateMachineStore {
     async fn new(
         db_path: PathBuf,
@@ -397,7 +472,7 @@ impl StateMachineStore {
             db.put_cf(
                 StateMachineColumns::RaftState.cf(&db),
                 STORE_VERSION,
-                &CURRENT_STORE_VERSION.to_be_bytes(),
+                CURRENT_STORE_VERSION.to_be_bytes(),
             )
             .map_err(|e| {
                 StorageIOError::write_state_machine(anyhow!("failed to init db: {}", e))
@@ -415,7 +490,7 @@ impl StateMachineStore {
         let live_snapshot = snapshots.pop().unwrap();
 
         // Remove all but last snapshot directories
-        let snapshot = if snapshots.len() >= 1 {
+        let snapshot = if !snapshots.is_empty() {
             for snapshot in snapshots[..snapshots.len() - 1].iter() {
                 fs::remove_dir_all(&snapshot.snapshot.snapshot_dir).map_err(|e| {
                     StorageIOError::read_snapshot(None, anyhow!("Failed to remove snapshot: {}", e))
@@ -445,6 +520,8 @@ impl StateMachineStore {
                     CURRENT_STORE_VERSION
                 ))
                 .into());
+            } else if store_version == 3 {
+                compat::convert_v3(&db, &log_store.db)?;
             } else if store_version == 2 {
                 compat::convert_v2(&db, &log_store.db)?;
             } else if store_version == 1 {
@@ -488,6 +565,10 @@ impl StateMachineStore {
         Ok(sm)
     }
 
+    pub fn get_db(&self) -> RwLockReadGuard<OptimisticTransactionDB> {
+        self.db.read().unwrap()
+    }
+
     // Check if adding a link will create a cycle in the graph.
     pub fn creates_cycle(&self, link: &ExtractionGraphLink) -> Result<bool> {
         let db = self.db.read().unwrap();
@@ -520,7 +601,7 @@ impl StateMachineStore {
         txn.put_cf(
             StateMachineColumns::RaftState.cf(&db),
             LAST_APPLIED_LOG_ID_KEY,
-            &applied_data,
+            applied_data,
         )
         .map_err(|e| StateMachineError::DatabaseError(format!("Failed to write log id: {}", e)))
     }
@@ -540,7 +621,7 @@ impl StateMachineStore {
         txn.put_cf(
             StateMachineColumns::RaftState.cf(&self.db.read().unwrap()),
             LAST_MEMBERSHIP_KEY,
-            &membership_data,
+            membership_data,
         )
         .map_err(|e| {
             StateMachineError::DatabaseError(format!("Failed to write membership: {}", e))
@@ -548,6 +629,22 @@ impl StateMachineStore {
         txn.commit().map_err(|e| {
             StateMachineError::TransactionError(format!("Failed to commit transaction: {}", e))
         })
+    }
+
+    fn send_gc_tasks(&self, gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>) {
+        let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
+        for gc_task in gc_tasks {
+            match self.data.gc_tasks_tx.send(gc_task.clone()) {
+                Ok(sent_count) => {
+                    if sent_count < expected_receiver_count {
+                        tracing::error!("The gc task event did not reach all listeners");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to send task {:?}: {}", gc_task, e);
+                }
+            }
+        }
     }
 
     async fn apply_entry(&self, entry: typ::Entry) -> Result<Option<String>, StateMachineError> {
@@ -578,24 +675,17 @@ impl StateMachineStore {
                 }
 
                 //  if the payload is a GC task, send it via channel
-                if let RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } =
-                    req.payload
-                {
-                    let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
-                    for gc_task in gc_tasks {
-                        match self.data.gc_tasks_tx.send(gc_task.clone()) {
-                            Ok(sent_count) => {
-                                if sent_count < expected_receiver_count {
-                                    tracing::error!(
-                                        "The gc task event did not reach all listeners"
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to send task {:?}: {}", gc_task, e);
-                            }
-                        }
+                match req.payload {
+                    RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
+                        self.send_gc_tasks(gc_tasks);
                     }
+                    RequestPayload::DeleteExtractionGraph {
+                        graph_id: _,
+                        gc_task,
+                    } => {
+                        self.send_gc_tasks(vec![gc_task]);
+                    }
+                    _ => {}
                 }
             }
             EntryPayload::Membership(membership) => {
@@ -675,7 +765,6 @@ impl StateMachineStore {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<Task>>
     where
         F: Fn(&Task) -> bool,
@@ -686,8 +775,42 @@ impl StateMachineStore {
             filter,
             start_id.as_deref().map(|s| s.as_bytes()),
             limit.map(|l| l as usize),
-            return_total,
         )
+    }
+
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<ExtractionGraphAnalytics>> {
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let prefix = format!("{}_{}_", namespace, graph_name);
+        let mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
+
+        let db = self.db.read().unwrap();
+
+        let itr = db.iterator_cf_opt(
+            StateMachineColumns::TaskAnalytics.cf(&db),
+            read_options,
+            mode,
+        );
+
+        let mut extraction_graph_analytics = ExtractionGraphAnalytics::default();
+
+        for kv in itr {
+            let (key, value) = kv.map_err(|e| anyhow::anyhow!("Failed to read db: {}", e))?;
+            let key = String::from_utf8(key.to_vec())?;
+            let extraction_policy_name = key.strip_prefix(&prefix);
+            if let Some(extraction_policy_name) = extraction_policy_name {
+                let task_analytics: TaskAnalytics = JsonEncoder::decode(&value)?;
+                extraction_graph_analytics
+                    .task_analytics
+                    .insert(extraction_policy_name.to_string(), task_analytics);
+            }
+        }
+
+        Ok(Some(extraction_graph_analytics))
     }
 
     pub async fn get_tasks_for_executor(
@@ -757,7 +880,7 @@ impl StateMachineStore {
 
     pub async fn get_content_from_ids(
         &self,
-        content_ids: HashSet<String>,
+        content_ids: Vec<String>,
     ) -> Result<Vec<ContentMetadata>> {
         self.data
             .indexify_state
@@ -770,7 +893,6 @@ impl StateMachineStore {
         filter: impl Fn(&ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<ContentMetadata>> {
         let s = start_id.as_deref().map(|s| s.as_bytes());
         filter_cf(
@@ -779,7 +901,6 @@ impl StateMachineStore {
             filter,
             s,
             limit.map(|l| l as usize),
-            return_total,
         )
     }
 
@@ -827,18 +948,20 @@ impl StateMachineStore {
 
     pub fn get_extraction_graphs(
         &self,
-        extraction_graph_ids: &Vec<String>,
+        extraction_graph_ids: &[impl AsRef<str>],
     ) -> Result<Vec<Option<ExtractionGraph>>> {
+        let db = self.db.read().unwrap();
+        let txn = db.transaction();
         self.data
             .indexify_state
-            .get_extraction_graphs(extraction_graph_ids, &self.db.read().unwrap())
+            .get_extraction_graphs(extraction_graph_ids, &db, &txn)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
     pub fn get_extraction_graphs_by_name(
         &self,
         namespace: &str,
-        graph_names: &[String],
+        graph_names: &[impl AsRef<str>],
     ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.data
             .indexify_state
@@ -890,10 +1013,6 @@ impl StateMachineStore {
             res.entry(content.namespace).or_default().insert(content.id);
         }
         Ok(res)
-    }
-
-    pub async fn get_extraction_policies_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.data.indexify_state.get_extraction_policies_table()
     }
 
     pub async fn get_extractor_executors_table(
@@ -961,7 +1080,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
             StorageIOError::write_snapshot(None, anyhow!("failed to create checkpoint: {}", e))
         })?;
         let snapshot_tmp_id = format!("{}.tmp", snapshot_id);
-        let snapshot_tmp_dir = self.db_path.join(&snapshot_tmp_id);
+        let snapshot_tmp_dir = self.db_path.join(snapshot_tmp_id);
         checkpoint
             .create_checkpoint(&snapshot_tmp_dir)
             .map_err(|e| {
@@ -1164,11 +1283,11 @@ fn bin_to_id(buf: &[u8]) -> u64 {
     (&buf[0..8]).read_u64::<BigEndian>().unwrap()
 }
 
-fn store_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+fn store_column(db: &OptimisticTransactionDB) -> &ColumnFamily {
     db.cf_handle("store").unwrap()
 }
 
-fn logs_column<'a>(db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+fn logs_column(db: &OptimisticTransactionDB) -> &ColumnFamily {
     db.cf_handle(LOG_STORE_LOGS_COLUMN).unwrap()
 }
 
@@ -1186,7 +1305,7 @@ impl LogStore {
 
     fn get_last_purged_(&self, db: &OptimisticTransactionDB) -> StorageResult<Option<LogId<u64>>> {
         Ok(db
-            .get_cf(store_column(&db), b"last_purged_log_id")
+            .get_cf(store_column(db), b"last_purged_log_id")
             .map_err(|e| StorageIOError::read(&e))?
             .and_then(|v| JsonEncoder::decode(&v).ok()))
     }
@@ -1478,7 +1597,8 @@ fn apply_v1_snapshot(
     }
     for (task_id, task) in &snapshot.tasks {
         let cf = StateMachineColumns::Tasks.cf(db);
-        let task: Task = task.clone().into();
+        let task = compat::convert_v1_task(task.clone(), db)
+            .map_err(|e| StorageIOError::read_snapshot(None, e))?;
         put_cf(&txn, cf, task_id, &task)?;
     }
     for (gc_task_id, gc_task) in &snapshot.gc_tasks {
@@ -1509,7 +1629,7 @@ fn apply_v1_snapshot(
     }
     for namespace in &snapshot.namespaces {
         let cf = StateMachineColumns::Namespaces.cf(db);
-        put_cf(&txn, cf, &namespace, &namespace)?;
+        put_cf(&txn, cf, namespace, &namespace)?;
     }
     for (index_name, index) in &snapshot.index_table {
         let cf = StateMachineColumns::IndexTable.cf(db);
@@ -1524,7 +1644,8 @@ fn apply_v1_snapshot(
         put_cf(&txn, cf, &node_id.to_string(), &addr)?;
     }
     txn.commit()
-        .map_err(|e| StorageIOError::write_state_machine(&e).into())
+        .map_err(|e| StorageIOError::write_state_machine(&e))?;
+    init_task_analytics(db)
 }
 
 // Convert the v1 store to the new store.
@@ -1563,7 +1684,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
         let entry: Entry<V1TypeConfig> = JsonEncoder::decode(&value).unwrap();
 
         if let EntryPayload::Normal(req) = entry.payload {
-            let log = convert_v1_log(req);
+            let log = convert_v1_log(req, &v1_db).map_err(|e| StorageIOError::read_logs(e))?;
             let updated_entry: typ::Entry = Entry {
                 log_id: entry.log_id,
                 payload: EntryPayload::Normal(log),
@@ -1595,7 +1716,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
                 .put_cf(
                     StateMachineColumns::RaftState.cf(&new_db),
                     LAST_APPLIED_LOG_ID_KEY,
-                    &applied_data,
+                    applied_data,
                 )
                 .unwrap();
         }
@@ -1605,7 +1726,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
             .put_cf(
                 StateMachineColumns::RaftState.cf(&new_db),
                 LAST_MEMBERSHIP_KEY,
-                &membership_data,
+                membership_data,
             )
             .unwrap();
 
@@ -1617,14 +1738,17 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
         .put_cf(
             StateMachineColumns::RaftState.cf(&new_db),
             STORE_VERSION,
-            &CURRENT_STORE_VERSION.to_be_bytes(),
+            CURRENT_STORE_VERSION.to_be_bytes(),
         )
         .unwrap();
     fs::remove_dir_all(&v1_db_path).unwrap();
     Ok(())
 }
 
-fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest {
+fn convert_v1_log(
+    log: V1StateMachineUpdateRequest,
+    db: &OptimisticTransactionDB,
+) -> Result<StateMachineUpdateRequest, anyhow::Error> {
     let payload = match log.payload {
         V1RequestPayload::JoinCluster {
             node_id,
@@ -1651,8 +1775,11 @@ fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest
         }
         V1RequestPayload::CreateNamespace { name } => RequestPayload::CreateNamespace { name },
         V1RequestPayload::CreateTasks { tasks } => {
-            let tasks: Vec<Task> = tasks.into_iter().map(|t| t.into()).collect();
-            RequestPayload::CreateTasks { tasks }
+            let tasks: Result<Vec<Task>, _> = tasks
+                .into_iter()
+                .map(|t| compat::convert_v1_task(t, db))
+                .collect();
+            RequestPayload::CreateTasks { tasks: tasks? }
         }
         V1RequestPayload::AssignTask { assignments } => RequestPayload::AssignTask { assignments },
         V1RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
@@ -1692,24 +1819,21 @@ fn convert_v1_log(log: V1StateMachineUpdateRequest) -> StateMachineUpdateRequest
             task,
             executor_id,
             update_time,
-        } => {
-            let task: Task = task.into();
-            RequestPayload::UpdateTask {
-                task,
-                executor_id,
-                update_time,
-            }
-        }
+        } => RequestPayload::UpdateTask {
+            task: compat::convert_v1_task(task, db)?,
+            executor_id,
+            update_time,
+        },
         V1RequestPayload::MarkStateChangesProcessed { state_changes } => {
             RequestPayload::MarkStateChangesProcessed { state_changes }
         }
     };
 
-    StateMachineUpdateRequest {
+    Ok(StateMachineUpdateRequest {
         payload,
         new_state_changes: log.new_state_changes,
         state_changes_processed: log.state_changes_processed,
-    }
+    })
 }
 
 pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<StateMachineStore>) {
@@ -1795,7 +1919,7 @@ mod tests {
         assert_eq!(value.len(), 1);
 
         let contents = new_node
-            .list_content(|c| c.namespace == namespace, None, None, false)
+            .list_content(|c| c.namespace == namespace, None, None)
             .await?
             .items;
         assert_eq!(contents.len(), 1);

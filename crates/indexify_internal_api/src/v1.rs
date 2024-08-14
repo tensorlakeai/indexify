@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -83,6 +83,7 @@ pub struct ContentMetadata {
     pub hash: String,
     pub extraction_policy_ids: HashMap<super::ExtractionPolicyId, u64>,
     pub extraction_graph_names: Vec<super::ExtractionGraphName>,
+    pub extracted_metadata: serde_json::Value,
 }
 
 impl From<ContentMetadata> for super::ContentMetadata {
@@ -108,6 +109,8 @@ impl From<ContentMetadata> for super::ContentMetadata {
             tombstoned: metadata.tombstoned,
             hash: metadata.hash,
             content_type: metadata.content_type,
+            change_offset: super::ContentOffset(0),
+            extracted_metadata: metadata.extracted_metadata,
         }
     }
 }
@@ -124,24 +127,6 @@ pub struct Task {
     pub input_params: serde_json::Value,
     pub outcome: crate::TaskOutcome,
     pub index_tables: Vec<String>,
-}
-
-impl From<Task> for super::Task {
-    fn from(task: Task) -> Self {
-        super::Task {
-            content_metadata: task.content_metadata.clone().into(),
-            id: task.id,
-            extractor: task.extractor,
-            extraction_policy_id: task.extraction_policy_id,
-            extraction_graph_name: task.extraction_graph_name,
-            output_index_table_mapping: task.output_index_table_mapping,
-            namespace: task.namespace,
-            input_params: task.input_params,
-            outcome: task.outcome,
-            index_tables: task.index_tables,
-            creation_time: SystemTime::UNIX_EPOCH,
-        }
-    }
 }
 
 fn from_str_to_json(value: &str) -> serde_json::Value {

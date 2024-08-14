@@ -1,0 +1,4 @@
+name: 'audio_diarization'
+extraction_policies:
+- extractor: 'tensorlake/asrdiarization'
+  name: 'speaker_diarization'

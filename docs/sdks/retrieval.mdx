@@ -1,0 +1,52 @@
+---
+title: 'Retrieval APIs'
+---
+
+Retrieval APIs allow querying the indexes, derived from the content added. Currently there are two types of indexes supported:
+
+- Vector Indexes for Semantic Search 
+- Content Attribute Indexes
+
+## Vector Indexes
+
+Vector Indexes are created by running embedding models on content. They allow doing semantic search on the indexes. The search results contain the chunks of text which matched the query and their corresponding scores.
+
+The following example searches for the index `embeddings` for the query `good` and returns the top `k` results.
+
+<CodeGroup>
+      ```python Python
+      client.search_index("minilml6.embedding", "good", 3)
+      ```
+      ```typescript Typescript
+      await client.searchIndex("minilml6.embedding", "good", 3);
+      ```
+</CodeGroup>
+      
+
+#### Output
+
+```json JSON
+{
+"results":[{
+      "text":"Indexify is amazing!",
+      "metadata":{
+            "key":"k1"
+            }
+      }
+]}
+```
+
+## Metadata Indexes
+Metadata Indexes are created by extractors powered by AI Models which produced structured data. The output of such extractors are JSON documents and stored in a document store. 
+
+The schema of such indexes are defined by the extractors. The retrieval API for metadata indexes allows querying all the metadata in the index or the ones of a specific content id. 
+
+In the future we will add support for searching these indexes as well using sparse vectors, or add them to knowledge graphs.
+
+The following example queries the index `entities` and returns the metadata for the content id `foo`.
+
+<CodeGroup>
+      ```python Python
+      client.query_metadata(index_name="entities", content_id="foo")
+      ```
+</CodeGroup>

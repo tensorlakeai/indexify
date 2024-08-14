@@ -1,0 +1,4 @@
+name: 'presentation_extraction'
+extraction_policies:
+- extractor: 'tensorlake/ppt'
+  name: 'ppt_extraction'

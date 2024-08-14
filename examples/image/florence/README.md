@@ -105,19 +105,19 @@ def analyze_image(image_path):
     
     # Retrieve the analysis results
     detailed_caption = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="florence_image_analyzer",
         policy_name="detailed_caption"
     )
     
     object_detection = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="florence_image_analyzer",
         policy_name="object_detection"
     )
     
     referring_expression = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="florence_image_analyzer",
         policy_name="referring_expression_segmentation"
     )
@@ -163,11 +163,11 @@ image = Image.open(requests.get(image_url, stream=True).raw)
 ```python
 plot_bbox(image, objects[0]['content'].decode('utf-8'), output_filename=f'bbox_output_{i}.png')
 ```
-![](https://docs.getindexify.ai/example_code/image/florence/detect.png)
+![](https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/image/florence/detect.png)
 ```python
 draw_polygons(image, segmentation[0]['content'].decode('utf-8'), fill_mask=True, output_filename=f'polygon_output_{i}.png')
 ```
-![](https://docs.getindexify.ai/example_code/image/florence/segment.png)
+![](https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/image/florence/segment.png)
 
 ## Customization and Advanced Usage
 

@@ -47,11 +47,14 @@ Before we begin, ensure you have the following:
    python table_pipeline.py
    ```
 
-2. Then, run the [`upload_and_retrieve.py`](upload_and_retreive.py) script to process a PDF and extract tables:
+2. Then, run the [`upload_and_retrieve.py`](upload_and_retrieve.py) script to process a PDF and extract tables:
    ```bash
    python upload_and_retreive.py
    ```
-   <img src="https://docs.getindexify.ai/example_code/pdf/table_extraction/carbon.png" width="600"/>
+   Sample Page to extract table from:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/table_extraction/screenshot.png" width="600"/>
+   Sample Table extracted from page:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/table_extraction/carbon.png" width="600"/>
 
    This script will:
    - Download a sample PDF from arXiv

@@ -64,3 +64,11 @@ export interface ITaskContentMetadata {
   hash: string;
   extraction_policy_ids: Record<string, number>;
 }
+
+export interface Row {
+    id: number;
+    name: string;
+    extractor: string;
+    inputTypes: string[];
+    inputParameters: string;
+}

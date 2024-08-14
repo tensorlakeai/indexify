@@ -6,6 +6,7 @@ use std::{
 use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
+    ExtractionGraph,
     GarbageCollectionTask,
     ServerTaskType,
 };
@@ -68,6 +69,26 @@ impl GarbageCollector {
                 task.assigned_to = self.choose_server().await;
             }
         }
+    }
+
+    pub async fn create_delete_index_task(&self, graph: &ExtractionGraph) -> GarbageCollectionTask {
+        let output_tables: HashSet<_> = graph
+            .extraction_policies
+            .iter()
+            .map(|p| p.output_table_mapping.values())
+            .flatten()
+            .cloned()
+            .collect();
+        let mut gc_task = GarbageCollectionTask::new(
+            &graph.namespace,
+            ContentMetadata::default(),
+            output_tables,
+            ServerTaskType::DropIndexes,
+        );
+        gc_task.assigned_to = self.choose_server().await;
+        let mut tasks_guard = self.gc_tasks.write().await;
+        tasks_guard.insert(gc_task.id.clone(), gc_task.clone());
+        gc_task
     }
 
     pub async fn create_gc_tasks(

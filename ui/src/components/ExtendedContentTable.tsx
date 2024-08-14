@@ -85,7 +85,6 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
   const [pageHistory, setPageHistory] = useState<{id: string, content: IContentMetadata[]}[]>([]);
   const [isLastPage, setIsLastPage] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [allExtractionGraphs, setAllExtractionGraphs] = useState<ExtractionGraph[]>([]);
 
   const loadContentList = async (startId?: string) => {
     setIsLoading(true);
@@ -95,8 +94,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
         extractionGraph: extractionGraph.name,
         limit: rowsPerPage + 1,
         startId: startId,
-        source: tabValue === "ingested" ? "ingestion" : undefined,
-        returnTotal: true
+        source: tabValue === "ingested" ? "ingestion" : undefined
       });
       
       if (result.contentList.length <= rowsPerPage) {
@@ -195,20 +193,6 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
     }
   };
 
-  useEffect(() => {
-    const fetchExtractionGraphs = async () => {
-      try {
-        const graphs = await client.getExtractionGraphs();
-        setAllExtractionGraphs(graphs);
-      } catch (error) {
-        console.error("Error fetching extraction graphs:", error);
-        setAllExtractionGraphs([]);
-      }
-    };
-
-    fetchExtractionGraphs();
-  }, [client]);
-
   const handleDelete = async (contentId: string) => {
     try {
       await client.deleteContent(namespace, contentId);
@@ -259,7 +243,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
           </StyledToggleButton>
         </StyledToggleButtonGroup>
         </Box>
-        <UploadButton client={client} extractionGraphs={allExtractionGraphs} />
+        <UploadButton client={client} extractionGraph={extractionGraph.name} />
       </Box>
 
       {tabValue === "search" && (
@@ -311,7 +295,7 @@ const ExtendedContentTable: React.FC<ExtendedContentTableProps> = ({ client, ext
                   </MuiTableCell>
                   <MuiTableCell>{row.mime_type}</MuiTableCell>
                   {tabValue !== "ingested" && (
-                    <MuiTableCell>{row.source}</MuiTableCell>
+                    <MuiTableCell>{row.source ? row.source : "Ingestion"}</MuiTableCell>
                   )}
                   {tabValue !== "ingested" && (
                     <MuiTableCell>{row.parent_id}</MuiTableCell>

@@ -1,0 +1,2059 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Indexify API",
+    "description": "API for content extraction, indexing, and retrieval using Indexify",
+    "contact": {
+      "name": "Diptanu Gon Choudhury",
+      "email": "diptanu@tensorlake.ai"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+    },
+    "version": "0.1.19"
+  },
+  "servers": [
+    {
+      "url": "https://indexify-server.api.tensorlake.ai/",
+      "description": "Production Server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "operations",
+      "description": "General operations"
+    },
+    {
+      "name": "ingestion",
+      "description": "Content ingestion and extraction graph management"
+    },
+    {
+      "name": "retrieval",
+      "description": "Content retrieval and search operations"
+    }
+  ],
+  "paths": {
+    "/executors": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "List Executors",
+        "operationId": "listExecutors",
+        "responses": {
+          "200": {
+            "description": "List of currently running executors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExecutorsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to load executors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/extractors": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "List Extractors",
+        "operationId": "listExtractors",
+        "responses": {
+          "200": {
+            "description": "List of extractors available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExtractorsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to retrieve extractors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespace/{namespace}/extraction_graphs": {
+      "post": {
+        "tags": ["ingestion"],
+        "summary": "Create Extraction Graph",
+        "operationId": "createExtractionGraph",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace to create the extraction graph in"
+          }
+        ],
+        "requestBody": {
+          "description": "Definition of extraction graph to create",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionGraphRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Extraction graph added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionGraphResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to add extraction graph to namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespace/{namespace}/extraction_graphs/{graph}/links": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "List Extraction Graph Links",
+        "operationId": "getExtractionGraphLinks",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the extraction graph"
+          },
+          {
+            "name": "graph",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the extraction graph"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List Extraction Graph links",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExtractionGraphLink"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to list links",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["operations"],
+        "summary": "Create Extraction Graph Link",
+        "operationId": "linkExtractionGraphs",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the extraction graph"
+          },
+          {
+            "name": "graph",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the extraction graph"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionGraphLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Extraction graphs linked successfully"
+          },
+          "500": {
+            "description": "Unable to link extraction graphs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "List Namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "List of Data Namespaces registered on the server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListNamespacesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to sync namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["operations"],
+        "summary": "Create Namespace",
+        "operationId": "createNamespace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataNamespace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Namespace created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataNamespace"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to create namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content/{content_id}/extraction_policies/{extraction_policy}": {
+      "get": {
+        "tags": ["retrieval"],
+        "summary": "List Extracted Content Metadata",
+        "operationId": "getContentTreeMetadata",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the content"
+          },
+          {
+            "name": "extraction_graph",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the extraction graph"
+          },
+          {
+            "name": "content_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Ingested Content ID"
+          },
+          {
+            "name": "extraction_policy",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the extraction policy"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gets a content tree rooted at a specific content id in the namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentTreeMetadata"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to read content tree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/content/{content_id}": {
+      "put": {
+        "tags": ["ingestion"],
+        "summary": "Update content",
+        "description": "Update a content. All the extraction graphs associated with the content will be run if the content has changed.",
+        "operationId": "updateContent",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the content"
+          },
+          {
+            "name": "content_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the content to update"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updates a specified piece of content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateContentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to find a piece of content to update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["ingestion"],
+        "summary": "Delete content",
+        "description": "Deletes the content with a given id and also all the extracted content by extraction graphs.",
+        "operationId": "deleteContent",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Namespace of the content",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content_id",
+            "in": "path",
+            "description": "ID of the content to delete",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deletes specified pieces of content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["deleted"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to find a piece of content to delete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/content/{content_id}/download": {
+      "get": {
+        "tags": ["retrieval"],
+        "summary": "Download Content by Id",
+        "operationId": "downloadContent",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the content"
+          },
+          {
+            "name": "content_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the content to download"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Downloads the bytes of the content",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to read content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/content/{content_id}/metadata": {
+      "get": {
+        "tags": ["retrieval"],
+        "summary": "Get Content Metadata by Id",
+        "operationId": "getContentMetadata",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the content"
+          },
+          {
+            "name": "content_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the content"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reads a specific content in the namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetContentMetadataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to read content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/extraction_graphs": {
+      "get": {
+        "tags": ["ingestion"],
+        "summary": "List Extraction Graphs",
+        "operationId": "listExtractionGraphs",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace to list extraction graphs from"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of Extraction Graphs registered on the server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExtractionGraphResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to list extraction graphs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/analytics": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "Get Analytics for an extraction graph",
+        "operationId": "extraction_graph_analytics",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Namespace of the content",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "extraction_graph",
+            "in": "path",
+            "description": "Extraction graph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Return Analytics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionGraphAnalytics"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to list tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content": {
+      "get": {
+        "tags": ["retrieval"],
+        "summary": "List Ingested Content",
+        "operationId": "listContent",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Namespace of the content",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "extraction_graph",
+            "in": "path",
+            "description": "Extraction graph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Filter by source, either extraction policy name or 'ingestion' for top level content",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent_id",
+            "in": "query",
+            "description": "Filter by parent ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "labels_filter",
+            "in": "query",
+            "description": "Filter by labels. Filter expression is the name of the label, comparison operator, and desired value, e.g. &labels_filter=key>=value. Multiple expressions can be specified as separate query parameters.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "start_id",
+            "in": "query",
+            "description": "Pagination start ID. Omit to start from beginning. To continue iteration, specify id of the last content in the previous response",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of items to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "return_total",
+            "in": "query",
+            "description": "Whether to return total count",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lists the contents in the namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListContentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to list contents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract": {
+      "post": {
+        "tags": ["ingestion"],
+        "summary": "Upload Files",
+        "operationId": "uploadFile",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Namespace of the content",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "extraction_graph",
+            "in": "path",
+            "description": "Extraction graph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "description": "ID of content to create, if not provided a random id will be generated",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "labels": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Uploads a file to the namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadFileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unable to upload file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extraction_policies/{extraction_policy}/tasks": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "List Tasks",
+        "operationId": "listTasks",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Namespace of the content",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "extraction_graph",
+            "in": "path",
+            "description": "Extraction graph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "extraction_policy",
+            "in": "path",
+            "description": "Extraction policy name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content_id",
+            "in": "query",
+            "description": "Filter by content ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "description": "Filter by task outcome",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskOutcomeFilter"
+            }
+          },
+          {
+            "name": "start_id",
+            "in": "query",
+            "description": "Pagination start ID. Omit to start from beginning. To continue iteration, specify id of the last task in the previous response",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of items to return",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "return_total",
+            "in": "query",
+            "description": "Whether to return total count",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lists tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTasksResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to list tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/indexes": {
+      "get": {
+        "tags": ["retrieval"],
+        "summary": "List Indexes",
+        "operationId": "listIndexes",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace to list indexes from"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of indexes in a namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListIndexesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to list indexes in namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace}/indexes/{index}/search": {
+      "post": {
+        "tags": ["retrieval"],
+        "summary": "Search Vector Index",
+        "operationId": "indexSearch",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Namespace of the index"
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the index to search"
+          }
+        ],
+        "requestBody": {
+          "description": "Search parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Index search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexSearchResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to search index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/state_changes": {
+      "get": {
+        "tags": ["operations"],
+        "summary": "List System Events",
+        "operationId": "listStateChanges",
+        "responses": {
+          "200": {
+            "description": "List of state changes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateChangesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unable to list state changes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ContentTreeMetadata": {
+        "type": "object",
+        "required": ["content_metadata", "children"],
+        "properties": {
+            "content_metadata": {
+            "$ref": "#/components/schemas/ContentMetadata",
+            "description": "Metadata of the current content"
+            },
+            "children": {
+            "type": "array",
+            "items": {
+                "$ref": "#/components/schemas/ContentTreeMetadata"
+            },
+            "description": "List of child content tree metadata"
+            }
+        },
+        "description": "Represents a tree structure of content metadata"
+        },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          }
+        }
+      },
+      "Content": {
+        "type": "object",
+        "required": ["content_type", "bytes", "features", "labels"],
+        "properties": {
+          "bytes": {
+            "type": "string",
+            "format": "binary"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Feature"
+            }
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ContentMetadata": {
+        "type": "object",
+        "required": [
+          "id",
+          "parent_id",
+          "root_content_id",
+          "namespace",
+          "name",
+          "mime_type",
+          "labels",
+          "extraction_graph_names",
+          "storage_url",
+          "created_at",
+          "source",
+          "size",
+          "hash"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier of the content"
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "ID of the parent content"
+          },
+          "root_content_id": {
+            "type": "string",
+            "description": "ID of the root content"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace of the content"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the content"
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type of the content"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Custom labels associated with the content"
+          },
+          "extraction_graph_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of extraction graphs associated with this content"
+          },
+          "storage_url": {
+            "type": "string",
+            "description": "URL where the content is stored"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Timestamp of content creation"
+          },
+          "source": {
+            "type": "string",
+            "description": "Source of the content"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Size of the content in bytes"
+          },
+          "hash": {
+            "type": "string",
+            "description": "Hash of the content"
+          }
+        }
+      },
+      "DataNamespace": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the namespace"
+          }
+        }
+      },
+      "DocumentFragment": {
+        "type": "object",
+        "required": [
+          "content_id",
+          "text",
+          "mime_type",
+          "confidence_score",
+          "labels",
+          "content_metadata"
+        ],
+        "properties": {
+          "content_id": {
+            "type": "string",
+            "description": "ID of the content"
+          },
+          "text": {
+            "type": "string",
+            "description": "Extracted text from the content"
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type of the content"
+          },
+          "confidence_score": {
+            "type": "number",
+            "format": "float",
+            "description": "Confidence score of the extraction"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Custom labels associated with the content"
+          },
+          "content_metadata": {
+            "$ref": "#/components/schemas/ContentMetadata"
+          },
+          "root_content_metadata": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ContentMetadata"
+              }
+            ],
+            "nullable": true,
+            "description": "Metadata of the root content, if applicable"
+          }
+        }
+      },
+      "EmbeddingSchema": {
+        "type": "object",
+        "required": ["dim", "distance"],
+        "properties": {
+          "dim": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Dimension of the embedding"
+          },
+          "distance": {
+            "$ref": "#/components/schemas/IndexDistance"
+          }
+        }
+      },
+      "Executor": {
+        "type": "object",
+        "required": ["id", "extractors"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier of the executor"
+          },
+          "extractors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractorDescription"
+            },
+            "description": "List of extractors associated with this executor"
+          }
+        }
+      },
+      "ExtractRequest": {
+        "type": "object",
+        "required": ["name", "content"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the extraction process"
+          },
+          "content": {
+            "$ref": "#/components/schemas/Content"
+          },
+          "input_params": {
+            "type": "object",
+            "nullable": true,
+            "description": "Additional input parameters for the extraction process"
+          }
+        }
+      },
+      "ExtractResponse": {
+        "type": "object",
+        "required": ["content", "features"],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Content"
+            },
+            "description": "Extracted content"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Feature"
+            },
+            "description": "Extracted features"
+          }
+        }
+      },
+      "ExtractedMetadata": {
+        "type": "object",
+        "required": ["id", "content_id", "metadata", "extractor_name"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier of the extracted metadata"
+          },
+          "content_id": {
+            "type": "string",
+            "description": "ID of the content this metadata belongs to"
+          },
+          "extractor_name": {
+            "type": "string",
+            "description": "Name of the extractor used"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Extracted metadata"
+          }
+        }
+      },
+      "ExtractionGraph": {
+        "type": "object",
+        "required": ["id", "name", "extraction_policies"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier of the extraction graph"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the extraction graph"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "Description of the extraction graph"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace the extraction graph belongs to"
+          },
+          "extraction_policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionPolicy"
+            },
+            "description": "List of extraction policies in this graph"
+          }
+        }
+      },
+      "ExtractionGraphAnalytics": {
+        "type": "object",
+        "required": ["task_analytics"],
+        "properties": {
+          "task_analytics": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TaskAnalytics"
+            }
+          }
+        }
+      },
+      "ExtractionGraphLink": {
+        "type": "object",
+        "required": ["content_source", "linked_graph_name"],
+        "properties": {
+          "content_source": {
+            "type": "string",
+            "description": "Source of the content for the link"
+          },
+          "linked_graph_name": {
+            "type": "string",
+            "description": "Name of the linked extraction graph"
+          }
+        }
+      },
+      "ExtractionGraphRequest": {
+        "type": "object",
+        "required": ["name", "extraction_policies"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the extraction graph"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "Description of the extraction graph"
+          },
+          "extraction_policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionPolicyRequest"
+            },
+            "description": "List of extraction policies to be included in the graph"
+          }
+        }
+      },
+      "ExtractionGraphResponse": {
+        "type": "object",
+        "required": ["indexes"],
+        "properties": {
+          "indexes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of index names created for the extraction graph"
+          }
+        }
+      },
+      "ExtractionPolicy": {
+        "type": "object",
+        "required": ["id", "extractor", "name", "graph_name"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier of the extraction policy"
+          },
+          "extractor": {
+            "type": "string",
+            "description": "Name of the extractor to use"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the extraction policy"
+          },
+          "graph_name": {
+            "type": "string",
+            "description": "Name of the extraction graph this policy belongs to"
+          },
+          "content_source": {
+            "type": "string",
+            "nullable": true,
+            "description": "Source of the content for this policy"
+          },
+          "filter": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Filter expression in format key/operator/value, e.g. key>=value"
+            },
+            "description": "Filter for content labels"
+          },
+          "input_params": {
+            "type": "object",
+            "nullable": true,
+            "description": "Additional input parameters for the extractor"
+          }
+        }
+      },
+      "ExtractionPolicyRequest": {
+        "type": "object",
+        "description": "Request payload for creating a new extraction policy",
+        "required": ["extractor", "name"],
+        "properties": {
+          "extractor": {
+            "type": "string",
+            "description": "Name of the extractor to use"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the extraction policy"
+          },
+          "content_source": {
+            "type": "string",
+            "nullable": true,
+            "description": "Source of the content for this policy"
+          },
+          "filter": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Filter expression in format key/operator/value, e.g. key>=value"
+            },
+            "description": "Filter for content labels"
+          },
+          "input_params": {
+            "type": "object",
+            "nullable": true,
+            "description": "Additional input parameters for the extractor"
+          }
+        }
+      },
+      "ExtractionPolicyResponse": {
+        "type": "object",
+        "properties": {
+          "index_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of index names created for the extraction policy"
+          }
+        }
+      },
+      "ExtractorDescription": {
+        "type": "object",
+        "required": ["name", "input_mime_types", "description", "input_params", "outputs"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the extractor"
+          },
+          "input_mime_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of input MIME types supported by the extractor"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the extractor"
+          },
+          "input_params": {
+            "type": "object",
+            "description": "Input parameters required by the extractor"
+          },
+          "outputs": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExtractorOutputSchema"
+            },
+            "description": "Output schema of the extractor"
+          }
+        }
+      },
+      "ExtractorOutputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["embedding"],
+            "properties": {
+              "embedding": {
+                "$ref": "#/components/schemas/EmbeddingSchema"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["metadata"],
+            "properties": {
+              "metadata": {
+                "type": "object",
+                "description": "Metadata schema"
+              }
+            }
+          }
+        ]
+      },
+      "Feature": {
+        "type": "object",
+        "required": ["feature_type", "name", "data"],
+        "properties": {
+          "feature_type": {
+            "$ref": "#/components/schemas/FeatureType"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the feature"
+          },
+          "data": {
+            "type": "object",
+            "description": "Feature data"
+          }
+        }
+      },
+      "FeatureType": {
+        "type": "string",
+        "enum": ["embedding", "metadata", "unknown"],
+        "description": "Type of the feature"
+      },
+      "GetContentMetadataResponse": {
+        "type": "object",
+        "required": ["content_metadata"],
+        "properties": {
+          "content_metadata": {
+            "$ref": "#/components/schemas/ContentMetadata"
+          }
+        }
+      },
+      "GetNamespaceResponse": {
+        "type": "object",
+        "required": ["namespace"],
+        "properties": {
+          "namespace": {
+            "$ref": "#/components/schemas/DataNamespace"
+          }
+        }
+      },
+      "Index": {
+        "type": "object",
+        "required": ["name", "embedding_schema"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the index"
+          },
+          "embedding_schema": {
+            "$ref": "#/components/schemas/EmbeddingSchema"
+          }
+        }
+      },
+      "IndexDistance": {
+        "type": "string",
+        "enum": ["dot", "cosine", "euclidean"],
+        "description": "Distance metric used in the index"
+      },
+      "IndexSearchResponse": {
+        "type": "object",
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentFragment"
+            },
+            "description": "Search results"
+          }
+        }
+      },
+      "ListContentResponse": {
+        "type": "object",
+        "required": ["content_list", "total"],
+        "properties": {
+          "content_list": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentMetadata"
+            },
+            "description": "List of content metadata"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Total number of content items"
+          }
+        }
+      },
+      "ListExecutorsResponse": {
+        "type": "object",
+        "required": ["executors"],
+        "properties": {
+          "executors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Executor"
+            },
+            "description": "List of executors"
+          }
+        }
+      },
+      "ListExtractionGraphResponse": {
+        "type": "object",
+        "required": ["extraction_graphs"],
+        "properties": {
+          "extraction_graphs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionGraph"
+            },
+            "description": "List of extraction graphs"
+          }
+        }
+      },
+      "ListExtractorsResponse": {
+        "type": "object",
+        "required": ["extractors"],
+        "properties": {
+          "extractors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractorDescription"
+            },
+            "description": "List of extractor descriptions"
+          }
+        }
+      },
+      "ListIndexesResponse": {
+        "type": "object",
+        "required": ["indexes"],
+        "properties": {
+          "indexes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Index"
+            },
+            "description": "List of indexes"
+          }
+        }
+      },
+      "ListNamespacesResponse": {
+        "type": "object",
+        "required": ["namespaces"],
+        "properties": {
+          "namespaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataNamespace"
+            },
+            "description": "List of namespaces"
+          }
+        }
+      },
+      "ListTasks": {
+        "type": "object",
+        "properties": {
+          "content_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Filter tasks by content ID"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "minimum": 0,
+            "description": "Maximum number of tasks to return"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TaskOutcomeFilter",
+            "description": "Filter tasks by outcome"
+          },
+          "return_total": {
+            "type": "boolean",
+            "description": "Whether to return the total count of tasks"
+          },
+          "start_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Starting ID for pagination"
+          }
+        }
+      },
+      "TaskOutcomeFilter": {
+        "type": "string",
+        "enum": ["pending", "success", "failure", "all"],
+        "description": "Filter for task outcomes"
+      },
+      "ListTasksResponse": {
+        "type": "object",
+        "required": ["tasks", "total"],
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "description": "List of tasks"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Total number of tasks"
+          }
+        }
+      },
+      "MetadataResponse": {
+        "type": "object",
+        "required": ["metadata"],
+        "properties": {
+          "metadata": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractedMetadata"
+            },
+            "description": "List of extracted metadata"
+          }
+        }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Filter expression in format key/operator/value, e.g. key>=value"
+            },
+            "description": "Filter for content labels"
+          },
+          "include_content": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Whether to include full content in the response"
+          },
+          "k": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "minimum": 0,
+            "description": "Number of results to return"
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "required": [
+          "id",
+          "extractor",
+          "extraction_policy_id",
+          "output_index_table_mapping",
+          "namespace",
+          "content_metadata",
+          "input_params",
+          "outcome",
+          "index_tables"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier of the task"
+          },
+          "extractor": {
+            "type": "string",
+            "description": "Name of the extractor used"
+          },
+          "extraction_policy_id": {
+            "type": "string",
+            "description": "ID of the extraction policy"
+          },
+          "output_index_table_mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Mapping of output to index tables"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace of the task"
+          },
+          "content_metadata": {
+            "$ref": "#/components/schemas/ContentMetadata"
+          },
+          "input_params": {
+            "type": "object",
+            "description": "Input parameters for the task"
+          },
+          "outcome": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Outcome of the task"
+          },
+          "index_tables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of index tables associated with the task"
+          }
+        }
+      },
+      "TaskAnalytics": {
+        "type": "object",
+        "required": [
+          "pending",
+          "success",
+          "failure"
+        ],
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Number of pending tasks"
+          },
+          "success": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Number of successful tasks"
+          },
+          "failure": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Number of failed tasks"
+          }
+        }
+      },
+      "Text": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Unique identifier of the text"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Custom labels associated with the text"
+          },
+          "text": {
+            "type": "string",
+            "description": "The actual text content"
+          }
+        }
+      },
+      "TextAddRequest": {
+        "type": "object",
+        "required": ["documents", "extraction_graph_names"],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Text"
+            },
+            "description": "List of text documents to add"
+          },
+          "extraction_graph_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Names of extraction graphs to apply"
+          },
+          "sync": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Whether to perform the operation synchronously"
+          }
+        }
+      },
+      "TextAdditionResponse": {
+        "type": "object",
+        "required": ["content_ids"],
+        "properties": {
+          "content_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of content IDs for the added texts"
+          }
+        }
+      },
+      "UpdateContentResponse": {
+        "type": "object",
+        "required": ["content_id", "status"],
+        "properties": {
+          "content_id": {
+            "type": "string",
+            "description": "ID of the updated content"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["updated", "no_change"],
+            "description": "Status of the update operation"
+          }
+        }
+      },
+      "UploadFileResponse": {
+        "type": "object",
+        "required": ["content_id"],
+        "properties": {
+          "content_id": {
+            "type": "string",
+            "description": "ID of the uploaded content"
+          }
+        }
+      },
+      "StateChangesResponse": {
+        "type": "object",
+        "required": ["changes"],
+        "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "State change entry"
+            },
+            "description": "List of state changes"
+          }
+        }
+      }
+    }
+  }
+}

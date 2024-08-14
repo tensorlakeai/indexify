@@ -1,0 +1,408 @@
+---
+title: 'Intermediate'
+---
+
+## Parsing complex PDF Documents
+
+What if one could go through a 26-page complex tax document and understand it without a lawyer, an accountant, or the geek from college? What if 5 easy-to-follow steps were all you need to do reliable QnA on a complex and layered document like a tax invoice?
+Indexify enables you to do just that.
+
+
+![indexify-header-intermediate](https://github.com/user-attachments/assets/ae0c2dfe-b144-41f4-ba87-0795bef538ec)
+
+In this example, we will make an LLM (Large Language Model) answer how much someone would be paying in taxes in California, based on their income. We will ingest and extract information from a PDF containing CA tax laws, the LLM will refer to the extracted data for response synthesis.
+![LLM Getting Started Image](https://github.com/user-attachments/assets/79839395-3a42-49a7-86a6-1bc9c4e407f9)
+
+<Info>
+**Supported OS**:  
+Mac OS(M series).  
+Linux: Ubuntu 20.04 and above, Red Hat 9 and above.  
+Windows: Use WSL, but we don't actively test.
+</Info>
+
+## Prerequisites
+Before we begin, ensure you have the following:
+
+- Python 3.11 or older installed (Indexify currently requires this version)
+- Basic familiarity with Python or TypeScript programming
+- An OpenAI API key (for using GPT models)
+- Command-line interface experience
+
+## Setup
+
+You'll need three separate terminal windows open for this tutorial:
+
+1. Terminal 1: For downloading and running the Indexify Server
+2. Terminal 2: For running Indexify extractors (handling structured extraction, chunking, and embedding)
+3. Terminal 3: For running Python scripts to load and query data from the Indexify server
+
+We'll use the following notation to indicate which terminal to use:
+
+```bash Terminal X - Description of Command
+<command goes here>
+```
+
+### Understanding Indexify Components
+
+Here are components which you will touch while working through the example:
+
+1. **Indexify Server**: The central coordinator and data ingestion API.
+2. **Extractors**: Specialized workers designed to perform specific data processing tasks (e.g., embedding data, generating summaries, or extracting features from unstructured data).
+3. **Extraction Graph**: A declarative YAML file that chains together extractors into a complex pipeline.
+
+The directory structure of our project, will look like this 
+
+```text "Directory Structure
+indexify-tax-calculator/
+│
+├── venv/                      # Virtual environment (created by python3 -m venv venv)
+│
+├── setup_extraction_graph.py  # Script to set up the extraction graph
+├── ingest_document.py         # Script to download and ingest the PDF
+├── query_tax_info.py          # Script for question-answering functionality
+│
+├── taxes.pdf                  # Downloaded California tax law PDF
+│
+└── indexify                   # Indexify server executable (downloaded by curl command)
+```
+
+## Stage 1: Setting Up the Indexify Server
+
+Download the indexify server and run it
+
+```bash Terminal 1 - Download Indexify Server"
+curl https://getindexify.ai | sh
+./indexify server -d
+```
+
+Once running, the server provides two key endpoints:
+
+- `http://localhost:8900` - The main API endpoint for data ingestion and retrieval
+- `http://localhost:8900/ui` - A user interface for monitoring and debugging your Indexify pipelines
+
+## Stage 2: Downloading and Setting Up Extractors
+
+Extractors are specialized components in Indexify that process and transform data. For our tax law application, we'll need three specific extractors:
+
+- Marker Extractor: Converts PDF documents to Markdown format
+- Chunk Extractor: Splits text into manageable chunks
+- MiniLM-L6 Extractor: Generates embeddings for text chunks
+
+
+<Note>
+  The source code for this tutorial can be found [here](https://github.com/tensorlakeai/indexify/tree/main/examples/getting_started/website/intermediate) in our example folder
+</Note>
+
+Before we begin, let's setup a virtual environment for Python projects and download the extractors
+
+<Note>
+  Indexify requires python 3.11 or older at this present moment to work.
+</Note>
+
+```bash Terminal 2 - Download Indexify Extractors"
+python3 -m venv venv
+source venv/bin/activate
+pip3 install indexify-extractor-sdk indexify wikipedia openai
+indexify-extractor download tensorlake/marker
+indexify-extractor download tensorlake/minilm-l6
+indexify-extractor download tensorlake/chunk-extractor
+```
+
+## Start the Extractors
+
+Run the Indexify Extractor server in a separate terminal
+
+```bash Terminal 2 - Join the server
+indexify-extractor join-server
+```
+
+You'll be able to verify that the three extractors are available by going to
+the [dashboard](http://localhost:8900/ui/default) and looking at the extractors
+section.
+
+## Stage 3: Installing Required Libraries
+
+Don't forget to install the necessary dependencies before running the rest of this tutorial.
+
+<CodeGroup>
+  ```bash Terminal 2 - Install libraries"
+  pip3 install indexify openai
+  ```
+  ```bash Terminal 2 - Install libraries"
+  npm install axios getindexify openai
+  ```
+</CodeGroup> 
+
+## Stage 4: Setting Up the Extraction Graph
+
+Set up an extraction graph to process the PDF documents. The extraction graph defines the sequence of operations that will be performed on our input data (the tax law PDF). Let's set it up:
+
+<CodeGroup>
+  ```python setup_extraction_graph.py
+    from indexify import ExtractionGraph, IndexifyClient
+
+    client = IndexifyClient()
+
+    extraction_graph_spec = """
+    name: 'pdfqa'
+    extraction_policies:
+      - extractor: 'tensorlake/marker' 
+        name: 'mdextract'
+      - extractor: 'tensorlake/chunk-extractor'
+        name: 'chunker'
+        input_params:
+            chunk_size: 1000
+            overlap: 100
+        content_source: 'mdextract'
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'pdfembedding'
+        content_source: 'chunker'
+    """
+
+    extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+    client.create_extraction_graph(extraction_graph)
+    ```
+    ```typescript setup_extraction_graph.ts
+    import { IndexifyClient, ExtractionGraph } from 'getindexify';
+    import * as yaml from 'js-yaml';
+
+    async function createExtractionGraph() {
+      const client = await IndexifyClient.createClient();
+
+      const extractionGraphSpec = `
+        name: 'pdfqa'
+        extraction_policies:
+          - extractor: 'tensorlake/marker' 
+            name: 'mdextract'
+          - extractor: 'tensorlake/chunk-extractor'
+            name: 'chunker'
+            input_params:
+                chunk_size: 1000
+                overlap: 100
+            content_source: 'mdextract'
+          - extractor: 'tensorlake/minilm-l6'
+            name: 'pdfembedding'
+            content_source: 'chunker'
+        `;
+
+      const parsedSpec = yaml.load(extractionGraphSpec) as {
+        name: string;
+        extraction_policies: Array<{
+          extractor: string;
+          name: string;
+          input_params?: Record<string, number>;
+          content_source?: string;
+        }>;
+      };
+
+      const extractionGraph = new ExtractionGraph(
+        parsedSpec.name,
+        parsedSpec.extraction_policies
+      );
+
+      await client.createExtractionGraph(extractionGraph);
+      console.log('Extraction graph created successfully');
+    }
+
+    createExtractionGraph().catch(console.error);
+    ```
+</CodeGroup>
+
+This extraction graph, named 'pdfqa', defines a three-step process:
+
+1. The `tensorlake/marker` extractor converts the PDF into Markdown format.
+2. The `tensorlake/chunk-extractor` splits the Markdown text into chunks of 1000 characters with a 100-character overlap.
+3. The `tensorlake/minilm-l6` extractor generates embeddings for each chunk, enabling semantic search capabilities.
+
+Run this script to create the extraction graph:
+
+```bash Terminal 3 - Create Extraction Graph
+source venv/bin/activate
+python3 ./setup_extraction_graph.py
+```
+
+The following diagram expresses the pipeline in detail.
+
+![Indexify Extractors Presentation](https://github.com/user-attachments/assets/80149ab7-e698-47a3-b853-7add9a7b60d6)
+
+## Stage 5: Document Ingestion
+
+Add the PDF document to the "pdfqa" extraction graph:
+
+<CodeGroup>
+  ```python ingest_document.py"
+    import requests
+    from indexify import IndexifyClient
+
+    client = IndexifyClient()
+
+    response = requests.get("https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf")
+    with open("taxes.pdf", 'wb') as file:
+        file.write(response.content)
+
+    client.upload_file("pdfqa", "taxes.pdf")
+    ```
+    ```typescript ingest_document.ts
+    import axios from 'axios';
+    import { promises as fs } from 'fs';
+    import { IndexifyClient } from "getindexify";
+
+    (async () => {
+        const client = await IndexifyClient.createClient();
+
+        const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf";
+        const filePath = "taxes.pdf";
+
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        await fs.writeFile(filePath, response.data);
+
+        await client.uploadFile("pdfqa", filePath);
+    })();
+    ```
+</CodeGroup>
+
+This code does the following:
+
+1. Downloads the California tax law PDF from a public URL
+2. Saves the PDF locally as "taxes.pdf"
+3. Uploads the PDF to Indexify, associating it with our 'pdfqa' extraction graph
+
+Run the following code to ingest the tax document
+
+```bash Terminal 3 - Ingest Documents"
+python3 ./ingest_document.py
+```
+
+Once uploaded, Indexify will automatically process the PDF through our defined extraction graph.
+
+## Stage 6: Implementing Question-Answering Functionality
+
+We can use the same prompting and context retrieval function defined above to get context for the LLM based on the question.
+
+<Note>
+  You'll want to have exported `OPENAI_API_KEY` and set to your API key before running these scripts.
+</Note>
+
+<CodeGroup>
+  ```python query_tax_info.py
+    from openai import OpenAI
+    from indexify import IndexifyClient
+
+    client = IndexifyClient()
+    client_openai = OpenAI()
+
+    def get_context(question: str, index: str, top_k=3):
+        results = client.search_index(name=index, query=question, top_k=3)
+        context = ""
+        for result in results:
+            context = context + f"content id: {result['content_id']} \n \npassage: {result['text']}\n"
+        return context
+
+    def create_prompt(question, context):
+        return f"Answer the question, based on the context. \nquestion: {question}  \ncontext: {context}"
+
+    question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
+    context = get_context(question, "pdfqa.pdfembedding.embedding")
+
+    prompt = create_prompt(question, context)
+
+    chat_completion = client_openai.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        model="gpt-3.5-turbo",
+    )
+
+    print(chat_completion.choices[0].message.content)
+    ```
+    ```typescript query_tax_info.ts
+    import { ExtractionGraph, IndexifyClient } from "getindexify";
+    import { OpenAI } from "openai";
+
+    (async () => {
+      const client = await IndexifyClient.createClient();
+      const openai = new OpenAI();
+
+      const getContext = async (question: string, index: string, topK=3) => {
+        const results = await client.searchIndex(index, question, topK)
+
+        return results.reduce((ctx, result) =>
+          ctx + `content id: {${result.content_id}} \n \npassage: {${result.text}}\n`,
+        "")
+      }
+
+      const createPrompt = (question: string, context: string) =>
+        `Answer the question, based on the context. \nquestion: ${question}  \ncontext: ${context}`
+
+      const question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
+      const context = await getContext(question, "pdfqa.pdfembedding.embedding")
+
+      const prompt = createPrompt(question, context)
+
+      console.log(await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          { role: "user", content: prompt }
+        ]
+      }))
+    })()
+    ```
+</CodeGroup>
+
+This will allow you to do the following:
+
+1. Defines a `get_context` function that retrieves relevant passages from our processed PDF based on the question.
+2. Creates a `create_prompt` function that formats the question and context for the LLM.
+3. Uses OpenAI's GPT-3.5-turbo model to generate an answer based on the provided context.
+
+The `query_tax_info.py` script handles the querying of processed tax information. Its design incorporates these patterns:
+
+1. **Context Retrieval**:
+   The script includes a function to retrieve relevant context based on the input question. This separates the concern of finding relevant information from the actual question-answering process.
+
+2. **Prompt Creation**:
+   There's a dedicated function for creating the prompt that will be sent to the language model. This separation allows for easy modification of how the prompt is structured.
+
+3. **Language Model Integration**:
+   The script uses OpenAI's API to generate answers. This is abstracted into a separate call, making it possible to switch to a different language model (like Mistral) if needed.
+
+Run the following code to query the tax document
+
+```bash ( Terminal 3) Query from Document"
+python3 ./query_tax_info.py
+```
+The example question asks about California tax brackets and calculates taxes for a $24,000 income. The LLM uses the context provided by our Indexify pipeline to formulate an accurate response as shown below.
+
+<Note>
+Based on the provided information, the tax rates and brackets for California are as follows:
+
+    - $0 - $11,450: 10% of the amount over $0
+    - $11,450 - $43,650: $1,145 plus 15% of the amount over $11,450
+    - $43,650 - $112,650: $5,975 plus 25% of the amount over $43,650
+    - $112,650 - $182,400: $23,225 plus 28% of the amount over $112,650
+    - $182,400 - $357,700: $42,755 plus 33% of the amount over $182,400
+    - $357,700 and above: $100,604 plus 35% of the amount over $357,700
+
+    For an income of $24,000, you fall within the $0 - $43,650 bracket. To calculate your tax liability, you would need to determine the tax owed on the first $11,450 at 10%, the tax owed on $11,450 - $24,000 at 15%, and add those together.
+
+    Given that $24,000 falls within the $0 - $43,650 bracket, you would need to calculate the following:
+
+    - Tax on first $11,450: $11,450 x 10% = $1,145
+    - Tax on next $12,550 ($24,000 - $11,450): $12,550 x 15% = $1,882.50
+
+    Therefore, your total tax liability would be $1,145 + $1,882.50 = $3,027.50.
+</Note>
+
+## Conclusion
+
+This intermediate guide demonstrates how to use Indexify to create a sophisticated question-answering system for California tax laws. By ingesting a PDF, extracting and processing its content, and using an LLM for answer generation, we've created a flexible and powerful tool that could be easily expanded to cover more complex scenarios or multiple documents.
+
+The key strengths of this pipeline would be:
+
+1. Automatic processing of complex documents (PDFs)
+2. Efficient chunking and embedding of text for quick retrieval
+3. Use of up-to-date, specific information for answer generation
+4. Scalability to handle multiple documents or more complex queries

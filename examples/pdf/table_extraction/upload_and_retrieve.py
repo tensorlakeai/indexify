@@ -19,12 +19,12 @@ def get_tables(pdf_path):
     
     # Retrieve the tables content
     tables = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="table_extractor",
         policy_name="pdf_to_table"
     )
     
-    return tables[0]['content'].decode('utf-8')
+    return tables[5]['content'].decode('utf-8')
 
 # Example usage
 if __name__ == "__main__":

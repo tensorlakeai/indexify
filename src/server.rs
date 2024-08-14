@@ -1,4 +1,10 @@
-use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -19,18 +25,23 @@ use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
     self,
+    ContentStreamItem,
+    ContentStreamRequest,
     GcTaskAcknowledgement,
     ListStateChangesRequest,
     ListTasksRequest,
 };
 use indexify_ui::Assets as UiAssets;
+use internal_api::ContentOffset;
 use mime::Mime;
 use prometheus::Encoder;
+use serde_json::json;
 use tokio::{
     signal,
     sync::{mpsc, watch},
 };
 use tokio_stream::StreamExt;
+use tonic::Streaming;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 use utoipa::{
@@ -77,11 +88,13 @@ pub struct NamespaceEndpointState {
             list_extractors,
             list_executors,
             list_content,
+            new_content_stream,
             update_content,
             delete_content,
             get_content_metadata,
             list_state_changes,
             create_extraction_graph,
+            delete_extraction_graph,
             list_extraction_graphs,
             link_extraction_graphs,
             extraction_graph_links,
@@ -91,6 +104,7 @@ pub struct NamespaceEndpointState {
             index_search,
             get_content_tree_metadata,
             download_content,
+            extraction_graph_analytics,
         ),
         components(
             schemas(IndexDistance,
@@ -101,7 +115,7 @@ pub struct NamespaceEndpointState {
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse, ListTasks,
             ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
-            AddGraphToContent,
+            AddGraphToContent, NewContentStreamResponse, ExtractionGraphAnalytics, TaskAnalytics
         )
         ),
         tags(
@@ -201,6 +215,10 @@ impl Server {
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
             )
             .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph",
+                delete(delete_extraction_graph).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
                 post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
             )
@@ -215,6 +233,14 @@ impl Server {
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
                 get(list_tasks).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/analytics",
+                get(extraction_graph_analytics).with_state(namespace_endpoint_state.clone()),
+            )
+            .route(
+                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/new_content",
+                get(new_content_stream).with_state(namespace_endpoint_state.clone()),
             )
             .route("/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()))
@@ -780,7 +806,6 @@ async fn update_labels(
         Omit to start from beginning. To continue iteration, 
         specify id of the last content in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
-        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
     ),
     tag = "retrieval",
     responses(
@@ -805,7 +830,6 @@ async fn list_content(
             &filter::LabelsFilter(filter.labels_filter),
             filter.start_id.clone().unwrap_or_default(),
             filter.limit.unwrap_or(10),
-            filter.return_total,
         )
         .await
         .map_err(IndexifyAPIError::internal_error)?;
@@ -1048,6 +1072,33 @@ async fn list_extraction_graphs(
     }))
 }
 
+/// Delete extraction graph
+#[utoipa::path(
+    delete,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}",
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Extraction graph deleted successfully"),
+        (status = BAD_REQUEST, description = "Unable to delete extraction graph")
+    ),
+)]
+async fn delete_extraction_graph(
+    Path((namespace, graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+) -> Result<(), IndexifyAPIError> {
+    state
+        .data_manager
+        .delete_extraction_graph(namespace, graph)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to delete extraction graph: {}", e),
+            )
+        })?;
+    Ok(())
+}
+
 #[allow(dead_code)]
 #[derive(ToSchema)]
 struct UploadType {
@@ -1056,29 +1107,13 @@ struct UploadType {
     file: String,
 }
 
-/// Upload a file to an extraction graph in a namespace
-#[tracing::instrument(skip(state))]
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract",
-    params(
-        ("namespace" = String, Path, description = "Namespace of the content"),
-        ("extraction_graph" = String, Path, description = "Extraction graph name"),
-        ("id" = Option<String>, Query, description = "id of content to create, if not provided a random id will be generated"),
-    ),
-    request_body(content_type = "multipart/form-data", content = inline(UploadType)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Uploads a file to the namespace"),
-        (status = BAD_REQUEST, description = "Unable to upload file")
-    ),
-)]
-#[axum::debug_handler]
-async fn upload_file(
-    Path((namespace, extraction_graph)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Query(params): Query<UploadFileQueryParams>,
+async fn upload_file_inner(
+    state: &NamespaceEndpointState,
+    namespace: String,
+    extraction_graph: String,
+    params: UploadFileQueryParams,
     mut files: Multipart,
+    url: &mut String,
 ) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
     let mut labels: HashMap<String, serde_json::Value> = HashMap::new();
 
@@ -1103,62 +1138,45 @@ async fn upload_file(
         ));
     }
 
+    let mut write_result = None;
+    let mut ext = String::new();
     while let Some(field) = files.next_field().await.unwrap() {
         if let Some(name) = field.file_name() {
+            if write_result.is_some() {
+                return Err(IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    "multiple files provided",
+                ));
+            }
             info!("user provided file name = {:?}", name);
-            let ext = std::path::Path::new(&name)
+            ext = std::path::Path::new(&name)
                 .extension()
                 .unwrap_or_default()
                 .to_str()
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .to_string();
             let name = nanoid::nanoid!(16);
             let name = if !ext.is_empty() {
                 format!("{}.{}", name, ext)
             } else {
                 name
             };
-            let content_mime = labels.get("mime_type").map(|v| v.as_str()).flatten();
-            let content_mime = content_mime.map(|v| Mime::from_str(v).unwrap());
-            let content_mime =
-                content_mime.unwrap_or(mime_guess::from_ext(ext).first_or_octet_stream());
             info!("writing to blob store, file name = {:?}", name);
 
             let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-            let content_metadata = state
-                .data_manager
-                .upload_file(
-                    &namespace,
-                    stream,
-                    &name,
-                    content_mime,
-                    labels,
-                    Some(&id),
-                    vec![extraction_graph],
-                )
-                .await
-                .map_err(|e| {
-                    IndexifyAPIError::new(
-                        StatusCode::BAD_REQUEST,
-                        &format!("failed to upload file: {}", e),
-                    )
-                })?;
-            let size_bytes = content_metadata.size_bytes;
-            state
-                .data_manager
-                .create_content_metadata(content_metadata)
-                .await
-                .map_err(|e| {
-                    IndexifyAPIError::new(
-                        StatusCode::BAD_REQUEST,
-                        &format!("failed to create content for file: {}", e),
-                    )
-                })?;
-            state.metrics.node_content_uploads.add(1, &[]);
-            state
-                .metrics
-                .node_content_bytes_uploaded
-                .add(size_bytes, &[]);
-            return Ok(Json(UploadFileResponse { content_id: id }));
+            write_result = Some(
+                state
+                    .data_manager
+                    .write_stream(&namespace, stream, Some(&name))
+                    .await
+                    .map_err(|e| {
+                        IndexifyAPIError::new(
+                            StatusCode::BAD_REQUEST,
+                            &format!("failed to upload file: {}", e),
+                        )
+                    })?,
+            );
+            *url = write_result.as_ref().unwrap().url.clone();
         } else if let Some(name) = field.name() {
             if name != "labels" {
                 continue;
@@ -1172,10 +1190,107 @@ async fn upload_file(
             })?;
         }
     }
-    Err(IndexifyAPIError::new(
-        StatusCode::BAD_REQUEST,
-        "no file provided",
-    ))
+    if let Some(write_result) = write_result {
+        let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
+        let content_mime = content_mime
+            .map(|v| Mime::from_str(v))
+            .transpose()
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("invalid mime type: {}", e),
+                )
+            })?;
+        let content_mime =
+            content_mime.unwrap_or(mime_guess::from_ext(&ext).first_or_octet_stream());
+        let labels = internal_api::utils::convert_map_serde_to_prost_json(labels).map_err(|e| {
+            IndexifyAPIError::new(StatusCode::BAD_REQUEST, &format!("invalid labels: {}", e))
+        })?;
+        let current_ts_secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|_| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid time"))?
+            .as_secs();
+        let size_bytes = write_result.size_bytes;
+        let content_metadata = indexify_coordinator::ContentMetadata {
+            id: id.clone(),
+            file_name: write_result.file_name,
+            storage_url: write_result.url,
+            parent_id: "".to_string(),
+            root_content_id: "".to_string(),
+            created_at: current_ts_secs as i64,
+            mime: content_mime.to_string(),
+            namespace,
+            labels,
+            source: "".to_string(),
+            size_bytes: write_result.size_bytes,
+            hash: write_result.hash,
+            extraction_policy_ids: HashMap::new(),
+            extraction_graph_names: vec![extraction_graph],
+            extracted_metadata: json!({}).to_string(),
+        };
+        state
+            .data_manager
+            .create_content_metadata(content_metadata)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::new(
+                    StatusCode::BAD_REQUEST,
+                    &format!("failed to create content for file: {}", e),
+                )
+            })?;
+        state.metrics.node_content_uploads.add(1, &[]);
+        state
+            .metrics
+            .node_content_bytes_uploaded
+            .add(size_bytes, &[]);
+        Ok(Json(UploadFileResponse { content_id: id }))
+    } else {
+        Err(IndexifyAPIError::new(
+            StatusCode::BAD_REQUEST,
+            "no file provided",
+        ))
+    }
+}
+
+/// Upload a file to an extraction graph in a namespace
+#[tracing::instrument(skip(state))]
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("id" = Option<String>, Query, description = "id of content to create, if not provided a random id will be generated"),
+    ),
+    request_body(content_type = "multipart/form-data", content = inline(UploadType)),
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Uploads a file to the namespace"),
+        (status = BAD_REQUEST, description = "Unable to upload file")
+    ),
+)]
+#[axum::debug_handler]
+async fn upload_file(
+    Path((namespace, extraction_graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Query(params): Query<UploadFileQueryParams>,
+    files: Multipart,
+) -> Result<Json<UploadFileResponse>, IndexifyAPIError> {
+    let mut url = String::new();
+    let res = upload_file_inner(&state, namespace, extraction_graph, params, files, &mut url).await;
+    if res.is_err() && !url.is_empty() {
+        let _ = state.data_manager.delete_file(&url).await.map_err(|e| {
+            tracing::error!("failed to delete file: {}", e);
+        });
+    }
+    res
+}
+
+#[allow(dead_code)]
+#[derive(ToSchema)]
+struct UpdateContentType {
+    #[schema(format = "binary")]
+    file: String,
 }
 
 /// Update a content. All the extraction graphs associated with the content will
@@ -1184,10 +1299,10 @@ async fn upload_file(
 #[utoipa::path(
     put,
     path = "/namespaces/{namespace}/content/{content_id}",
-    request_body(content_type = "multipart/form-data", content = Vec<u8>),
+    request_body(content_type = "multipart/form-data", content = inline(UpdateContentType)),
     tag = "ingestion",
     responses(
-        (status = 200, description = "Updates a specified piece of content", body = UpdateContentResponse),
+        (status = 200, description = "Updates a specified piece of content"),
         (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
     ),
 )]
@@ -1283,6 +1398,81 @@ async fn ingest_extracted_content(
     State(state): State<NamespaceEndpointState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| IngestExtractedContentState::new(state).run(socket))
+}
+
+async fn get_new_content_stream(
+    state: &NamespaceEndpointState,
+    namespace: String,
+    extraction_graph: String,
+    extraction_policy: String,
+    start: NewContentStreamStart,
+) -> Result<Streaming<ContentStreamItem>> {
+    let mut client = state.data_manager.get_coordinator_client().await?;
+    let stream = client
+        .content_stream(ContentStreamRequest {
+            change_offset: match start {
+                NewContentStreamStart::FromLast => u64::MAX,
+                NewContentStreamStart::FromOffset(offset) => offset.0,
+            },
+            namespace,
+            extraction_graph,
+            extraction_policy,
+        })
+        .await?;
+    Ok(stream.into_inner())
+}
+
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extraction_policies/{extraction_policy}/content",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+        ("extraction_policy" = String, Path, description = "Extraction policy name"),
+        ("offset" = Option<u64>, Query, description = "Offset to start from, if not provided will start from last")
+    ),
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Started stream of new content", body = NewContentStreamResponse),
+        (status = BAD_REQUEST, description = "Unable to start new content stream")
+    ),
+)]
+async fn new_content_stream(
+    Path((namespace, extraction_graph, extraction_policy)): Path<(String, String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let offset = params.get("offset").and_then(|s| s.parse().ok());
+    let start = match offset {
+        Some(offset) => NewContentStreamStart::FromOffset(ContentOffset(offset)),
+        None => NewContentStreamStart::FromLast,
+    };
+    let stream = get_new_content_stream(
+        &state,
+        namespace,
+        extraction_graph,
+        extraction_policy,
+        start,
+    )
+    .await
+    .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let stream = stream.map(|item| match item {
+        Ok(item) => {
+            let item: Result<NewContentStreamResponse, _> = item.try_into();
+            match item {
+                Ok(item) => axum::response::sse::Event::default().json_data(item),
+                Err(e) => {
+                    tracing::error!("error in new content stream: {}", e);
+                    Err(axum::Error::new(e))
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("error in new content stream: {}", e);
+            Err(axum::Error::new(e))
+        }
+    });
+    Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
 /// Run extraction graph for a list of existing content
@@ -1397,6 +1587,35 @@ async fn list_state_changes(
     Ok(Json(ListStateChangesResponse { state_changes }))
 }
 
+/// Get Analytics for an extraction graph
+#[tracing::instrument]
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/analytics",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the content"),
+        ("extraction_graph" = String, Path, description = "Extraction graph name"),
+    ),
+    tag = "operations",
+    responses(
+        (status = 200, description = "Return Analytics", body = ExtractionGraphAnalytics),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list tasks")
+    ),
+)]
+async fn extraction_graph_analytics(
+    Path((namespace, extraction_graph)): Path<(String, String)>,
+    State(state): State<NamespaceEndpointState>,
+    Query(query): Query<ListTasks>,
+) -> Result<Json<ExtractionGraphAnalytics>, IndexifyAPIError> {
+    let resp = state
+        .coordinator_client
+        .get_extraction_graph_analytics(&namespace, &extraction_graph)
+        .await
+        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+
+    Ok(Json(resp.into()))
+}
+
 /// List Tasks generated for a given content and a given extraction policy
 #[tracing::instrument]
 #[utoipa::path(
@@ -1412,7 +1631,6 @@ async fn list_state_changes(
         Omit to start from beginning. To continue iteration, 
         specify id of the last task in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
-        ("return_total" = Option<bool>, Query, description = "Whether to return total count")
     ),
     tag = "operations",
     responses(
@@ -1438,7 +1656,6 @@ async fn list_tasks(
             start_id: query.start_id.unwrap_or_default(),
             limit: query.limit.unwrap_or(10),
             content_id: query.content_id.unwrap_or_default(),
-            return_total: query.return_total,
             outcome: outcome as i32,
         })
         .await

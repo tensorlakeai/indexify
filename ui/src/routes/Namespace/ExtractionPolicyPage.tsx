@@ -5,8 +5,8 @@ import {
   Typography,
   Stack,
   Breadcrumbs,
-  Tooltip,
   Chip,
+  Tooltip,
 } from '@mui/material';
 import {
   ExtractionGraph,
@@ -17,17 +17,15 @@ import {
 import TasksTable from '../../components/TasksTable';
 import { Link } from 'react-router-dom';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import { TaskCounts } from '../../types';
 import TasksContentDrawer from '../../components/TasksContentDrawer';
 
 const ExtractionPolicyPage = () => {
-  const { policy, namespace, extractionGraph, taskCounts, client } =
+  const { policy, namespace, extractionGraph, client } =
     useLoaderData() as {
       policy: IExtractionPolicy;
       namespace: string;
       client: IndexifyClient;
       extractionGraph: ExtractionGraph;
-      taskCounts?: TaskCounts;
     };
 
   const taskLoader = async (
@@ -70,7 +68,7 @@ const ExtractionPolicyPage = () => {
   };
 
   const [localTaskCounts, setLocalTaskCounts] = useState({
-    unknown: 0,
+    pending: 0,
     success: 0,
     failure: 0
   });
@@ -78,57 +76,25 @@ const ExtractionPolicyPage = () => {
   const fetchTaskCounts = useMemo(() => {
     return async () => {
       try {
-        const unknown = await client.getTasks(
-          extractionGraph.name,
-          policy.name,
-          {
-            namespace: namespace,
-            extractionGraph: extractionGraph.name,
-            extractionPolicy: policy.name,
-            outcome: 'Unknown',
-            returnTotal: true
-          }
-        );
+        const results =  await client.getExtractionGraphAnalytics({ namespace, extractionGraph: extractionGraph.name });
+        const { failure, pending, success } = results.task_analytics[policy.name]
 
-        const success = await client.getTasks(
-          extractionGraph.name,
-          policy.name,
-          {
-            namespace: namespace,
-            extractionGraph: extractionGraph.name,
-            extractionPolicy: policy.name,
-            outcome: 'Success',
-            returnTotal: true
-          }
-        );
-
-        const failure = await client.getTasks(
-          extractionGraph.name,
-          policy.name,
-          {
-            namespace: namespace,
-            extractionGraph: extractionGraph.name,
-            extractionPolicy: policy.name,
-            outcome: 'Failed',
-            returnTotal: true
-          }
-        );
-
-        return {
-          unknown: unknown.totalTasks || 0,
-          success: success.totalTasks || 0,
-          failure: failure.totalTasks || 0
-        };
+        return { pending, success, failure };
       } catch (error) {
         console.error("Error fetching task counts:", error);
-        return { unknown: 0, success: 0, failure: 0 };
+        return { pending: 0, success: 0, failure: 0 };
       }
     };
   }, [client, extractionGraph.name, policy.name, namespace]);
 
   useEffect(() => {
-    fetchTaskCounts().then(setLocalTaskCounts);
-  }, [fetchTaskCounts]);
+    const loadTaskCounts = async () => {
+      const taskCounts = await fetchTaskCounts();
+      setLocalTaskCounts(taskCounts)
+  };
+
+  loadTaskCounts();
+}, [fetchTaskCounts]);
 
   const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -166,8 +132,7 @@ const ExtractionPolicyPage = () => {
         </Typography>
       </Box>
       <Box>
-        {taskCounts && (
-          <Stack
+        <Stack
             direction="row"
             spacing={1}
             display={'flex'}
@@ -177,7 +142,7 @@ const ExtractionPolicyPage = () => {
             <Tooltip title="In Progress">
               <Chip
                 sx={{ backgroundColor: '#E5EFFB' }}
-                label={localTaskCounts.unknown}
+                label={localTaskCounts.pending}
               />
             </Tooltip>
             <Tooltip title="Failed">
@@ -193,7 +158,6 @@ const ExtractionPolicyPage = () => {
               />
             </Tooltip>
           </Stack>
-        )}
       </Box>
       </Box>
       <TasksTable

@@ -1,0 +1,71 @@
+Extraction Graphs are defined declaritively using the HTTP API or any of the clients
+
+<CodeGroup>
+    ```python Python
+    extraction_graph_spec = """
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+        filters:
+          - source=google
+    """
+    extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+    client.create_extraction_graph(extraction_graph)  
+    ```
+    ```typescript Typescript
+    const client = await IndexifyClient.createClient();
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+        filters:
+          - source=google
+    `);
+    await client.createExtractionGraph(graph);
+    ```
+</CodeGroup>
+
+This creates an extraction graph - 
+
+1. **name** - myextractiongraph
+2. **extraction_policies** - List of extractors that the pipeline runs when data is uploaded into it from external sources -
+   1. **extractor** - Name of the extractor function
+   2. **name** - Give it a unique name, since the same extractor can be repeated multiple times.
+   3. **filters** - The filters to evaluate to decide whether content ingested into the graph should be processed by the extractor.
+
+## Chained Extraction Graph Policies
+Mulitple extractors can be chained together in a single graph. Specify a `content_source` in a policy to send content from an upstream extractor to downstream.
+
+For ex:
+
+<CodeGroup>
+    ```python Python
+    extraction_graph_spec = """
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/chunk-extractor'
+        name: 'chunked-text'
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+        content_source: 'chunked-text'
+    """
+    extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
+    client.create_extraction_graph(extraction_graph)  
+    ```
+    ```typescript Typescript
+    const graph = ExtractionGraph.fromYaml(`
+    name: 'myextractiongraph'
+    extraction_policies:
+      - extractor: 'tensorlake/chunk-extractor'
+        name: 'chunked-text'
+      - extractor: 'tensorlake/minilm-l6'
+        name: 'minilml6'
+        content_source: 'chunked-text'
+    `);
+    await client.createExtractionGraph(graph);
+    ```
+</CodeGroup>
+    
+In this example any text uploaded into the graph is chunked using the chunking extractor, the chunked text is then passed into the embedding extractor to generate text embeddings from the chunks.

@@ -317,7 +317,7 @@ mod tests {
             id: id.to_string(),
             extractor: extractor.to_string(),
             extraction_graph_name: extractor_graph_name.to_string(),
-            extraction_policy_id: policy.to_string(),
+            extraction_policy_name: policy.to_string(),
             output_index_table_mapping: HashMap::new(),
             namespace: "default".to_string(),
             content_metadata: content,

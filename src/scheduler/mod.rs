@@ -5,10 +5,8 @@ use std::{
 };
 
 use anyhow::{anyhow, Ok, Result};
-use indexify_internal_api as internal_api;
-use indexify_internal_api::StateChange;
-use internal_api::OutputSchema;
-use tracing::info;
+use indexify_internal_api::{self as internal_api, ExtractionPolicy, StateChange};
+use tracing::{error, info};
 
 use crate::{
     state::SharedState,
@@ -35,13 +33,7 @@ impl Scheduler {
     ) -> Result<Vec<String>> {
         let mut tables = Vec::new();
         for policy in policies {
-            let extractor = self.shared_state.extractor_with_name(&policy.extractor)?;
-            for (name, schema) in extractor.outputs {
-                if let OutputSchema::Embedding(_) = schema {
-                    let table_name = policy.output_table_mapping.get(&name).unwrap();
-                    tables.push(table_name.clone());
-                }
-            }
+            tables.extend(policy.output_table_mapping.values().cloned());
         }
         Ok(tables)
     }
@@ -115,7 +107,7 @@ impl Scheduler {
         let tables = self.tables_for_policies(&extraction_policies).await?;
         for extraction_policy in extraction_policies {
             let task = self
-                .create_task(&extraction_policy.id, &content, &tables)
+                .create_task(&extraction_policy, &content, &tables)
                 .await?;
             tasks.push(task);
         }
@@ -157,8 +149,12 @@ impl Scheduler {
         let executor = self
             .shared_state
             .get_executor_by_id(&state_change.object_id)
-            .await
-            .map_err(|e| anyhow!("redistribute_tasks: {}", e))?;
+            .await;
+        if let Err(err) = &executor {
+            error!("unable to redistribute tasks: {}", err);
+            return Ok(());
+        }
+        let executor = executor.map_err(|e| anyhow!("error redistribution_tasks: {}", e))?;
 
         // Get all extractor names own by the executor
         let extractor_names = executor
@@ -198,21 +194,19 @@ impl Scheduler {
 
     pub async fn create_task(
         &self,
-        extraction_policy_id: &str,
+        extraction_policy: &ExtractionPolicy,
         content: &internal_api::ContentMetadata,
         index_tables: &[String],
     ) -> Result<internal_api::Task> {
-        let extraction_policy = self
-            .shared_state
-            .get_extraction_policy(extraction_policy_id)?;
         let extractor = self
             .shared_state
             .extractor_with_name(&extraction_policy.extractor)?;
 
         let mut output_mapping: HashMap<String, String> = HashMap::new();
         for name in extractor.outputs.keys() {
-            let table_name = extraction_policy.output_table_mapping.get(name).unwrap();
-            output_mapping.insert(name.clone(), table_name.clone());
+            if let Some(table_name) = extraction_policy.output_table_mapping.get(name) {
+                output_mapping.insert(name.clone(), table_name.clone());
+            }
         }
 
         let mut hasher = DefaultHasher::new();
@@ -224,7 +218,7 @@ impl Scheduler {
             id,
             extractor: extraction_policy.extractor.clone(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
-            extraction_policy_id: extraction_policy.id.clone(),
+            extraction_policy_name: extraction_policy.name.clone(),
             output_index_table_mapping: output_mapping.clone(),
             namespace: extraction_policy.namespace.clone(),
             content_metadata: content.clone(),

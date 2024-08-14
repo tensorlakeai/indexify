@@ -91,7 +91,7 @@ def extract_text(pdf_path):
     
     # Retrieve the extracted text content
     extracted_text = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="pdf_text_extractor",
         policy_name="pdf_to_text"
     )
@@ -118,7 +118,10 @@ You can run the Python script to process a PDF and extract its text:
 ```bash
 python upload_and_extract.py
 ```
-<img src="https://docs.getindexify.ai/example_code/pdf/pdf_to_markdown/carbon.png" width="600"/>
+   Sample Page to extract markdown from:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/screenshot.png" width="600"/>
+   Sample Markdown extracted from page:
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

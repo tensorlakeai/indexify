@@ -6,7 +6,7 @@
 [Examples](examples) | [Indexify Extractors](https://github.com/tensorlakeai/indexify-extractors) | [Python Client](https://github.com/tensorlakeai/indexify-python-client) | [TypeScript Client](https://github.com/tensorlakeai/indexify-typescript-client)
 
 
-![Indexify High Level](docs/docs/images/Indexify_KAT.gif)
+![Indexify High Level](docs/images/docs_intro_diagram.png)
 
 > **LLM applications backed by Indexify will never answer outdated information.**
 
@@ -30,7 +30,7 @@ ETL-based ingestion systems process files in batches, suitable for offline use c
 
 ## Detailed Getting Started
 
-To get started follow our [documentation](https://docs.getindexify.ai/getting_started/).
+To get started follow our [documentation](https://docs.getindexify.ai/getting-started-basic/).
 
 ## Quick Start
 #### Download and start Indexify | Terminal1
@@ -121,8 +121,8 @@ client.wait_for_extraction(content_id)
 print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
 ```
 
-
 ### Audio Transcription and Summarization
+
 This example shows how to transcribe audio, and create a pipeline that embeds the transcription 
 More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_extraction/
 
@@ -219,7 +219,7 @@ print(client.sql_query("select * from imageknowledgebase where object_name='pers
 ```
 
 ### LLM Framework Integration 
-Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python_langchain/) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python_dspy/).
+Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python).
 
 ### Try out other extractors
 We have a ton of other extractors, you can list them and try them out - 

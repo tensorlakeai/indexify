@@ -11,7 +11,12 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use grpc_server::RaftGrpcServer;
-use indexify_internal_api::{self as internal_api, ExtractionGraphNode};
+use indexify_internal_api::{
+    self as internal_api,
+    ChangeType,
+    ExtractionGraphNode,
+    GarbageCollectionTask,
+};
 use indexify_proto::{
     indexify_coordinator,
     indexify_coordinator::CreateContentStatus,
@@ -35,9 +40,11 @@ use openraft::{
     BasicNode,
     TokioRuntime,
 };
+use rocksdb::IteratorMode;
 use serde::Serialize;
 use store::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    serializer::{JsonEncode, JsonEncoder},
     ExecutorId,
     ExecutorIdRef,
     Response,
@@ -166,7 +173,7 @@ fn add_update_entry(
     // Hold a reference to the content until the tasks are created if any.
     state_changes.push(StateChange::new_with_refcnt(
         content.id.id.clone(),
-        internal_api::ChangeType::NewContent,
+        ChangeType::NewContent,
         timestamp_secs(),
         content.get_root_id().to_string(),
     ));
@@ -409,6 +416,99 @@ impl App {
         Ok(())
     }
 
+    pub async fn delete_content_by_graph(
+        &self,
+        start_content_id: Vec<u8>,
+        state_change: StateChange,
+    ) -> Result<()> {
+        let req = {
+            let db = self.state_machine.get_db();
+            let iter = db.iterator_cf(
+                StateMachineColumns::ContentTable.cf(&db),
+                IteratorMode::From(&start_content_id, rocksdb::Direction::Forward),
+            );
+            let mut content_metadata = Vec::new();
+            let mut new_state_changes = Vec::new();
+            let mut num_processed = 0;
+            for item in iter {
+                let (_, value) = item?;
+                let mut content: internal_api::ContentMetadata = JsonEncoder::decode(&value)?;
+                if num_processed >= 100 {
+                    // Continue iterating with new state change.
+                    let mut cont_state_change = state_change.clone();
+                    cont_state_change.change_type = ChangeType::ExtractionGraphDeleted {
+                        start_content_id: content.id_key().into(),
+                    };
+                    new_state_changes.push(cont_state_change);
+                    break;
+                }
+                num_processed += 1;
+                if !content.tombstoned &&
+                    content
+                        .extraction_graph_names
+                        .contains(&state_change.object_id)
+                {
+                    if content.extraction_graph_names.len() == 1 {
+                        content.tombstoned = true;
+                        new_state_changes.push(StateChange::new(
+                            content.id.to_string(),
+                            ChangeType::TombstoneContent {
+                                is_root: content.root_content_id.is_none(),
+                            },
+                            timestamp_secs(),
+                        ));
+                    } else {
+                        content
+                            .extraction_graph_names
+                            .retain(|g| g != &state_change.object_id);
+                    }
+                    content_metadata.push(content);
+                }
+            }
+            StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneContent { content_metadata },
+                new_state_changes,
+                state_changes_processed: vec![StateChangeProcessed {
+                    state_change_id: state_change.id,
+                    processed_at: timestamp_secs(),
+                }],
+            }
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
+    pub async fn delete_extraction_graph(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+        gc_task: GarbageCollectionTask,
+    ) -> Result<()> {
+        let graph_id = ExtractionGraph::create_id(&extraction_graph, &namespace);
+        let graph = self
+            .state_machine
+            .get_extraction_graphs(&[graph_id.clone()])?;
+        if !matches!(graph.first(), Some(Some(_))) {
+            return Err(anyhow!("extraction graph with id {} not found", graph_id));
+        }
+        let req = StateMachineUpdateRequest {
+            payload: RequestPayload::DeleteExtractionGraph {
+                graph_id: graph_id.to_string(),
+                gc_task,
+            },
+            new_state_changes: vec![StateChange::new(
+                extraction_graph,
+                ChangeType::ExtractionGraphDeleted {
+                    start_content_id: vec![],
+                },
+                timestamp_secs(),
+            )],
+            state_changes_processed: vec![],
+        };
+        self.forwardable_raft.client_write(req).await?;
+        Ok(())
+    }
+
     /// This method uses the content id to fetch the associated extraction
     /// policies based on certain filters and checks which policies can be
     /// applied to the content It's the mirror equivalent to
@@ -465,7 +565,7 @@ impl App {
         Ok(matched_policies)
     }
 
-    pub fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
+    pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let extraction_policy = self
             .state_machine
             .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)?
@@ -522,6 +622,18 @@ impl App {
         self.state_machine.get_executor_running_task_count().await
     }
 
+    pub async fn subscribe_to_new_tasks(&self, executor_id: &str) -> broadcast::Receiver<()> {
+        self.state_machine
+            .data
+            .indexify_state
+            .unfinished_tasks_by_executor
+            .write()
+            .unwrap()
+            .entry(executor_id.to_string())
+            .or_default()
+            .subscribe()
+    }
+
     pub async fn unfinished_tasks_by_extractor(
         &self,
         extractor: &str,
@@ -542,10 +654,8 @@ impl App {
         predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>> {
-        self.state_machine
-            .list_content(predicate, start_id, limit, return_total)
+        self.state_machine.list_content(predicate, start_id, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -555,7 +665,7 @@ impl App {
             },
             new_state_changes: vec![StateChange::new(
                 executor_id.to_string(),
-                internal_api::ChangeType::ExecutorRemoved,
+                ChangeType::ExecutorRemoved,
                 timestamp_secs(),
             )],
             state_changes_processed: vec![],
@@ -579,7 +689,7 @@ impl App {
             .map(|id| {
                 StateChange::new_with_refcnt(
                     id.to_string(),
-                    internal_api::ChangeType::AddGraphToContent {
+                    ChangeType::AddGraphToContent {
                         extraction_graph: extraction_graph.clone(),
                     },
                     timestamp_secs(),
@@ -689,7 +799,7 @@ impl App {
     pub fn get_extraction_graphs_by_name(
         &self,
         namespace: &str,
-        graph_names: &[String],
+        graph_names: &[impl AsRef<str>],
     ) -> Result<Vec<Option<ExtractionGraph>>> {
         self.state_machine
             .get_extraction_graphs_by_name(namespace, graph_names)
@@ -712,7 +822,7 @@ impl App {
         let new_state_changes = match root_content_id {
             Some(id) if id.version > 1 => vec![StateChange::new(
                 id.to_string(),
-                indexify_internal_api::ChangeType::TaskCompleted {
+                ChangeType::TaskCompleted {
                     root_content_id: id,
                 },
                 timestamp_secs(),
@@ -732,10 +842,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_gc_tasks(
-        &self,
-        gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>,
-    ) -> Result<()> {
+    pub async fn create_gc_tasks(&self, gc_tasks: Vec<GarbageCollectionTask>) -> Result<()> {
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
             new_state_changes: vec![],
@@ -745,7 +852,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_gc_task(&self, gc_task: internal_api::GarbageCollectionTask) -> Result<()> {
+    pub async fn update_gc_task(&self, gc_task: GarbageCollectionTask) -> Result<()> {
         let mark_finished = gc_task.outcome != internal_api::TaskOutcome::Unknown;
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::UpdateGarbageCollectionTask {
@@ -757,6 +864,16 @@ impl App {
         };
         self.forwardable_raft.client_write(req).await?;
         Ok(())
+    }
+
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<indexify_internal_api::ExtractionGraphAnalytics>> {
+        self.state_machine
+            .get_graph_analytics(namespace, graph_name)
+            .await
     }
 
     pub fn extractor_with_name(
@@ -771,23 +888,6 @@ impl App {
             )?
             .ok_or_else(|| anyhow!("Extractor with name {} not found", extractor))?;
         Ok(extractor)
-    }
-
-    pub async fn list_extraction_policy(&self, namespace: &str) -> Result<Vec<ExtractionPolicy>> {
-        let extraction_policy_ids = {
-            self.state_machine
-                .get_extraction_policies_table()
-                .await
-                .get(namespace)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .collect_vec()
-        };
-        let extraction_policies = self
-            .state_machine
-            .get_extraction_policies_from_ids(extraction_policy_ids.into_iter().collect())?;
-        Ok(extraction_policies)
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
@@ -814,7 +914,7 @@ impl App {
         Ok(graphs)
     }
 
-    pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<String>> {
         //  Fetch the namespaces from the db
         let namespaces: Vec<String> = self
             .state_machine
@@ -824,16 +924,7 @@ impl App {
             .map(|(key, _)| key)
             .collect();
 
-        // Fetch extraction policies for each namespace
-        let mut result_namespaces = Vec::new();
-        for namespace_name in namespaces {
-            let ns = self.state_machine.get_namespace(&namespace_name).await?;
-            if let Some(ns) = ns {
-                result_namespaces.push(ns);
-            }
-        }
-
-        Ok(result_namespaces)
+        Ok(namespaces)
     }
 
     pub async fn namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
@@ -848,7 +939,7 @@ impl App {
     ) -> Result<()> {
         let state_change = StateChange::new(
             executor_id.to_string(),
-            internal_api::ChangeType::ExecutorAdded,
+            ChangeType::ExecutorAdded,
             timestamp_secs(),
         );
         let req = StateMachineUpdateRequest {
@@ -1074,7 +1165,7 @@ impl App {
         for root in roots.iter() {
             state_changes.push(StateChange::new(
                 root.id.to_string(),
-                internal_api::ChangeType::TombstoneContentTree,
+                ChangeType::TombstoneContentTree,
                 timestamp_secs(),
             ));
         }
@@ -1159,7 +1250,6 @@ impl App {
         &self,
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
-        let content_ids: HashSet<String> = content_ids.into_iter().collect();
         self.state_machine.get_content_from_ids(content_ids).await
     }
 
@@ -1200,14 +1290,11 @@ impl App {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::Task>>
     where
         F: Fn(&internal_api::Task) -> bool,
     {
-        self.state_machine
-            .list_tasks(filter, start_id, limit, return_total)
-            .await
+        self.state_machine.list_tasks(filter, start_id, limit).await
     }
 
     pub async fn update_labels(
@@ -1242,7 +1329,7 @@ impl App {
         }
         let new_state_changes = vec![StateChange::new(
             content.id.id.clone(),
-            internal_api::ChangeType::ContentUpdated,
+            ChangeType::ContentUpdated,
             timestamp_secs(),
         )];
 
@@ -1281,10 +1368,10 @@ impl App {
     }
 
     #[cfg(test)]
-    pub async fn list_all_gc_tasks(&self) -> Result<Vec<internal_api::GarbageCollectionTask>> {
-        let gc_tasks: Vec<internal_api::GarbageCollectionTask> = self
+    pub async fn list_all_gc_tasks(&self) -> Result<Vec<GarbageCollectionTask>> {
+        let gc_tasks: Vec<GarbageCollectionTask> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::GarbageCollectionTask>(
+            .get_all_rows_from_cf::<GarbageCollectionTask>(
                 StateMachineColumns::GarbageCollectionTasks,
             )
             .await?
@@ -1302,10 +1389,7 @@ impl App {
         Ok(task)
     }
 
-    pub async fn gc_task_with_id(
-        &self,
-        gc_task_id: &str,
-    ) -> Result<internal_api::GarbageCollectionTask> {
+    pub async fn gc_task_with_id(&self, gc_task_id: &str) -> Result<GarbageCollectionTask> {
         let gc_task = self
             .state_machine
             .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)?
@@ -1445,9 +1529,7 @@ impl App {
         }
     }
 
-    pub async fn subscribe_to_gc_task_events(
-        &self,
-    ) -> broadcast::Receiver<indexify_internal_api::GarbageCollectionTask> {
+    pub async fn subscribe_to_gc_task_events(&self) -> broadcast::Receiver<GarbageCollectionTask> {
         self.state_machine.subscribe_to_gc_task_events().await
     }
 
@@ -1533,7 +1615,7 @@ mod tests {
             id: task_id.into(),
             namespace: content_metadata.namespace.clone(),
             extractor: "".to_string(),
-            extraction_policy_id: "".to_string(),
+            extraction_policy_name: "".to_string(),
             extraction_graph_name: "".to_string(),
             content_metadata: content_metadata.clone(),
             output_index_table_mapping: Default::default(),
@@ -1776,7 +1858,6 @@ mod tests {
                 |c| c.namespace == content_metadata_vec.first().unwrap().namespace,
                 None,
                 None,
-                false,
             )
             .await
             .unwrap()
@@ -1799,6 +1880,7 @@ mod tests {
             .state_machine
             .get_latest_version_of_content(&content_metadata_vec[0].id.id)?
             .unwrap();
+        content_metadata_vec[0].change_offset = read_content.change_offset;
         assert_eq!(read_content, content_metadata_vec[0]);
 
         Ok(())
@@ -1842,12 +1924,10 @@ mod tests {
         node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
             .await?;
 
-        //  Read the policy back using namespace
-        let read_policy = node.list_extraction_policy(&eg.namespace).await?;
-        assert_eq!(read_policy.len(), 1);
-
         //  Read the policy back using the id
-        let read_policy = node.get_extraction_policy(&eg.extraction_policies[0].id)?;
+        let read_policy = node
+            .get_extraction_policy(&eg.extraction_policies[0].id)
+            .await?;
         assert_eq!(read_policy, eg.extraction_policies[0]);
 
         //  Create some content
@@ -1937,7 +2017,7 @@ mod tests {
         // present along with the extraction policies
         let namespaces = node.list_namespaces().await?;
         assert_eq!(namespaces.len(), 1);
-        assert_eq!(namespaces.first().unwrap().name, namespace);
+        assert_eq!(namespaces.first().unwrap(), namespace);
 
         Ok(())
     }

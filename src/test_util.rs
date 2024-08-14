@@ -179,7 +179,13 @@ pub mod db_utils {
         task: &Task,
         id: &str,
     ) -> Result<internal_api::ContentMetadata, anyhow::Error> {
-        let policy = coordinator.get_extraction_policy(task.extraction_policy_id.clone())?;
+        let policy = coordinator
+            .get_extraction_policy(
+                &task.namespace,
+                &task.extraction_graph_name,
+                &task.extraction_policy_name,
+            )
+            .await?;
         let mut content =
             test_mock_content_metadata(id, task.content_metadata.get_root_id(), &policy.graph_name);
         content.parent_id = Some(task.content_metadata.id.clone());
@@ -232,7 +238,6 @@ pub mod db_utils {
             .await?
             .is_empty()
         {
-            coordinator.run_scheduler().await?;
             sleep(Duration::from_millis(1)).await;
         }
         Ok(())
@@ -249,7 +254,6 @@ pub mod db_utils {
 
     pub async fn wait_gc_tasks_completed(coordinator: &Coordinator) -> Result<(), anyhow::Error> {
         while gc_tasks_pending(coordinator).await? {
-            coordinator.run_scheduler().await?;
             sleep(Duration::from_millis(1)).await;
         }
         Ok(())
