@@ -57,12 +57,13 @@ extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'text_extractor'
     input_params:
-      output_format: 'text'
-  - extractor: 'tensorlake/text-chunker'
-    name: 'text_chunker
+      output_types: ["text", "table"]
+      output_format: "text"
+  - extractor: 'tensorlake/chunk-extractor'
+    name: 'text_chunker'
     input_params:
       text_splitter: 'recursive'
-      chunk_size: 1000
+      chunk_size: 2000
       overlap: 200
     content_source: 'text_extractor'
   - extractor: 'tensorlake/minilm-l6'
@@ -94,7 +95,7 @@ python setup_graph.py
 Create a file [`upload_and_retrieve.py`](upload_and_retrieve.py):
 
 ```python
-from indexify import IndexifyClient
+from indexify import IndexifyClient, simple_directory_loader
 import requests
 from openai import OpenAI
 import tempfile
@@ -103,22 +104,12 @@ client = IndexifyClient()
 
 client_openai = OpenAI()
 
-def upload_file(url):
-    response = requests.get(url)
-    with tempfile.NamedTemporaryFile(delete=True) as f:
-        f.write(response.content)
-        pdf_path = f.name
-        content_id = client.upload_file("rag_pipeline", pdf_path)
-        print(f"PDF uploaded with content id: {content_id}")
-
-    client.wait_for_extraction(content_id)
-
 def get_page_number(content_id: str) -> int:
     content_metadata = client.get_content_metadata(content_id)
     page_number = content_metadata["extracted_metadata"]["metadata"]['page_num']
     return page_number
 
-def get_context(question: str, index: str, top_k=3):
+def get_context(question: str, index: str, top_k=5):
     results = client.search_index(name=index, query=question, top_k=top_k)
     context = ""
     for result in results:
@@ -131,7 +122,7 @@ def get_context(question: str, index: str, top_k=3):
     return context
 
 def create_prompt(question, context):
-    return f"""Answer the question, based on the context.
+    return f"""Answer the question based only on the following context, which can include text and tables.
     Mention the content ids and page numbers as citation at the end of the response, format -
     Citations: 
     Content ID: <> Page Number <>.
@@ -156,11 +147,32 @@ def answer_question(question):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_url = "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf"
+    pdf_urls = [
+        "https://arxiv.org/pdf/2304.08485.pdf",
+        "https://arxiv.org/pdf/0910.2029.pdf",
+        "https://arxiv.org/pdf/2402.01968.pdf",
+        "https://arxiv.org/pdf/2401.13138.pdf",
+        "https://arxiv.org/pdf/2402.03578.pdf",
+        "https://arxiv.org/pdf/2309.07864.pdf",
+        "https://arxiv.org/pdf/2401.03568.pdf",
+        "https://arxiv.org/pdf/2312.10256.pdf",
+        "https://arxiv.org/pdf/2312.01058.pdf",
+        "https://arxiv.org/pdf/2402.01680.pdf",
+        "https://arxiv.org/pdf/2403.07017.pdf"
+    ]
 
-    upload_file(pdf_url)
+    content_ids = simple_directory_loader(
+        client=client,
+        extraction_graph="rag_pipeline",
+        directory="pdfs",
+        file_extensions=[".pdf"],
+        download_urls=pdf_urls,
+        wait_for_extraction=True
+    )
+
+    print(f"Processed {len(content_ids)} documents")
     
-    question = "What was the hardware the model was trained on and how long it was trained?"
+    question = "What is the performance of LLaVa across across multiple image domains / subjects?"
     answer = answer_question(question)
     print(f"Question: {question}")
     print(f"Answer: {answer}")
@@ -170,7 +182,7 @@ Setup the OPENAI API KEY in your terminal before running the script.
 
 ### Running the RAG System
 
-Reference from PDF file from which answer should be generated:
+Out of 11 PDF files, reference from the PDF file from which answer should be generated:
 
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/paper.png" width="600"/>
 
@@ -179,6 +191,12 @@ You can run the Python script to process a PDF and answer questions:
 python upload_and_retrieve.py
 ```
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/carbon.png" width="600"/>
+
+The answer above incorporates information from tables in addition to text. Tables get parsed as structured JSON, for example:
+
+<img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/indexing_and_rag/tt_output.png" width="600"/>
+
+Here is another table extraction [example](https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/table_extraction).
 
 ## Part 2: Multi-Modal RAG with GPT-4o mini
 
