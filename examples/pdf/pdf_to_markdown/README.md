@@ -41,7 +41,7 @@ indexify-extractor join-server
 
 The extraction graph defines the flow of data through our text extraction pipeline. We'll create a graph that extracts text from PDFs using the tensorlake/marker extractor.
 
-Create a new Python file called `pdf_text_extraction_graph.py` and add the following code:
+Create a new Python file called `setup_graph.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -63,12 +63,12 @@ client.create_extraction_graph(extraction_graph)
 
 Run this script to set up the pipeline:
 ```bash
-python pdf_text_extraction_graph.py
+python setup_graph.py
 ```
 
 ## Implementing the Text Extraction Pipeline
 
-Now that we have our extraction graph set up, we can upload files and make the pipeline extract text. Create a file `upload_and_extract.py`:
+Now that we have our extraction graph set up, we can upload files and make the pipeline extract text. Create a file `upload_and_retrieve.py`:
 
 ```python
 import requests
@@ -116,11 +116,14 @@ if __name__ == "__main__":
 
 You can run the Python script to process a PDF and extract its text:
 ```bash
-python upload_and_extract.py
+python upload_and_retrieve.py
 ```
    Sample Page to extract markdown from:
+
    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/screenshot.png" width="600"/>
+
    Sample Markdown extracted from page:
+   
    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/pdf_to_markdown/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage

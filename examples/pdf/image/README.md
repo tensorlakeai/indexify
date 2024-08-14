@@ -8,7 +8,7 @@ We provide a script that downloads a PDF, uploads it to Indexify, and retrieves 
 
 | Sample Page |
 |:-----------:|
-| <img src="https://docs.getindexify.ai/example_code/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> |
+| <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/docsupdate/examples/pdf/image/2310.06825v1_page-0004.jpg" width="600"/> |
 
 Source: [https://arxiv.org/pdf/2310.06825.pdf](https://arxiv.org/pdf/2310.06825.pdf)
 
@@ -38,7 +38,7 @@ Before we begin, ensure you have the following:
 
 ## File Descriptions
 1. `setup_graph.py`: This script sets up the extraction graph for converting PDFs to images.
-2. `upload_and_retreive.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted images.
+2. `upload_and_retrieve.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted images.
 
 ## Usage
 1. First, run the [setup_graph.py](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf/image/setup_graph.py) script to set up the extraction graph:
@@ -90,7 +90,7 @@ def get_images(pdf_path):
 
     # Retrieve the images content
     images = client.get_extracted_content(
-        content_id=content_id,
+        ingested_content_id=content_id,
         graph_name="image_extractor",
         policy_name="pdf_to_image"
     )

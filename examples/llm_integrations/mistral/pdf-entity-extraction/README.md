@@ -54,7 +54,7 @@ indexify-extractor join-server
 
 The extraction graph defines the flow of data through our entity extraction pipeline. We'll create a graph that first extracts text from PDFs, then sends that text to Mistral for entity extraction.
 
-Create a new Python file called `pdf_entity_extraction_pipeline.py` and add the following code:
+Create a new Python file called `setup_graph.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -83,14 +83,14 @@ Replace `'YOUR_MISTRAL_API_KEY'` with your actual Mistral API key.
 
 You can run this script to set up the pipeline:
 ```bash
-python pdf_entity_extraction_pipeline.py
+python setup_graph.py
 ```
 
 ## Implementing the Entity Extraction Pipeline
 
 Now that we have our extraction graph set up, we can upload files and retrieve the entities:
 
-Create a file `upload_and_retreive.py`
+Create a file `upload_and_retrieve.py`
 
 ```python
 import json
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
 You can run the Python script as many times, or use this in an application to continue generating summaries:
 ```bash
-python upload_and_retreive.py
+python upload_and_retrieve.py
 ```
 <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/llm_integrations/mistral/pdf-entity-extraction/carbon.png" width="600"/>
 
