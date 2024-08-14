@@ -1,6 +1,7 @@
 syntax = "proto3";
 import "google/protobuf/struct.proto";
 
+
 package indexify_coordinator;
 
 service CoordinatorService {
@@ -404,7 +405,7 @@ message ListNamespaceRequest {
 }
 
 message ListNamespaceResponse {
-    repeated Namespace namespaces = 1;
+    repeated string namespaces = 1;
 }
 
 message ExtractionGraph {

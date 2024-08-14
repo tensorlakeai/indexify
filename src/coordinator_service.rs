@@ -592,17 +592,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut proto_namespaces = vec![];
-        for namespace in namespaces {
-            let proto_namespace = namespace.try_into().map_err(|e| {
-                tonic::Status::aborted(format!("unable to convert namespace: {}", e))
-            })?;
-            proto_namespaces.push(proto_namespace);
-        }
         Ok(tonic::Response::new(
-            indexify_coordinator::ListNamespaceResponse {
-                namespaces: proto_namespaces,
-            },
+            indexify_coordinator::ListNamespaceResponse { namespaces },
         ))
     }
 

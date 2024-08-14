@@ -146,7 +146,7 @@ impl DataManager {
 
         let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|r| Ok(api::DataNamespace { name: r.name }))
+            .map(|s| Ok(api::DataNamespace { name: s }))
             .collect();
         data_namespaces
     }
