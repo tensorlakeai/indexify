@@ -294,6 +294,7 @@ message GCTask {
 message HeartbeatRequest {
     string executor_id = 1;
     int64 pending_tasks = 2;
+    uint64 max_pending_tasks = 3;
 }
 
 message GetExtractionGraphAnalyticsRequest {
