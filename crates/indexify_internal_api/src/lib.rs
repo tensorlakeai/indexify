@@ -1194,27 +1194,6 @@ impl TaskResult {
 }
 
 pub type NamespaceName = String;
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Namespace {
-    pub name: NamespaceName,
-    pub extraction_graphs: Vec<ExtractionGraph>,
-}
-
-impl TryFrom<Namespace> for indexify_coordinator::Namespace {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Namespace) -> Result<Self> {
-        let mut extraction_graphs = vec![];
-        for graph in value.extraction_graphs {
-            extraction_graphs.push(graph.try_into()?)
-        }
-
-        Ok(indexify_coordinator::Namespace {
-            name: value.name,
-            extraction_graphs,
-        })
-    }
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {

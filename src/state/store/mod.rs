@@ -931,13 +931,10 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    pub async fn get_namespace(
-        &self,
-        namespace: &str,
-    ) -> Result<Option<indexify_internal_api::Namespace>> {
+    pub async fn namespace_exists(&self, namespace: &str) -> Result<bool> {
         self.data
             .indexify_state
-            .get_namespace(namespace, &self.db.read().unwrap())
+            .namespace_exists(namespace, &self.db.read().unwrap())
     }
 
     pub async fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {

@@ -2175,31 +2175,8 @@ impl IndexifyState {
     }
 
     /// This method will get the namespace based on the key provided
-    pub fn get_namespace(
-        &self,
-        namespace: &str,
-        db: &OptimisticTransactionDB,
-    ) -> Result<Option<indexify_internal_api::Namespace>> {
-        let ns_name = match get_from_cf(db, StateMachineColumns::Namespaces, namespace)? {
-            Some(name) => name,
-            None => return Ok(None),
-        };
-        let extraction_graphs_ids = self
-            .extraction_graphs_by_ns
-            .get(&namespace.to_string())
-            .into_iter()
-            .collect_vec();
-        let txn = db.transaction();
-        let extraction_graphs = self
-            .get_extraction_graphs(&extraction_graphs_ids, db, &txn)?
-            .into_iter()
-            .flatten()
-            .collect();
-
-        Ok(Some(indexify_internal_api::Namespace {
-            name: ns_name,
-            extraction_graphs,
-        }))
+    pub fn namespace_exists(&self, namespace: &str, db: &OptimisticTransactionDB) -> Result<bool> {
+        Ok(get_from_cf::<String, &str>(db, StateMachineColumns::Namespaces, namespace)?.is_some())
     }
 
     pub fn get_schemas(

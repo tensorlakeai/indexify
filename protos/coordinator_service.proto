@@ -23,8 +23,6 @@ service CoordinatorService {
 
     rpc ListNS(ListNamespaceRequest) returns (ListNamespaceResponse) {}
 
-    rpc GetNS(GetNamespaceRequest) returns (GetNamespaceResponse) {}
-
     rpc ListExtractors(ListExtractorsRequest) returns (ListExtractorsResponse) {}
 
     rpc RegisterExecutor(RegisterExecutorRequest) returns (RegisterExecutorResponse) {}
@@ -347,14 +345,6 @@ message Extractor {
     map<string, string> embedding_schemas = 4;
     map<string, string> metadata_schemas = 5;
     repeated string input_mime_types = 6;
-}
-
-message GetNamespaceRequest {
-    string name = 1;
-}
-
-message GetNamespaceResponse {
-    Namespace namespace = 1;
 }
 
 message Empty {

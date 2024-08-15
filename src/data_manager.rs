@@ -165,21 +165,6 @@ impl DataManager {
         Ok(())
     }
 
-    #[tracing::instrument]
-    pub async fn get(&self, name: &str) -> Result<api::DataNamespace> {
-        let req = indexify_coordinator::GetNamespaceRequest {
-            name: name.to_string(),
-        };
-        let response = self
-            .get_coordinator_client()
-            .await?
-            .get_ns(req)
-            .await?
-            .into_inner();
-        let namespace = response.namespace.ok_or(anyhow!("namespace not found"))?;
-        namespace.try_into()
-    }
-
     pub async fn link_extraction_graphs(
         &self,
         namespace: String,

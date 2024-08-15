@@ -599,29 +599,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         ))
     }
 
-    async fn get_ns(
-        &self,
-        request: tonic::Request<indexify_coordinator::GetNamespaceRequest>,
-    ) -> Result<tonic::Response<indexify_coordinator::GetNamespaceResponse>, tonic::Status> {
-        let namespace = request.into_inner().name;
-        let namespace = self
-            .coordinator
-            .get_namespace(&namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?
-            .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
-
-        Ok(tonic::Response::new(
-            indexify_coordinator::GetNamespaceResponse {
-                namespace: Some(
-                    namespace
-                        .try_into()
-                        .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
-                ),
-            },
-        ))
-    }
-
     async fn list_extractors(
         &self,
         _request: tonic::Request<ListExtractorsRequest>,
