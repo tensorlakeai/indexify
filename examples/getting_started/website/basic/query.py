@@ -2,7 +2,7 @@ from indexify import IndexifyClient
 from llama_cpp import Llama
 
 client = IndexifyClient()
-llm = Llama.from_pretrained(repo_id='microsoft/Phi-3-mini-4k-instruct-gguf', filename='*q4.gguf',  verbose=False, n_ctx=2048)
+llm = Llama.from_pretrained(repo_id='NousResearch/Hermes-2-Theta-Llama-3-8B-GGUF', filename='*Q8_0.gguf',  verbose=False, n_ctx=2048)
 
 # Get entities
 ingested_content_list = client.list_content("wiki_extraction_pipeline")

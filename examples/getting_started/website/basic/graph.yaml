@@ -3,6 +3,8 @@ extraction_policies:
   - extractor: "tensorlake/llama_cpp"
     name: "entity-extractor" 
     input_params:
+      model: "NousResearch/Hermes-2-Theta-Llama-3-8B-GGUF"
+      filename: "*Q8_0.gguf"
       system_prompt: "Extract entities from text, and return the output in JSON format."
       n_ctx: 50000
   - extractor: "tensorlake/chunk-extractor"
