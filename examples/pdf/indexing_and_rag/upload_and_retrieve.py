@@ -1,5 +1,6 @@
-from indexify import IndexifyClient, simple_directory_loader
-import requests
+from indexify import IndexifyClient
+from indexify.data_loaders import LocalDirectoryLoader
+import os, requests
 from openai import OpenAI
 import tempfile
 
@@ -64,14 +65,20 @@ if __name__ == "__main__":
         "https://arxiv.org/pdf/2403.07017.pdf"
     ]
 
-    content_ids = simple_directory_loader(
-        client=client,
-        extraction_graph="rag_pipeline",
-        directory="pdfs",
-        file_extensions=[".pdf"],
-        download_urls=pdf_urls,
-        wait_for_extraction=True
-    )
+    os.makedirs("pdfs", exist_ok=True)
+
+    for url in pdf_urls:
+        filename = url.split("/")[-1]
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(os.path.join("pdfs", filename), "wb") as file:
+                file.write(response.content)
+            print(f"Downloaded {filename}")
+        else:
+            print(f"Failed to download {filename}")
+
+    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
+    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline")
 
     print(f"Processed {len(content_ids)} documents")
     

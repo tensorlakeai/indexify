@@ -95,8 +95,9 @@ python setup_graph.py
 Create a file [`upload_and_retrieve.py`](upload_and_retrieve.py):
 
 ```python
-from indexify import IndexifyClient, simple_directory_loader
-import requests
+from indexify import IndexifyClient
+from indexify.data_loaders import LocalDirectoryLoader
+import os, requests
 from openai import OpenAI
 import tempfile
 
@@ -161,14 +162,20 @@ if __name__ == "__main__":
         "https://arxiv.org/pdf/2403.07017.pdf"
     ]
 
-    content_ids = simple_directory_loader(
-        client=client,
-        extraction_graph="rag_pipeline",
-        directory="pdfs",
-        file_extensions=[".pdf"],
-        download_urls=pdf_urls,
-        wait_for_extraction=True
-    )
+    os.makedirs("pdfs", exist_ok=True)
+
+    for url in pdf_urls:
+        filename = url.split("/")[-1]
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(os.path.join("pdfs", filename), "wb") as file:
+                file.write(response.content)
+            print(f"Downloaded {filename}")
+        else:
+            print(f"Failed to download {filename}")
+
+    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
+    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline")
 
     print(f"Processed {len(content_ids)} documents")
     
@@ -255,16 +262,38 @@ python setup_graph_mm.py
 Create a file [`upload_and_retrieve_mm.py`](upload_and_retrieve_mm.py), which is mostly the same as the previous example, with slight changes to include the images
 
 ```python
+from indexify import IndexifyClient
+from indexify.data_loaders import LocalDirectoryLoader
+import requests
+from openai import OpenAI
+import base64
+import tempfile
 
-def upload_file(url):
-    response = requests.get(url)
-    with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as f:
-        f.write(response.content)
-        pdf_path = f.name
-        content_id = client.upload_file("rag_pipeline_mm", pdf_path)
-        print(f"PDF uploaded with content id: {content_id}")
+client = IndexifyClient()
+client_openai = OpenAI()
 
-    client.wait_for_extraction(content_id)
+def get_page_number(content_id: str) -> int:
+    content_metadata = client.get_content_metadata(content_id)
+    page_number = content_metadata["extracted_metadata"]["metadata"]['page_num']
+    return page_number
+
+def get_context(question: str, index: str, top_k=3):
+    results = client.search_index(name=index, query=question, top_k=top_k)
+    context = ""
+    for result in results:
+        parent_id = result['content_metadata']['parent_id']
+        page_number = get_page_number(parent_id)
+        context = context + f"content id: {result['content_id']} \n\n page number: {page_number} \n\n passage: {result['text']}\n"
+    return context
+
+def create_prompt(question, context):
+    return f"""Answer the question, based on the context.
+    Mention the content ids and page numbers as citation at the end of the response, format -
+    Citations: 
+    Content ID: <> Page Number <>.
+
+    question: {question}
+    context: {context}"""
 
 def answer_question(question):
     text_context = get_context(question, "rag_pipeline_mm.chunks_to_embeddings.embedding")
@@ -298,21 +327,32 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
-def process_pdf_url(url, index):
-    try:
-        upload_file(url)
-    except Exception as exc:
-        print(f"Error processing {url}: {exc}")
-
+# Example usage
 if __name__ == "__main__":
     pdf_urls = [
         "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
         "https://arxiv.org/pdf/1810.04805.pdf",
+        "https://arxiv.org/pdf/2304.08485"
     ]
-    
-    for i, url in enumerate(pdf_urls):
-        process_pdf_url(url, i)
 
+    os.makedirs("pdfs", exist_ok=True)
+
+    for url in pdf_urls:
+        filename = url.split("/")[-1]
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(os.path.join("pdfs", filename), "wb") as file:
+                file.write(response.content)
+            print(f"Downloaded {filename}")
+        else:
+            print(f"Failed to download {filename}")
+
+    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
+    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline_mm")
+
+    print(f"Processed {len(content_ids)} documents")
+
+    # Ask questions
     questions = [
         "What does the architecture diagram show?",
         "Explain the attention mechanism in transformers.",

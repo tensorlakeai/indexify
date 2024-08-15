@@ -1,4 +1,5 @@
 from indexify import IndexifyClient
+from indexify.data_loaders import LocalDirectoryLoader
 import requests
 from openai import OpenAI
 import base64
@@ -6,16 +7,6 @@ import tempfile
 
 client = IndexifyClient()
 client_openai = OpenAI()
-
-def upload_file(url):
-    response = requests.get(url)
-    with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as f:
-        f.write(response.content)
-        pdf_path = f.name
-        content_id = client.upload_file("rag_pipeline_mm", pdf_path)
-        print(f"PDF uploaded with content id: {content_id}")
-
-    client.wait_for_extraction(content_id)
 
 def get_page_number(content_id: str) -> int:
     content_metadata = client.get_content_metadata(content_id)
@@ -72,12 +63,6 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
-def process_pdf_url(url, index):
-    try:
-        upload_file(url)
-    except Exception as exc:
-        print(f"Error processing {url}: {exc}")
-
 # Example usage
 if __name__ == "__main__":
     pdf_urls = [
@@ -85,10 +70,23 @@ if __name__ == "__main__":
         "https://arxiv.org/pdf/1810.04805.pdf",
         "https://arxiv.org/pdf/2304.08485"
     ]
-    
-    # Download and process PDFs sequentially
-    for i, url in enumerate(pdf_urls):
-        process_pdf_url(url, i)
+
+    os.makedirs("pdfs", exist_ok=True)
+
+    for url in pdf_urls:
+        filename = url.split("/")[-1]
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(os.path.join("pdfs", filename), "wb") as file:
+                file.write(response.content)
+            print(f"Downloaded {filename}")
+        else:
+            print(f"Failed to download {filename}")
+
+    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
+    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline_mm")
+
+    print(f"Processed {len(content_ids)} documents")
 
     # Ask questions
     questions = [
