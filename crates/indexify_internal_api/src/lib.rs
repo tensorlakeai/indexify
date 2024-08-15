@@ -27,7 +27,6 @@ pub type ExtractionGraphName = String;
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionGraph {
-    pub id: ExtractionGraphId,
     pub name: ExtractionGraphName,
     pub namespace: String,
     #[serde(default)]
@@ -45,7 +44,6 @@ impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
             .map(|policy| policy.try_into())
             .collect();
         Ok(Self {
-            id: value.id,
             name: value.name,
             namespace: value.namespace,
             description: value.description.unwrap_or_default(),
@@ -55,11 +53,20 @@ impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
 }
 
 impl ExtractionGraph {
+    #[deprecated(note = "don't use in new code, id field removed")]
     pub fn create_id(name: &str, namespace: &str) -> String {
         let mut s = DefaultHasher::new();
         name.hash(&mut s);
         namespace.hash(&mut s);
         format!("{:x}", s.finish())
+    }
+
+    pub fn make_key(namespace: &str, name: &str) -> Vec<u8> {
+        format!("{}:{}", namespace, name).into_bytes()
+    }
+
+    pub fn key(&self) -> Vec<u8> {
+        Self::make_key(&self.namespace, &self.name)
     }
 }
 
@@ -74,12 +81,7 @@ impl ExtractionGraphBuilder {
             .extraction_policies
             .clone()
             .ok_or(anyhow!("child policies can't be empty"))?;
-        let id = self
-            .id
-            .clone()
-            .ok_or(anyhow!("extraction graph id can't be empty"))?;
         Ok(ExtractionGraph {
-            id,
             name,
             namespace,
             extraction_policies,

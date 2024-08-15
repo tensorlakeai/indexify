@@ -476,8 +476,6 @@ pub struct ListNamespaceResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractionGraph {
-    #[prost(string, tag = "1")]
-    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
@@ -543,8 +541,6 @@ pub struct CreateExtractionGraphRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateExtractionGraphResponse {
-    #[prost(string, tag = "1")]
-    pub graph_id: ::prost::alloc::string::String,
     #[prost(map = "string, message", tag = "2")]
     pub extractors: ::std::collections::HashMap<
         ::prost::alloc::string::String,

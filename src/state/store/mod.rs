@@ -144,7 +144,7 @@ pub enum StateMachineColumns {
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
 const LAST_APPLIED_LOG_ID_KEY: &[u8] = b"last_applied_log_id";
 const STORE_VERSION: &[u8] = b"store_version";
-const CURRENT_STORE_VERSION: u64 = 4;
+const CURRENT_STORE_VERSION: u64 = 5;
 const LOG_STORE_LOGS_COLUMN: &str = "logs";
 const LOG_STORE_STORE_COLUMN: &str = "store";
 
@@ -520,6 +520,8 @@ impl StateMachineStore {
                     CURRENT_STORE_VERSION
                 ))
                 .into());
+            } else if store_version == 4 {
+                compat::convert_v4(&db)?;
             } else if store_version == 3 {
                 compat::convert_v3(&db, &log_store.db)?;
             } else if store_version == 2 {
@@ -681,6 +683,13 @@ impl StateMachineStore {
                     }
                     RequestPayload::DeleteExtractionGraph {
                         graph_id: _,
+                        gc_task,
+                    } => {
+                        self.send_gc_tasks(vec![gc_task]);
+                    }
+                    RequestPayload::DeleteExtractionGraphByName {
+                        extraction_graph: _,
+                        namespace: _,
                         gc_task,
                     } => {
                         self.send_gc_tasks(vec![gc_task]);
@@ -1032,9 +1041,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_executor_running_task_count()
     }
 
-    pub async fn get_schemas_by_namespace(
-        &self,
-    ) -> HashMap<NamespaceName, HashSet<ExtractionGraphId>> {
+    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<String>> {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 
@@ -1586,7 +1593,7 @@ fn apply_v1_snapshot(
     for (_, eg) in &snapshot.extraction_graphs {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let eg: ExtractionGraph = eg.clone().into();
-        put_cf(&txn, cf, &eg.id, &eg)?;
+        put_cf(&txn, cf, &eg.key(), &eg)?;
     }
     for (executor_id, executor_metadata) in &snapshot.executors {
         let cf = StateMachineColumns::Executors.cf(db);

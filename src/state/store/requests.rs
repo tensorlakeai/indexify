@@ -73,6 +73,11 @@ pub enum RequestPayload {
         graph_id: String,
         gc_task: GarbageCollectionTask,
     },
+    DeleteExtractionGraphByName {
+        extraction_graph: String,
+        namespace: String,
+        gc_task: GarbageCollectionTask,
+    },
     CreateExtractionGraphLink {
         extraction_graph_link: ExtractionGraphLink,
     },

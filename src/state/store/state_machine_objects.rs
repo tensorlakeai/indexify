@@ -345,43 +345,6 @@ impl From<HashMap<ExecutorId, u64>> for ExecutorRunningTaskCount {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct ExtractionGraphTable {
-    eg_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<ExtractionGraphId>>>>,
-}
-
-impl ExtractionGraphTable {
-    pub fn get(&self, namespace: &NamespaceName) -> HashSet<ExtractionGraphId> {
-        let guard = self.eg_by_namespace.read().unwrap();
-        guard.get(namespace).cloned().unwrap_or_default()
-    }
-
-    pub fn insert(&self, namespace: &NamespaceName, id: &ExtractionGraphId) {
-        let mut guard = self.eg_by_namespace.write().unwrap();
-        guard
-            .entry(namespace.clone())
-            .or_default()
-            .insert(id.clone());
-    }
-
-    pub fn remove(&self, namespace: &NamespaceName, id: &SchemaId) {
-        let mut guard = self.eg_by_namespace.write().unwrap();
-        guard.entry(namespace.clone()).or_default().remove(id);
-    }
-
-    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
-        let guard = self.eg_by_namespace.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<NamespaceName, HashSet<ExtractionGraphId>>> for ExtractionGraphTable {
-    fn from(eg_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>) -> Self {
-        let eg_by_namespace = Arc::new(RwLock::new(eg_by_namespace));
-        Self { eg_by_namespace }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct SchemasByNamespace {
     schemas_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<SchemaId>>>>,
 }
@@ -642,9 +605,6 @@ pub struct IndexifyState {
     /// Metrics
     pub metrics: std::sync::Mutex<Metrics>,
 
-    /// Namespace -> Extraction Graph ID
-    extraction_graphs_by_ns: ExtractionGraphTable,
-
     /// Next change id
     pub change_id: std::sync::Mutex<u64>,
 
@@ -688,7 +648,6 @@ impl Default for IndexifyState {
             content_children_table: Default::default(),
             root_task_counts: Default::default(),
             metrics: Default::default(),
-            extraction_graphs_by_ns: Default::default(),
             change_id: Default::default(),
             graph_links: Default::default(),
             new_content_channel,
@@ -728,7 +687,7 @@ impl IndexifyState {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
         txn.put_cf(
             &StateMachineColumns::ExtractionGraphs.cf(db),
-            &extraction_graph.id,
+            &extraction_graph.key(),
             serialized_eg,
         )
         .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -1337,8 +1296,6 @@ impl IndexifyState {
                 .or_default()
                 .insert(ep.id.clone());
         }
-        self.extraction_graphs_by_ns
-            .insert(&extraction_graph.namespace, &extraction_graph.id);
         self.schemas_by_namespace.insert(
             &structured_data_schema.namespace,
             &structured_data_schema.id,
@@ -1409,7 +1366,15 @@ impl IndexifyState {
         match &request.payload {
             RequestPayload::DeleteExtractionGraph { graph_id, gc_task } => {
                 self.set_garbage_collection_tasks(db, &txn, &[gc_task])?;
-                self.delete_extraction_graph(db, &txn, graph_id)?;
+                self.delete_extraction_graph_by_id(db, &txn, graph_id)?;
+            }
+            RequestPayload::DeleteExtractionGraphByName {
+                extraction_graph,
+                namespace,
+                gc_task,
+            } => {
+                self.set_garbage_collection_tasks(db, &txn, &[gc_task])?;
+                self.delete_extraction_graph_by_name(db, &txn, extraction_graph, namespace)?;
             }
             RequestPayload::AddGraphToContent {
                 content_ids,
@@ -1769,6 +1734,7 @@ impl IndexifyState {
                 Ok(())
             }
             RequestPayload::DeleteExtractionGraph { .. } |
+            RequestPayload::DeleteExtractionGraphByName { .. } |
             RequestPayload::CreateOrAssignGarbageCollectionTask { .. } |
             RequestPayload::CreateExtractionGraphLink { .. } |
             RequestPayload::CreateNamespace { .. } |
@@ -1833,26 +1799,53 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn delete_extraction_graph(
+    #[allow(deprecated)]
+    fn delete_extraction_graph_by_id(
         &self,
         db: &OptimisticTransactionDB,
         txn: &Transaction<OptimisticTransactionDB>,
         graph_id: &str,
     ) -> Result<(), StateMachineError> {
-        let graph = self.get_extraction_graphs(&[graph_id.to_string()], db, txn)?;
-        let graph = match graph.first() {
-            Some(Some(graph)) => graph,
-            _ => {
-                warn!("Extraction graph with id {} not found", graph_id);
+        for item in txn.iterator_cf(
+            StateMachineColumns::ExtractionGraphs.cf(db),
+            IteratorMode::Start,
+        ) {
+            let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            let graph = JsonEncoder::decode::<ExtractionGraph>(&value)?;
+            if ExtractionGraph::create_id(&graph.name, &graph.namespace) == graph_id {
+                self.delete_schema_for_graph(db, txn, &graph)?;
+                self.delete_indexes_for_graph(db, txn, &graph)?;
+                txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), key)
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
                 return Ok(());
             }
-        };
-        self.delete_schema_for_graph(db, txn, graph)?;
-        self.delete_indexes_for_graph(db, txn, graph)?;
-        txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), &graph_id)
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-        self.extraction_graphs_by_ns
-            .remove(&graph.namespace, &graph.id);
+        }
+        warn!("Extraction graph with id {} not found", graph_id);
+        Ok(())
+    }
+
+    fn delete_extraction_graph_by_name(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
+        extraction_graph: &str,
+        namespace: &str,
+    ) -> Result<(), StateMachineError> {
+        let graph = self.get_extraction_graphs_by_name(namespace, &[extraction_graph], db)?;
+        match graph.first() {
+            Some(Some(graph)) => {
+                self.delete_schema_for_graph(db, txn, graph)?;
+                self.delete_indexes_for_graph(db, txn, graph)?;
+                txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), graph.key())
+                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+            }
+            _ => {
+                warn!(
+                    "Extraction graph with name {} not found in namespace {}",
+                    extraction_graph, namespace
+                );
+            }
+        }
         Ok(())
     }
 
@@ -2236,13 +2229,11 @@ impl IndexifyState {
         graph_names: &[impl AsRef<str>],
         db: &OptimisticTransactionDB,
     ) -> Result<Vec<Option<ExtractionGraph>>, StateMachineError> {
-        let eg_ids: Vec<String> = graph_names
-            .iter()
-            .map(|name| ExtractionGraph::create_id(name.as_ref(), namespace))
-            .collect();
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
-        let keys: Vec<(&rocksdb::ColumnFamily, &[u8])> =
-            eg_ids.iter().map(|egid| (cf, egid.as_bytes())).collect();
+        let keys: Vec<(_, _)> = graph_names
+            .iter()
+            .map(|s| (cf, ExtractionGraph::make_key(namespace, s.as_ref())))
+            .collect();
         let serialized_graphs = db.multi_get_cf(keys);
         let mut graphs: Vec<Option<ExtractionGraph>> = Vec::new();
         for serialized_graph in serialized_graphs {
@@ -2537,11 +2528,6 @@ impl IndexifyState {
             .content_children_table
             .write()
             .unwrap();
-        let mut graphs = self
-            .extraction_graphs_by_ns
-            .eg_by_namespace
-            .write()
-            .unwrap();
         let mut graph_links = self.graph_links.write().unwrap();
 
         self.rebuild_graph_links(db, &mut graph_links)?;
@@ -2549,10 +2535,6 @@ impl IndexifyState {
         for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
             let eg = eg?;
             let eg: ExtractionGraph = eg.1;
-            graphs
-                .entry(eg.namespace.clone())
-                .or_default()
-                .insert(eg.id.clone());
             for policy in eg.extraction_policies {
                 graph_links
                     .entry(ExtractionGraphNode {
