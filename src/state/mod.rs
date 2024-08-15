@@ -485,16 +485,20 @@ impl App {
         extraction_graph: String,
         gc_task: GarbageCollectionTask,
     ) -> Result<()> {
-        let graph_id = ExtractionGraph::create_id(&extraction_graph, &namespace);
         let graph = self
             .state_machine
-            .get_extraction_graphs(&[graph_id.clone()])?;
+            .get_extraction_graphs_by_name(&namespace, &[&extraction_graph])?;
         if !matches!(graph.first(), Some(Some(_))) {
-            return Err(anyhow!("extraction graph with id {} not found", graph_id));
+            return Err(anyhow!(
+                "extraction graph {}:{} not found",
+                namespace,
+                extraction_graph
+            ));
         }
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeleteExtractionGraph {
-                graph_id: graph_id.to_string(),
+            payload: RequestPayload::DeleteExtractionGraphByName {
+                extraction_graph: extraction_graph.clone(),
+                namespace,
                 gc_task,
             },
             new_state_changes: vec![StateChange::new(
@@ -772,7 +776,7 @@ impl App {
     ) -> Result<()> {
         let existing_graph = self.state_machine.get_from_cf::<ExtractionGraph, _>(
             StateMachineColumns::ExtractionGraphs,
-            &extraction_graph.id,
+            &extraction_graph.key(),
         )?;
         if existing_graph.is_some() {
             return Err(anyhow!(
@@ -1964,7 +1968,6 @@ mod tests {
         node.create_namespace(namespace).await?;
 
         let eg = ExtractionGraph {
-            id: "id".into(),
             namespace: namespace.into(),
             name: "name".into(),
             description: Some("description".into()),

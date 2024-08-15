@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use openraft::{StorageError, StorageIOError};
-use rocksdb::{ColumnFamily, IteratorMode, OptimisticTransactionDB};
+use rocksdb::{ColumnFamily, IteratorMode, OptimisticTransactionDB, WriteBatchWithTransaction};
 use serde::de::DeserializeOwned;
 
 use super::{JsonEncode, JsonEncoder};
@@ -23,7 +23,7 @@ use indexify_internal_api::{Task, TaskAnalytics, TaskOutcome};
 pub(crate) use v2::convert_v2_task;
 
 // This assumes that key value does not change with conversion.
-fn convert_column<T, U>(
+fn convert_column_value<T, U>(
     db: &OptimisticTransactionDB,
     cf: &ColumnFamily,
     convert: impl Fn(T) -> Result<U, StorageError<NodeId>>,
@@ -42,6 +42,35 @@ where
         db.put_cf(cf, &key, value)
             .map_err(|e| StorageIOError::read_state_machine(&e))?;
     }
+    Ok(())
+}
+
+fn convert_column<T, U>(
+    db: &OptimisticTransactionDB,
+    cf: &ColumnFamily,
+    convert_value: impl Fn(T) -> Result<U, StorageError<NodeId>>,
+    convert_key: impl Fn(&[u8], &U) -> Result<Vec<u8>, StorageError<NodeId>>,
+) -> Result<(), StorageError<NodeId>>
+where
+    T: DeserializeOwned,
+    U: serde::Serialize + Debug,
+{
+    let mut batch = WriteBatchWithTransaction::<true>::default();
+    for val in db.iterator_cf(cf, IteratorMode::Start) {
+        let (key, value) = val.map_err(|e| StorageIOError::read_state_machine(&e))?;
+        let value: T =
+            JsonEncoder::decode(&value).map_err(|e| StorageIOError::read_state_machine(&e))?;
+        let value: U = convert_value(value)?;
+        let new_key = convert_key(&key, &value)?;
+        let value =
+            &JsonEncoder::encode(&value).map_err(|e| StorageIOError::read_state_machine(&e))?;
+        if new_key != *key {
+            batch.delete_cf(cf, &key);
+        }
+        batch.put_cf(cf, &new_key, value);
+    }
+    db.write(batch)
+        .map_err(|e| StorageIOError::read_state_machine(&e))?;
     Ok(())
 }
 

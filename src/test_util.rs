@@ -61,8 +61,6 @@ pub mod db_utils {
         graph_name: &str,
         extraction_policy_names: Vec<&str>,
     ) -> ExtractionGraph {
-        let id = ExtractionGraph::create_id(graph_name, DEFAULT_TEST_NAMESPACE);
-
         let mut extraction_policies = Vec::new();
         for policy_name in extraction_policy_names {
             let id = ExtractionPolicy::create_id(graph_name, policy_name, DEFAULT_TEST_NAMESPACE);
@@ -83,7 +81,6 @@ pub mod db_utils {
             extraction_policies.push(ep);
         }
         ExtractionGraph {
-            id,
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             name: graph_name.to_string(),
             description: Some("test_description".to_string()),
@@ -101,8 +98,6 @@ pub mod db_utils {
         extraction_policy_names: Vec<&str>,
         parents: &[Parent],
     ) -> ExtractionGraph {
-        let id = ExtractionGraph::create_id(graph_name, DEFAULT_TEST_NAMESPACE);
-
         let mut extraction_policies = Vec::new();
         for (index, policy_name) in extraction_policy_names.iter().enumerate() {
             let id = ExtractionPolicy::create_id(graph_name, policy_name, DEFAULT_TEST_NAMESPACE);
@@ -131,7 +126,6 @@ pub mod db_utils {
             extraction_policies.push(ep);
         }
         ExtractionGraph {
-            id,
             namespace: DEFAULT_TEST_NAMESPACE.to_string(),
             description: Some("test_description".to_string()),
             name: graph_name.to_string(),
@@ -255,6 +249,7 @@ pub mod db_utils {
     }
 
     pub async fn wait_changes_processed(coordinator: &Coordinator) -> Result<(), anyhow::Error> {
+        let start = std::time::Instant::now();
         while !coordinator
             .shared_state
             .unprocessed_state_change_events()
@@ -262,6 +257,11 @@ pub mod db_utils {
             .is_empty()
         {
             sleep(Duration::from_millis(1)).await;
+            if std::time::Instant::now().duration_since(start) > Duration::from_secs(10) {
+                return Err(anyhow::anyhow!(
+                    "timeout waiting for state changes to be processed"
+                ));
+            }
         }
         Ok(())
     }
@@ -276,8 +276,21 @@ pub mod db_utils {
     }
 
     pub async fn wait_gc_tasks_completed(coordinator: &Coordinator) -> Result<(), anyhow::Error> {
+        let start = std::time::Instant::now();
         while gc_tasks_pending(coordinator).await? {
             sleep(Duration::from_millis(1)).await;
+            if std::time::Instant::now().duration_since(start) > Duration::from_secs(10) {
+                return Err(anyhow::anyhow!(
+                    "timeout waiting for gc tasks to be processed, pending tasks: {:?}",
+                    coordinator
+                        .shared_state
+                        .list_all_gc_tasks()
+                        .await?
+                        .iter()
+                        .filter(|task| task.outcome == TaskOutcome::Unknown)
+                        .collect::<Vec<_>>()
+                ));
+            }
         }
         Ok(())
     }

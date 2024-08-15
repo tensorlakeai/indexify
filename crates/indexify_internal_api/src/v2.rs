@@ -72,7 +72,6 @@ pub struct ExtractionGraph {
 impl From<ExtractionGraph> for super::ExtractionGraph {
     fn from(graph: ExtractionGraph) -> Self {
         super::ExtractionGraph {
-            id: graph.id,
             name: graph.name,
             namespace: graph.namespace,
             description: graph.description,

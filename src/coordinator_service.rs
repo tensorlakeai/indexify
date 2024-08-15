@@ -88,7 +88,6 @@ use indexify_proto::indexify_coordinator::{
 };
 use internal_api::{
     ContentSource,
-    ExtractionGraph,
     ExtractionGraphBuilder,
     ExtractionPolicyBuilder,
     StateChangeId,
@@ -519,7 +518,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<CreateExtractionGraphRequest>,
     ) -> Result<tonic::Response<CreateExtractionGraphResponse>, tonic::Status> {
         let request = request.into_inner();
-        let graph_id = ExtractionGraph::create_id(&request.name, &request.namespace);
         let creation_result = self
             .create_extraction_policies_for_graph(&request)
             .map_err(|e| {
@@ -531,7 +529,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             Some(request.description)
         };
         let graph = ExtractionGraphBuilder::default()
-            .id(graph_id)
             .namespace(request.namespace.clone())
             .description(description)
             .name(request.name.clone())
@@ -561,7 +558,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map(|index| index.into())
             .collect::<Vec<indexify_coordinator::Index>>();
         Ok(tonic::Response::new(CreateExtractionGraphResponse {
-            graph_id: graph.id,
             extractors,
             policies,
             indexes,

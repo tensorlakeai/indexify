@@ -703,6 +703,13 @@ impl StateMachineStore {
                     } => {
                         self.send_gc_tasks(vec![gc_task]);
                     }
+                    RequestPayload::DeleteExtractionGraphByName {
+                        extraction_graph: _,
+                        namespace: _,
+                        gc_task,
+                    } => {
+                        self.send_gc_tasks(vec![gc_task]);
+                    }
                     _ => {}
                 }
             }
@@ -1050,9 +1057,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_executor_running_task_count()
     }
 
-    pub async fn get_schemas_by_namespace(
-        &self,
-    ) -> HashMap<NamespaceName, HashSet<ExtractionGraphId>> {
+    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<String>> {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 
@@ -1618,7 +1623,7 @@ fn apply_v1_snapshot(
     for (_, eg) in &snapshot.extraction_graphs {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let eg: ExtractionGraph = eg.clone().into();
-        put_cf(&txn, cf, &eg.id, &eg)?;
+        put_cf(&txn, cf, &eg.key(), &eg)?;
     }
     for (executor_id, executor_metadata) in &snapshot.executors {
         let cf = StateMachineColumns::Executors.cf(db);

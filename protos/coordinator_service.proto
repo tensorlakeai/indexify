@@ -412,7 +412,6 @@ message ListNamespaceResponse {
 }
 
 message ExtractionGraph {
-    string id = 1;
     string namespace = 2;
     string name = 3;
     repeated ExtractionPolicy extraction_policies = 4;
@@ -448,7 +447,6 @@ message CreateExtractionGraphRequest {
 }
 
 message CreateExtractionGraphResponse {
-    string graph_id = 1;
     map<string, Extractor> extractors = 2;
     map<string, ExtractionPolicy> policies = 3;
     repeated Index indexes = 5;

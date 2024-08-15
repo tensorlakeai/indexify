@@ -32,7 +32,6 @@ impl From<indexify_coordinator::ExtractionGraphLink> for ExtractionGraphLink {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraph {
-    pub id: String,
     pub name: String,
     #[serde(default)]
     pub namespace: String,
@@ -56,7 +55,6 @@ impl TryFrom<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
             Some(value.description)
         };
         Ok(Self {
-            id: value.id,
             namespace: value.namespace,
             name: value.name,
             description,
