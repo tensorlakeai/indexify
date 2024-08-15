@@ -42,8 +42,6 @@ use indexify_proto::indexify_coordinator::{
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
     GetContentTreeMetadataRequest,
-    GetExtractionPolicyRequest,
-    GetExtractionPolicyResponse,
     GetExtractorCoordinatesRequest,
     GetIndexRequest,
     GetIndexResponse,
@@ -62,8 +60,6 @@ use indexify_proto::indexify_coordinator::{
     ListContentResponse,
     ListExtractionGraphRequest,
     ListExtractionGraphResponse,
-    ListExtractionPoliciesRequest,
-    ListExtractionPoliciesResponse,
     ListExtractorsRequest,
     ListExtractorsResponse,
     ListIndexesRequest,
@@ -110,6 +106,7 @@ use tokio::{
     select,
     signal,
     sync::{
+        broadcast,
         mpsc,
         watch::{self, Receiver, Sender},
     },
@@ -129,7 +126,6 @@ use crate::{
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
     state::{self, grpc_config::GrpcConfig},
-    tonic_streamer::DropReceiver,
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -145,6 +141,8 @@ pub struct CoordinatorServiceServer {
     coordinator: Arc<Coordinator>,
     shutdown_rx: Receiver<()>,
 }
+
+const DEFAULT_MAX_PENDING_TASKS: u64 = 20;
 
 struct MetadataMap<'a>(&'a reqwest::header::HeaderMap);
 
@@ -227,6 +225,18 @@ impl CoordinatorService for CoordinatorServiceServer {
         Pin<Box<dyn tokio_stream::Stream<Item = Result<ContentStreamItem, Status>> + Send + Sync>>;
     type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
+
+    async fn delete_extraction_graph(
+        &self,
+        request: tonic::Request<indexify_coordinator::DeleteExtractionGraphRequest>,
+    ) -> Result<tonic::Response<indexify_coordinator::Empty>, tonic::Status> {
+        let request = request.into_inner();
+        self.coordinator
+            .delete_extraction_graph(request.namespace, request.extraction_graph)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        Ok(tonic::Response::new(indexify_coordinator::Empty {}))
+    }
 
     async fn content_stream(
         &self,
@@ -324,6 +334,37 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(Response::new(ListExtractionGraphResponse {
             graphs: proto_graphs,
         }))
+    }
+
+    async fn get_extraction_graph_analytics(
+        &self,
+        request: tonic::Request<indexify_coordinator::GetExtractionGraphAnalyticsRequest>,
+    ) -> Result<
+        tonic::Response<indexify_coordinator::GetExtractionGraphAnalyticsResponse>,
+        tonic::Status,
+    > {
+        let request = request.into_inner();
+        let analytics = self
+            .coordinator
+            .get_graph_analytics(&request.namespace, &request.extraction_graph)
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+        let mut proto_analytics = indexify_coordinator::GetExtractionGraphAnalyticsResponse {
+            task_analytics: HashMap::new(),
+        };
+        if let Some(analytics) = analytics {
+            for (extraction_policy, task_analytics) in analytics.task_analytics.iter() {
+                proto_analytics.task_analytics.insert(
+                    extraction_policy.clone(),
+                    indexify_coordinator::TaskAnalytics {
+                        pending: task_analytics.pending_tasks,
+                        success: task_analytics.successful_tasks,
+                        failure: task_analytics.failed_tasks,
+                    },
+                );
+            }
+        }
+        Ok(tonic::Response::new(proto_analytics))
     }
 
     async fn link_extraction_graphs(
@@ -447,7 +488,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         };
         let response = self
             .coordinator
-            .list_content(filter, start_id, limit, req.return_total)
+            .list_content(filter, start_id, limit)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
@@ -527,46 +568,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn get_extraction_policy(
-        &self,
-        request: tonic::Request<GetExtractionPolicyRequest>,
-    ) -> Result<tonic::Response<GetExtractionPolicyResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let extraction_policy = self
-            .coordinator
-            .get_extraction_policy(request.extraction_policy_id)
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(GetExtractionPolicyResponse {
-            policy: Some(
-                extraction_policy
-                    .try_into()
-                    .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
-            ),
-        }))
-    }
-
-    async fn list_extraction_policies(
-        &self,
-        request: tonic::Request<ListExtractionPoliciesRequest>,
-    ) -> Result<tonic::Response<ListExtractionPoliciesResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let extraction_policies = self
-            .coordinator
-            .list_policies(&request.namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut policies = vec![];
-        for policy in extraction_policies {
-            let extraction_policy = policy
-                .try_into()
-                .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
-            policies.push(extraction_policy);
-        }
-        Ok(tonic::Response::new(ListExtractionPoliciesResponse {
-            policies,
-        }))
-    }
-
     async fn create_ns(
         &self,
         request: tonic::Request<indexify_coordinator::CreateNamespaceRequest>,
@@ -593,40 +594,8 @@ impl CoordinatorService for CoordinatorServiceServer {
             .list_namespaces()
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut proto_namespaces = vec![];
-        for namespace in namespaces {
-            let proto_namespace = namespace.try_into().map_err(|e| {
-                tonic::Status::aborted(format!("unable to convert namespace: {}", e))
-            })?;
-            proto_namespaces.push(proto_namespace);
-        }
         Ok(tonic::Response::new(
-            indexify_coordinator::ListNamespaceResponse {
-                namespaces: proto_namespaces,
-            },
-        ))
-    }
-
-    async fn get_ns(
-        &self,
-        request: tonic::Request<indexify_coordinator::GetNamespaceRequest>,
-    ) -> Result<tonic::Response<indexify_coordinator::GetNamespaceResponse>, tonic::Status> {
-        let namespace = request.into_inner().name;
-        let namespace = self
-            .coordinator
-            .get_namespace(&namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?
-            .ok_or_else(|| tonic::Status::not_found("namespace not found"))?;
-
-        Ok(tonic::Response::new(
-            indexify_coordinator::GetNamespaceResponse {
-                namespace: Some(
-                    namespace
-                        .try_into()
-                        .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
-                ),
-            },
+            indexify_coordinator::ListNamespaceResponse { namespaces },
         ))
     }
 
@@ -817,76 +786,82 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<Streaming<HeartbeatRequest>>,
     ) -> Result<tonic::Response<Self::HeartbeatStream>, tonic::Status> {
+        struct Context {
+            coordinator: Arc<Coordinator>,
+            executor_id: Option<String>,
+        }
+        let mut max_pending_tasks = DEFAULT_MAX_PENDING_TASKS;
+
+        impl Drop for Context {
+            fn drop(&mut self) {
+                let coordinator = self.coordinator.clone();
+                if let Some(executor_id) = self.executor_id.clone() {
+                    tokio::spawn(async move {
+                        if let Err(err) = coordinator.remove_executor(&executor_id).await {
+                            error!("error removing executor: {}", err);
+                        }
+                    });
+                }
+            }
+        }
+
         let mut in_stream = request.into_inner();
-        let (tx, rx) = mpsc::channel(4);
-        let rx = DropReceiver { inner: rx };
         let coordinator = self.coordinator.clone();
         let mut shutdown_rx = self.shutdown_rx.clone();
-        tokio::spawn(async move {
-            let mut executor_id: Option<String> = None;
+        let stream = async_stream::stream! {
+            let mut ctx = Context {
+                coordinator,
+                executor_id: None,
+            };
+            let mut new_task_channel: Option<broadcast::Receiver<()>> = None;
             loop {
                 select! {
                     _ = shutdown_rx.changed() => {
-                        info!("shutting down server, stopping heartbeats from executor: {:?}", executor_id);
+                        info!("shutting down server, stopping heartbeats");
                         break;
                     }
-                    result = timeout(EXECUTOR_HEARTBEAT_PERIOD * 3, in_stream.next()) => {
+                    result =  timeout(EXECUTOR_HEARTBEAT_PERIOD * 3, in_stream.next()) => {
                         match result {
-                            Ok(frame) => {
-                        // Ensure the frame has something
-                        if frame.as_ref().is_none() {
-                            break;
-                        }
-                        if let Err(err) = frame.as_ref().unwrap() {
-                            info!("error receiving heartbeat request: {:?}", err);
-                            break;
-                        }
-                        // We could have used Option<> here but it would be inconvenient to dereference
-                        // it every time we need to use it below
-                        if executor_id.is_none() {
-                            if let Some(Ok(hb_request)) = frame {
-                                executor_id.replace(hb_request.executor_id.clone());
-                            }
-                        }
-                        if let Some(executor_id) = executor_id.clone() {
-                            let tasks = coordinator.heartbeat(&executor_id).await;
-                            match tasks {
-                                Err(err) => {
-                                    if let Err(err) = tx.send(Err(tonic::Status::internal(err.to_string()))).await {
-                                        error!("error sending error message in heartbeat response: {}",err);
-                                        break;
+                            Ok(Some(Ok(hb_request))) => {
+                                if ctx.executor_id.is_none() {
+                                    ctx.executor_id.replace(hb_request.executor_id.clone());
+                                    new_task_channel.replace(ctx.coordinator.subscribe_to_new_tasks(&hb_request.executor_id).await);
+                                    if hb_request.max_pending_tasks > 0 {
+                                        max_pending_tasks = hb_request.max_pending_tasks;
                                     }
-                                }
-                                Ok(tasks) => {
-                                    // let tasks = tasks.into_iter().map(|t| t.into()).collect::<Vec<indexify_coordinator::Task>>();
-                                    let resp = HeartbeatResponse {
-                                        executor_id: executor_id.clone(),
-                                        tasks,
-                                    };
-                                    if let Err(err) = tx.send(Ok(resp)).await {
-                                        error!("error sending heartbeat response: {:?}", err);
-                                        break;
-                                    }
+                                    yield ctx.coordinator.heartbeat(&hb_request.executor_id, max_pending_tasks).await.map_err(|e| tonic::Status::aborted(e.to_string()));
                                 }
                             }
-                        }
+                            Ok(Some(Err(err))) => {
+                                error!("error receiving heartbeat request: {:?}", err);
+                                break;
+                            }
+                            Ok(None) => {
+                                info!("heartbeat stream ended, client disconnected");
+                                break;
                             }
                             Err(_) => {
-                                warn!("heartbeat timed out, stopping executor: {:?}", executor_id);
+                                warn!("executor heartbeat timeout");
                                 break;
                             }
                         }
                     }
+                    _ = async {
+                        if let Some(ref mut channel) = new_task_channel {
+                            channel.recv().await
+                        } else {
+                            futures::future::pending().await
+                        }
+                    } => {
+                        if let Some(ref executor_id) = ctx.executor_id {
+                            yield ctx.coordinator.heartbeat(executor_id, max_pending_tasks).await.map_err(|e| tonic::Status::aborted(e.to_string()));
+                        }
+                    }
                 }
             }
-            info!("heartbeats stopped, removing executor: {:?}", executor_id);
-            if let Some(executor_id) = executor_id {
-                if let Err(err) = coordinator.remove_executor(&executor_id).await {
-                    error!("error removing executor: {}", err);
-                }
-            }
-        });
-        Ok(tonic::Response::new(Box::pin(rx) as HBResponseStream))
+        };
+
+        Ok(tonic::Response::new(Box::pin(stream)))
     }
 
     async fn update_task(
@@ -1025,12 +1000,27 @@ impl CoordinatorService for CoordinatorServiceServer {
                 None
             };
 
+        let extraction_policy = self
+            .coordinator
+            .get_extraction_policy(
+                &task.namespace,
+                &task.extraction_graph_name,
+                &task.extraction_policy_name,
+            )
+            .await
+            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
+
+        let proto_extraction_policy: indexify_coordinator::ExtractionPolicy = extraction_policy
+            .try_into()
+            .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
+
         Ok(Response::new(GetIngestionInfoResponse {
             task: Some(
                 task.try_into()
                     .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
             ),
             root_content,
+            extraction_policy: Some(proto_extraction_policy),
         }))
     }
 
@@ -1079,29 +1069,18 @@ impl CoordinatorService for CoordinatorServiceServer {
             tonic::Status::aborted(format!("unable to convert task outcome filter: {}", e))
         })?;
         let outcome: internal_api::TaskOutcomeFilter = outcome.into();
-        let policy_id = if !req.extraction_policy.is_empty() {
-            internal_api::ExtractionPolicy::create_id(
-                &req.extraction_graph,
-                &req.extraction_policy,
-                &req.namespace,
-            )
-        } else {
-            req.extraction_policy
-        };
         let filter = |task: &Task| {
             task.namespace == req.namespace &&
-                (policy_id.is_empty() || task.extraction_policy_id == policy_id) &&
+                (req.extraction_graph.is_empty() ||
+                    task.extraction_graph_name == req.extraction_graph) &&
+                (req.extraction_policy.is_empty() ||
+                    task.extraction_policy_name == req.extraction_policy) &&
                 (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
                 outcome.matches(task.outcome)
         };
         let response = self
             .coordinator
-            .list_tasks(
-                filter,
-                Some(req.start_id),
-                Some(req.limit),
-                req.return_total,
-            )
+            .list_tasks(filter, Some(req.start_id), Some(req.limit))
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(response))

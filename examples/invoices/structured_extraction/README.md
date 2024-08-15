@@ -1,10 +1,10 @@
 # Structured Extraction from PDFs with GPT-4
 
-Structured Extraction from PDF involves extracting specific information from documents. We show how to create a pipeline, which accepts a schema and extracts information from PDFs into the provided schema.
+Structured Extraction from PDF involves extracting specific information from documents. We show how to create a pipeline, which extracts information from PDFs into a provided schema.
 
 The pipeline is composed of two steps:
-- PDF to Text extraction using the extractor `tensorlake/marker`.
-- Schema-based information extraction using `tensorlake/schema` with OpenAI's language models.
+- PDF to Text extraction using the extractor `tensorlake/pdfextractor`.
+- Schema-based information extraction using `tensorlake/schema` with GPT-4.
 
 ## Prerequisites
 
@@ -17,7 +17,6 @@ Before we begin, ensure you have the following:
   ```
 - `pip` (Python package manager)
 - An OpenAI API key
-- Basic familiarity with Python and command-line interfaces
 
 ## Setup
 
@@ -37,7 +36,7 @@ Next, we'll install the necessary extractors in a new terminal:
 
 ```bash
 pip install indexify-extractor-sdk
-indexify-extractor download tensorlake/marker
+indexify-extractor download tensorlake/pdfextractor
 indexify-extractor download tensorlake/schema
 ```
 
@@ -50,7 +49,7 @@ indexify-extractor join-server
 
 The extraction graph defines the flow of data through our schema extraction pipeline. We'll create a graph that first extracts text from PDFs using Marker, then sends that text to the schema extractor for structured information extraction.
 
-Create a new Python file called `pdf_schema_extraction_graph.py` and add the following code:
+Create a new Python file called `setup_graph.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -67,23 +66,23 @@ class Invoice(BaseModel):
     registration_key: str
     due_date: str
 
-schema = Invoice.model_json_schema()
+schema = Invoice.schema()
+schema["additionalProperties"] = False
 
 client = IndexifyClient()
 
 extraction_graph_spec = f"""
 name: 'pdf_schema_extractor'
 extraction_policies:
-  - extractor: 'tensorlake/marker'
+  - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
+    input_params:
+      output_format: 'markdown'
   - extractor: 'tensorlake/schema'
     name: 'text_to_schema'
     input_params:
-      service: 'openai'
-      model_name: 'gpt-3.5-turbo'
-      key: 'YOUR_OPENAI_API_KEY'
-      schema_config: {schema}
-      additional_messages: 'Extract information in JSON according to this schema and return only the output.'
+      model: 'gpt-4o-2024-08-06'
+      response_format: {schema}
     content_source: 'pdf_to_text'
 """
 
@@ -95,14 +94,14 @@ Replace `'YOUR_OPENAI_API_KEY'` with your actual OpenAI API key.
 
 You can run this script to set up the pipeline:
 ```bash
-python pdf_schema_extraction_graph.py
+python setup_graph.py
 ```
 
 ## Ingestion and Retreival from Schema Extraction Pipeline
 
 Now that we have our extraction graph set up, we can upload files and make the pipeline extract structured information:
 
-Create a file `upload_and_retreive.py`:
+Create a file `upload_and_retrieve.py`:
 
 ```python
 import os
@@ -153,9 +152,12 @@ You can run the Python script to extract schema-based information from PDF files
 python upload_and_retreive.py
 ```
    Sample Pages to extract structured data from:
-   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/page1.jpg" width="300"/><img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/page2.jpg" width="300"/>
+   
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/invoices/structured_extraction/page1.jpg" width="300"/><img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/invoices/structured_extraction/page2.jpg" width="300"/>
+   
    Sample structured data extracted from pages:
-   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/pdf/structured_extraction/carbon.png" width="600"/>
+   
+   <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/examples/invoices/structured_extraction/carbon.png" width="600"/>
 
 ## Customization and Advanced Usage
 

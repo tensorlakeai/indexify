@@ -14,15 +14,6 @@ Vector Indexes are created by running embedding models on content. They allow do
 The following example searches for the index `embeddings` for the query `good` and returns the top `k` results.
 
 <CodeGroup>
-      ```shell Shell
-      curl -v -X POST http://localhost:8900/namespaces/default/search \
-      -H "Content-Type: application/json" \
-      -d '{
-            "index": "minilml6.embedding",
-            "query": "good", 
-            "k": 1
-      }'
-      ```
       ```python Python
       client.search_index("minilml6.embedding", "good", 3)
       ```
@@ -55,9 +46,6 @@ In the future we will add support for searching these indexes as well using spar
 The following example queries the index `entities` and returns the metadata for the content id `foo`.
 
 <CodeGroup>
-      ```shell Shell
-      curl -v -X GET http://localhost:8900/namespaces/default/metadata\?index=entities&content_id=foo
-      ```
       ```python Python
       client.query_metadata(index_name="entities", content_id="foo")
       ```

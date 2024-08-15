@@ -1,6 +1,7 @@
 syntax = "proto3";
 import "google/protobuf/struct.proto";
 
+
 package indexify_coordinator;
 
 service CoordinatorService {
@@ -16,17 +17,11 @@ service CoordinatorService {
 
     rpc CreateExtractionGraph(CreateExtractionGraphRequest) returns (CreateExtractionGraphResponse) {}
 
-    rpc GetExtractionPolicy(GetExtractionPolicyRequest) returns (GetExtractionPolicyResponse) {}
-
-    rpc ListExtractionPolicies(ListExtractionPoliciesRequest) returns (ListExtractionPoliciesResponse) {}
-
     rpc ListExtractionGraphs(ListExtractionGraphRequest) returns (ListExtractionGraphResponse) {}
 
     rpc CreateNS(CreateNamespaceRequest) returns (CreateNamespaceResponse) {}
 
     rpc ListNS(ListNamespaceRequest) returns (ListNamespaceResponse) {}
-
-    rpc GetNS(GetNamespaceRequest) returns (GetNamespaceResponse) {}
 
     rpc ListExtractors(ListExtractorsRequest) returns (ListExtractorsResponse) {}
 
@@ -41,6 +36,8 @@ service CoordinatorService {
     rpc GCTasksStream(stream GCTaskAcknowledgement) returns (stream CoordinatorCommand) {}
 
     rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse) {}
+
+    rpc GetExtractionGraphAnalytics(GetExtractionGraphAnalyticsRequest) returns (GetExtractionGraphAnalyticsResponse) {}
 
     rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
 
@@ -83,6 +80,13 @@ service CoordinatorService {
     rpc AddGraphToContent(AddGraphToContentRequest) returns (AddGraphToContentResponse) {}
 
     rpc ContentStream(ContentStreamRequest) returns (stream ContentStreamItem) {}
+
+    rpc DeleteExtractionGraph(DeleteExtractionGraphRequest) returns (Empty) {}
+}
+
+message DeleteExtractionGraphRequest {
+    string namespace = 1;
+    string extraction_graph = 2;
 }
 
 message ContentStreamRequest {
@@ -151,7 +155,6 @@ message ListTasksRequest {
     string content_id = 3;
     string start_id = 4;
     uint64 limit = 5;
-    bool return_total = 6;
     TaskOutcomeFilter outcome = 7;
 
     string extraction_graph = 8;
@@ -273,6 +276,8 @@ message GCTaskAcknowledgement {
 enum GcTaskType {
     Delete = 0;
     UpdateLabels = 1;
+    DeleteBlobStore = 2;
+    DropIndexes = 3;
 }
 
 message GCTask {
@@ -287,6 +292,22 @@ message GCTask {
 message HeartbeatRequest {
     string executor_id = 1;
     int64 pending_tasks = 2;
+    uint64 max_pending_tasks = 3;
+}
+
+message GetExtractionGraphAnalyticsRequest {
+    string namespace = 1;
+    string extraction_graph = 2;
+}
+
+message TaskAnalytics {
+    uint64 pending = 1;
+    uint64 success = 2;
+    uint64 failure = 3;
+}
+
+message GetExtractionGraphAnalyticsResponse {
+    map<string, TaskAnalytics> task_analytics = 1;
 }
 
 message HeartbeatResponse {
@@ -326,14 +347,6 @@ message Extractor {
     repeated string input_mime_types = 6;
 }
 
-message GetNamespaceRequest {
-    string name = 1;
-}
-
-message GetNamespaceResponse {
-    Namespace namespace = 1;
-}
-
 message Empty {
 }
 
@@ -352,7 +365,6 @@ message ListContentRequest {
     repeated string labels_filter = 4;
     uint64 limit = 5;
     string start_id = 6;
-    bool return_total = 7;
     string graph = 8;
     string ingested_content_id = 9;
 }
@@ -360,22 +372,6 @@ message ListContentRequest {
 message ListContentResponse {
     repeated ContentMetadata content_list = 1; 
     uint64 total = 2;
-}
-
-message GetExtractionPolicyRequest {
-    string extraction_policy_id = 1;
-}
-
-message GetExtractionPolicyResponse {
-    ExtractionPolicy policy = 1;
-}
-
-message ListExtractionPoliciesRequest {
-    string namespace = 1;
-}
-
-message ListExtractionPoliciesResponse {
-    repeated ExtractionPolicy policies = 1;
 }
 
 message ListExtractionGraphRequest {
@@ -400,7 +396,7 @@ message ListNamespaceRequest {
 }
 
 message ListNamespaceResponse {
-    repeated Namespace namespaces = 1;
+    repeated string namespaces = 1;
 }
 
 message ExtractionGraph {
@@ -469,6 +465,7 @@ message ContentMetadata {
     map<string, uint64> extraction_policy_ids = 12;
     string root_content_id = 13;
     repeated string extraction_graph_names = 14;
+    string extracted_metadata = 15;
 }
 
 message ContentStreamItem {
@@ -580,6 +577,7 @@ message GetIngestionInfoRequest {
 message GetIngestionInfoResponse {
     Task task = 1;
     ContentMetadata root_content = 2;
+    ExtractionPolicy extraction_policy = 3;
 }
 
 // wait for content to complete all extraction tasks

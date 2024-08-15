@@ -56,7 +56,7 @@ impl TryFrom<indexify_coordinator::ExtractionGraph> for ExtractionGraph {
             Some(value.description)
         };
         Ok(Self {
-            id: value.namespace.clone(),
+            id: value.id,
             namespace: value.namespace,
             name: value.name,
             description,
@@ -375,9 +375,6 @@ pub struct ListContent {
     pub limit: Option<u64>,
 
     pub start_id: Option<String>,
-
-    #[serde(default)]
-    pub return_total: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -481,6 +478,7 @@ pub struct ContentMetadata {
     pub source: String,
     pub size: u64,
     pub hash: String,
+    pub extracted_metadata: serde_json::Value,
 }
 
 impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
@@ -503,6 +501,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             size: value.size_bytes,
             hash: value.hash,
             extraction_graph_names: value.extraction_graph_names,
+            extracted_metadata: serde_json::from_str(&value.extracted_metadata)?,
         })
     }
 }
@@ -523,6 +522,7 @@ impl From<indexify_internal_api::ContentMetadata> for ContentMetadata {
             size: value.size_bytes,
             hash: value.hash,
             extraction_graph_names: value.extraction_graph_names,
+            extracted_metadata: value.extracted_metadata,
         }
     }
 }
@@ -764,9 +764,36 @@ pub struct ListTasks {
     pub start_id: Option<String>,
     pub limit: Option<u64>,
     #[serde(default)]
-    pub return_total: bool,
-    #[serde(default)]
     pub outcome: internal_api::TaskOutcomeFilter,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TaskAnalytics {
+    pub pending: u64,
+    pub success: u64,
+    pub failure: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExtractionGraphAnalytics {
+    pub task_analytics: HashMap<String, TaskAnalytics>,
+}
+
+impl From<indexify_coordinator::GetExtractionGraphAnalyticsResponse> for ExtractionGraphAnalytics {
+    fn from(value: indexify_coordinator::GetExtractionGraphAnalyticsResponse) -> Self {
+        let mut task_analytics = HashMap::new();
+        for (k, v) in value.task_analytics.iter() {
+            task_analytics.insert(
+                k.clone(),
+                TaskAnalytics {
+                    pending: v.pending,
+                    success: v.success,
+                    failure: v.failure,
+                },
+            );
+        }
+        Self { task_analytics }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

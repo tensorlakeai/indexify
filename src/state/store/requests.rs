@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use indexify_internal_api as internal_api;
+use indexify_internal_api::{self as internal_api, GarbageCollectionTask};
 use internal_api::{ExtractionGraphLink, StateChange, StateChangeId};
 use serde::{Deserialize, Serialize};
 
@@ -53,10 +53,10 @@ pub enum RequestPayload {
         assignments: HashMap<TaskId, ExecutorId>,
     },
     CreateOrAssignGarbageCollectionTask {
-        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+        gc_tasks: Vec<GarbageCollectionTask>,
     },
     UpdateGarbageCollectionTask {
-        gc_task: internal_api::GarbageCollectionTask,
+        gc_task: GarbageCollectionTask,
         mark_finished: bool,
     },
     AddGraphToContent {
@@ -69,6 +69,10 @@ pub enum RequestPayload {
         structured_data_schema: internal_api::StructuredDataSchema,
         indexes: Vec<internal_api::Index>,
     },
+    DeleteExtractionGraph {
+        graph_id: String,
+        gc_task: GarbageCollectionTask,
+    },
     CreateExtractionGraphLink {
         extraction_graph_link: ExtractionGraphLink,
     },
@@ -76,6 +80,9 @@ pub enum RequestPayload {
         entries: Vec<CreateOrUpdateContentEntry>,
     },
     TombstoneContentTree {
+        content_metadata: Vec<internal_api::ContentMetadata>,
+    },
+    TombstoneContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
     SetIndex {
@@ -129,10 +136,10 @@ pub enum V1RequestPayload {
         assignments: HashMap<TaskId, ExecutorId>,
     },
     CreateOrAssignGarbageCollectionTask {
-        gc_tasks: Vec<internal_api::GarbageCollectionTask>,
+        gc_tasks: Vec<GarbageCollectionTask>,
     },
     UpdateGarbageCollectionTask {
-        gc_task: internal_api::GarbageCollectionTask,
+        gc_task: GarbageCollectionTask,
         mark_finished: bool,
     },
     CreateExtractionGraph {

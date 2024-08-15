@@ -12,23 +12,23 @@ class Invoice(BaseModel):
     registration_key: str
     due_date: str
 
-schema = Invoice.model_json_schema()
+schema = Invoice.schema()
+schema["additionalProperties"] = False
 
 client = IndexifyClient()
 
 extraction_graph_spec = f"""
 name: 'pdf_schema_extractor'
 extraction_policies:
-  - extractor: 'tensorlake/marker'
+  - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
+    input_params:
+      output_format: 'markdown'
   - extractor: 'tensorlake/schema'
     name: 'text_to_schema'
     input_params:
-      service: 'openai'
-      model_name: 'gpt-3.5-turbo'
-      key: 'YOUR_OPENAI_API_KEY'
-      schema_config: {schema}
-      additional_messages: 'Extract information in JSON according to this schema and return only the output.'
+      model: 'gpt-4o-2024-08-06'
+      response_format: {schema}
     content_source: 'pdf_to_text'
 """
 

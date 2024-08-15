@@ -9,12 +9,17 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use futures::Stream;
-use indexify_internal_api::{self as internal_api, ContentMetadata, ExtractionGraphLink};
-use indexify_proto::indexify_coordinator::{self, CreateContentStatus};
+use indexify_internal_api::{
+    self as internal_api,
+    ContentMetadata,
+    ExtractionGraphLink,
+    ExtractionPolicy,
+};
+use indexify_proto::indexify_coordinator::{self, CreateContentStatus, HeartbeatResponse};
 use internal_api::{
+    ChangeType,
     ContentMetadataId,
     ExtractionGraph,
-    ExtractionPolicyId,
     GarbageCollectionTask,
     OutputSchema,
     ServerTaskType,
@@ -73,6 +78,31 @@ impl Coordinator {
             my_executors: std::sync::Mutex::new(HashSet::new()),
             all_executors: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub async fn subscribe_to_new_tasks(&self, executor_id: &str) -> broadcast::Receiver<()> {
+        self.shared_state.subscribe_to_new_tasks(executor_id).await
+    }
+
+    pub async fn delete_extraction_graph(
+        &self,
+        namespace: String,
+        extraction_graph: String,
+    ) -> Result<()> {
+        let graph = self
+            .shared_state
+            .get_extraction_graphs_by_name(&namespace, &[&extraction_graph])?;
+        let graph = match graph.first() {
+            Some(Some(graph)) => graph,
+            _ => return Err(anyhow!("extraction graph not found")),
+        };
+        let gc_task = self
+            .garbage_collector
+            .create_delete_index_task(&graph)
+            .await;
+        self.shared_state
+            .delete_extraction_graph(namespace, extraction_graph, gc_task)
+            .await
     }
 
     pub fn new_content_stream(&self, start: NewContentStreamStart) -> ContentStream {
@@ -230,13 +260,12 @@ impl Coordinator {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>>
     where
         F: Fn(&internal_api::ContentMetadata) -> bool,
     {
         self.shared_state
-            .list_content(filter, start_id, limit, return_total)
+            .list_content(filter, start_id, limit)
             .await
     }
 
@@ -258,18 +287,14 @@ impl Coordinator {
             .await
     }
 
-    pub fn get_extraction_policy(
-        &self,
-        id: ExtractionPolicyId,
-    ) -> Result<internal_api::ExtractionPolicy> {
-        self.shared_state.get_extraction_policy(&id)
-    }
-
-    pub async fn list_policies(
+    pub async fn get_extraction_policy(
         &self,
         namespace: &str,
-    ) -> Result<Vec<internal_api::ExtractionPolicy>> {
-        self.shared_state.list_extraction_policy(namespace).await
+        extraction_graph: &str,
+        extraction_policy: &str,
+    ) -> Result<internal_api::ExtractionPolicy> {
+        let id = ExtractionPolicy::create_id(extraction_graph, extraction_policy, namespace);
+        self.shared_state.get_extraction_policy(&id).await
     }
 
     pub async fn update_task(
@@ -302,18 +327,13 @@ impl Coordinator {
     }
 
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
-        match self.shared_state.namespace(namespace).await {
-            Result::Ok(Some(_)) => {
-                return Ok(());
-            }
-            Result::Ok(None) => {}
-            Result::Err(_) => {}
+        if self.shared_state.namespace_exists(namespace).await? {
+            return Ok(());
         }
-        self.shared_state.create_namespace(namespace).await?;
-        Ok(())
+        self.shared_state.create_namespace(namespace).await
     }
 
-    pub async fn list_namespaces(&self) -> Result<Vec<internal_api::Namespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<String>> {
         self.shared_state.list_namespaces().await
     }
 
@@ -321,27 +341,30 @@ impl Coordinator {
         self.shared_state.list_extraction_graphs(namespace).await
     }
 
-    pub async fn get_namespace(&self, namespace: &str) -> Result<Option<internal_api::Namespace>> {
-        self.shared_state.namespace(namespace).await
-    }
-
     pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
         self.shared_state.list_extractors().await
     }
 
-    pub async fn heartbeat(&self, executor_id: &str) -> Result<Vec<indexify_coordinator::Task>> {
+    pub async fn heartbeat(
+        &self,
+        executor_id: &str,
+        max_pending_tasks: u64,
+    ) -> Result<HeartbeatResponse> {
         self.get_locked_my_executors()
             .insert(executor_id.to_string());
 
         let tasks = self
             .shared_state
-            .tasks_for_executor(executor_id, Some(10))
+            .tasks_for_executor(executor_id, Some(max_pending_tasks))
             .await?;
         let tasks = tasks
             .into_iter()
             .map(|task| -> Result<indexify_coordinator::Task> { task.try_into() })
             .collect::<Result<Vec<_>>>()?;
-        Ok(tasks)
+        Ok(HeartbeatResponse {
+            executor_id: executor_id.to_string(),
+            tasks,
+        })
     }
 
     pub async fn all_task_assignments(&self) -> Result<HashMap<String, String>> {
@@ -357,14 +380,13 @@ impl Coordinator {
         filter: F,
         start_id: Option<String>,
         limit: Option<u64>,
-        return_total: bool,
     ) -> Result<indexify_coordinator::ListTasksResponse>
     where
         F: Fn(&internal_api::Task) -> bool,
     {
         let response = self
             .shared_state
-            .list_tasks(filter, start_id, limit, return_total)
+            .list_tasks(filter, start_id, limit)
             .await?;
         response.try_into()
     }
@@ -555,6 +577,16 @@ impl Coordinator {
         Ok(indexes_to_create)
     }
 
+    pub async fn get_graph_analytics(
+        &self,
+        namespace: &str,
+        graph_name: &str,
+    ) -> Result<Option<indexify_internal_api::ExtractionGraphAnalytics>> {
+        self.shared_state
+            .get_graph_analytics(namespace, graph_name)
+            .await
+    }
+
     pub async fn create_content_tree_tasks(
         &self,
         content_tree: Vec<internal_api::ContentMetadata>,
@@ -594,7 +626,8 @@ impl Coordinator {
         }
 
         let task_type = match state_change.change_type {
-            indexify_internal_api::ChangeType::TombstoneContentTree => ServerTaskType::Delete,
+            ChangeType::TombstoneContentTree => ServerTaskType::Delete,
+            ChangeType::TombstoneContent { .. } => ServerTaskType::DeleteBlobStore,
             _ => ServerTaskType::UpdateLabels,
         };
         let tasks = self
@@ -608,6 +641,33 @@ impl Coordinator {
         Ok(())
     }
 
+    pub async fn create_content_gc_task(
+        &self,
+        state_change: StateChange,
+        is_root: bool,
+    ) -> Result<()> {
+        let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
+        let content = if is_root {
+            self.shared_state
+                .state_machine
+                .get_content_by_id_and_version(&content_id)
+                .await?
+        } else {
+            self.shared_state
+                .state_machine
+                .get_latest_version_of_content(&content_id.id)?
+        };
+        if let Some(content) = content {
+            self.create_content_tree_tasks(vec![content], state_change)
+                .await
+        } else {
+            self.shared_state
+                .mark_change_events_as_processed(vec![state_change], Vec::new())
+                .await?;
+            Ok(())
+        }
+    }
+
     pub async fn create_gc_tasks(&self, state_change: StateChange) -> Result<()> {
         let content_id: ContentMetadataId = state_change.object_id.clone().try_into()?;
         let content_tree_metadata = self
@@ -615,6 +675,18 @@ impl Coordinator {
             .get_content_tree_metadata_with_version(&content_id)?;
         self.create_content_tree_tasks(content_tree_metadata, state_change)
             .await
+    }
+
+    async fn handle_tombstone_content_state_change(
+        &self,
+        change: StateChange,
+        is_root: bool,
+    ) -> Result<()> {
+        if self.shared_state.ensure_leader().await?.is_some() {
+            Ok(())
+        } else {
+            self.create_content_gc_task(change, is_root).await
+        }
     }
 
     async fn handle_tombstone_content_tree_state_change(&self, change: StateChange) -> Result<()> {
@@ -635,6 +707,16 @@ impl Coordinator {
 
         //  this coordinator node is the leader
         self.create_gc_tasks(change).await
+    }
+
+    pub async fn handle_extraction_graph_deleted_state_change(
+        &self,
+        start_content_id: Vec<u8>,
+        state_change: StateChange,
+    ) -> Result<()> {
+        self.shared_state
+            .delete_content_by_graph(start_content_id, state_change)
+            .await
     }
 
     async fn handle_content_updated(&self, state_change: StateChange) -> Result<()> {
@@ -698,12 +780,15 @@ impl Coordinator {
             );
 
             match change.change_type {
-                indexify_internal_api::ChangeType::TombstoneContentTree => {
+                ChangeType::TombstoneContentTree => {
                     self.handle_tombstone_content_tree_state_change(change)
                         .await?;
-                    continue;
                 }
-                indexify_internal_api::ChangeType::TaskCompleted {
+                ChangeType::TombstoneContent { is_root } => {
+                    self.handle_tombstone_content_state_change(change, is_root)
+                        .await?;
+                }
+                ChangeType::TaskCompleted {
                     ref root_content_id,
                 } => {
                     self.handle_task_completion_state_change(
@@ -711,22 +796,24 @@ impl Coordinator {
                         root_content_id.clone(),
                     )
                     .await?;
-                    continue;
                 }
-                indexify_internal_api::ChangeType::ExecutorAdded => {
-                    self.scheduler.redistribute_tasks(&change).await?
-                }
-                indexify_internal_api::ChangeType::NewContent => {
+                ChangeType::ExecutorAdded => self.scheduler.redistribute_tasks(&change).await?,
+                ChangeType::NewContent => self.scheduler.create_new_tasks(change).await?,
+                ChangeType::AddGraphToContent { .. } => {
                     self.scheduler.create_new_tasks(change).await?
                 }
-                indexify_internal_api::ChangeType::AddGraphToContent { .. } => {
-                    self.scheduler.create_new_tasks(change).await?
-                }
-                indexify_internal_api::ChangeType::ExecutorRemoved => {
+                ChangeType::ExecutorRemoved => {
                     self.scheduler.handle_executor_removed(change).await?
                 }
-                indexify_internal_api::ChangeType::ContentUpdated => {
-                    self.handle_content_updated(change).await?
+                ChangeType::ContentUpdated => self.handle_content_updated(change).await?,
+                ChangeType::ExtractionGraphDeleted {
+                    ref start_content_id,
+                } => {
+                    self.handle_extraction_graph_deleted_state_change(
+                        start_content_id.clone(),
+                        change,
+                    )
+                    .await?
                 }
             }
         }
@@ -1831,11 +1918,16 @@ mod tests {
         coordinator.run_scheduler().await?;
         let all_tasks = coordinator.shared_state.list_all_unfinished_tasks().await?;
         assert_eq!(all_tasks.len(), 1);
+        let task = all_tasks.first().unwrap();
         let mut content =
-            create_content_for_task(&coordinator, &all_tasks[0], &next_child(&mut child_id))
-                .await?;
-        let policy =
-            coordinator.get_extraction_policy(all_tasks[0].extraction_policy_id.clone())?;
+            create_content_for_task(&coordinator, task, &next_child(&mut child_id)).await?;
+        let policy = coordinator
+            .get_extraction_policy(
+                &task.namespace,
+                &task.extraction_graph_name,
+                &task.extraction_policy_name,
+            )
+            .await?;
         let prev_content = tree
             .iter()
             .find(|c| c.source == ContentSource::ExtractionPolicyName(policy.name.clone()))

@@ -80,7 +80,7 @@ This approach leverages GPT-4o's ability to directly process PDFs, eliminating t
 
 ### Creating the Extraction Graph (GPT-4o)
 
-Create a new Python file called `pdf_translation_pipeline_gpt4o.py` and add the following code:
+Create a new Python file called `setup_graph_gpt4o.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -93,8 +93,8 @@ extraction_policies:
   - extractor: 'tensorlake/openai'
     name: 'pdf_to_french'
     input_params:
-      model_name: 'gpt-4o'
-      key: 'YOUR_OPENAI_API_KEY'
+      model: 'gpt-4o'
+      api_key: 'YOUR_OPENAI_API_KEY'
       system_prompt: 'Translate the content of the following PDF from English to French. Maintain the original formatting and structure as much as possible. Provide the translation in plain text format.'
 """
 
@@ -158,7 +158,7 @@ This approach first extracts text from the PDF, then sends that text to GPT-3.5-
 
 ### Creating the Extraction Graph (GPT-3.5-turbo)
 
-Create a new Python file called `pdf_translation_pipeline_gpt35.py` and add the following code:
+Create a new Python file called `setup_graph_gpt35.py` and add the following code:
 
 ```python
 from indexify import IndexifyClient, ExtractionGraph
@@ -173,8 +173,8 @@ extraction_policies:
   - extractor: 'tensorlake/openai'
     name: 'text_to_french'
     input_params:
-      model_name: 'gpt-3.5-turbo'
-      key: 'YOUR_OPENAI_API_KEY'
+      model: 'gpt-3.5-turbo'
+      api_key: 'YOUR_OPENAI_API_KEY'
       system_prompt: 'You are a professional translator. Translate the following English text to French. Maintain the original formatting and structure as much as possible.'
     content_source: 'pdf_to_text'
 """
@@ -235,6 +235,12 @@ if __name__ == "__main__":
 ## Running the PDF Translation
 
 You can run either Python script to translate a PDF:
+
+```bash
+python setup_graph_gpt4o.py
+# or
+python setup_graph_gpt35.py
+```
 
 ```bash
 python upload_and_retrieve_gpt4o.py

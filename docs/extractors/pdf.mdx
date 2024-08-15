@@ -64,35 +64,6 @@ PDFExtractor
 indexify-extractor download tensorlake/pdfextractor
 ```
 
-## [OCRMyPDF](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/ocrmypdf)
-
-### Description
-Extract text content from image-based PDF files using this OCRMyPDF-based extractor.
-
-### Input Parameters
-- **deskew** (optional): Whether to deskew the PDF
-- **language** (optional): List of languages for OCR
-- **remove_background** (optional): Whether to remove the background
-- **rotate_pages** (optional): Whether to rotate pages
-- **skip_text** (optional, default: True): Whether to skip text extraction
-- **output_types** (default: ["text"]): List of output types to extract (options: "text")
-
-### Input Data Types
-```
-["application/pdf"]
-```
-
-### Class Name
-```
-OCRMyPDFExtractor
-```
-
-### Download Command
-
-```bash
-indexify-extractor download tensorlake/ocrmypdf
-```
-
 ## [UnstructuredIO](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/unstructuredio)
 
 ### Description
@@ -118,32 +89,6 @@ UnstructuredIOExtractor
 
 ```bash
 indexify-extractor download tensorlake/unstructuredio
-```
-
-## [LayoutLM Document QA](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/layoutlm_document_qa)
-
-### Description
-This is a fine-tuned version of the multi-modal [LayoutLM](https://aka.ms/layoutlm) model for the task of question answering on documents. It has been fine-tuned using both the SQuAD2.0 and [DocVQA](https://www.docvqa.org/) datasets.
-
-### Input Parameters
-- **query** (default: "What is the invoice total?"): The question to ask about the document
-- **output_types** (default: ["text"]): List of output types to extract (options: "text")
-
-
-### Input Data Types
-```
-["application/pdf", "image/jpeg", "image/png"]
-```
-
-### Class Name
-```
-LayoutLMDocumentQA
-```
-
-### Download Command
-
-```bash
-indexify-extractor download tensorlake/layoutlm-document-qa-extractor
 ```
 
 ## [Marker Extractor](https://github.com/tensorlakeai/indexify-extractors/tree/main/pdf/marker)

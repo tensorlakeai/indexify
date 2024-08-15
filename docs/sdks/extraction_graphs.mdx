@@ -1,28 +1,14 @@
-Extraction Graphs can be setup declaritively on a namespace, using the HTTP API or any of the clients
+Extraction Graphs are defined declaritively using the HTTP API or any of the clients
 
 <CodeGroup>
-    ```shell cURL
-    curl -v -X POST http://localhost:8900/namespaces/default/extraction_graphs \
-    -H "Content-Type: application/json" \
-    -d '
-    {
-        "name": "myextractiongraph",
-        "extraction_policies": [
-            {
-              "extractor": "tensorlake/minilm-l6",
-              "name": "minil6",
-              "filters_eq": "source:google"
-            }
-        ]
-    }'
-    ```
     ```python Python
     extraction_graph_spec = """
     name: 'myextractiongraph'
     extraction_policies:
       - extractor: 'tensorlake/minilm-l6'
         name: 'minilml6'
-        labels_eq: source:google
+        filters:
+          - source=google
     """
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
@@ -34,7 +20,8 @@ Extraction Graphs can be setup declaritively on a namespace, using the HTTP API 
     extraction_policies:
       - extractor: 'tensorlake/minilm-l6'
         name: 'minilml6'
-        labels_eq: source:google
+        filters:
+          - source=google
     `);
     await client.createExtractionGraph(graph);
     ```
@@ -46,7 +33,7 @@ This creates an extraction graph -
 2. **extraction_policies** - List of extractors that the pipeline runs when data is uploaded into it from external sources -
    1. **extractor** - Name of the extractor function
    2. **name** - Give it a unique name, since the same extractor can be repeated multiple times.
-   3. **filter_eq** - The filters to evaluate to decide whether content ingested into the graph should be processed by the extractor.
+   3. **filters** - The filters to evaluate to decide whether content ingested into the graph should be processed by the extractor.
 
 ## Chained Extraction Graph Policies
 Mulitple extractors can be chained together in a single graph. Specify a `content_source` in a policy to send content from an upstream extractor to downstream.
@@ -71,7 +58,7 @@ For ex:
     const graph = ExtractionGraph.fromYaml(`
     name: 'myextractiongraph'
     extraction_policies:
-      - extractor: 'tensorlake/wikipedia'
+      - extractor: 'tensorlake/chunk-extractor'
         name: 'chunked-text'
       - extractor: 'tensorlake/minilm-l6'
         name: 'minilml6'

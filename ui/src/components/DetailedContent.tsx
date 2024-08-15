@@ -18,6 +18,7 @@ interface DetailedContentProps {
   contentUrl: string;
   namespace: string;
   textContent?: string;
+  extractionGraph?: string
 }
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
@@ -35,7 +36,8 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
   mimeType,
   contentUrl,
   namespace,
-  textContent
+  textContent,
+  extractionGraph
 }) => {
   const renderContent = () => {
     if (mimeType.startsWith("application/pdf")) {
@@ -171,7 +173,7 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
               </Typography>
               <Typography variant="subtitle2">
                 <Link
-                  to={`content/${parentID}`}
+                  to={`/${namespace}/extraction-graphs/${extractionGraph}/content/${parentID}`}
                   target="_blank"
                   style={{ color: "inherit", textDecoration: "underline" }}
                 >

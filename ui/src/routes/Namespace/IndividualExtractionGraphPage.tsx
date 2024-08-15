@@ -11,12 +11,10 @@ import { Link, useLoaderData } from 'react-router-dom';
 import { ExtractionGraph, Extractor, IndexifyClient } from 'getindexify';
 import { mapExtractionPoliciesToRows } from '../../utils/helpers';
 import ExtractorGraphTable from './ExtractorGraphTable';
-import { IHash } from '../../types';
 import CopyText from '../../components/CopyText';
 
 const IndividualExtractionGraphPage = () => {
   const { 
-    tasks,
     extractors,
     extractionGraph,
     client,
@@ -24,7 +22,6 @@ const IndividualExtractionGraphPage = () => {
     extractorName
    } =
     useLoaderData() as {
-      tasks: IHash,
       extractors: Extractor[],
       extractionGraph: ExtractionGraph
       client: IndexifyClient
@@ -32,9 +29,9 @@ const IndividualExtractionGraphPage = () => {
       extractorName: string
     }
 
-  const extractionGraphString = JSON.parse(JSON.stringify(extractionGraph));
-  const extractorString = JSON.parse(JSON.stringify(extractors));  
-  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName, tasks);
+  const extractionGraphString = structuredClone(extractionGraph);
+  const extractorString = structuredClone(extractors);  
+  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName);
 
   return (
     <Stack direction="column" spacing={3}>
@@ -58,7 +55,7 @@ const IndividualExtractionGraphPage = () => {
               {extractorName} <CopyText text={extractorName} />
             </Typography>
           </div>
-          <ExtractorGraphTable rows={mappedRows} namespace={namespace} extractionPolicyName={extractorName} graphName={extractorName} />
+          <ExtractorGraphTable rows={mappedRows} namespace={namespace} extractionPolicyName={extractorName} graphName={extractorName} client={client} />
         </Box>
         <ExtendedContentTable
             client={client}

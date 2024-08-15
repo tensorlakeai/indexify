@@ -16,9 +16,7 @@ import { formatBytes } from '../../utils/helpers'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import DetailedContent from '../../components/DetailedContent'
 import CopyText from '../../components/CopyText'
-import ContentDrawer from '../../components/ContentDrawer';
 import PolicyContentTable from '../../components/tables/PolicyContentTable';
-
 
 const IndividualContentPage = () => {
   const {
@@ -38,8 +36,6 @@ const IndividualContentPage = () => {
   }
 
   const [textContent, setTextContent] = useState('')
-  const [selectedContent, setSelectedContent] = useState<IContentMetadata | undefined>(undefined);
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (
@@ -57,11 +53,6 @@ const IndividualContentPage = () => {
   }, [client, contentId, contentMetadata.mime_type])
 
   const currentExtractionGraph = extractionGraphs?.find(graph => graph.name === extractorName);
-
-  const handleContentClick = (content: IContentMetadata) => {
-    setSelectedContent(content);
-    setDrawerOpen(true);
-  };
 
   return (
     <Stack direction="column" spacing={2}>
@@ -93,6 +84,7 @@ const IndividualContentPage = () => {
         mimeType={contentMetadata.mime_type}
         contentUrl={`${contentMetadata.content_url}`}
         textContent={textContent}
+        extractionGraph={extractorName}
       />
       
       {currentExtractionGraph && currentExtractionGraph.extraction_policies.map((policy) => (
@@ -101,9 +93,9 @@ const IndividualContentPage = () => {
         boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset", }}>
           <Box display={'flex'} flexDirection={'row'}>
             <Typography variant="h6" sx={{ marginBottom: 2 }}>
-            {policy.name}
-          </Typography>
-          <CopyText text={policy.name} />
+              {policy.name}
+            </Typography>
+            <CopyText text={policy.name} />
           </Box>
           <PolicyContentTable 
             client={client}
@@ -111,17 +103,9 @@ const IndividualContentPage = () => {
             contentId={contentId}
             extractorName={extractorName}
             policyName={policy.name}
-            onContentClick={handleContentClick}
           />
         </Box>
       ))}
-
-      <ContentDrawer 
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        content={selectedContent}
-        client={client}
-      />
     </Stack>
   )
 }

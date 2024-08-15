@@ -1,10 +1,8 @@
 import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
-  getExtractionPolicyTaskCounts,
   getIndexifyServiceURL,
 } from './helpers'
-import { IHash } from '../types'
 import axios from 'axios'
 
 async function createClient(namespace: string | undefined) {
@@ -26,15 +24,10 @@ export async function ExtractionGraphsPageLoader({
 }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
-  const [extractors, extractionGraphs] = await Promise.all([
-    client.extractors(),
-    client.getExtractionGraphs(),
-  ])
 
   return {
+    client: client,
     namespace: client.namespace,
-    extractionGraphs,
-    extractors,
   }
 }
 
@@ -57,55 +50,7 @@ export async function IndividualExtractionGraphPageLoader({
     throw new Error(`Extraction graph ${extractorName} not found`);
   }
 
-  const taskQueries = extractionGraph.extraction_policies.flatMap(policy => [
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      returnTotal: true
-    }),
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      outcome: 'Unknown',
-      returnTotal: true
-    }),
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      outcome: 'Success',
-      returnTotal: true
-    }),
-    client.getTasks(extractionGraph.name, policy.name, {
-      namespace,
-      extractionGraph: extractionGraph.name,
-      extractionPolicy: policy.name,
-      outcome: 'Failed',
-      returnTotal: true
-    })
-  ]);
-
-  const taskResults = await Promise.all(taskQueries);
-
-  const tasksByPolicies: IHash = {};
-  for (let i = 0; i < extractionGraph.extraction_policies.length; i++) {
-    const policy = extractionGraph.extraction_policies[i];
-    const [tasksNoTotal, unknown, success, failure] = taskResults.slice(i * 4, (i + 1) * 4);
-    
-    tasksByPolicies[policy.name] = {
-      tasks: tasksNoTotal.tasks,
-      totalTasks: {
-        unknown: unknown.totalTasks,
-        success: success.totalTasks,
-        failure: failure.totalTasks,
-      }
-    };
-  }
-
   return {
-    tasks: tasksByPolicies,
     extractors,
     extractionGraph,
     client,
@@ -121,9 +66,8 @@ export async function ExtractionPolicyPageLoader({
   if (!namespace || !policyName) return redirect('/')
 
   const client = await createClient(namespace)
-  const [extractionGraphs, taskCounts] = await Promise.all([
-    client.getExtractionGraphs(),
-    getExtractionPolicyTaskCounts(extraction_graph!, policyName, client)
+  const [extractionGraphs] = await Promise.all([
+    client.getExtractionGraphs()
   ])
 
   const extractionGraph = extractionGraphs.find(
@@ -135,7 +79,7 @@ export async function ExtractionPolicyPageLoader({
       (policy) => policy.name === policyName && policy.graph_name === extraction_graph
     )
 
-  return { policy, namespace, extractionGraph, client, taskCounts }
+  return { policy, namespace, extractionGraph, client }
 }
 
 export async function ExtractorsPageLoader({ params }: LoaderFunctionArgs) {

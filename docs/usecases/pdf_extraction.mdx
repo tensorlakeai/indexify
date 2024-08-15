@@ -64,10 +64,8 @@ Indexify offers several extractors specifically designed for PDF documents. Here
 | Extractor Class Name | Features | Best Use Case |
 |----------------------|----------|---------------|
 | tensorlake/pdfextractor | Extracts text, images, and tables | Best for scientific papers with tabular information |
-| tensorlake/ocrmypdf | Focuses on text extraction | Ideal for photocopied or scanned PDFs (CPU-based) |
 | tensorlake/easyocr | Focuses on text extraction | Optimized for photocopied or scanned PDFs (GPU-based) |
 | tensorlake/marker | Converts PDFs to Markdown | Best for detailed, structured, and formatted PDFs |
-| tensorlake/layoutlm-document-qa-extractor | Specialized for question-answering tasks | Particularly useful for invoices and structured documents |
 
 Let's visualize how these extractors fit into an extraction pipeline:
 
@@ -406,7 +404,6 @@ The scoring was done by comparing the extracted text from each PDF with its refe
 | Extractor                   | Accuracy | Speed | Best For                            |
 |-----------------------------|----------|-------|-------------------------------------|
 | tensorlake/pdfextractor     | High     | Fast  | General-purpose extraction          |
-| tensorlake/ocrmypdf         | Medium   | Medium| Scanned documents (CPU-based)       |
 | tensorlake/easyocr          | High     | Slow  | Scanned documents (GPU-based)       |
 | tensorlake/marker           | Very High| Slow  | Detailed, structured PDFs           |
 | layoutlm-document-qa        | High     | Medium| Question-answering tasks            |
@@ -445,13 +442,11 @@ Indexify provides a powerful and flexible solution for PDF extraction, enabling 
 |--------|-----------|------------|----------|
 | Accuracy | Marker | tensorlake/marker | Consistently provides high accuracy scores across all PDF documents. |
 | | EasyOCR | tensorlake/easyocr | Shows competitive accuracy across all the documents. |
-| | OCRMyPDF | tensorlake/ocrmypdf | Shows competitive accuracy across all the documents. |
 | | Unstructured IO | tensorlake/pdfextractor | Is fractionally better than EasyOCR in one of the books, and from OCRMyPDF on another. |
 | | OpenAI GPT-4o | tensorlake/openai | Performs well for code-based texts however it performs average for regular texts. |
 | Time Efficiency | Unstructured IO | tensorlake/pdfextractor | Is the fastest, taking the least time for all PDF documents. |
 | | EasyOCR | tensorlake/easyocr | Shows extreme variability in processing times, being exceptionally fast for some documents and very slow for others. |
 | | Marker | tensorlake/marker | Despite providing high accuracy, is significantly slower compared to the other extractors. |
-| | OCRmyPDF | tensorlake/ocrmypdf | Shows moderate time efficiency, balancing between speed and accuracy. |
 | | OpenAI GPT-4o | tensorlake/openai | Takes by far the longest time and is best avoided for pdf extraction unless necessary. |
 | Recommendations | Marker | tensorlake/marker | Use when accuracy is the primary concern and processing time is less critical. Ideal for scenarios requiring detailed and precise text extraction. |
 | | EasyOCR | tensorlake/easyocr | When accuracy is important, but you need faster extraction time. EasyOCR also provides training recipes to fine-tune the model on private documents. This will improve its accuracy further. |

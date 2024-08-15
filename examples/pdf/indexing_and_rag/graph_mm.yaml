@@ -1,7 +1,10 @@
-name: 'rag_pipeline'
+name: 'rag_pipeline_mm'
 extraction_policies:
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_text'
+    input_params:
+      output_types: ["text", "table"]
+      output_format: 'text'
   - extractor: 'tensorlake/pdfextractor'
     name: 'pdf_to_image'
     input_params:
@@ -10,8 +13,8 @@ extraction_policies:
     name: 'text_to_chunks'
     input_params:
       text_splitter: 'recursive'
-      chunk_size: 1000
-      overlap: 200
+      chunk_size: 4000 
+      overlap: 1000
     content_source: 'pdf_to_text'
   - extractor: 'tensorlake/minilm-l6'
     name: 'chunks_to_embeddings'

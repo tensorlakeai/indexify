@@ -176,7 +176,7 @@ components:
 
 images:
   - name: tensorlake/extractor:latest
-    newName: tensorlake/pdf-extractor
+    newName: tensorlake/pdfextractor
     newTag: latest
 
 patches:

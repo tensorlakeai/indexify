@@ -19,6 +19,7 @@ pub struct ExtractContentCacheKey {
 }
 pub type CacheTS<K, V> = Arc<RwLock<Box<dyn Cache<K, V>>>>;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Caches {
     pub cache_extract_content: Arc<RwLock<Box<dyn Cache<ExtractContentCacheKey, ExtractResponse>>>>,

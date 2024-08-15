@@ -1,6 +1,7 @@
 pub mod utils;
 pub mod v1;
 pub mod v2;
+pub mod v3;
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
@@ -84,6 +85,39 @@ impl ExtractionGraphBuilder {
             extraction_policies,
             description: self.description.clone().unwrap_or_default(),
         })
+    }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtractionGraphAnalytics {
+    pub task_analytics: HashMap<String, TaskAnalytics>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TaskAnalytics {
+    pub pending_tasks: u64,
+    pub successful_tasks: u64,
+    pub failed_tasks: u64,
+}
+
+impl TaskAnalytics {
+    pub fn pending(&mut self) {
+        self.pending_tasks += 1;
+    }
+
+    pub fn success(&mut self) {
+        self.successful_tasks += 1;
+        // This is for upgrade path from older versions
+        if self.pending_tasks > 0 {
+            self.pending_tasks -= 1;
+        }
+    }
+
+    pub fn fail(&mut self) {
+        self.failed_tasks += 1;
+        if self.pending_tasks > 0 {
+            self.pending_tasks -= 1;
+        }
     }
 }
 
@@ -475,7 +509,7 @@ fn default_creation_time() -> SystemTime {
 pub struct Task {
     pub id: String,
     pub extractor: String,
-    pub extraction_policy_id: String,
+    pub extraction_policy_name: String,
     pub extraction_graph_name: String,
     pub output_index_table_mapping: HashMap<String, String>,
     pub namespace: String,
@@ -499,7 +533,7 @@ impl Display for Task {
         write!(
             f,
             "Task(id: {}, extractor: {}, extraction_policy_id: {}, extraction_graph_name: {}, namespace: {}, content_id: {}, outcome: {:?})",
-            self.id, self.extractor, self.extraction_policy_id, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
+            self.id, self.extractor, self.extraction_policy_name, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
         )
     }
 }
@@ -515,7 +549,7 @@ impl TryFrom<Task> for indexify_coordinator::Task {
             namespace: value.namespace,
             content_metadata: Some(value.content_metadata.try_into()?),
             input_params: value.input_params.to_string(),
-            extraction_policy_id: value.extraction_policy_id,
+            extraction_policy_id: value.extraction_policy_name,
             extraction_graph_name: value.extraction_graph_name,
             output_index_mapping: value.output_index_table_mapping,
             outcome: outcome as i32,
@@ -568,6 +602,8 @@ impl From<indexify_coordinator::TaskOutcomeFilter> for TaskOutcomeFilter {
 pub enum ServerTaskType {
     Delete = 0,
     UpdateLabels = 1,
+    DeleteBlobStore = 2,
+    DropIndexes = 3,
 }
 
 pub type GarbageCollectionTaskId = String;
@@ -588,6 +624,12 @@ pub struct GarbageCollectionTask {
     pub task_type: ServerTaskType,
     #[serde(default)]
     pub change_offset: ContentOffset,
+}
+
+impl AsRef<GarbageCollectionTask> for GarbageCollectionTask {
+    fn as_ref(&self) -> &GarbageCollectionTask {
+        self
+    }
 }
 
 impl GarbageCollectionTask {
@@ -971,7 +1013,11 @@ pub struct ContentMetadata {
                                                                   * each extraction policy id */
     pub extraction_graph_names: Vec<ExtractionGraphName>,
     /// monotonically increasing change id
+    #[serde(default)]
     pub change_offset: ContentOffset,
+
+    #[serde(default)]
+    pub extracted_metadata: serde_json::Value,
 }
 
 impl ContentMetadata {
@@ -1021,6 +1067,7 @@ impl TryFrom<ContentMetadata> for indexify_coordinator::ContentMetadata {
             hash: value.hash,
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
+            extracted_metadata: value.extracted_metadata.to_string(),
         })
     }
 }
@@ -1062,6 +1109,7 @@ impl TryFrom<indexify_coordinator::ContentMetadata> for ContentMetadata {
             extraction_policy_ids: value.extraction_policy_ids,
             extraction_graph_names: value.extraction_graph_names,
             change_offset: ContentOffset(0),
+            extracted_metadata: serde_json::from_str(&value.extracted_metadata)?,
         })
     }
 }
@@ -1093,6 +1141,7 @@ impl Default for ContentMetadata {
             hash: "test_hash".to_string(),
             extraction_graph_names: vec![],
             change_offset: ContentOffset(0),
+            extracted_metadata: serde_json::Value::Null,
         }
     }
 }
@@ -1145,27 +1194,6 @@ impl TaskResult {
 }
 
 pub type NamespaceName = String;
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Namespace {
-    pub name: NamespaceName,
-    pub extraction_graphs: Vec<ExtractionGraph>,
-}
-
-impl TryFrom<Namespace> for indexify_coordinator::Namespace {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Namespace) -> Result<Self> {
-        let mut extraction_graphs = vec![];
-        for graph in value.extraction_graphs {
-            extraction_graphs.push(graph.try_into()?)
-        }
-
-        Ok(indexify_coordinator::Namespace {
-            name: value.name,
-            extraction_graphs,
-        })
-    }
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
@@ -1176,6 +1204,8 @@ pub enum ChangeType {
     ContentUpdated,
     TaskCompleted { root_content_id: ContentMetadataId },
     AddGraphToContent { extraction_graph: String },
+    ExtractionGraphDeleted { start_content_id: Vec<u8> },
+    TombstoneContent { is_root: bool },
 }
 
 impl fmt::Display for ChangeType {
@@ -1194,6 +1224,12 @@ impl fmt::Display for ChangeType {
                 "AddGraphToContent(extraction_graph: {})",
                 extraction_graph,
             ),
+            ChangeType::ExtractionGraphDeleted { start_content_id } => write!(
+                f,
+                "ExtractionGraphDeleted(start_content_id: {:?})",
+                start_content_id
+            ),
+            ChangeType::TombstoneContent { is_root } => write!(f, "TombstoneContent: {}", is_root),
         }
     }
 }
