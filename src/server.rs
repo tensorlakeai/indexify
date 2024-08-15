@@ -99,6 +99,7 @@ pub struct NamespaceEndpointState {
             link_extraction_graphs,
             extraction_graph_links,
             upload_file,
+            ingest_remote_file,
             add_graph_to_content,
             list_tasks,
             index_search,
@@ -115,7 +116,8 @@ pub struct NamespaceEndpointState {
             Feature, FeatureType, GetContentMetadataResponse, ListTasksResponse,  Task, ExtractionGraph,
             Content, ContentMetadata, ListContentResponse, GetNamespaceResponse, ExtractionPolicyResponse, ListTasks,
             ListExtractionGraphResponse, ExtractionGraphLink, ExtractionGraphRequest, ExtractionGraphResponse,
-            AddGraphToContent, NewContentStreamResponse, ExtractionGraphAnalytics, TaskAnalytics
+            AddGraphToContent, NewContentStreamResponse, ExtractionGraphAnalytics, TaskAnalytics,
+            IngestRemoteFileResponse, IngestRemoteFile
         )
         ),
         tags(
@@ -737,9 +739,19 @@ async fn extraction_graph_links(
     Ok(Json(res))
 }
 
+/// Ingest a file by it's URL
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract_remote",
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Ingested a remote file successfully", body = IngestRemoteFileResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to ingest remote file")
+    ),
+)]
 #[axum::debug_handler]
 async fn ingest_remote_file(
-    Path(namespace): Path<String>,
+    Path((namespace, extraction_graph)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
     Json(payload): Json<IngestRemoteFile>,
 ) -> Result<Json<IngestRemoteFileResponse>, IndexifyAPIError> {
@@ -751,7 +763,7 @@ async fn ingest_remote_file(
             &payload.url,
             &payload.mime_type,
             payload.labels,
-            &payload.extraction_graph_names,
+            &vec![extraction_graph],
         )
         .await
         .map_err(|e| {

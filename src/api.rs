@@ -871,16 +871,16 @@ pub struct SqlQueryResponse {
     pub rows: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IngestRemoteFile {
     pub id: Option<String>,
     pub url: String,
     pub mime_type: String,
+    #[serde(default)]
     pub labels: HashMap<String, serde_json::Value>,
-    pub extraction_graph_names: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IngestRemoteFileResponse {
     pub content_id: String,
 }
