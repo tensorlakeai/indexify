@@ -1,9 +1,8 @@
 from indexify import IndexifyClient
-from indexify.data_loaders import LocalDirectoryLoader
+from indexify.data_loaders import UrlLoader
 import requests
 from openai import OpenAI
 import base64
-import os
 
 client = IndexifyClient()
 client_openai = OpenAI()
@@ -63,30 +62,19 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
-# Example usage
 if __name__ == "__main__":
+    # Uncomment the lines if you want to upload more than 1 pdf
     pdf_urls = [
         "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
-        "https://arxiv.org/pdf/1810.04805.pdf",
-        "https://arxiv.org/pdf/2304.08485"
+    #    "https://arxiv.org/pdf/1810.04805.pdf",
+    #    "https://arxiv.org/pdf/2304.08485"
     ]
 
-    os.makedirs("pdfs", exist_ok=True)
+    data_loader = UrlLoader(pdf_urls)
+    content_ids = client.ingest_from_loader(data_loader, "rag_pipeline_mm")
 
-    for url in pdf_urls:
-        filename = url.split("/")[-1]
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(os.path.join("pdfs", filename), "wb") as file:
-                file.write(response.content)
-            print(f"Downloaded {filename}")
-        else:
-            print(f"Failed to download {filename}")
-
-    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
-    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline_mm")
-
-    print(f"Processed {len(content_ids)} documents")
+    print(f"Uploaded {len(content_ids)} documents")
+    client.wait_for_extraction(content_ids)
 
     # Ask questions
     questions = [
@@ -94,7 +82,6 @@ if __name__ == "__main__":
         "Explain the attention mechanism in transformers.",
         "What are the key contributions of BERT?",
     ]
-
     for question in questions:
         answer = answer_question(question)
         print(f"\nQuestion: {question}")

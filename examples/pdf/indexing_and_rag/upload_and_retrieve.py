@@ -1,6 +1,5 @@
 from indexify import IndexifyClient
-from indexify.data_loaders import LocalDirectoryLoader
-import os, requests
+from indexify.data_loaders import UrlLoader
 from openai import OpenAI
 
 client = IndexifyClient()
@@ -48,38 +47,28 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
-# Example usage
 if __name__ == "__main__":
+    # Uncomment the lines if you want to upload more than 1 pdf
     pdf_urls = [
+        "http://arxiv.org/pdf/2304.08485"
         "https://arxiv.org/pdf/2304.08485.pdf",
-        "https://arxiv.org/pdf/0910.2029.pdf",
-        "https://arxiv.org/pdf/2402.01968.pdf",
-        "https://arxiv.org/pdf/2401.13138.pdf",
-        "https://arxiv.org/pdf/2402.03578.pdf",
-        "https://arxiv.org/pdf/2309.07864.pdf",
-        "https://arxiv.org/pdf/2401.03568.pdf",
-        "https://arxiv.org/pdf/2312.10256.pdf",
-        "https://arxiv.org/pdf/2312.01058.pdf",
-        "https://arxiv.org/pdf/2402.01680.pdf",
-        "https://arxiv.org/pdf/2403.07017.pdf"
+    #    "https://arxiv.org/pdf/0910.2029.pdf",
+    #    "https://arxiv.org/pdf/2402.01968.pdf",
+    #    "https://arxiv.org/pdf/2401.13138.pdf",
+    #    "https://arxiv.org/pdf/2402.03578.pdf",
+    #    "https://arxiv.org/pdf/2309.07864.pdf",
+    #    "https://arxiv.org/pdf/2401.03568.pdf",
+    #    "https://arxiv.org/pdf/2312.10256.pdf",
+    #    "https://arxiv.org/pdf/2312.01058.pdf",
+    #    "https://arxiv.org/pdf/2402.01680.pdf",
+    #    "https://arxiv.org/pdf/2403.07017.pdf"
     ]
 
-    os.makedirs("pdfs", exist_ok=True)
+    data_loader = UrlLoader(pdf_urls)
+    content_ids = client.ingest_from_loader(data_loader, "rag_pipeline")
 
-    for url in pdf_urls:
-        filename = url.split("/")[-1]
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(os.path.join("pdfs", filename), "wb") as file:
-                file.write(response.content)
-            print(f"Downloaded {filename}")
-        else:
-            print(f"Failed to download {filename}")
-
-    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
-    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline")
-
-    print(f"Processed {len(content_ids)} documents")
+    print(f"Uploaded {len(content_ids)} documents")
+    client.wait_for_extraction(content_ids)
     
     question = "What is the performance of LLaVa across across multiple image domains / subjects?"
     answer = answer_question(question)

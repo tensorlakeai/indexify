@@ -16,7 +16,6 @@ Before we begin, ensure you have the following:
   ```
 - `pip` (Python package manager)
 - An OpenAI API key
-- Basic familiarity with Python and command-line interfaces
 
 ## Setup
 
@@ -96,10 +95,8 @@ Create a file [`upload_and_retrieve.py`](upload_and_retrieve.py):
 
 ```python
 from indexify import IndexifyClient
-from indexify.data_loaders import LocalDirectoryLoader
-import os, requests
+from indexify.data_loaders import UrlLoader
 from openai import OpenAI
-import tempfile
 
 client = IndexifyClient()
 
@@ -146,43 +143,34 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
-# Example usage
 if __name__ == "__main__":
+    # Uncomment the lines if you want to upload more than 1 pdf
     pdf_urls = [
-        "https://arxiv.org/pdf/2304.08485.pdf",
-        "https://arxiv.org/pdf/0910.2029.pdf",
-        "https://arxiv.org/pdf/2402.01968.pdf",
-        "https://arxiv.org/pdf/2401.13138.pdf",
-        "https://arxiv.org/pdf/2402.03578.pdf",
-        "https://arxiv.org/pdf/2309.07864.pdf",
-        "https://arxiv.org/pdf/2401.03568.pdf",
-        "https://arxiv.org/pdf/2312.10256.pdf",
-        "https://arxiv.org/pdf/2312.01058.pdf",
-        "https://arxiv.org/pdf/2402.01680.pdf",
-        "https://arxiv.org/pdf/2403.07017.pdf"
+        "http://arxiv.org/pdf/2304.08485"
+        #"https://arxiv.org/pdf/2304.08485.pdf",
+    #    "https://arxiv.org/pdf/0910.2029.pdf",
+    #    "https://arxiv.org/pdf/2402.01968.pdf",
+    #    "https://arxiv.org/pdf/2401.13138.pdf",
+    #    "https://arxiv.org/pdf/2402.03578.pdf",
+    #    "https://arxiv.org/pdf/2309.07864.pdf",
+    #    "https://arxiv.org/pdf/2401.03568.pdf",
+    #    "https://arxiv.org/pdf/2312.10256.pdf",
+    #    "https://arxiv.org/pdf/2312.01058.pdf",
+    #    "https://arxiv.org/pdf/2402.01680.pdf",
+    #    "https://arxiv.org/pdf/2403.07017.pdf"
     ]
 
-    os.makedirs("pdfs", exist_ok=True)
+    data_loader = UrlLoader(pdf_urls)
+    content_ids = client.ingest_from_loader(data_loader, "rag_pipeline")
 
-    for url in pdf_urls:
-        filename = url.split("/")[-1]
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(os.path.join("pdfs", filename), "wb") as file:
-                file.write(response.content)
-            print(f"Downloaded {filename}")
-        else:
-            print(f"Failed to download {filename}")
-
-    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
-    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline")
-
-    print(f"Processed {len(content_ids)} documents")
+    print(f"Uploaded {len(content_ids)} documents")
+    client.wait_for_extraction(content_ids)
     
     question = "What is the performance of LLaVa across across multiple image domains / subjects?"
     answer = answer_question(question)
     print(f"Question: {question}")
     print(f"Answer: {answer}")
+
 ```
 
 Setup the OPENAI API KEY in your terminal before running the script.
@@ -239,18 +227,7 @@ extraction_policies:
 
 Create a new Python file called [`setup_graph_mm.py`](setup_graph_mm.py) and add the following code:
 
-```python
-import os
-from indexify import IndexifyClient, ExtractionGraph
-
-client = IndexifyClient()
-
-script_dir = os.path.dirname(os.path.abspath(__file__))
-yaml_file_path = os.path.join(script_dir, "graph_mm.yaml")
-
-extraction_graph = ExtractionGraph.from_yaml_file(yaml_file_path)
-client.create_extraction_graph(extraction_graph)
-```
+It's pretty similar to the one we created above, we will simply replace the graph file name to `graph_mm.yaml`
 
 Run this script to set up the multi-modal pipeline:
 ```bash
@@ -263,11 +240,10 @@ Create a file [`upload_and_retrieve_mm.py`](upload_and_retrieve_mm.py), which is
 
 ```python
 from indexify import IndexifyClient
-from indexify.data_loaders import LocalDirectoryLoader
+from indexify.data_loaders import UrlLoader
 import requests
 from openai import OpenAI
 import base64
-import tempfile
 
 client = IndexifyClient()
 client_openai = OpenAI()
@@ -327,30 +303,19 @@ def answer_question(question):
     )
     return chat_completion.choices[0].message.content
 
-# Example usage
 if __name__ == "__main__":
+    # Uncomment the lines if you want to upload more than 1 pdf
     pdf_urls = [
         "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf",
-        "https://arxiv.org/pdf/1810.04805.pdf",
-        "https://arxiv.org/pdf/2304.08485"
+    #    "https://arxiv.org/pdf/1810.04805.pdf",
+    #    "https://arxiv.org/pdf/2304.08485"
     ]
 
-    os.makedirs("pdfs", exist_ok=True)
+    data_loader = UrlLoader(pdf_urls)
+    content_ids = client.ingest_from_loader(data_loader, "rag_pipeline_mm")
 
-    for url in pdf_urls:
-        filename = url.split("/")[-1]
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(os.path.join("pdfs", filename), "wb") as file:
-                file.write(response.content)
-            print(f"Downloaded {filename}")
-        else:
-            print(f"Failed to download {filename}")
-
-    director_loader = LocalDirectoryLoader("pdfs", file_extensions=["pdf"])
-    content_ids = client.ingest_from_loader(director_loader, "rag_pipeline_mm")
-
-    print(f"Processed {len(content_ids)} documents")
+    print(f"Uploaded {len(content_ids)} documents")
+    client.wait_for_extraction(content_ids)
 
     # Ask questions
     questions = [
@@ -358,7 +323,6 @@ if __name__ == "__main__":
         "Explain the attention mechanism in transformers.",
         "What are the key contributions of BERT?",
     ]
-
     for question in questions:
         answer = answer_question(question)
         print(f"\nQuestion: {question}")
@@ -401,12 +365,3 @@ You can customize both RAG systems in several ways:
 4. Experiment with different OpenAI models or adjust the prompt structure in the `create_prompt` function.
 
 5. For the multi-modal RAG, you can adjust the number of images retrieved or how they are incorporated into the prompt.
-
-## Conclusion
-
-These RAG systems demonstrate the power of combining Indexify with large language models:
-
-1. **Scalability**: Indexify can process and index large numbers of PDFs efficiently, including both text and images.
-2. **Flexibility**: You can easily swap out components or adjust parameters to suit your specific needs.
-3. **Integration**: The systems seamlessly integrate PDF processing, embedding generation, and text generation.
-4. **Multi-Modal Capabilities**: The second system shows how to incorporate both text and image data for more comprehensive question answering.
