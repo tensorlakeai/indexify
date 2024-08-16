@@ -225,9 +225,7 @@ extraction_policies:
     content_source: 'pdf_to_image'
 ```
 
-Create a new Python file called [`setup_graph_mm.py`](setup_graph_mm.py) and add the following code:
-
-It's pretty similar to the one we created above, we will simply replace the graph file name to `graph_mm.yaml`
+Create a new Python file called [`setup_graph_mm.py`](setup_graph_mm.py). It's similar to the one we created above, we will simply replace the graph file name to `graph_mm.yaml`
 
 Run this script to set up the multi-modal pipeline:
 ```bash
