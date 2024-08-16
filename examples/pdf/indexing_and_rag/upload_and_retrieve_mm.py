@@ -3,7 +3,7 @@ from indexify.data_loaders import LocalDirectoryLoader
 import requests
 from openai import OpenAI
 import base64
-import tempfile
+import os
 
 client = IndexifyClient()
 client_openai = OpenAI()

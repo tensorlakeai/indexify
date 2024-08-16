@@ -2,7 +2,6 @@ from indexify import IndexifyClient
 from indexify.data_loaders import LocalDirectoryLoader
 import os, requests
 from openai import OpenAI
-import tempfile
 
 client = IndexifyClient()
 
