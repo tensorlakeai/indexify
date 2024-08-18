@@ -1,56 +1,89 @@
 {{- with .Values.coordinator }}
 {{- if .enabled }}
+{{- $statefulsetName := .name }}
+{{- $replicaCount := .replicas | int }}
+{{- range $i, $e := until $replicaCount }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $statefulsetName }}-config-{{ $i }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "labels" (dict "name" $statefulsetName "component" "config" "global" $) | nindent 4 }}
+data:
+  config.yaml: |-
+    coordinator_addr: {{ $statefulsetName }}-0.{{ $statefulsetName }}.{{ $.Release.Namespace }}.svc.cluster.local:8950
+    raft_port: 8970
+    seed_node: {{ $statefulsetName }}-0.{{ $statefulsetName }}.{{ $.Release.Namespace }}.svc.cluster.local:8970
+    node_id: {{ $i }}
+    state_store:
+      path: /data/state
+    db_url: {{ $.Values.dbURL }}
+    index_config:
+      {{- $.Values.indexConfig| toYaml | nindent 6 }}
+    metadata_storage:
+      {{- $.Values.metadataStorage | toYaml | nindent 6 }}
+    blob_storage:
+      {{- $.Values.blobStore.config | toYaml | nindent 6 }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: coordinator
 spec:
+  clusterIP: None
   ports:
     - port: 8950
+      name: coordinator
+      targetPort: 8950
+    - port: 8970
+      name: seed
+      targetPort: 8970
   selector:
-    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 4 }}
+    app: coordinator
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: coordinator
+  name: {{ .name }}
   labels:
-    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 4 }}
+    {{- include "labels" (dict "name" .name "component" "coordinator" "global" $) | nindent 4 }}
 spec:
-  replicas: 1
+  serviceName: {{ .name }}
+  replicas: {{ .replicas }}
   selector:
     matchLabels:
-    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 6 }}
+      app: {{ .name }}
   template:
     metadata:
       labels:
-        {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 8 }}
-
+        app: {{ .name }}
     spec:
       containers:
         - name: indexify
           image: {{ .image }}
-
           command: ['indexify']
           args:
             - coordinator
             - --config-path
-            - ./config/config.yaml
-
+            - /etc/coordinator/config.yaml
           volumeMounts:
-            - mountPath: /indexify/config
-              name: config
+            {{- range $i, $e := until $replicaCount }}
+            - mountPath: /etc/coordinator
+              name: config-{{ $i }}
               readOnly: true
+            {{- end }}
             - mountPath: /data
               name: data
-
       volumes:
-        - name: config
+        {{- range $i, $e := until $replicaCount }}
+        - name: config-{{ $i }}
           configMap:
-            name: indexify
+            name: {{ $statefulsetName }}-config-{{ $i }}
+        {{- end }}
         - name: data
           emptyDir: {}
-
 {{- end }}
 {{- end }}

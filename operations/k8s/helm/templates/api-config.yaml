@@ -1,3 +1,4 @@
+{{- $statefulsetName := .Values.coordinator.name }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -7,9 +8,9 @@ metadata:
     {{- include "labels" (dict "name" "indexify" "component" "config" "global" $) | nindent 4 }}
 data:
   config.yaml: |-
-    coordinator_addr: coordinator:8950
+    coordinator_addr: {{ $statefulsetName }}-0.{{ $statefulsetName }}.{{ $.Release.Namespace }}.svc.cluster.local:8950
     raft_port: 8970
-    seed_node: localhost:8970
+    seed_node: {{ $statefulsetName }}-0.{{ $statefulsetName }}.{{ $.Release.Namespace }}.svc.cluster.local:8970
     node_id: 0
 
     state_store:
