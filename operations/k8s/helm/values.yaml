@@ -35,7 +35,7 @@ coordinator:
 
   # The default number of replicas is 1.
   # To enable High Availability (HA), increase the number of replicas.
-  replicas: 1  # Change this value to 2 or more for HA
+  replicas: 2  # Change this value to 2 or more for HA
 
 extractors:
   # - image: tensorlake/chunker:latest
