@@ -28,6 +28,10 @@ spec:
         {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 8 }}
 
     spec:
+      {{- if .nodeSelector }}
+      nodeSelector:
+        {{- toYaml .nodeSelector | nindent 8 }}
+      {{- end }}    
       containers:
         - name: indexify
           image: {{ .image }}

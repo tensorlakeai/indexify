@@ -25,17 +25,23 @@ api:
     enabled: true
 
   image: tensorlake/indexify:latest
+  nodeSelector: {}
 
 coordinator:
   image: tensorlake/indexify:latest
+  nodeSelector: {}
 
 extractors:
   - image: tensorlake/chunk-extractor:latest
     name: chunker
+    nodeSelector: {}
   - image: tensorlake/minilm-l6:latest
     name: minilm-l6
+    nodeSelector: {}
   - image: tensorlake/pdfextractor:latest 
     name: pdfextractor
+    nodeSelector: {}
+
 
 extraObjects:
   - |
