@@ -27,7 +27,9 @@ api:
   image: tensorlake/indexify:latest
 
 coordinator:
+  enabled: true
   image: tensorlake/indexify:latest
+  replicas: 2
 
 extractors:
   - image: tensorlake/chunk-extractor:latest

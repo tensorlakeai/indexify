@@ -68,10 +68,15 @@ spec:
           args:
             - coordinator
             - --config-path
-            - /etc/coordinator/config.yaml
+            - /etc/$(POD_NAME)/config.yaml
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             {{- range $i, $e := until $replicaCount }}
-            - mountPath: /etc/coordinator
+            - mountPath: /etc/coordinator-{{ $i }}
               name: config-{{ $i }}
               readOnly: true
             {{- end }}
