@@ -1,6 +1,6 @@
 {{- with .Values.coordinator }}
 {{- if .enabled }}
-{{- $statefulsetName := .name }}
+{{- $statefulsetName := include "coordinator.fullname" . }}
 {{- $replicaCount := .replicas | int }}
 {{- range $i, $e := until $replicaCount }}
 ---
@@ -47,19 +47,19 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .name }}
+  name: {{ include "coordinator.fullname" . }}
   labels:
-    {{- include "labels" (dict "name" .name "component" "coordinator" "global" $) | nindent 4 }}
+    {{- include "labels" (dict "name" "coordinator" "component" "coordinator" "global" $) | nindent 4 }}
 spec:
-  serviceName: {{ .name }}
+  serviceName: {{ include "coordinator.fullname" . }}
   replicas: {{ .replicas }}
   selector:
     matchLabels:
-      app: {{ .name }}
+      app: {{ include "coordinator.fullname" . }}
   template:
     metadata:
       labels:
-        app: {{ .name }}
+        app: {{ include "coordinator.fullname" . }}
     spec:
       containers:
         - name: indexify

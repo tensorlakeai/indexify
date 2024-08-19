@@ -32,3 +32,6 @@ app.kubernetes.io/managed-by: {{ .global.Release.Service }}
 {{- end }}
 {{- end }}
 {{- end }}
+{{- define "coordinator.fullname" -}}
+coordinator
+{{- end -}}

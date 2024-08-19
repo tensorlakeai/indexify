@@ -30,7 +30,6 @@ api:
 
 coordinator:
   enabled: true
-  name: coordinator
   image: tensorlake/indexify:stable
 
   # The default number of replicas is 1.
