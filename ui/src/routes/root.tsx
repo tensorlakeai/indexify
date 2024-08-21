@@ -25,6 +25,7 @@ import {
 import { Link } from 'react-router-dom'
 import HistoryIcon from '@mui/icons-material/History';
 import { Cpu, Data, Grid7, MobileProgramming } from 'iconsax-react'
+import VersionDisplay from '../components/VersionDisplay'
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
@@ -101,10 +102,13 @@ export default function Dashboard() {
           </Toolbar>
           <Box
             sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
               overflow: 'auto',
             }}
           >
-            <List>
+            <List sx={{ flexGrow: 1 }}>
               <ListItemButton
                 to={`/${namespace}/extractors`}
                 component={Link}
@@ -117,9 +121,7 @@ export default function Dashboard() {
               <ListItemButton
                 to={`/${namespace}/extraction-graphs`}
                 component={Link}
-                selected={
-                  location.pathname.startsWith(`/${namespace}/extraction-graphs`)
-                }
+                selected={location.pathname.startsWith(`/${namespace}/extraction-graphs`)}
                 className={location.pathname.startsWith(`/${namespace}/extraction-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
               >
                 <Cpu size="20" className="drawer-logo" variant="Outline" />
@@ -143,7 +145,7 @@ export default function Dashboard() {
                 <Grid7 size="20" className="drawer-logo" variant="Outline"/>
                 <ListItemText primary={'SQL Tables'} />
               </ListItemButton>
-            <ListItemButton
+              <ListItemButton
                 to={`/${namespace}/state-changes`}
                 component={Link}
                 selected={location.pathname.startsWith(`/${namespace}/state-changes`)}
@@ -153,6 +155,9 @@ export default function Dashboard() {
                 <ListItemText primary={'System Events'} />
               </ListItemButton>
             </List>
+            <Box sx={{ mt: 'auto', pb: 1 }}>
+              <VersionDisplay owner="tensorlakeai" repo="indexify" />
+            </Box>
           </Box>
         </Drawer>
         {/* page content */}
