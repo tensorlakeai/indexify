@@ -34,17 +34,11 @@ Before we begin, ensure you have the following:
    indexify-extractor join-server
    ```
 
-## File Descriptions
-
-1. `table_pipeline.py`: This script sets up the extraction graph for converting PDFs to tables.
-
-2. `upload_and_retrieve.py`: This script downloads a PDF, uploads it to Indexify, and retrieves the extracted tables.
-
 ## Usage
 
-1. First, run the [`table_pipeline.py`](table_pipeline.py) script to set up the extraction graph:
+1. First, run the [`setup_graph.py`](setup_graph.py) script to set up the extraction graph:
    ```bash
-   python table_pipeline.py
+   python setup_graph.py
    ```
 
 2. Then, run the [`upload_and_retrieve.py`](upload_and_retrieve.py) script to process a PDF and extract tables:
