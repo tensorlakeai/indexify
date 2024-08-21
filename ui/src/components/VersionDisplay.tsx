@@ -7,6 +7,24 @@ const VersionDisplay = ({ owner, repo }: { owner: string; repo: string }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    fetch(`https://api.github.com/repos/${owner}/${repo}/releases/latest`)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Failed to fetch version');
+        }
+        return response.json();
+      })
+      .then(data => {
+        setVersion(data.tag_name);
+        setLoading(false);
+      })
+      .catch(error => {
+        console.error('Error fetching version:', error);
+        setError(error.message);
+        setLoading(false);
+      });
+  }, [owner, repo]);
 
   const alertStyle = {
     padding: '0px 16px',
