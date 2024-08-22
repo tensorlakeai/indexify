@@ -6,7 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
@@ -385,7 +385,8 @@ impl Server {
             axum_server::bind(self.addr)
                 .handle(handle)
                 .serve(app.into_make_service())
-                .await?;
+                .await
+                .with_context(|| format!("addr: {}", self.addr))?;
         }
 
         Ok(())
@@ -811,11 +812,11 @@ async fn update_labels(
         ("source" = Option<String>, Query, description = "Filter by source, either extraction policy name or 'ingestion' for top level content"),
         ("parent_id" = Option<String>, Query, description = "Filter by parent ID"),
         ("ingested_content_id" = Option<String>, Query, description = "Filter by ingested content ID"),
-        ("labels_filter" = Option<Vec<String>>, Query, description = "Filter by labels. 
-        Filter expression is the name of the label, comparison operator, and desired value, e.g. &labels_filter=key>=value. 
+        ("labels_filter" = Option<Vec<String>>, Query, description = "Filter by labels.
+        Filter expression is the name of the label, comparison operator, and desired value, e.g. &labels_filter=key>=value.
         Multiple expressions can be specified as separate query parameters."),
-        ("start_id" = Option<String>, Query, description = "Pagination start ID. 
-        Omit to start from beginning. To continue iteration, 
+        ("start_id" = Option<String>, Query, description = "Pagination start ID.
+        Omit to start from beginning. To continue iteration,
         specify id of the last content in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
     ),
@@ -1639,8 +1640,8 @@ async fn extraction_graph_analytics(
         ("extraction_policy" = String, Path, description = "Extraction policy name"),
         ("content_id" = Option<String>, Query, description = "Filter by content ID"),
         ("outcome" = Option<String>, Query, description = "Filter by task outcome"),
-        ("start_id" = Option<String>, Query, description = "Pagination start ID. 
-        Omit to start from beginning. To continue iteration, 
+        ("start_id" = Option<String>, Query, description = "Pagination start ID.
+        Omit to start from beginning. To continue iteration,
         specify id of the last task in the previous response"),
         ("limit" = Option<u32>, Query, description = "Maximum number of items to return"),
     ),

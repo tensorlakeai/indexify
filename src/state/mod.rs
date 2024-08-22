@@ -142,7 +142,8 @@ pub struct App {
     pub id: NodeId,
     pub addr: String,
     coordinator_addr: String,
-    seed_node: String,
+    seed_node: Option<String>,
+    initialize_raft: bool,
     pub forwardable_raft: ForwardableRaft,
     nodes: BTreeMap<NodeId, BasicNode>,
     shutdown_rx: Receiver<()>,
@@ -275,6 +276,7 @@ impl App {
                 .to_string(),
             coordinator_addr: coordinator_addr.to_string(),
             seed_node: server_config.seed_node.clone(),
+            initialize_raft: server_config.initialize_raft,
             forwardable_raft,
             shutdown_rx: rx,
             shutdown_tx: tx,
@@ -321,28 +323,17 @@ impl App {
         Ok(app)
     }
 
-    /// This function checks whether this node is the seed node
-    fn is_seed_node(&self) -> bool {
-        let seed_node_port = self
-            .seed_node
-            .split(':')
-            .nth(1)
-            .and_then(|s| s.trim().parse::<u64>().ok());
-        let node_addr_port = self
-            .node_addr
-            .split(':')
-            .nth(1)
-            .and_then(|s| s.trim().parse::<u64>().ok());
-        match (seed_node_port, node_addr_port) {
-            (Some(seed_port), Some(node_port)) => seed_port == node_port,
-            _ => false,
-        }
-    }
+    pub async fn initialize_raft(&self, node_id: u64) -> Result<()> {
+        if self.seed_node.is_some() && !self.initialize_raft {
+            warn!(
+                "waiting to initialize from seed node. seed_node: {} node_id: {}",
+                self.seed_node.as_ref().unwrap_or(&"".to_string()),
+                node_id
+            );
 
-    pub async fn initialize_raft(&self) -> Result<()> {
-        if !self.is_seed_node() {
             return Ok(());
         }
+
         match self.forwardable_raft.initialize(self.nodes.clone()).await {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -1478,9 +1469,17 @@ impl App {
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
+        if self.seed_node.is_none() {
+            warn!("no seed_node set, skipping periodic membership check");
+
+            return;
+        }
+
         let app_clone = Arc::clone(self);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(MEMBERSHIP_CHECK_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
             loop {
                 tokio::select! {
                     _ = shutdown_rx.changed() => {
@@ -1488,9 +1487,6 @@ impl App {
                         break;
                     }
                     _ = interval.tick() => {
-                        if app_clone.is_seed_node() {
-                            continue;
-                        }
                         if let Err(e) = app_clone.check_cluster_membership().await {
                             error!("failed to check cluster membership: {}", e);
                         }
@@ -1503,12 +1499,16 @@ impl App {
     pub async fn check_cluster_membership(
         &self,
     ) -> Result<store::requests::StateMachineUpdateResponse, anyhow::Error> {
+        let Some(discovery) = &self.seed_node else {
+            return Err(anyhow!("no discovery address for membership set"));
+        };
+
         self.network
             .join_cluster(
                 self.id,
                 &self.node_addr,
                 &self.coordinator_addr,
-                &self.seed_node,
+                discovery.as_str(),
             )
             .await
     }

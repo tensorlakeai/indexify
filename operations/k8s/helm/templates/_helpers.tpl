@@ -32,3 +32,11 @@ app.kubernetes.io/managed-by: {{ .global.Release.Service }}
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- define "quorum" -}}
+{{- if eq (mod . 2) 0  }}
+  {{- fail "must be an odd number" }}
+{{- else }}
+{{- . -}}
+{{- end }}
+{{- end }}

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
-use anyhow;
+use openraft::ServerState;
 
 use super::{
     network::Network,
@@ -25,6 +25,33 @@ openraft::declare_raft_types!(
       SnapshotData = SnapshotData,
       AsyncRuntime = TokioRuntime
 );
+
+#[derive(Debug, serde::Serialize)]
+pub struct RaftNode {
+    pub id: NodeId,
+    pub address: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RaftState {
+    #[serde(serialize_with = "serialize_server_state")]
+    pub server: ServerState,
+    pub nodes: Vec<RaftNode>,
+}
+
+fn serialize_server_state<S>(state: &ServerState, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let state = match state {
+        ServerState::Leader => "leader",
+        ServerState::Learner => "learner",
+        ServerState::Follower => "follower",
+        ServerState::Candidate => "candidate",
+        ServerState::Shutdown => "shutdown",
+    };
+    serializer.serialize_str(state)
+}
 
 #[derive(Clone)]
 pub struct ForwardableRaft {
@@ -78,5 +105,25 @@ impl ForwardableRaft {
             Err(RaftError::APIError(CheckIsLeaderError::ForwardToLeader(err))) => Ok(Some(err)),
             Err(e) => Err(anyhow::anyhow!("Error occurred: {}", e.to_string())),
         }
+    }
+
+    pub async fn state(&self) -> Result<RaftState, anyhow::Error> {
+        let state = self
+            .raft
+            .with_raft_state(|st| RaftState {
+                server: st.server_state,
+                nodes: st
+                    .membership_state
+                    .effective()
+                    .nodes()
+                    .map(|(id, node)| RaftNode {
+                        id: *id,
+                        address: node.addr.clone(),
+                    })
+                    .collect(),
+            })
+            .await?;
+
+        Ok(state)
     }
 }

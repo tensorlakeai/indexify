@@ -22,21 +22,33 @@ blobStore:
 
 api:
   enabled: true
+  # replicas: 1
 
   image: tensorlake/indexify:stable
 
   ingress:
     enabled: false
 
+  #   nodeselector:
+  #     gpu: "true"
+
 coordinator:
   enabled: true
+  # replicas: 1 # must be an odd number
 
   image: tensorlake/indexify:stable
+  #   nodeselector:
+  #     gpu: "true"
+
+  # persistence:
+  #   storageClass: 'standard'
 
 extractors:
   # - image: tensorlake/chunker:latest
   #   name: chunker
   #   replicas: 1
+  #   nodeselector:
+  #     gpu: "true"
 
 extraObjects:
 

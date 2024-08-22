@@ -53,7 +53,7 @@ impl RaftTestCluster {
                 state_store: StateStoreConfig {
                     path: Some(format!("/tmp/indexify-test/raft/{}/{}", append, i)),
                 },
-                seed_node: seed_node.clone(),
+                seed_node: Some(seed_node.clone()),
                 ..Default::default()
             });
 
@@ -83,7 +83,7 @@ impl RaftTestCluster {
                     self.append, new_node_id
                 )),
             },
-            seed_node,
+            seed_node: Some(seed_node),
             ..Default::default()
         });
         let garbage_collector = GarbageCollector::new();
@@ -251,7 +251,7 @@ impl RaftTestCluster {
             .shared_state;
 
         seed_node
-            .initialize_raft()
+            .initialize_raft(self.seed_node_id)
             .await
             .map_err(|e| anyhow::anyhow!("Error initializing raft: {}", e))?;
 
