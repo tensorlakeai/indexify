@@ -435,7 +435,7 @@ impl Coordinator {
         let _ = self
             .shared_state
             .register_executor(addr, executor_id, extractors)
-            .await;
+            .await?;
         Ok(())
     }
 
