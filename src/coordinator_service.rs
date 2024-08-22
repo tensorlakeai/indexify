@@ -121,7 +121,6 @@ use crate::{
     api::{IndexifyAPIError, NewContentStreamStart},
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
-    coordinator_filters::content_filter,
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
     state::{self, grpc_config::GrpcConfig},
@@ -464,10 +463,10 @@ impl CoordinatorService for CoordinatorServiceServer {
         let labels_filter =
             filter::LabelsFilter(expressions.map_err(|e| tonic::Status::aborted(e.to_string()))?);
 
-        let start_id = if req.start_id.is_empty() {
+        let restart_key = if req.restart_key.is_empty() {
             None
         } else {
-            Some(req.start_id)
+            Some(req.restart_key)
         };
         let limit = if req.limit == 0 {
             None
@@ -475,19 +474,28 @@ impl CoordinatorService for CoordinatorServiceServer {
             Some(req.limit)
         };
         let source_filter: ContentSourceFilter = req.source.try_into()?;
+        let key_prefix = internal_api::ContentMetadata::make_prefix_graph_key(
+            &req.namespace,
+            &req.graph,
+            &source_filter.0,
+        );
 
         let filter = |c: &internal_api::ContentMetadata| {
-            c.namespace == req.namespace &&
-                (req.graph.is_empty() || c.extraction_graph_names.contains(&req.graph)) &&
-                (req.parent_id.is_empty() ||
-                    Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
+            (req.parent_id.is_empty() ||
+                Some(&req.parent_id) == c.parent_id.as_ref().map(|id| &id.id)) &&
                 (req.ingested_content_id.is_empty() ||
                     Some(&req.ingested_content_id) == c.root_content_id.as_ref()) &&
-                content_filter(c, &source_filter, &labels_filter)
+                labels_filter.matches(&c.labels)
         };
         let response = self
             .coordinator
-            .list_content(filter, start_id, limit)
+            .list_content(
+                filter,
+                &key_prefix,
+                internal_api::ContentMetadata::id_from_graph_key,
+                restart_key.as_deref(),
+                limit,
+            )
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 

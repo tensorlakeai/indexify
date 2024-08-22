@@ -6,9 +6,13 @@ use tracing::info;
 
 use super::{convert_column, v4 as req_v4};
 use crate::state::{
-    store::{CURRENT_STORE_VERSION, LOG_STORE_LOGS_COLUMN},
+    store::{
+        compat::init_graph_index,
+        StateMachineColumns,
+        CURRENT_STORE_VERSION,
+        LOG_STORE_LOGS_COLUMN,
+    },
     NodeId,
-    StateMachineColumns,
 };
 
 fn convert_graph_key(
@@ -45,6 +49,8 @@ pub fn convert_v4(
         |graph: ExtractionGraph| Ok(graph),
         convert_graph_key,
     )?;
+
+    init_graph_index(db)?;
 
     Ok(())
 }

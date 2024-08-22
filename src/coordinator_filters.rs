@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
 use filter::LabelsFilter;
-use indexify_internal_api::ContentSourceFilter;
 use itertools::Itertools;
 
 pub fn content_filter(
     content: &indexify_internal_api::ContentMetadata,
-    source: &ContentSourceFilter,
     labels_filter: &LabelsFilter,
 ) -> bool {
-    source.matches(&content.source) && labels_filter.matches(&content.labels)
+    labels_filter.matches(&content.labels)
 }
 
 /// filter for content metadata

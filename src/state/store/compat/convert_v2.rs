@@ -7,7 +7,7 @@ use tracing::info;
 use super::{convert_column, convert_column_value, v2 as req_v2};
 use crate::state::{
     store::{
-        compat::init_task_analytics,
+        compat::{init_graph_index, init_task_analytics},
         StateMachineColumns,
         CURRENT_STORE_VERSION,
         LOG_STORE_LOGS_COLUMN,
@@ -53,6 +53,7 @@ pub fn convert_v2(
     })?;
 
     init_task_analytics(db)?;
+    init_graph_index(db)?;
 
     Ok(())
 }

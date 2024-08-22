@@ -8,6 +8,7 @@ use super::{
     convert_column,
     convert_column_value,
     convert_v2_task,
+    init_graph_index,
     init_task_analytics,
     v3 as req_v3,
 };
@@ -46,6 +47,7 @@ pub fn convert_v3(
     })?;
 
     init_task_analytics(db)?;
+    init_graph_index(db)?;
 
     Ok(())
 }

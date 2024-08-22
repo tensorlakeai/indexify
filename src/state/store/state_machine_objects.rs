@@ -979,6 +979,58 @@ impl IndexifyState {
         Ok(task_ids)
     }
 
+    fn update_graphs<'a>(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
+        contents_iter: impl IntoIterator<Item = &'a ContentMetadata> + Clone,
+    ) -> Result<(), StateMachineError> {
+        let cf = StateMachineColumns::ContentTable.cf(db);
+        let keys = contents_iter
+            .clone()
+            .into_iter()
+            .map(|content| (cf, content.id.id.clone().into_bytes()))
+            .collect::<Vec<_>>();
+        let mut existing_contents = HashMap::new();
+        for item in txn.multi_get_cf(keys) {
+            if let Some(item) = item.map_err(|e| {
+                StateMachineError::DatabaseError(format!("failed to read existing content: {}", e))
+            })? {
+                let content: ContentMetadata = JsonEncoder::decode(&item)?;
+                existing_contents.insert(content.id.id.clone(), content);
+            }
+        }
+        for content in contents_iter {
+            if let Some(existing_content) = existing_contents.get(&content.id.id) {
+                for graph in existing_content.extraction_graph_names.iter() {
+                    if !content.extraction_graph_names.contains(graph) {
+                        txn.delete_cf(
+                            StateMachineColumns::GraphContentIndex.cf(db),
+                            existing_content.graph_key(&graph),
+                        )
+                        .map_err(|e| {
+                            StateMachineError::DatabaseError(format!(
+                                "error writing content: {}",
+                                e
+                            ))
+                        })?;
+                    }
+                }
+            }
+            for graph in content.extraction_graph_names.iter() {
+                txn.put_cf(
+                    StateMachineColumns::GraphContentIndex.cf(db),
+                    content.graph_key(&graph),
+                    &[],
+                )
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!("error writing content: {}", e))
+                })?;
+            }
+        }
+        Ok(())
+    }
+
     fn set_content<'a>(
         &self,
         db: &OptimisticTransactionDB,
@@ -997,14 +1049,26 @@ impl IndexifyState {
             .map_err(|e| {
                 StateMachineError::DatabaseError(format!("error writing content: {}", e))
             })?;
-            txn.put_cf(
-                StateMachineColumns::ChangeIdContentIndex.cf(db),
-                content.change_offset.0.to_be_bytes(),
-                &content.id.id,
-            )
-            .map_err(|e| {
-                StateMachineError::DatabaseError(format!("error writing content: {}", e))
-            })?;
+            if content.latest {
+                txn.put_cf(
+                    StateMachineColumns::ChangeIdContentIndex.cf(db),
+                    content.change_offset.0.to_be_bytes(),
+                    &content.id.id,
+                )
+                .map_err(|e| {
+                    StateMachineError::DatabaseError(format!("error writing content: {}", e))
+                })?;
+                for graph in content.extraction_graph_names.iter() {
+                    txn.put_cf(
+                        StateMachineColumns::GraphContentIndex.cf(db),
+                        content.graph_key(&graph),
+                        &[],
+                    )
+                    .map_err(|e| {
+                        StateMachineError::DatabaseError(format!("error writing content: {}", e))
+                    })?;
+                }
+            }
         }
         Ok(())
     }
@@ -1020,10 +1084,19 @@ impl IndexifyState {
             let mut content = content.clone();
             // If updating latest version of root node, the key will change so delete from
             // previous location.
-            if content.latest && content.parent_id.is_none() {
-                txn.delete_cf(cf, &content.id.id)
+            if content.latest {
+                if content.parent_id.is_none() {
+                    txn.delete_cf(cf, &content.id.id)
+                        .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
+                    content.latest = false;
+                }
+                for graph in content.extraction_graph_names.iter() {
+                    txn.delete_cf(
+                        StateMachineColumns::GraphContentIndex.cf(db),
+                        content.graph_key(&graph),
+                    )
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-                content.latest = false;
+                }
             }
             let serialized_content = JsonEncoder::encode(&content)?;
             txn.put_cf(cf, content.id_key(), &serialized_content)
@@ -1510,7 +1583,7 @@ impl IndexifyState {
                 let deleted_content: Vec<_> =
                     content_metadata.iter().filter(|c| c.tombstoned).collect();
 
-                self.set_content(db, &txn, updated_content)?;
+                self.update_graphs(db, &txn, updated_content)?;
                 self.tombstone_content_tree(db, &txn, deleted_content)?;
             }
             RequestPayload::CreateNamespace { name } => {

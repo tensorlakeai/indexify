@@ -19,7 +19,7 @@ pub use convert_v1::convert_v1_task;
 pub use convert_v2::convert_v2;
 pub use convert_v3::convert_v3;
 pub use convert_v4::convert_v4;
-use indexify_internal_api::{Task, TaskAnalytics, TaskOutcome};
+use indexify_internal_api::{ContentMetadata, Task, TaskAnalytics, TaskOutcome};
 pub(crate) use v2::convert_v2_task;
 
 // This assumes that key value does not change with conversion.
@@ -107,5 +107,23 @@ pub fn init_task_analytics(db: &OptimisticTransactionDB) -> Result<(), StorageEr
         .map_err(|e| StorageIOError::write_state_machine(&e))?;
     }
 
+    Ok(())
+}
+
+pub fn init_graph_index(db: &OptimisticTransactionDB) -> Result<(), StorageError<NodeId>> {
+    let iter = db.iterator_cf(
+        StateMachineColumns::ContentTable.cf(db),
+        IteratorMode::Start,
+    );
+    for item in iter {
+        let (_, value) = item.map_err(|e| StorageIOError::read_state_machine(&e))?;
+        let content: ContentMetadata =
+            JsonEncoder::decode(&value).map_err(|e| StorageIOError::read_state_machine(&e))?;
+        for graph in content.extraction_graph_names.iter() {
+            let key = content.graph_key(&graph);
+            db.put_cf(StateMachineColumns::GraphContentIndex.cf(db), key, &[])
+                .map_err(|e| StorageIOError::write_state_machine(&e))?;
+        }
+    }
     Ok(())
 }

@@ -256,17 +256,16 @@ impl Coordinator {
         Ok(contents)
     }
 
-    pub async fn list_content<F>(
+    pub async fn list_content(
         &self,
-        filter: F,
-        start_id: Option<String>,
+        filter: impl Fn(&internal_api::ContentMetadata) -> bool,
+        key_prefix: &[u8],
+        key_reference: impl Fn(&[u8]) -> Result<Vec<u8>>,
+        restart_key: Option<&[u8]>,
         limit: Option<u64>,
-    ) -> Result<FilterResponse<internal_api::ContentMetadata>>
-    where
-        F: Fn(&internal_api::ContentMetadata) -> bool,
-    {
+    ) -> Result<FilterResponse<internal_api::ContentMetadata>> {
         self.shared_state
-            .list_content(filter, start_id, limit)
+            .list_content(filter, key_prefix, key_reference, restart_key, limit)
             .await
     }
 
@@ -877,7 +876,12 @@ mod tests {
 
     use filter::{Expression, LabelsFilter, Operator};
     use futures::{FutureExt, StreamExt};
-    use indexify_internal_api::{self as internal_api, ExtractionGraphLink, ExtractionGraphNode};
+    use indexify_internal_api::{
+        self as internal_api,
+        ContentMetadata,
+        ExtractionGraphLink,
+        ExtractionGraphNode,
+    };
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{ContentMetadataId, ContentOffset, ContentSource, TaskOutcome};
     use tokio::time::timeout;
@@ -888,7 +892,7 @@ mod tests {
         coordinator_client::CoordinatorClient,
         garbage_collector::GarbageCollector,
         server_config::ServerConfig,
-        state::App,
+        state::{store::StateMachineColumns, App},
         test_util::db_utils::{
             complete_task,
             create_content_for_task,
@@ -899,6 +903,7 @@ mod tests {
             next_child,
             perform_all_tasks,
             perform_task,
+            test_child_content,
             test_mock_content_metadata,
             Parent::{Child, Root},
             DEFAULT_TEST_NAMESPACE,
@@ -1332,14 +1337,18 @@ mod tests {
             .await?;
 
         //  Create an extraction graph
-        let eg =
-            create_test_extraction_graph("extraction_graph_id_1", vec!["extraction_policy_id_1"]);
+        let eg = create_test_extraction_graph(
+            "extraction_graph_id_1",
+            vec!["extraction_policy_id_1", "extraction_policy_id_2"],
+        );
         coordinator.create_extraction_graph(eg.clone()).await?;
         coordinator.run_scheduler().await?;
 
         //  Create a separate extraction graph
-        let eg2 =
-            create_test_extraction_graph("extraction_graph_id_2", vec!["extraction_policy_id_2"]);
+        let eg2 = create_test_extraction_graph(
+            "extraction_graph_id_2",
+            vec!["extraction_policy_id_3", "extraction_policy_id_4"],
+        );
         coordinator.create_extraction_graph(eg2.clone()).await?;
         coordinator.run_scheduler().await?;
 
@@ -1349,22 +1358,65 @@ mod tests {
             .create_content_metadata(vec![parent_content.clone()])
             .await?;
 
-        let mut child_content_1 =
-            test_mock_content_metadata("test_child_id_1", &parent_content.id.id, &eg.name);
-        child_content_1.parent_id = Some(parent_content.id.clone());
-        let mut child_content_2 =
-            test_mock_content_metadata("test_child_id_2", &parent_content.id.id, &eg.name);
-        child_content_2.parent_id = Some(parent_content.id.clone());
+        let child_content_1 = test_child_content(
+            "test_child_id_1",
+            &parent_content.id.id,
+            parent_content.id.clone(),
+            &eg.name,
+            "extraction_policy_id_1",
+        );
+        let child_content_2 = test_child_content(
+            "test_child_id_2",
+            &parent_content.id.id,
+            parent_content.id.clone(),
+            &eg.name,
+            "extraction_policy_id_2",
+        );
         coordinator
             .create_content_metadata(vec![child_content_1.clone(), child_content_2.clone()])
             .await?;
 
-        let mut child_content_1_child =
-            test_mock_content_metadata("test_child_child_id_1", &parent_content.id.id, &eg.name);
-        child_content_1_child.parent_id = Some(child_content_1.id.clone());
+        let child_content_1_child = test_child_content(
+            "test_child_child_id_1",
+            &parent_content.id.id,
+            child_content_1.id.clone(),
+            &eg.name,
+            "extraction_policy_id_1",
+        );
         coordinator
             .create_content_metadata(vec![child_content_1_child.clone()])
             .await?;
+
+        let db = coordinator.shared_state.state_machine.get_db();
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg.name,
+            &ContentSource::Ingestion,
+            &parent_content.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_some());
+        assert!(res.unwrap().is_empty());
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg.name,
+            &ContentSource::ExtractionPolicyName("extraction_policy_id_1".to_string()),
+            &child_content_1.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_some());
+        assert!(res.unwrap().is_empty());
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg.name,
+            &ContentSource::ExtractionPolicyName("extraction_policy_id_2".to_string()),
+            &child_content_2.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_some());
+        assert!(res.unwrap().is_empty());
 
         //  Build a separate content tree where parent_content_2 is the root using the
         // second extraction graph
@@ -1373,12 +1425,26 @@ mod tests {
             .create_content_metadata(vec![parent_content_2.clone()])
             .await?;
 
-        let mut child_content_2_1 =
-            test_mock_content_metadata("test_child_id_2_1", &parent_content_2.id.id, &eg2.name);
-        child_content_2_1.parent_id = Some(parent_content_2.id.clone());
+        let child_content_2_1 = test_child_content(
+            "test_child_id_2_1",
+            &parent_content_2.id.id,
+            parent_content_2.id.clone(),
+            &eg2.name,
+            "extraction_policy_id_3",
+        );
         coordinator
             .create_content_metadata(vec![child_content_2_1.clone()])
             .await?;
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg2.name,
+            &ContentSource::ExtractionPolicyName("extraction_policy_id_3".to_string()),
+            &child_content_2_1.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_some());
+        assert!(res.unwrap().is_empty());
 
         coordinator
             .tombstone_content_metadatas(&[
@@ -1408,6 +1474,42 @@ mod tests {
                 content.id.id
             );
         }
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg.name,
+            &ContentSource::Ingestion,
+            &parent_content.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_none());
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg.name,
+            &ContentSource::ExtractionPolicyName("extraction_policy_id_1".to_string()),
+            &child_content_1.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_none());
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg.name,
+            &ContentSource::ExtractionPolicyName("extraction_policy_id_2".to_string()),
+            &child_content_2.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_none());
+
+        let key = internal_api::ContentMetadata::make_graph_key(
+            DEFAULT_TEST_NAMESPACE,
+            &eg2.name,
+            &ContentSource::ExtractionPolicyName("extraction_policy_id_3".to_string()),
+            &child_content_2_1.id.id,
+        );
+        let res = db.get_cf(StateMachineColumns::GraphContentIndex.cf(&db), &key)?;
+        assert!(res.is_none());
 
         coordinator.run_scheduler().await?;
 
@@ -2005,6 +2107,127 @@ mod tests {
             .shared_state
             .get_content_tree_metadata(&parent_content.id.id)?;
         assert_eq!(tree.len(), 7);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_list_content() -> Result<(), anyhow::Error> {
+        let (coordinator, _) = setup_coordinator().await;
+        coordinator.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+
+        let _executor_id_1 = "test_executor_id_1";
+        let extractor_1 = mock_extractor();
+        coordinator
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
+                vec![extractor_1.clone()],
+            ))
+            .await?;
+
+        //  Create an extraction graph
+        let eg_1 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_1",
+            vec![
+                "test_extraction_policy_1",
+                "test_extraction_policy_2",
+                "test_extraction_policy_3",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_1.clone()).await?;
+
+        let eg_2 = create_test_extraction_graph_with_children(
+            "test_extraction_graph_2",
+            vec![
+                "test_extraction_policy_4",
+                "test_extraction_policy_5",
+                "test_extraction_policy_6",
+            ],
+            &[Root, Child(0), Child(0)],
+        );
+        coordinator.create_extraction_graph(eg_2.clone()).await?;
+
+        let mut parent_content = test_mock_content_metadata("test_parent_id", "", &eg_1.name);
+        parent_content
+            .extraction_graph_names
+            .push(eg_2.name.clone());
+        let create_res = coordinator
+            .create_content_metadata(vec![parent_content.clone()])
+            .await?;
+        assert_eq!(create_res.len(), 1);
+        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
+
+        let mut child_id = 1;
+        perform_all_tasks(&coordinator, "test_executor_id_1", &mut child_id).await?;
+
+        let res = coordinator
+            .list_content(
+                |_: &ContentMetadata| true,
+                &ContentMetadata::make_prefix_graph_key(DEFAULT_TEST_NAMESPACE, "", &None),
+                ContentMetadata::id_from_graph_key,
+                None,
+                None,
+            )
+            .await?;
+
+        println!("{:?}", res);
+        assert_eq!(res.items.len(), 8);
+
+        let res = coordinator
+            .list_content(
+                |_: &ContentMetadata| true,
+                &ContentMetadata::make_prefix_graph_key(DEFAULT_TEST_NAMESPACE, "", &None),
+                ContentMetadata::id_from_graph_key,
+                None,
+                Some(3),
+            )
+            .await?;
+        assert_eq!(res.items.len(), 3);
+
+        let res = coordinator
+            .list_content(
+                |_: &ContentMetadata| true,
+                &ContentMetadata::make_prefix_graph_key(DEFAULT_TEST_NAMESPACE, "", &None),
+                ContentMetadata::id_from_graph_key,
+                Some(&res.restart_key),
+                Some(3),
+            )
+            .await?;
+        assert_eq!(res.items.len(), 3);
+
+        let res = coordinator
+            .list_content(
+                |_: &ContentMetadata| true,
+                &ContentMetadata::make_prefix_graph_key(DEFAULT_TEST_NAMESPACE, "", &None),
+                ContentMetadata::id_from_graph_key,
+                Some(&res.restart_key),
+                Some(3),
+            )
+            .await?;
+        assert_eq!(res.items.len(), 2);
+
+        let res = coordinator
+            .list_content(
+                |_: &ContentMetadata| true,
+                &ContentMetadata::make_prefix_graph_key(DEFAULT_TEST_NAMESPACE, &eg_1.name, &None),
+                ContentMetadata::id_from_graph_key,
+                None,
+                None,
+            )
+            .await?;
+        assert_eq!(res.items.len(), 4);
+
+        let res = coordinator
+            .list_content(
+                |_: &ContentMetadata| true,
+                &ContentMetadata::make_prefix_graph_key(DEFAULT_TEST_NAMESPACE, &eg_2.name, &None),
+                ContentMetadata::id_from_graph_key,
+                None,
+                None,
+            )
+            .await?;
+        assert_eq!(res.items.len(), 4);
 
         Ok(())
     }

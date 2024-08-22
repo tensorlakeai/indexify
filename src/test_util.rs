@@ -37,6 +37,26 @@ pub mod db_utils {
             .collect()
     }
 
+    pub fn test_child_content(
+        id: &str,
+        root_content_id: &str,
+        parent: ContentMetadataId,
+        graph_name: &str,
+        policy_name: &str,
+    ) -> internal_api::ContentMetadata {
+        internal_api::ContentMetadata {
+            id: ContentMetadataId::new(id),
+            root_content_id: Some(root_content_id.to_string()),
+            parent_id: Some(parent),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            extraction_graph_names: vec![graph_name.to_string()],
+            source: ContentSource::ExtractionPolicyName(policy_name.to_string()),
+            labels: HashMap::new(),
+            hash: id.to_string(),
+            ..Default::default()
+        }
+    }
+
     pub fn test_mock_content_metadata(
         id: &str,
         root_content_id: &str,

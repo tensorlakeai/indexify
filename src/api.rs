@@ -372,7 +372,7 @@ pub struct ListContent {
 
     pub limit: Option<u64>,
 
-    pub start_id: Option<String>,
+    pub restart_key: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, IntoParams, ToSchema)]
@@ -433,10 +433,10 @@ impl IntoResponse for IndexifyAPIError {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, ToSchema)]
-
 pub struct ListContentResponse {
     pub content_list: Vec<ContentMetadata>,
     pub total: u64,
+    pub restart_key: Vec<u8>,
 }
 
 impl TryFrom<indexify_proto::indexify_coordinator::ListContentResponse> for ListContentResponse {
@@ -452,6 +452,7 @@ impl TryFrom<indexify_proto::indexify_coordinator::ListContentResponse> for List
         Ok(Self {
             content_list,
             total: value.total,
+            restart_key: value.restart_key,
         })
     }
 }

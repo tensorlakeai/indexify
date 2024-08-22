@@ -1045,6 +1045,64 @@ impl ContentMetadata {
             Some(v) => format!("{}::v{}", id, v),
         }
     }
+
+    // Graph index always refers to the latest version of content, link to the
+    // content by id only.
+    pub fn graph_key(&self, graph: &str) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(self.namespace.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(graph.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(self.source.to_string().as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(self.id.id.as_bytes());
+        key
+    }
+
+    pub fn make_graph_key(
+        namespace: &str,
+        graph: &str,
+        source: &ContentSource,
+        id: &str,
+    ) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(namespace.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(graph.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(source.to_string().as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(id.as_bytes());
+        key
+    }
+
+    pub fn make_prefix_graph_key(
+        namespace: &str,
+        graph: &str,
+        source: &Option<ContentSource>,
+    ) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(namespace.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        if !graph.is_empty() {
+            key.extend_from_slice(graph.as_bytes());
+            key.extend_from_slice(":".as_bytes());
+            if let Some(source) = source {
+                key.extend_from_slice(source.to_string().as_bytes());
+                key.extend_from_slice(":".as_bytes());
+            }
+        }
+        key
+    }
+
+    pub fn id_from_graph_key(key: &[u8]) -> Result<Vec<u8>> {
+        if let Some(pos) = key.iter().rposition(|&x| x == b':') {
+            Ok(key[pos + 1..].to_vec())
+        } else {
+            Err(anyhow!("Invalid graph key"))
+        }
+    }
 }
 
 impl TryFrom<ContentMetadata> for indexify_coordinator::ContentMetadata {

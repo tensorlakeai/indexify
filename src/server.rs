@@ -840,7 +840,7 @@ async fn list_content(
             &filter.parent_id,
             &filter.ingested_content_id,
             &filter::LabelsFilter(filter.labels_filter),
-            filter.start_id.clone().unwrap_or_default(),
+            filter.restart_key.unwrap_or_default(),
             filter.limit.unwrap_or(10),
         )
         .await
