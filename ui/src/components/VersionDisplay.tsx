@@ -1,34 +1,51 @@
-import { useState, useEffect } from 'react';
-import { Alert, Typography } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Alert, Typography, IconButton, Box } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
+import CloseIcon from '@mui/icons-material/Close';
 import Link from '@mui/material/Link';
 
 const alertStyle = {
-    padding: '0px 16px',
+  padding: '0px 16px',
+  display: 'flex',
+  alignItems: 'center',
+  '& .MuiAlert-icon': {
+    padding: '0px',
+    marginRight: '8px',
+  },
+  '& .MuiAlert-message': {
+    padding: '8px 0',
+    flex: 1,
     display: 'flex',
-    alignItems: 'center',
-    '& .MuiAlert-icon': {
-      padding: '0px',
-      marginRight: '8px',
-    },
-    '& .MuiAlert-message': {
-      padding: '8px 0',
-    },
-  };
+    justifyContent: 'center',
+  },
+  '& .MuiAlert-action': {
+    padding: '0px',
+    marginRight: '0px',
+  },
+};
 
-  const textStyle = {
-    fontSize: '14px',
-    lineHeight: 1.5,
-  };
+const textStyle = {
+  fontSize: '14px',
+  lineHeight: 1.5,
+  textAlign: 'center',
+};
 
+interface VersionDisplayProps {
+  owner: string;
+  repo: string;
+  variant?: 'announcement' | 'sidebar';
+  serviceUrl: string;
+  drawerWidth: number;
+}
 
-const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owner: string; repo: string; variant?: 'announcement' | 'sidebar', serviceUrl?: string }) => {
+const VersionDisplay: React.FC<VersionDisplayProps> = ({ owner, repo, variant = 'sidebar', serviceUrl, drawerWidth }) => {
   const [openApiVersion, setOpenApiVersion] = useState<string | null>(null);
   const [githubVersion, setGithubVersion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [dismissed, setDismissed] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchOpenApiVersion = async () => {
@@ -62,10 +79,21 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owne
     Promise.all([fetchOpenApiVersion(), fetchGithubVersion()])
       .then(() => setLoading(false))
       .catch(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner, repo]);
 
-  const compareVersions = (v1: string, v2: string) => {
+    // Check if the announcement has been dismissed
+    const dismissedData = localStorage.getItem('versionAnnouncementDismissed');
+    if (dismissedData) {
+      const { timestamp, dismissed } = JSON.parse(dismissedData);
+      const today = new Date().toDateString();
+      if (new Date(timestamp).toDateString() === today && dismissed) {
+        setDismissed(true);
+      } else {
+        localStorage.removeItem('versionAnnouncementDismissed');
+      }
+    }
+  }, [owner, repo, serviceUrl]);
+
+  const compareVersions = (v1: string, v2: string): number => {
     const v1Parts = v1.replace('v', '').split('.').map(Number);
     const v2Parts = v2.replace('v', '').split('.').map(Number);
     
@@ -78,7 +106,7 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owne
     return 0;
   };
 
-  const getAlertSeverity = () => {
+  const getAlertSeverity = (): 'info' | 'warning' | 'error' => {
     if (!openApiVersion || !githubVersion) return 'info';
     const comparison = compareVersions(githubVersion, openApiVersion);
     if (comparison === 0) return 'info';
@@ -86,7 +114,7 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owne
     return 'error';
   };
 
-  const getAlertIcon = (severity: string) => {
+  const getAlertIcon = (severity: 'info' | 'warning' | 'error') => {
     switch (severity) {
       case 'warning':
         return <WarningIcon fontSize="small" />;
@@ -95,6 +123,15 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owne
       default:
         return <InfoIcon fontSize="small" />;
     }
+  };
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    const dismissData = {
+      timestamp: new Date().toISOString(),
+      dismissed: true
+    };
+    localStorage.setItem('versionAnnouncementDismissed', JSON.stringify(dismissData));
   };
 
   if (loading) {
@@ -108,24 +145,33 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owne
   const severity = getAlertSeverity();
 
   if (variant === 'announcement') {
-    if (severity === 'info') return null;
+    if (severity === 'info' || dismissed) return null;
     
     return (
-      <Alert 
-        severity={severity} 
-        icon={getAlertIcon(severity)}
-        sx={{
-          width: '100%',
-          justifyContent: 'center',
-          '& .MuiAlert-message': {
-            flex: 'none',
-          },
-        }}
-      >
-        <Typography>
-          A new version  of Indexify <Link href="https://github.com/tensorlakeai/indexify/releases" target="_blank" >({githubVersion})</Link> is available. Your current version: v{openApiVersion}
-        </Typography>
-      </Alert>
+      <Box sx={{ marginLeft: `${drawerWidth}px`, width: `calc(100% - ${drawerWidth}px)` }}>
+        <Alert 
+          severity={severity} 
+          icon={getAlertIcon(severity)}
+          action={
+            <IconButton
+              aria-label="close"
+              color="inherit"
+              size="small"
+              onClick={handleDismiss}
+            >
+              <CloseIcon fontSize="inherit" />
+            </IconButton>
+          }
+          sx={{
+            ...alertStyle,
+            width: '100%',
+          }}
+        >
+          <Typography sx={textStyle}>
+            A new version of Indexify <Link href={`https://github.com/${owner}/${repo}/releases`} target="_blank" rel="noopener noreferrer">({githubVersion})</Link> is available. Your current version: v{openApiVersion}
+          </Typography>
+        </Alert>
+      </Box>
     );
   }
 

@@ -68,7 +68,7 @@ export default function Dashboard() {
         }}
       >
         <CssBaseline />
-        <VersionDisplay owner="tensorlakeai" repo="indexify" variant="announcement" serviceUrl={indexifyServiceURL} />
+        <VersionDisplay owner="tensorlakeai" repo="indexify" variant="announcement" serviceUrl={indexifyServiceURL} drawerWidth={240} />
         <Box sx={{ display: 'flex', flex: 1 }}>
           <Drawer
             variant="permanent"
@@ -162,7 +162,7 @@ export default function Dashboard() {
                 </ListItemButton>
               </List>
               <Box sx={{ mt: 'auto', pb: 1 }}>
-                <VersionDisplay owner="tensorlakeai" repo="indexify" variant="sidebar" serviceUrl={indexifyServiceURL} />
+                <VersionDisplay owner="tensorlakeai" repo="indexify" variant="sidebar" serviceUrl={indexifyServiceURL} drawerWidth={240} />
               </Box>
             </Box>
           </Drawer>
