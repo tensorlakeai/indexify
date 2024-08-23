@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Alert, Typography } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
+import Link from '@mui/material/Link';
 
 const alertStyle = {
     padding: '0px 16px',
@@ -23,7 +24,7 @@ const alertStyle = {
   };
 
 
-const VersionDisplay = ({ owner, repo, variant = 'sidebar' }: { owner: string; repo: string; variant?: 'announcement' | 'sidebar' }) => {
+const VersionDisplay = ({ owner, repo, variant = 'sidebar', serviceUrl }: { owner: string; repo: string; variant?: 'announcement' | 'sidebar', serviceUrl?: string }) => {
   const [openApiVersion, setOpenApiVersion] = useState<string | null>(null);
   const [githubVersion, setGithubVersion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +33,7 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar' }: { owner: string; r
   useEffect(() => {
     const fetchOpenApiVersion = async () => {
       try {
-        const response = await fetch('http://localhost:8900/api-docs/openapi.json');
+        const response = await fetch(`${serviceUrl}/api-docs/openapi.json`);
         if (!response.ok) {
           throw new Error('Failed to fetch OpenAPI version');
         }
@@ -61,6 +62,7 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar' }: { owner: string; r
     Promise.all([fetchOpenApiVersion(), fetchGithubVersion()])
       .then(() => setLoading(false))
       .catch(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, repo]);
 
   const compareVersions = (v1: string, v2: string) => {
@@ -121,10 +123,7 @@ const VersionDisplay = ({ owner, repo, variant = 'sidebar' }: { owner: string; r
         }}
       >
         <Typography>
-          {severity === 'warning' 
-            ? `A new version (${githubVersion}) is available on GitHub. Your current version: ${openApiVersion}`
-            : `A major update (${githubVersion}) is available on GitHub. Your current version: ${openApiVersion}`
-          }
+          A new version  of Indexify <Link href="https://github.com/tensorlakeai/indexify/releases" target="_blank" >({githubVersion})</Link> is available. Your current version: v{openApiVersion}
         </Typography>
       </Alert>
     );

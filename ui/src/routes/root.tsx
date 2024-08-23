@@ -28,10 +28,12 @@ import HistoryIcon from '@mui/icons-material/History';
 import { Cpu, Data, Grid7, MobileProgramming } from 'iconsax-react';
 import VersionDisplay from '../components/VersionDisplay';
 
+const indexifyServiceURL = getIndexifyServiceURL();
+
 export async function loader({ params }: LoaderFunctionArgs) {
   const namespaces = (
     await IndexifyClient.namespaces({
-      serviceUrl: getIndexifyServiceURL(),
+      serviceUrl: indexifyServiceURL,
     })
   ).map((repo) => repo.name);
 
@@ -66,7 +68,7 @@ export default function Dashboard() {
         }}
       >
         <CssBaseline />
-        <VersionDisplay owner="tensorlakeai" repo="indexify" variant="announcement" />
+        <VersionDisplay owner="tensorlakeai" repo="indexify" variant="announcement" serviceUrl={indexifyServiceURL} />
         <Box sx={{ display: 'flex', flex: 1 }}>
           <Drawer
             variant="permanent"
@@ -160,7 +162,7 @@ export default function Dashboard() {
                 </ListItemButton>
               </List>
               <Box sx={{ mt: 'auto', pb: 1 }}>
-                <VersionDisplay owner="tensorlakeai" repo="indexify" variant="sidebar" />
+                <VersionDisplay owner="tensorlakeai" repo="indexify" variant="sidebar" serviceUrl={indexifyServiceURL} />
               </Box>
             </Box>
           </Drawer>
