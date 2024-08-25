@@ -9,7 +9,7 @@ We show how to create a Retrieval-Augmented Generation (RAG) system using Indexi
 
 Before we begin, ensure you have the following:
 
-- Create a virtual env with Python 3.9 or later
+- Create a virtual env with Python 3.9 or 3.10. Currently it doesn't work on Python 3.11 or later.
   ```shell
   python3.9 -m venv ve
   source ve/bin/activate
