@@ -199,6 +199,10 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
                 <Typography variant="caption" sx={{ color: "#757A82" }}>Extraction Graph Names:</Typography>
                 <Typography variant="subtitle2">{content.extraction_graph_names.join(', ')}</Typography>
               </Stack>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
+                <Typography variant="caption" sx={{ color: "#757A82" }}>MimeType:</Typography>
+                <Typography variant="subtitle2">{JSON.stringify(content.extracted_metadata)}</Typography>
+              </Stack>
             </Grid>
           </Grid>
           {renderContent()}

@@ -18,7 +18,8 @@ interface DetailedContentProps {
   contentUrl: string;
   namespace: string;
   textContent?: string;
-  extractionGraph?: string
+  extractionGraph?: string;
+  extractedMetadata?: string;
 }
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
@@ -37,7 +38,8 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
   contentUrl,
   namespace,
   textContent,
-  extractionGraph
+  extractionGraph,
+  extractedMetadata
 }) => {
   const renderContent = () => {
     if (mimeType.startsWith("application/pdf")) {
@@ -193,6 +195,19 @@ const DetailedContent: React.FC<DetailedContentProps> = ({
             <Chip label={mimeType} sx={{ backgroundColor: "#E5EFFB" }} />
           </Stack>
         </Grid>
+        <Stack
+            direction="row"
+            spacing={1}
+            alignItems={"center"}
+            sx={{ marginBottom: 1 }}
+          >
+            <Typography variant="caption" sx={{ color: "#757A82" }}>
+              MimeType:
+            </Typography>
+            <Typography variant="subtitle2">
+              {extractedMetadata}
+            </Typography>
+          </Stack>
         <Grid item xs={12} md={6} marginTop={1}>
           {renderContent()}
         </Grid>

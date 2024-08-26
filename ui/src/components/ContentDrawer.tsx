@@ -187,6 +187,10 @@ const ContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, content, c
                 <Typography variant="caption" sx={{ color: "#757A82" }}>MimeType:</Typography>
                 <Chip label={content.mime_type} sx={{ backgroundColor: "#E5EFFB" }} />
               </Stack>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
+                <Typography variant="caption" sx={{ color: "#757A82" }}>MimeType:</Typography>
+                <Chip label={JSON.stringify(content.extracted_metadata)} sx={{ backgroundColor: "#E5EFFB" }} />
+              </Stack>
             </Grid>
           </Grid>
           {renderContent()}

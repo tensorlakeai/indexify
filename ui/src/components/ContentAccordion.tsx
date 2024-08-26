@@ -160,6 +160,10 @@ const ContentAccordion: React.FC<ContentAccordionProps> = ({ content, client, na
               <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>MimeType:</Typography>
               <Chip label={content.mime_type} sx={{ backgroundColor: "#E5EFFB" }} />
             </Box>
+            <Box display="flex" alignItems="center">
+              <Typography variant="caption" sx={{ color: "#757A82", marginRight: 1 }}>MimeType:</Typography>
+              <Chip label={JSON.stringify(content.extracted_metadata)} sx={{ backgroundColor: "#E5EFFB" }} />
+            </Box>
           </Stack>
         </Grid>
         <Grid item xs={12} md={6}>
