@@ -220,7 +220,7 @@ impl App {
         let storage_path = server_config.state_store.path.clone().unwrap_or_default();
         let db_path = Path::new(storage_path.as_str());
 
-        let (log_store, state_machine) = new_storage(db_path).await;
+        let (log_store, state_machine) = new_storage(db_path).await?;
         let state_change_rx = state_machine.state_change_rx.clone();
 
         let raft_client = Arc::new(RaftClient::new());

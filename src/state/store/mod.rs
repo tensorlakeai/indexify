@@ -300,9 +300,7 @@ fn delete_incomplete_snapshots(path: impl AsRef<Path>) -> std::io::Result<()> {
 
 // Read snapshot metadata from checkpoint directory
 fn snapshot_meta(path: &PathBuf) -> Result<SnapshotMeta<NodeId, Node>, StorageError<NodeId>> {
-    let db = open_db(path).map_err(|e| {
-        StorageIOError::read_snapshot(None, anyhow!("Failed to open snapshot: {}", e))
-    })?;
+    let db = open_existing_db(path)?;
     let last_membership = get_from_cf(&db, StateMachineColumns::RaftState, LAST_MEMBERSHIP_KEY)
         .map_err(|e| StorageIOError::read_snapshot(None, e))?;
     let last_applied_log_id =
@@ -501,13 +499,25 @@ impl StateMachineStore {
             None
         };
 
-        let db = open_db(&live_snapshot.snapshot.snapshot_dir)?;
+        let mut db = open_existing_db(&live_snapshot.snapshot.snapshot_dir)?;
+        for col in StateMachineColumns::iter() {
+            let name = col.to_string();
+            if db.cf_handle(&name).is_none() {
+                db.create_cf(&name, &Options::default()).map_err(|e| {
+                    StorageIOError::write_state_machine(anyhow!(
+                        "failed to create column family: {}",
+                        e
+                    ))
+                })?;
+            }
+        }
 
         let store_version = db
             .get_cf(StateMachineColumns::RaftState.cf(&db), STORE_VERSION)
             .map_err(|e| {
                 StorageIOError::read_state_machine(anyhow!("failed to read version: {}", e))
             })?;
+
         if let Some(store_version) = store_version {
             let mut cursor = Cursor::new(store_version);
             let store_version = cursor.read_u64::<BigEndian>().map_err(|e| {
@@ -515,7 +525,7 @@ impl StateMachineStore {
             })?;
             if store_version > CURRENT_STORE_VERSION {
                 return Err(StorageIOError::read_state_machine(anyhow!(
-                    "Store version {} mismatch, current {}",
+                    "Store version {} mismatch, max supported {}. Software update required.",
                     store_version,
                     CURRENT_STORE_VERSION
                 ))
@@ -530,6 +540,12 @@ impl StateMachineStore {
                 ))
                 .into());
             }
+            db.put_cf(
+                StateMachineColumns::RaftState.cf(&db),
+                STORE_VERSION,
+                CURRENT_STORE_VERSION.to_be_bytes(),
+            )
+            .map_err(|e| StorageIOError::read_state_machine(&e))?;
         } else {
             return Err(
                 StorageIOError::read_state_machine(anyhow!("Store version not found")).into(),
@@ -1183,7 +1199,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
         let new_db_path = self.db_path.join(Uuid::new_v4().to_string());
 
         {
-            let snap_db = open_db(&snapshot.snapshot_dir).map_err(|e| {
+            let snap_db = open_existing_db(&snapshot.snapshot_dir).map_err(|e| {
                 StorageIOError::write_snapshot(
                     Some(meta.signature()),
                     anyhow!("Failed to open checkpoint db: {}", e),
@@ -1518,6 +1534,20 @@ where
     Ok(db)
 }
 
+pub(crate) fn open_existing_db(
+    path: &Path,
+) -> Result<OptimisticTransactionDB, StorageError<NodeId>> {
+    let cfs = OptimisticTransactionDB::<SingleThreaded>::list_cf(&Options::default(), path)
+        .map_err(|e| StorageIOError::read_state_machine(&e))?;
+
+    let cf_descriptors = cfs
+        .iter()
+        .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+        .collect::<Vec<_>>();
+
+    open_db_with_columns(path, cf_descriptors)
+}
+
 pub(crate) fn open_db(path: &Path) -> Result<OptimisticTransactionDB, StorageError<NodeId>> {
     let sm_column_families = StateMachineColumns::iter()
         .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -1833,18 +1863,20 @@ fn convert_v1_log(
     })
 }
 
-pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<StateMachineStore>) {
+pub(crate) async fn new_storage<P: AsRef<Path>>(
+    db_path: P,
+) -> Result<(LogStore, Arc<StateMachineStore>)> {
     fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
     let db_path = PathBuf::from(db_path.as_ref());
 
     let v1_db_path = db_path.clone().join("db");
     if v1_db_path.exists() {
-        convert_v1_store(db_path.clone(), v1_db_path).unwrap();
+        convert_v1_store(db_path.clone(), v1_db_path)?;
     }
 
     let log_path = db_path.join("log");
-    let log_db = open_logs(log_path.as_ref()).unwrap();
+    let log_db = open_logs(log_path.as_ref())?;
 
     let log_store = LogStore {
         db: Arc::new(log_db),
@@ -1854,9 +1886,11 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(db_path: P) -> (LogStore, Arc<St
 
     fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
-    let sm_store = StateMachineStore::new(db_path, &log_store).await.unwrap();
+    let sm_store = StateMachineStore::new(db_path, &log_store)
+        .await
+        .map_err(|e| anyhow!("failed to create sm store: {}", e))?;
 
-    (log_store, Arc::new(sm_store))
+    Ok((log_store, Arc::new(sm_store)))
 }
 
 openraft::declare_raft_types!(
