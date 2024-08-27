@@ -133,7 +133,7 @@ tar = "0.4"
 walkdir = { version = "2" }
 lance = { version = "0.12.1", default-features = false }
 lancedb = { version = "0.5.2", default-features = false }
-gluesql = { git = "https://github.com/gluesql/gluesql.git", rev = "07dd839", default-features = false }
+gluesql = { version = "0.16.2", default-features = false }
 tracing-opentelemetry = { version = "0.23.0", features = [
     "async-trait",
     "futures-util",
