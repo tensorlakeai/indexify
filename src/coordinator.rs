@@ -926,7 +926,7 @@ mod tests {
             Arc::new(crate::metrics::init_provider()),
         )
         .await
-        .unwrap();
+        .expect("failed to initialize state");
         shared_state.initialize_raft().await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(
             shared_state.clone(),
