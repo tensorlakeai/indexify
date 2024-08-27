@@ -1662,9 +1662,9 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "chrono"
-version = "0.4.37"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0d04d43504c61aa6c7531f1871dd0d418d91130162063b789da00fd7057a5e"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -2951,16 +2951,18 @@ dependencies = [
 
 [[package]]
 name = "gluesql"
-version = "0.15.0"
-source = "git+https://github.com/gluesql/gluesql.git?rev=07dd839#07dd83903eb548f5c4560cbbcfc1a0fa299d8bd1"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f24eace532216d4364b26afdf74cb427d5909806758b387ca5fc278e8f21838d"
 dependencies = [
  "gluesql-core",
 ]
 
 [[package]]
 name = "gluesql-core"
-version = "0.15.0"
-source = "git+https://github.com/gluesql/gluesql.git?rev=07dd839#07dd83903eb548f5c4560cbbcfc1a0fa299d8bd1"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b40d32a23d37f36697934410805d4bd717a03df2dbe45c3c728bf34d7d513cad"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -2981,7 +2983,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "sqlparser 0.39.0",
+ "sqlparser 0.46.0",
  "strum_macros 0.25.3",
  "thiserror",
  "uuid",
@@ -2989,8 +2991,9 @@ dependencies = [
 
 [[package]]
 name = "gluesql-utils"
-version = "0.15.0"
-source = "git+https://github.com/gluesql/gluesql.git?rev=07dd839#07dd83903eb548f5c4560cbbcfc1a0fa299d8bd1"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd69cd88f3d0d93a997c61ca4f59188d48221bd6e81eacbc4b14394401493edb"
 dependencies = [
  "futures",
  "indexmap 1.9.3",
@@ -6754,23 +6757,23 @@ dependencies = [
 
 [[package]]
 name = "sqlparser"
-version = "0.39.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743b4dc2cbde11890ccb254a8fc9d537fa41b36da00de2a1c5e9848c9bc42bd7"
-dependencies = [
- "bigdecimal",
- "log",
- "serde",
-]
-
-[[package]]
-name = "sqlparser"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aaf9c7ff146298ffda83a200f8d5084f08dcee1edfc135fcc1d646a45d50ffd6"
 dependencies = [
  "log",
  "sqlparser_derive",
+]
+
+[[package]]
+name = "sqlparser"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11a81a8cad9befe4cf1b9d2d4b9c6841c76f0882a3fec00d95133953c13b3d3d"
+dependencies = [
+ "bigdecimal",
+ "log",
+ "serde",
 ]
 
 [[package]]
