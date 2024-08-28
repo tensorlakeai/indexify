@@ -628,7 +628,7 @@ pub struct IndexifyState {
     pub unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
 
     /// Pending tasks per executor, sorted by creation time
-    pub unfinished_tasks_by_executor: Arc<RwLock<HashMap<ExecutorId, ExecutorUnfinishedTasks>>>,
+    pub unfinished_tasks_by_executor: RwLock<HashMap<ExecutorId, ExecutorUnfinishedTasks>>,
 
     /// Namespace -> Schemas
     pub schemas_by_namespace: SchemasByNamespace,
@@ -1125,20 +1125,12 @@ impl IndexifyState {
         &self,
         db: &OptimisticTransactionDB,
         txn: &Transaction<OptimisticTransactionDB>,
-        addr: String,
-        executor_id: &str,
-        extractors: &Vec<ExtractorDescription>,
-        ts_secs: &u64,
+        executor: &ExecutorMetadata,
     ) -> Result<(), StateMachineError> {
-        let serialized_executor = JsonEncoder::encode(&ExecutorMetadata {
-            id: executor_id.into(),
-            last_seen: *ts_secs,
-            addr: addr.clone(),
-            extractors: extractors.clone(),
-        })?;
+        let serialized_executor = JsonEncoder::encode(executor)?;
         txn.put_cf(
             StateMachineColumns::Executors.cf(db),
-            executor_id,
+            &executor.id,
             serialized_executor,
         )
         .map_err(|e| StateMachineError::DatabaseError(format!("Error writing executor: {}", e)))?;
@@ -1499,17 +1491,12 @@ impl IndexifyState {
                     self.dec_root_ref_count(task.content_metadata.get_root_id());
                 }
             }
-            RequestPayload::RegisterExecutor {
-                addr,
-                executor_id,
-                extractors,
-                ts_secs,
-            } => {
+            RequestPayload::RegisterExecutor(executor) => {
                 //  Insert the executor
-                self.set_executor(db, &txn, addr.into(), executor_id, extractors, ts_secs)?;
+                self.set_executor(db, &txn, &executor)?;
 
                 //  Insert the associated extractors
-                self.set_extractors(db, &txn, extractors)?;
+                self.set_extractors(db, &txn, &executor.extractors)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
                 //  NOTE: Special case where forward and reverse indexes are updated together
@@ -1644,30 +1631,18 @@ impl IndexifyState {
         }
         match request.payload {
             RequestPayload::AddGraphToContent { .. } => Ok(()),
-            RequestPayload::RegisterExecutor {
-                addr,
-                executor_id,
-                extractors,
-                ts_secs,
-            } => {
+            RequestPayload::RegisterExecutor(executor) => {
                 // Inserts the executor list of extractors to the executor -> extractor mapping
                 // table
-                for extractor in &extractors {
+                for extractor in &executor.extractors {
                     self.extractor_executors_table
-                        .insert(&extractor.name, &executor_id);
+                        .insert(&extractor.name, &executor.id);
                 }
-
-                let _executor_info = ExecutorMetadata {
-                    id: executor_id.clone(),
-                    last_seen: ts_secs,
-                    addr: addr.clone(),
-                    extractors: extractors.clone(),
-                };
                 // initialize executor tasks
                 self.unfinished_tasks_by_executor
                     .write()
                     .unwrap()
-                    .entry(executor_id.clone())
+                    .entry(executor.id)
                     .or_default();
 
                 Ok(())

@@ -620,21 +620,15 @@ impl CoordinatorService for CoordinatorServiceServer {
         request: tonic::Request<RegisterExecutorRequest>,
     ) -> Result<tonic::Response<RegisterExecutorResponse>, tonic::Status> {
         let request = request.into_inner();
+        let executor_id = request.executor_id.clone();
 
-        let extractors = request
-            .extractors
-            .into_iter()
-            .map(|e| e.into())
-            .collect::<Vec<internal_api::ExtractorDescription>>();
-
-        let _resp = self
-            .coordinator
-            .register_executor(&request.addr, &request.executor_id, extractors)
+        self.coordinator
+            .register_executor(request.into())
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         Ok(tonic::Response::new(RegisterExecutorResponse {
-            executor_id: request.executor_id,
+            executor_id,
         }))
     }
 

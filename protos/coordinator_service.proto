@@ -229,10 +229,21 @@ message Content {
     repeated Feature features = 4;
 }
 
+message VersionInfo {
+    uint32 major = 1;
+    uint32 minor = 2;
+}
+
 message RegisterExecutorRequest {
     string executor_id = 1;
     string addr = 2;
     repeated Extractor extractors = 3;
+    string os_type = 4;
+    VersionInfo os_version = 5;
+    VersionInfo python_version = 6;
+    uint32 num_cpus = 7;
+    uint64 memory = 8;
+    uint64 gpu_memory = 9;
 }
 
 message RegisterExecutorResponse {

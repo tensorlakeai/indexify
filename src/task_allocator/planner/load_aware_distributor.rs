@@ -303,7 +303,7 @@ mod tests {
     use crate::{
         server_config::ServerConfig,
         state::App,
-        test_util::db_utils::{mock_extractor, mock_extractors},
+        test_util::db_utils::{mock_executor, mock_extractor, mock_extractors},
     };
 
     fn create_task(
@@ -445,7 +445,10 @@ mod tests {
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
         shared_state
-            .register_executor("localhost:8956", "test_executor_id", mock_extractors())
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
+                mock_extractors(),
+            ))
             .await?;
 
         let content = ContentMetadata {
@@ -514,18 +517,16 @@ mod tests {
         // each
         for i in 1..=5 {
             shared_state
-                .register_executor(
-                    format!("localhost:{}", 8955 + i).as_str(),
-                    format!("text_executor{}", i).as_str(),
+                .register_executor(mock_executor(
+                    format!("text_executor{}", i),
                     vec![text_extractor.clone()],
-                )
+                ))
                 .await?;
             shared_state
-                .register_executor(
-                    format!("localhost:{}", 8965 + i).as_str(),
-                    format!("json_executor{}", i).as_str(),
+                .register_executor(mock_executor(
+                    format!("json_executor{}", i),
                     vec![json_extractor.clone()],
-                )
+                ))
                 .await?;
         }
 
@@ -757,11 +758,10 @@ mod tests {
             executors
         };
         futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
-            shared_state.register_executor(
-                text_executors[i - 1].0.as_str(),
-                text_executors[i - 1].1.as_str(),
+            shared_state.register_executor(mock_executor(
+                text_executors[i - 1].1.clone(),
                 vec![text_extractor.clone()],
-            )
+            ))
         }))
         .await;
         let json_executors = {
@@ -774,11 +774,10 @@ mod tests {
             executors
         };
         futures::future::join_all((1..=(total_tasks / 25)).map(|i| {
-            shared_state.register_executor(
-                json_executors[i - 1].0.as_str(),
-                json_executors[i - 1].1.as_str(),
+            shared_state.register_executor(mock_executor(
+                json_executors[i - 1].1.clone(),
                 vec![json_extractor.clone()],
-            )
+            ))
         }))
         .await;
 
