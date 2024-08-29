@@ -40,7 +40,8 @@ For ex:
         content_source: 'chunked-text'
     """
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-    client.create_extraction_graph(extraction_graph)  
+    client.create_extraction_graph(extraction_graph)
+    ```
 </CodeGroup>
     
 In this example any text uploaded into the graph is chunked using the chunking extractor, the chunked text is then passed into the embedding extractor to generate text embeddings from the chunks.
