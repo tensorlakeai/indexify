@@ -1512,6 +1512,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "byte-unit"
+version = "5.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ac19bdf0b2665407c39d82dbc937e951e7e2001609f0fb32edd0af45a2d63e"
+dependencies = [
+ "rust_decimal",
+ "serde",
+ "utf8-width",
+]
+
+[[package]]
 name = "bytecheck"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3407,6 +3418,7 @@ dependencies = [
  "axum-tracing-opentelemetry",
  "axum-typed-websockets",
  "base64 0.21.7",
+ "byte-unit 5.1.4",
  "byteorder",
  "bytes",
  "clap",
@@ -3501,6 +3513,7 @@ name = "indexify_internal_api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "byte-unit 5.1.4",
  "derive_builder",
  "filter",
  "indexify_proto",
@@ -4816,7 +4829,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c59cc236e958d1991209e674918cb19d727ba15246225fa4a55e050e635098b"
 dependencies = [
  "anyerror",
- "byte-unit",
+ "byte-unit 4.0.19",
  "clap",
  "derive_more",
  "futures",

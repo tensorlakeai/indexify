@@ -215,6 +215,8 @@ pub struct VersionInfo {
     pub major: u32,
     #[prost(uint32, tag = "2")]
     pub minor: u32,
+    #[prost(uint32, tag = "3")]
+    pub patch: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

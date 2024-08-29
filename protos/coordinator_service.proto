@@ -232,6 +232,7 @@ message Content {
 message VersionInfo {
     uint32 major = 1;
     uint32 minor = 2;
+    uint32 patch = 3;
 }
 
 message RegisterExecutorRequest {

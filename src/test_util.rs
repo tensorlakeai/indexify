@@ -170,10 +170,11 @@ pub mod db_utils {
             python_version: VersionInfo {
                 major: 3,
                 minor: 10,
+                patch: 0,
             },
             num_cpus: 1,
-            memory: 128 * 1024 * 1024 * 1024,
-            gpu_memory: 16 * 1024 * 1024 * 1024,
+            memory: (128u64 * 1024 * 1024 * 1024).into(),
+            gpu_memory: (16u64 * 1024 * 1024 * 1024).into(),
         }
     }
 
