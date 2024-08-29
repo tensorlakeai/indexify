@@ -12,11 +12,6 @@ It provides a Langchain retriever to retrieve context for LLMs.
     pip install indexify-langchain
     ```
   </Tab>
-  <Tab title="Typescript">
-    ```bash
-    npm install @getindexify/langchain
-    ```
-  </Tab>
 </Tabs>
 
 ## Initiate the retriever
@@ -25,17 +20,6 @@ It provides a Langchain retriever to retrieve context for LLMs.
     ```python
     params = {"name": "minilml6.embedding", "top_k": 9}
     retriever = IndexifyRetriever(client=client, params=params)
-    ```
-  </Tab>
-  <Tab title="Typescript">
-    ```typescript
-    import { IndexifyClient } from "getindexify";
-    import { IndexifyRetriever } from "@getindexify/langchain";
-
-    const retriever = new IndexifyRetriever(client, {
-        name: "myextractiongraph.minilml6.embedding",
-        topK: 9,
-    });
     ```
   </Tab>
 </Tabs>
@@ -47,68 +31,3 @@ We developed a few examples to demonstrate the integration of LangChain with Ind
 - [LangChain Integration with Indexify for PDF QA](https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/langchain)
 - [Adaptive RAG with LangGraph](https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/langgraph)
 
-
-## Typescript Example
-
-We don't have a full blown Typescript example yet, here is a small example to get you started.
-
-```typescript
-import { ChatOpenAI } from "@langchain/openai";
-import {
-  RunnableSequence,
-  RunnablePassthrough,
-} from "@langchain/core/runnables";
-import { PromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
-import { IndexifyClient } from "getindexify";
-import { IndexifyRetriever } from "@getindexify/langchain";
-import { formatDocumentsAsString } from "langchain/util/document";
-
-(async () => {
-  // setup client
-  const client = await IndexifyClient.createNamespace({ name:"testlangchain" });
-  const graph = ExtractionGraph.fromYaml(`
-  name: 'myextractiongraph'
-  extraction_policies:
-    - extractor: 'tensorlake/minilm-l6'
-      name: 'minilml6'
-  `);
-  await client.createExtractionGraph(graph);
-  // add documents
-  await client.addDocuments("myextractiongraph", "Lucas is in Los Angeles, California");
-
-  // wait for content to be processed
-  await new Promise((r) => setTimeout(r, 5000));
-
-  // setup indexify retriever
-  const retriever = new IndexifyRetriever(client, {
-    name: "myextractiongraph.minilml6.embedding",
-    topK: 9,
-  });
-
-  // use openai chat and set up langchain prompt template
-  const model = new ChatOpenAI({});
-
-  const prompt =
-    PromptTemplate.fromTemplate(`Answer the question based only on the following context:
-  {context}
-  
-  Question: {question}`);
-
-  const chain = RunnableSequence.from([
-    {
-      context: retriever.pipe(formatDocumentsAsString),
-      question: new RunnablePassthrough(),
-    },
-    prompt,
-    model,
-    new StringOutputParser(),
-  ]);
-
-  // ask question
-  const query = "Where is Lucas?";
-  console.log(`Question: ${query}`)
-  const result = await chain.invoke(query);
-  console.log(result)
-})();
-```

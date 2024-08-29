@@ -17,14 +17,6 @@ A namespace can be created by specifying a unique name, and any additional label
       labels={"sensitive": "true"},
   )
   ```
-  ```typescript Typescript
-  import { IndexifyClient, IExtractionPolicy } from "getindexify";
-
-  IndexifyClient.createNamespace({
-    name:"research", 
-    labels:{"sensitive":"true"}});
-  ```
-
 </CodeGroup>
     
 
@@ -33,8 +25,5 @@ A namespace can be created by specifying a unique name, and any additional label
 <CodeGroup>
   ```python Python
   namespaces = IndexifyClient.namespaces()
-  ```
-  ```typescript Typescript
-  const namespaces = await IndexifyClient.namespaces();
   ```
 </CodeGroup>

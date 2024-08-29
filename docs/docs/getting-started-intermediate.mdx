@@ -23,8 +23,7 @@ Windows: Use WSL, but we don't actively test.
 ## Prerequisites
 Before we begin, ensure you have the following:
 
-- Python 3.11 or older installed (Indexify currently requires this version)
-- Basic familiarity with Python or TypeScript programming
+- Python 3.9 or older installed (Indexify currently requires this version)
 - An OpenAI API key (for using GPT models)
 - Command-line interface experience
 
@@ -162,50 +161,6 @@ Set up an extraction graph to process the PDF documents. The extraction graph de
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)
     ```
-    ```typescript setup_extraction_graph.ts
-    import { IndexifyClient, ExtractionGraph } from 'getindexify';
-    import * as yaml from 'js-yaml';
-
-    async function createExtractionGraph() {
-      const client = await IndexifyClient.createClient();
-
-      const extractionGraphSpec = `
-        name: 'pdfqa'
-        extraction_policies:
-          - extractor: 'tensorlake/marker' 
-            name: 'mdextract'
-          - extractor: 'tensorlake/chunk-extractor'
-            name: 'chunker'
-            input_params:
-                chunk_size: 1000
-                overlap: 100
-            content_source: 'mdextract'
-          - extractor: 'tensorlake/minilm-l6'
-            name: 'pdfembedding'
-            content_source: 'chunker'
-        `;
-
-      const parsedSpec = yaml.load(extractionGraphSpec) as {
-        name: string;
-        extraction_policies: Array<{
-          extractor: string;
-          name: string;
-          input_params?: Record<string, number>;
-          content_source?: string;
-        }>;
-      };
-
-      const extractionGraph = new ExtractionGraph(
-        parsedSpec.name,
-        parsedSpec.extraction_policies
-      );
-
-      await client.createExtractionGraph(extractionGraph);
-      console.log('Extraction graph created successfully');
-    }
-
-    createExtractionGraph().catch(console.error);
-    ```
 </CodeGroup>
 
 This extraction graph, named 'pdfqa', defines a three-step process:
@@ -241,23 +196,6 @@ Add the PDF document to the "pdfqa" extraction graph:
         file.write(response.content)
 
     client.upload_file("pdfqa", "taxes.pdf")
-    ```
-    ```typescript ingest_document.ts
-    import axios from 'axios';
-    import { promises as fs } from 'fs';
-    import { IndexifyClient } from "getindexify";
-
-    (async () => {
-        const client = await IndexifyClient.createClient();
-
-        const url = "https://arev.assembly.ca.gov/sites/arev.assembly.ca.gov/files/publications/Chapter_2B.pdf";
-        const filePath = "taxes.pdf";
-
-        const response = await axios.get(url, { responseType: 'arraybuffer' });
-        await fs.writeFile(filePath, response.data);
-
-        await client.uploadFile("pdfqa", filePath);
-    })();
     ```
 </CodeGroup>
 
@@ -317,38 +255,6 @@ We can use the same prompting and context retrieval function defined above to ge
     )
 
     print(chat_completion.choices[0].message.content)
-    ```
-    ```typescript query_tax_info.ts
-    import { ExtractionGraph, IndexifyClient } from "getindexify";
-    import { OpenAI } from "openai";
-
-    (async () => {
-      const client = await IndexifyClient.createClient();
-      const openai = new OpenAI();
-
-      const getContext = async (question: string, index: string, topK=3) => {
-        const results = await client.searchIndex(index, question, topK)
-
-        return results.reduce((ctx, result) =>
-          ctx + `content id: {${result.content_id}} \n \npassage: {${result.text}}\n`,
-        "")
-      }
-
-      const createPrompt = (question: string, context: string) =>
-        `Answer the question, based on the context. \nquestion: ${question}  \ncontext: ${context}`
-
-      const question = "What are the tax brackets in California and how much would I owe on an income of $24,000?"
-      const context = await getContext(question, "pdfqa.pdfembedding.embedding")
-
-      const prompt = createPrompt(question, context)
-
-      console.log(await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "user", content: prompt }
-        ]
-      }))
-    })()
     ```
 </CodeGroup>
 

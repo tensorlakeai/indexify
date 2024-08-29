@@ -13,18 +13,6 @@ Extraction Graphs are defined declaritively using the HTTP API or any of the cli
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
     ```
-    ```typescript Typescript
-    const client = await IndexifyClient.createClient();
-    const graph = ExtractionGraph.fromYaml(`
-    name: 'myextractiongraph'
-    extraction_policies:
-      - extractor: 'tensorlake/minilm-l6'
-        name: 'minilml6'
-        filters:
-          - source=google
-    `);
-    await client.createExtractionGraph(graph);
-    ```
 </CodeGroup>
 
 This creates an extraction graph - 
@@ -53,19 +41,6 @@ For ex:
     """
     extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
     client.create_extraction_graph(extraction_graph)  
-    ```
-    ```typescript Typescript
-    const graph = ExtractionGraph.fromYaml(`
-    name: 'myextractiongraph'
-    extraction_policies:
-      - extractor: 'tensorlake/chunk-extractor'
-        name: 'chunked-text'
-      - extractor: 'tensorlake/minilm-l6'
-        name: 'minilml6'
-        content_source: 'chunked-text'
-    `);
-    await client.createExtractionGraph(graph);
-    ```
 </CodeGroup>
     
 In this example any text uploaded into the graph is chunked using the chunking extractor, the chunked text is then passed into the embedding extractor to generate text embeddings from the chunks.
