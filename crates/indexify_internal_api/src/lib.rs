@@ -24,6 +24,34 @@ use utoipa::{schema, ToSchema};
 pub type ExtractionGraphId = String;
 pub type ExtractionGraphName = String;
 
+pub struct PlacementConstraint {}
+
+pub struct ComputeFunction {
+    pub name: String,
+    pub description: String,
+    pub placement_constraints: Vec<PlacementConstraint>,
+    pub image_name: String,
+    pub function_name: String,
+
+    // Names of other compute functions
+    pub edges: Vec<String>,
+}
+
+pub struct DynamicEdgeRouter {
+    pub name: String,
+    pub description: String,
+    pub source_function: String,
+    pub target_functions: Vec<String>,
+}
+
+pub struct ComputeGraph {
+    pub name: String,
+    pub namespace: String,
+    pub description: String,
+    pub functions: Vec<ComputeFunction>,
+    pub dynamic_edge_routers: Vec<DynamicEdgeRouter>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionGraph {
