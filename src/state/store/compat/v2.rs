@@ -121,13 +121,13 @@ pub fn convert_v2_payload(
             addr,
             executor_id,
             extractors,
-            ts_secs,
-        } => crate::state::store::RequestPayload::RegisterExecutor {
+            ts_secs: _,
+        } => crate::state::store::RequestPayload::RegisterExecutor(ExecutorMetadata {
             addr,
-            executor_id,
+            id: executor_id,
             extractors,
-            ts_secs,
-        },
+            ..Default::default()
+        }),
         RequestPayload::RemoveExecutor { executor_id } => {
             crate::state::store::RequestPayload::RemoveExecutor { executor_id }
         }

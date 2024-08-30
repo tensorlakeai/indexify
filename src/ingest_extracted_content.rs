@@ -431,6 +431,7 @@ mod tests {
             create_metadata,
             create_test_extraction_graph,
             create_test_extraction_graph_with_children,
+            mock_executor,
             mock_extractor,
             perform_all_tasks,
             test_mock_content_metadata,
@@ -566,7 +567,7 @@ mod tests {
         pub async fn create_extractor(&self, extractor: ExtractorDescription) -> Result<()> {
             self.coordinator
                 .shared_state
-                .register_executor("localhost:8950", "executor_id", vec![extractor])
+                .register_executor(mock_executor("executor_id".to_string(), vec![extractor]))
                 .await?;
             Ok(())
         }
@@ -1046,11 +1047,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -1248,11 +1248,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph

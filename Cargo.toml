@@ -245,6 +245,7 @@ opentelemetry-stdout = { workspace = true }
 opentelemetry-datadog = { workspace = true }
 indexify_ui = { path = "crates/indexify_ui" }
 axum-extra = { version = "0.9.3", features = ["query"] }
+byte-unit = "5.1.4"
 
 [dev-dependencies]
 tracing-test = { version = "0.2", features = ["no-env-filter"] }

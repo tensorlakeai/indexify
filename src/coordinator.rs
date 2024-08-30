@@ -12,6 +12,7 @@ use futures::Stream;
 use indexify_internal_api::{
     self as internal_api,
     ContentMetadata,
+    ExecutorMetadata,
     ExtractionGraphLink,
     ExtractionPolicy,
 };
@@ -426,17 +427,8 @@ impl Coordinator {
         Ok(addresses)
     }
 
-    pub async fn register_executor(
-        &self,
-        addr: &str,
-        executor_id: &str,
-        extractors: Vec<internal_api::ExtractorDescription>,
-    ) -> Result<()> {
-        let _ = self
-            .shared_state
-            .register_executor(addr, executor_id, extractors)
-            .await?;
-        Ok(())
+    pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
+        self.shared_state.register_executor(executor).await
     }
 
     pub async fn register_ingestion_server(&self, ingestion_server_id: &str) -> Result<()> {
@@ -902,6 +894,7 @@ mod tests {
             create_content_for_task,
             create_test_extraction_graph,
             create_test_extraction_graph_with_children,
+            mock_executor,
             mock_extractor,
             next_child,
             perform_all_tasks,
@@ -947,7 +940,10 @@ mod tests {
         //  Register an executor
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8950", "test_executor_id", vec![extractor])
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
+                vec![extractor],
+            ))
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -975,7 +971,10 @@ mod tests {
         //  Register an executor
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8950", "test_executor_id", vec![extractor])
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
+                vec![extractor],
+            ))
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -1024,7 +1023,7 @@ mod tests {
         let executor_id = "test_executor_id";
         let extractor = mock_extractor();
         coordinator
-            .register_executor("localhost:8950", executor_id, vec![extractor])
+            .register_executor(mock_executor(executor_id.to_string(), vec![extractor]))
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -1092,7 +1091,10 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor1 = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", executor_id_1, vec![extractor1.clone()])
+            .register_executor(mock_executor(
+                executor_id_1.to_string(),
+                vec![extractor1.clone()],
+            ))
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -1107,7 +1109,10 @@ mod tests {
         let mut extractor2 = mock_extractor();
         extractor2.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor("localhost:8957", executor_id_2, vec![extractor2.clone()])
+            .register_executor(mock_executor(
+                executor_id_2.to_string(),
+                vec![extractor2.clone()],
+            ))
             .await?;
         coordinator.run_scheduler().await?;
 
@@ -1145,11 +1150,10 @@ mod tests {
         //  Create an extractor, executor and associated extraction policy
         let extractor = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor.clone()],
-            )
+            ))
             .await?;
         let eg = create_test_extraction_graph("eg_name", vec!["extraction_policy_name_1"]);
         coordinator.create_extraction_graph(eg.clone()).await?;
@@ -1173,11 +1177,10 @@ mod tests {
         let mut extractor_2 = mock_extractor();
         extractor_2.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor(
-                "localhost:8957",
-                "test_executor_id_2",
+            .register_executor(mock_executor(
+                "test_executor_id_2".to_string(),
                 vec![extractor_2.clone()],
-            )
+            ))
             .await?;
 
         let mut eg2 = create_test_extraction_graph("eg_name_2", vec!["extraction_policy_name_2"]);
@@ -1234,7 +1237,10 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
+            .register_executor(mock_executor(
+                executor_id_1.to_string(),
+                vec![extractor_1.clone()],
+            ))
             .await?;
         let eg = create_test_extraction_graph("eg_name_1", vec!["ep_policy_name_1"]);
         coordinator.create_extraction_graph(eg.clone()).await?;
@@ -1243,7 +1249,10 @@ mod tests {
         let mut extractor_2 = mock_extractor();
         extractor_2.name = "MockExtractor2".to_string();
         coordinator
-            .register_executor("localhost:8957", executor_id_2, vec![extractor_2.clone()])
+            .register_executor(mock_executor(
+                executor_id_2.to_string(),
+                vec![extractor_2.clone()],
+            ))
             .await?;
 
         //  Create an extraction graph with two levels of policies
@@ -1316,7 +1325,10 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
+            .register_executor(mock_executor(
+                executor_id_1.to_string(),
+                vec![extractor_1.clone()],
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -1453,11 +1465,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -1529,7 +1540,10 @@ mod tests {
         let executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor("localhost:8956", executor_id_1, vec![extractor_1.clone()])
+            .register_executor(mock_executor(
+                executor_id_1.to_string(),
+                vec![extractor_1.clone()],
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -1610,11 +1624,10 @@ mod tests {
 
         let extractor = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor.clone()],
-            )
+            ))
             .await?;
 
         let eg =
@@ -1677,11 +1690,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -2005,11 +2017,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -2081,11 +2092,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -2179,11 +2189,10 @@ mod tests {
         let _executor_id_1 = "test_executor_id_1";
         let extractor_1 = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor_1.clone()],
-            )
+            ))
             .await?;
 
         //  Create an extraction graph
@@ -2278,9 +2287,8 @@ mod tests {
         //  Create an executor and associated extractor
         let extractor = mock_extractor();
         let executor_id = "executor_id";
-        let addr = "addr";
         coordinator
-            .register_executor(addr, executor_id, vec![extractor])
+            .register_executor(mock_executor(executor_id.to_string(), vec![extractor]))
             .await?;
 
         //  Create the extraction policy under the namespace of the content
@@ -2326,11 +2334,10 @@ mod tests {
 
         let extractor = mock_extractor();
         coordinator
-            .register_executor(
-                "localhost:8956",
-                "test_executor_id",
+            .register_executor(mock_executor(
+                "test_executor_id".to_string(),
                 vec![extractor.clone()],
-            )
+            ))
             .await?;
 
         let eg =
