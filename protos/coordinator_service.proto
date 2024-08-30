@@ -244,7 +244,7 @@ message RegisterExecutorRequest {
     VersionInfo python_version = 6;
     uint32 num_cpus = 7;
     uint64 memory = 8;
-    uint64 gpu_memory = 9;
+    repeated uint64 gpu_memory = 9;
 }
 
 message RegisterExecutorResponse {
