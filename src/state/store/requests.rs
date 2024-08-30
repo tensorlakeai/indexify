@@ -68,6 +68,11 @@ pub enum RequestPayload {
         graph_id: String,
         gc_task: GarbageCollectionTask,
     },
+    DeleteExtractionGraphByName {
+        extraction_graph: String,
+        namespace: String,
+        gc_task: GarbageCollectionTask,
+    },
     CreateExtractionGraphLink {
         extraction_graph_link: ExtractionGraphLink,
     },
@@ -77,6 +82,8 @@ pub enum RequestPayload {
     TombstoneContentTree {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
+    // Tombstone content or delete one of the graph associations.
+    // This is used when a graph is deleted.
     TombstoneContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },

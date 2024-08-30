@@ -485,16 +485,20 @@ impl App {
         extraction_graph: String,
         gc_task: GarbageCollectionTask,
     ) -> Result<()> {
-        let graph_id = ExtractionGraph::create_id(&extraction_graph, &namespace);
         let graph = self
             .state_machine
-            .get_extraction_graphs(&[graph_id.clone()])?;
+            .get_extraction_graphs_by_name(&namespace, &[&extraction_graph])?;
         if !matches!(graph.first(), Some(Some(_))) {
-            return Err(anyhow!("extraction graph with id {} not found", graph_id));
+            return Err(anyhow!(
+                "extraction graph {}:{} not found",
+                namespace,
+                extraction_graph
+            ));
         }
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeleteExtractionGraph {
-                graph_id: graph_id.to_string(),
+            payload: RequestPayload::DeleteExtractionGraphByName {
+                extraction_graph: extraction_graph.clone(),
+                namespace,
                 gc_task,
             },
             new_state_changes: vec![StateChange::new(
@@ -652,11 +656,14 @@ impl App {
     /// Get all content from a namespace
     pub async fn list_content(
         &self,
-        predicate: impl Fn(&internal_api::ContentMetadata) -> bool,
-        start_id: Option<String>,
+        filter: impl Fn(&internal_api::ContentMetadata) -> bool,
+        key_prefix: &[u8],
+        key_reference: impl Fn(&[u8]) -> Result<Vec<u8>>,
+        restart_key: Option<&[u8]>,
         limit: Option<u64>,
     ) -> Result<FilterResponse<internal_api::ContentMetadata>> {
-        self.state_machine.list_content(predicate, start_id, limit)
+        self.state_machine
+            .list_content(filter, key_prefix, key_reference, restart_key, limit)
     }
 
     pub async fn remove_executor(&self, executor_id: &str) -> Result<()> {
@@ -772,7 +779,7 @@ impl App {
     ) -> Result<()> {
         let existing_graph = self.state_machine.get_from_cf::<ExtractionGraph, _>(
             StateMachineColumns::ExtractionGraphs,
-            &extraction_graph.id,
+            &extraction_graph.key(),
         )?;
         if existing_graph.is_some() {
             return Err(anyhow!(
@@ -1595,6 +1602,7 @@ mod tests {
             mock_executor,
             mock_extractor,
             test_mock_content_metadata,
+            DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
     };
@@ -1823,7 +1831,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
     async fn test_create_and_read_content() -> Result<(), anyhow::Error> {
         let content_size = 3;
 
@@ -1831,11 +1838,46 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id";
+        let mut extractor = mock_extractor();
+        extractor.input_mime_types = vec!["*/*".into()];
+        node.register_executor(mock_executor(
+            executor_id.to_string(),
+            vec![extractor.clone()],
+        ))
+        .await?;
+
+        let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
+
+        eg.extraction_policies[0].filter = LabelsFilter(vec![
+            Expression {
+                key: "label1".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value1"),
+            },
+            Expression {
+                key: "label2".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value2"),
+            },
+            Expression {
+                key: "label3".to_string(),
+                operator: Operator::Eq,
+                value: serde_json::json!("value3"),
+            },
+        ]);
+
+        node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
+            .await?;
+
         //  Create some content
         let mut content_metadata_vec: Vec<ContentMetadata> = Vec::new();
         for i in 0..content_size {
             let content_metadata = ContentMetadata {
                 id: ContentMetadataId::new(&format!("id{}", i)),
+                namespace: DEFAULT_TEST_NAMESPACE.into(),
+                extraction_graph_names: vec!["graph1".into()],
                 ..Default::default()
             };
             content_metadata_vec.push(content_metadata);
@@ -1846,7 +1888,9 @@ mod tests {
         //  Read the content back
         let read_content = node
             .list_content(
-                |c| c.namespace == content_metadata_vec.first().unwrap().namespace,
+                |_: &ContentMetadata| true,
+                content_metadata_vec.first().unwrap().namespace.as_bytes(),
+                ContentMetadata::id_from_graph_key,
                 None,
                 None,
             )
@@ -1964,7 +2008,6 @@ mod tests {
         node.create_namespace(namespace).await?;
 
         let eg = ExtractionGraph {
-            id: "id".into(),
             namespace: namespace.into(),
             name: "name".into(),
             description: Some("description".into()),

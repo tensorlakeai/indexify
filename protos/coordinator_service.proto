@@ -376,7 +376,7 @@ message ListContentRequest {
     string parent_id = 3;
     repeated string labels_filter = 4;
     uint64 limit = 5;
-    string start_id = 6;
+    bytes restart_key = 6;
     string graph = 8;
     string ingested_content_id = 9;
 }
@@ -384,6 +384,7 @@ message ListContentRequest {
 message ListContentResponse {
     repeated ContentMetadata content_list = 1; 
     uint64 total = 2;
+    bytes restart_key = 3;
 }
 
 message ListExtractionGraphRequest {
@@ -412,7 +413,6 @@ message ListNamespaceResponse {
 }
 
 message ExtractionGraph {
-    string id = 1;
     string namespace = 2;
     string name = 3;
     repeated ExtractionPolicy extraction_policies = 4;
@@ -448,7 +448,6 @@ message CreateExtractionGraphRequest {
 }
 
 message CreateExtractionGraphResponse {
-    string graph_id = 1;
     map<string, Extractor> extractors = 2;
     map<string, ExtractionPolicy> policies = 3;
     repeated Index indexes = 5;
