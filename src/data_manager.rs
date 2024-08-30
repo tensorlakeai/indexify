@@ -305,7 +305,7 @@ impl DataManager {
         parent_id_filter: &str,
         ingested_content_id_filter: &str,
         labels_filter: &LabelsFilter,
-        start_id: String,
+        restart_key: Vec<u8>,
         limit: u64,
     ) -> Result<api::ListContentResponse> {
         let labels_filter = labels_filter
@@ -320,7 +320,7 @@ impl DataManager {
             parent_id: parent_id_filter.to_string(),
             ingested_content_id: ingested_content_id_filter.to_string(),
             labels_filter,
-            start_id,
+            restart_key,
             limit,
         };
         let response = self

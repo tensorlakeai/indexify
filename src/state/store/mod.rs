@@ -3,6 +3,7 @@ use std::{
     fmt::Debug,
     fs::{self, File},
     io::{BufReader, Cursor, Read},
+    mem,
     ops::RangeBounds,
     path::{Path, PathBuf},
     sync::{Arc, RwLockReadGuard},
@@ -11,7 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use compat::init_task_analytics;
+use compat::{init_graph_index, init_task_analytics};
 use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
     ContentMetadata,
@@ -139,6 +140,7 @@ pub enum StateMachineColumns {
     ExtractionGraphLinks,               //  Namespace/Graph/Source -> Linked graph name
     ChangeIdContentIndex,               //  ChangeId -> ContentId
     TaskAnalytics,                      //  Namespace_Graph_Policy -> TaskAnalytics
+    GraphContentIndex,                  //  Namespace/Graph/Source -> ContentId
 }
 
 const LAST_MEMBERSHIP_KEY: &[u8] = b"last_membership";
@@ -184,9 +186,11 @@ pub struct StateMachineData {
     gc_tasks_tx: broadcast::Sender<indexify_internal_api::GarbageCollectionTask>,
 }
 
+#[derive(Debug)]
 pub struct FilterResponse<T> {
     pub items: Vec<T>,
     pub total: usize,
+    pub restart_key: Vec<u8>,
 }
 
 impl TryFrom<FilterResponse<ContentMetadata>> for indexify_coordinator::ListContentResponse {
@@ -201,6 +205,7 @@ impl TryFrom<FilterResponse<ContentMetadata>> for indexify_coordinator::ListCont
         Ok(Self {
             content_list: content_list?,
             total: value.total as u64,
+            restart_key: value.restart_key,
         })
     }
 }
@@ -219,6 +224,86 @@ impl TryFrom<FilterResponse<Task>> for indexify_coordinator::ListTasksResponse {
             total: value.total as u64,
         })
     }
+}
+
+pub fn filter_join_cf<T, F, K>(
+    db: &OptimisticTransactionDB,
+    index_column: StateMachineColumns,
+    data_column: StateMachineColumns,
+    filter: F,
+    key_prefix: &[u8],
+    key_reference: K,
+    restart_key: Option<&[u8]>,
+    limit: Option<usize>,
+) -> Result<FilterResponse<T>, anyhow::Error>
+where
+    T: DeserializeOwned,
+    F: Fn(&T) -> bool,
+    K: Fn(&[u8]) -> Result<Vec<u8>, anyhow::Error>,
+{
+    let index_cf = index_column.cf(db);
+    let data_cf = data_column.cf(db);
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
+    let mode = match restart_key {
+        Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
+        None => {
+            if key_prefix.is_empty() {
+                IteratorMode::Start
+            } else {
+                IteratorMode::From(key_prefix, Direction::Forward)
+            }
+        }
+    };
+    let iter = db.iterator_cf_opt(index_cf, read_options, mode);
+    let mut items = Vec::new();
+    let mut total = 0;
+    let limit = limit.unwrap_or(usize::MAX);
+    let mut restart_key = Vec::new();
+    let mut lookup_keys = Vec::new();
+    let mut keys = Vec::<Box<[u8]>>::new();
+
+    let mut get_entries = |lookup_keys, keys: Vec<Box<[u8]>>| -> Result<bool> {
+        let res = db.multi_get_cf(lookup_keys);
+        for (index, value) in res.into_iter().enumerate() {
+            if let Ok(Some(value)) = value {
+                let item = JsonEncoder::decode::<T>(&value)?;
+                if filter(&item) {
+                    if items.len() < limit {
+                        total += 1;
+                        items.push(item);
+                    } else {
+                        restart_key = keys[index].clone().into();
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    };
+
+    for kv in iter {
+        if let Ok((key, _)) = kv {
+            if !key.starts_with(key_prefix) {
+                break;
+            }
+            lookup_keys.push((data_cf, key_reference(&key)?));
+            keys.push(key);
+            if lookup_keys.len() >= limit {
+                if get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))? {
+                    break;
+                }
+            }
+        } else {
+            return Err(anyhow!("error reading db"));
+        }
+    }
+    get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))?;
+    Ok(FilterResponse {
+        items,
+        total,
+        restart_key,
+    })
 }
 
 pub fn filter_cf<T, F>(
@@ -243,23 +328,31 @@ where
     let mut items = Vec::new();
     let mut total = 0;
     let limit = limit.unwrap_or(usize::MAX);
+    let mut restart_key = Vec::new();
     for kv in iter {
-        if let Ok((_, value)) = kv {
+        if let Ok((key, value)) = kv {
             let item = JsonEncoder::decode::<T>(&value)?;
+            if !filter(&item) {
+                break;
+            }
             if filter(&item) {
-                total += 1;
                 if items.len() < limit {
+                    total += 1;
                     items.push(item);
-                    if items.len() >= limit {
-                        break;
-                    }
+                } else {
+                    restart_key = key.into();
+                    break;
                 }
             }
         } else {
             return Err(anyhow!("error reading db"));
         }
     }
-    Ok(FilterResponse { items, total })
+    Ok(FilterResponse {
+        items,
+        total,
+        restart_key,
+    })
 }
 
 /// This method fetches a key from a specific column family
@@ -703,6 +796,13 @@ impl StateMachineStore {
                     } => {
                         self.send_gc_tasks(vec![gc_task]);
                     }
+                    RequestPayload::DeleteExtractionGraphByName {
+                        extraction_graph: _,
+                        namespace: _,
+                        gc_task,
+                    } => {
+                        self.send_gc_tasks(vec![gc_task]);
+                    }
                     _ => {}
                 }
             }
@@ -909,15 +1009,19 @@ impl StateMachineStore {
     pub fn list_content(
         &self,
         filter: impl Fn(&ContentMetadata) -> bool,
-        start_id: Option<String>,
+        key_prefix: &[u8],
+        key_reference: impl Fn(&[u8]) -> Result<Vec<u8>>,
+        restart_key: Option<&[u8]>,
         limit: Option<u64>,
     ) -> Result<FilterResponse<ContentMetadata>> {
-        let s = start_id.as_deref().map(|s| s.as_bytes());
-        filter_cf(
+        filter_join_cf(
             &self.db.read().unwrap(),
+            StateMachineColumns::GraphContentIndex,
             StateMachineColumns::ContentTable,
             filter,
-            s,
+            key_prefix,
+            key_reference,
+            restart_key,
             limit.map(|l| l as usize),
         )
     }
@@ -1050,9 +1154,7 @@ impl StateMachineStore {
         self.data.indexify_state.get_executor_running_task_count()
     }
 
-    pub async fn get_schemas_by_namespace(
-        &self,
-    ) -> HashMap<NamespaceName, HashSet<ExtractionGraphId>> {
+    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<String>> {
         self.data.indexify_state.get_schemas_by_namespace()
     }
 
@@ -1618,7 +1720,7 @@ fn apply_v1_snapshot(
     for (_, eg) in &snapshot.extraction_graphs {
         let cf = StateMachineColumns::ExtractionGraphs.cf(db);
         let eg: ExtractionGraph = eg.clone().into();
-        put_cf(&txn, cf, &eg.id, &eg)?;
+        put_cf(&txn, cf, &eg.key(), &eg)?;
     }
     for (executor_id, executor_metadata) in &snapshot.executors {
         let cf = StateMachineColumns::Executors.cf(db);
@@ -1674,7 +1776,9 @@ fn apply_v1_snapshot(
     }
     txn.commit()
         .map_err(|e| StorageIOError::write_state_machine(&e))?;
-    init_task_analytics(db)
+    init_task_analytics(db)?;
+    init_graph_index(db)?;
+    Ok(())
 }
 
 // Convert the v1 store to the new store.
@@ -1910,9 +2014,19 @@ openraft::declare_raft_types!(
 mod tests {
     use std::time::Duration;
 
-    use indexify_internal_api::ContentMetadataId;
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, StructuredDataSchema};
 
-    use crate::{setup_fmt_tracing, state::RaftConfigOverrides, test_utils::RaftTestCluster};
+    use crate::{
+        setup_fmt_tracing,
+        state::RaftConfigOverrides,
+        test_util::db_utils::{
+            create_test_extraction_graph,
+            mock_executor,
+            mock_extractor,
+            DEFAULT_TEST_NAMESPACE,
+        },
+        test_utils::RaftTestCluster,
+    };
 
     /// This is a dummy test which forces building a snapshot on the cluster by
     /// passing in some overrides Manually check that the snapshot file was
@@ -1930,11 +2044,27 @@ mod tests {
         cluster.initialize(Duration::from_secs(2)).await?;
         let node = cluster.get_raft_node(0)?;
 
+        //  Create an executor and associated extractor
+        let executor_id = "executor_id";
+        let mut extractor = mock_extractor();
+        extractor.input_mime_types = vec!["*/*".into()];
+        node.register_executor(mock_executor(
+            executor_id.to_string(),
+            vec![extractor.clone()],
+        ))
+        .await?;
+
+        let eg = create_test_extraction_graph("graph1", vec!["policy1"]);
+
+        node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
+            .await?;
+
         //  add data
-        let namespace = "test_namespace".to_string();
-        node.create_namespace(&namespace).await?;
-        let content = indexify_internal_api::ContentMetadata {
+        node.create_namespace(DEFAULT_TEST_NAMESPACE).await?;
+        let content = ContentMetadata {
             id: ContentMetadataId::new("content_id"),
+            namespace: DEFAULT_TEST_NAMESPACE.to_string(),
+            extraction_graph_names: vec![eg.name.clone()],
             ..Default::default()
         };
         node.create_content_batch(vec![content]).await?;
@@ -1948,18 +2078,24 @@ mod tests {
         let content_table = new_node.state_machine.get_content_namespace_table()?;
         assert_eq!(content_table.len(), 1);
         let (key, value) = content_table.iter().next().unwrap();
-        assert_eq!(*key, namespace);
+        assert_eq!(*key, DEFAULT_TEST_NAMESPACE);
         assert_eq!(value.len(), 1);
 
         let contents = new_node
-            .list_content(|c| c.namespace == namespace, None, None)
+            .list_content(
+                |_: &ContentMetadata| true,
+                DEFAULT_TEST_NAMESPACE.as_bytes(),
+                ContentMetadata::id_from_graph_key,
+                None,
+                None,
+            )
             .await?
             .items;
         assert_eq!(contents.len(), 1);
         let c = contents
             .first()
             .expect("expected the content to be present");
-        assert_eq!(c.namespace, namespace);
+        assert_eq!(c.namespace, DEFAULT_TEST_NAMESPACE);
         Ok(())
     }
 }

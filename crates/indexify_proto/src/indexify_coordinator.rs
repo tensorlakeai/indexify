@@ -445,8 +445,8 @@ pub struct ListContentRequest {
     pub labels_filter: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(uint64, tag = "5")]
     pub limit: u64,
-    #[prost(string, tag = "6")]
-    pub start_id: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "6")]
+    pub restart_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag = "8")]
     pub graph: ::prost::alloc::string::String,
     #[prost(string, tag = "9")]
@@ -459,6 +459,8 @@ pub struct ListContentResponse {
     pub content_list: ::prost::alloc::vec::Vec<ContentMetadata>,
     #[prost(uint64, tag = "2")]
     pub total: u64,
+    #[prost(bytes = "vec", tag = "3")]
+    pub restart_key: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -498,8 +500,6 @@ pub struct ListNamespaceResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractionGraph {
-    #[prost(string, tag = "1")]
-    pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub namespace: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
@@ -565,8 +565,6 @@ pub struct CreateExtractionGraphRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateExtractionGraphResponse {
-    #[prost(string, tag = "1")]
-    pub graph_id: ::prost::alloc::string::String,
     #[prost(map = "string, message", tag = "2")]
     pub extractors: ::std::collections::HashMap<
         ::prost::alloc::string::String,

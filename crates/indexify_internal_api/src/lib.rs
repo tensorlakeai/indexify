@@ -55,7 +55,6 @@ pub struct ComputeGraph {
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
 pub struct ExtractionGraph {
-    pub id: ExtractionGraphId,
     pub name: ExtractionGraphName,
     pub namespace: String,
     #[serde(default)]
@@ -73,7 +72,6 @@ impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
             .map(|policy| policy.try_into())
             .collect();
         Ok(Self {
-            id: value.id,
             name: value.name,
             namespace: value.namespace,
             description: value.description.unwrap_or_default(),
@@ -83,11 +81,20 @@ impl TryFrom<ExtractionGraph> for indexify_coordinator::ExtractionGraph {
 }
 
 impl ExtractionGraph {
+    #[deprecated(note = "don't use in new code, id field removed")]
     pub fn create_id(name: &str, namespace: &str) -> String {
         let mut s = DefaultHasher::new();
         name.hash(&mut s);
         namespace.hash(&mut s);
         format!("{:x}", s.finish())
+    }
+
+    pub fn make_key(namespace: &str, name: &str) -> Vec<u8> {
+        format!("{}:{}", namespace, name).into_bytes()
+    }
+
+    pub fn key(&self) -> Vec<u8> {
+        Self::make_key(&self.namespace, &self.name)
     }
 }
 
@@ -102,12 +109,7 @@ impl ExtractionGraphBuilder {
             .extraction_policies
             .clone()
             .ok_or(anyhow!("child policies can't be empty"))?;
-        let id = self
-            .id
-            .clone()
-            .ok_or(anyhow!("extraction graph id can't be empty"))?;
         Ok(ExtractionGraph {
-            id,
             name,
             namespace,
             extraction_policies,
@@ -1069,6 +1071,64 @@ impl ContentMetadata {
         match version {
             None => id.to_string(),
             Some(v) => format!("{}::v{}", id, v),
+        }
+    }
+
+    // Graph index always refers to the latest version of content, link to the
+    // content by id only.
+    pub fn graph_key(&self, graph: &str) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(self.namespace.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(graph.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(self.source.to_string().as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(self.id.id.as_bytes());
+        key
+    }
+
+    pub fn make_graph_key(
+        namespace: &str,
+        graph: &str,
+        source: &ContentSource,
+        id: &str,
+    ) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(namespace.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(graph.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(source.to_string().as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        key.extend_from_slice(id.as_bytes());
+        key
+    }
+
+    pub fn make_prefix_graph_key(
+        namespace: &str,
+        graph: &str,
+        source: &Option<ContentSource>,
+    ) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(namespace.as_bytes());
+        key.extend_from_slice(":".as_bytes());
+        if !graph.is_empty() {
+            key.extend_from_slice(graph.as_bytes());
+            key.extend_from_slice(":".as_bytes());
+            if let Some(source) = source {
+                key.extend_from_slice(source.to_string().as_bytes());
+                key.extend_from_slice(":".as_bytes());
+            }
+        }
+        key
+    }
+
+    pub fn id_from_graph_key(key: &[u8]) -> Result<Vec<u8>> {
+        if let Some(pos) = key.iter().rposition(|&x| x == b':') {
+            Ok(key[pos + 1..].to_vec())
+        } else {
+            Err(anyhow!("Invalid graph key"))
         }
     }
 }
