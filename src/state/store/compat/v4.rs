@@ -1,11 +1,11 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use indexify_internal_api::{v3::Task, *};
+use indexify_internal_api::*;
 use rocksdb::OptimisticTransactionDB;
 use serde::{Deserialize, Serialize};
 
 use crate::state::{
-    store::{compat::convert_v2_task, ExecutorId, TaskId},
+    store::{ExecutorId, TaskId},
     BasicNode,
     CreateOrUpdateContentEntry,
     NodeId,
@@ -45,10 +45,19 @@ pub enum RequestPayload {
         gc_task: GarbageCollectionTask,
         mark_finished: bool,
     },
+    AddGraphToContent {
+        content_ids: Vec<String>,
+        namespace: String,
+        extraction_graph: String,
+    },
     CreateExtractionGraph {
         extraction_graph: ExtractionGraph,
         structured_data_schema: StructuredDataSchema,
         indexes: Vec<Index>,
+    },
+    DeleteExtractionGraph {
+        graph_id: String,
+        gc_task: GarbageCollectionTask,
     },
     CreateExtractionGraphLink {
         extraction_graph_link: ExtractionGraphLink,
@@ -57,6 +66,9 @@ pub enum RequestPayload {
         entries: Vec<CreateOrUpdateContentEntry>,
     },
     TombstoneContentTree {
+        content_metadata: Vec<ContentMetadata>,
+    },
+    TombstoneContent {
         content_metadata: Vec<ContentMetadata>,
     },
     SetIndex {
@@ -72,9 +84,8 @@ pub enum RequestPayload {
     },
 }
 
-pub fn convert_v3_payload(
+pub fn convert_v4_payload(
     payload: RequestPayload,
-    db: &OptimisticTransactionDB,
 ) -> Result<crate::state::store::RequestPayload, anyhow::Error> {
     Ok(match payload {
         RequestPayload::JoinCluster {
@@ -104,9 +115,7 @@ pub fn convert_v3_payload(
             crate::state::store::RequestPayload::CreateNamespace { name }
         }
         RequestPayload::CreateTasks { tasks } => {
-            let tasks: Result<Vec<indexify_internal_api::Task>, _> =
-                tasks.into_iter().map(|t| convert_v2_task(t, db)).collect();
-            crate::state::store::RequestPayload::CreateTasks { tasks: tasks? }
+            crate::state::store::RequestPayload::CreateTasks { tasks }
         }
         RequestPayload::AssignTask { assignments } => {
             crate::state::store::RequestPayload::AssignTask { assignments }
@@ -149,12 +158,27 @@ pub fn convert_v3_payload(
             executor_id,
             update_time,
         } => crate::state::store::RequestPayload::UpdateTask {
-            task: convert_v2_task(task, db)?,
+            task,
             executor_id,
             update_time,
         },
         RequestPayload::MarkStateChangesProcessed { state_changes } => {
             crate::state::store::RequestPayload::MarkStateChangesProcessed { state_changes }
+        }
+        RequestPayload::AddGraphToContent {
+            content_ids,
+            namespace,
+            extraction_graph,
+        } => crate::state::store::RequestPayload::AddGraphToContent {
+            content_ids,
+            namespace,
+            extraction_graph,
+        },
+        RequestPayload::DeleteExtractionGraph { graph_id, gc_task } => {
+            crate::state::store::RequestPayload::DeleteExtractionGraph { graph_id, gc_task }
+        }
+        RequestPayload::TombstoneContent { content_metadata } => {
+            crate::state::store::RequestPayload::TombstoneContent { content_metadata }
         }
     })
 }
@@ -166,12 +190,11 @@ pub struct StateMachineUpdateRequest {
     pub state_changes_processed: Vec<StateChangeProcessed>,
 }
 
-pub fn convert_v3_sm_request(
+fn convert_v4_sm_request(
     request: StateMachineUpdateRequest,
-    db: &OptimisticTransactionDB,
 ) -> Result<crate::state::StateMachineUpdateRequest, anyhow::Error> {
     Ok(crate::state::StateMachineUpdateRequest {
-        payload: convert_v3_payload(request.payload, db)?,
+        payload: convert_v4_payload(request.payload)?,
         new_state_changes: request.new_state_changes,
         state_changes_processed: request.state_changes_processed,
     })
@@ -194,23 +217,20 @@ type NewPayload = openraft::EntryPayload<NewTypeConfig>;
 type OldLogEntry = openraft::Entry<TypeConfig>;
 type NewLogEntry = openraft::Entry<NewTypeConfig>;
 
-fn convert_log_payload(
-    payload: OldPayload,
-    db: &OptimisticTransactionDB,
-) -> Result<NewPayload, anyhow::Error> {
+fn convert_log_payload(payload: OldPayload) -> Result<NewPayload, anyhow::Error> {
     Ok(match payload {
         OldPayload::Blank => NewPayload::Blank,
-        OldPayload::Normal(request) => NewPayload::Normal(convert_v3_sm_request(request, db)?),
+        OldPayload::Normal(request) => NewPayload::Normal(convert_v4_sm_request(request)?),
         OldPayload::Membership(v) => NewPayload::Membership(v),
     })
 }
 
 pub fn convert_log_entry(
     entry: OldLogEntry,
-    db: &OptimisticTransactionDB,
+    _db: &OptimisticTransactionDB,
 ) -> Result<NewLogEntry, anyhow::Error> {
     Ok(NewLogEntry {
         log_id: entry.log_id,
-        payload: convert_log_payload(entry.payload, db)?,
+        payload: convert_log_payload(entry.payload)?,
     })
 }

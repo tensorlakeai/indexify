@@ -1174,12 +1174,60 @@ impl Default for ContentMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VersionInfo {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: String,
-    pub last_seen: u64,
     pub addr: String,
     pub extractors: Vec<ExtractorDescription>,
+    #[serde(default)]
+    pub os_type: String,
+    #[serde(default)]
+    pub os_version: VersionInfo,
+    #[serde(default)]
+    pub python_version: VersionInfo,
+    #[serde(default)]
+    pub memory: byte_unit::Byte,
+    #[serde(default)]
+    pub num_cpus: u32,
+    #[serde(default)]
+    pub gpu_memory: byte_unit::Byte,
+}
+
+impl From<indexify_coordinator::VersionInfo> for VersionInfo {
+    fn from(value: indexify_coordinator::VersionInfo) -> Self {
+        Self {
+            major: value.major,
+            minor: value.minor,
+            patch: value.patch,
+        }
+    }
+}
+
+impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
+    fn from(value: indexify_coordinator::RegisterExecutorRequest) -> Self {
+        Self {
+            id: value.executor_id,
+            addr: value.addr,
+            extractors: value
+                .extractors
+                .into_iter()
+                .map(|extractor| extractor.into())
+                .collect(),
+            os_type: value.os_type,
+            os_version: value.os_version.unwrap_or_default().into(),
+            python_version: value.python_version.unwrap_or_default().into(),
+            memory: value.memory.into(),
+            num_cpus: value.num_cpus,
+            gpu_memory: value.gpu_memory.into(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

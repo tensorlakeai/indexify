@@ -3,7 +3,12 @@ pub mod db_utils {
     use std::collections::HashMap;
 
     use filter::LabelsFilter;
-    use indexify_internal_api as internal_api;
+    use indexify_internal_api::{
+        self as internal_api,
+        ExecutorMetadata,
+        ExtractorDescription,
+        VersionInfo,
+    };
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{
         ContentMetadataId,
@@ -153,6 +158,24 @@ pub mod db_utils {
 
     pub fn mock_extractors() -> Vec<internal_api::ExtractorDescription> {
         vec![mock_extractor()]
+    }
+
+    pub fn mock_executor(id: String, extractors: Vec<ExtractorDescription>) -> ExecutorMetadata {
+        ExecutorMetadata {
+            id,
+            addr: "localhost:8950".to_string(),
+            extractors,
+            os_type: Default::default(),
+            os_version: Default::default(),
+            python_version: VersionInfo {
+                major: 3,
+                minor: 10,
+                patch: 0,
+            },
+            num_cpus: 1,
+            memory: (128u64 * 1024 * 1024 * 1024).into(),
+            gpu_memory: (16u64 * 1024 * 1024 * 1024).into(),
+        }
     }
 
     pub async fn complete_task(

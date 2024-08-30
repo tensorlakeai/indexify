@@ -14,6 +14,7 @@ use grpc_server::RaftGrpcServer;
 use indexify_internal_api::{
     self as internal_api,
     ChangeType,
+    ExecutorMetadata,
     ExtractionGraphNode,
     GarbageCollectionTask,
 };
@@ -605,7 +606,7 @@ impl App {
     pub async fn get_executors_for_extractor(
         &self,
         extractor: &str,
-    ) -> Result<Vec<internal_api::ExecutorMetadata>> {
+    ) -> Result<Vec<ExecutorMetadata>> {
         let executor_ids = self
             .state_machine
             .get_extractor_executors_table()
@@ -931,24 +932,14 @@ impl App {
         self.state_machine.namespace_exists(namespace).await
     }
 
-    pub async fn register_executor(
-        &self,
-        addr: &str,
-        executor_id: &str,
-        extractors: Vec<internal_api::ExtractorDescription>,
-    ) -> Result<()> {
+    pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let state_change = StateChange::new(
-            executor_id.to_string(),
+            executor.id.clone(),
             ChangeType::ExecutorAdded,
             timestamp_secs(),
         );
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::RegisterExecutor {
-                addr: addr.to_string(),
-                executor_id: executor_id.to_string(),
-                extractors,
-                ts_secs: timestamp_secs(),
-            },
+            payload: RequestPayload::RegisterExecutor(executor),
             new_state_changes: vec![state_change.clone()],
             state_changes_processed: vec![],
         };
@@ -969,10 +960,10 @@ impl App {
         Ok(extractors)
     }
 
-    pub async fn get_executors(&self) -> Result<Vec<internal_api::ExecutorMetadata>> {
-        let executors: Vec<internal_api::ExecutorMetadata> = self
+    pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+        let executors: Vec<_> = self
             .state_machine
-            .get_all_rows_from_cf::<internal_api::ExecutorMetadata>(StateMachineColumns::Executors)
+            .get_all_rows_from_cf::<ExecutorMetadata>(StateMachineColumns::Executors)
             .await?
             .into_iter()
             .map(|(_, value)| value)
@@ -983,13 +974,10 @@ impl App {
     pub async fn get_executor_by_id(
         &self,
         executor_id: ExecutorIdRef<'_>,
-    ) -> Result<internal_api::ExecutorMetadata> {
+    ) -> Result<ExecutorMetadata> {
         let executor = self
             .state_machine
-            .get_from_cf::<internal_api::ExecutorMetadata, _>(
-                StateMachineColumns::Executors,
-                executor_id,
-            )?
+            .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::Executors, executor_id)?
             .ok_or_else(|| anyhow!("Executor with id {} not found", executor_id))?;
         Ok(executor)
     }
@@ -1604,6 +1592,7 @@ mod tests {
         },
         test_util::db_utils::{
             create_test_extraction_graph,
+            mock_executor,
             mock_extractor,
             test_mock_content_metadata,
         },
@@ -1801,9 +1790,11 @@ mod tests {
             name: "extractor".into(),
             ..Default::default()
         };
-        let addr = "addr";
-        node.register_executor(addr, executor_id, vec![extractor.clone()])
-            .await?;
+        node.register_executor(mock_executor(
+            executor_id.to_string(),
+            vec![extractor.clone()],
+        ))
+        .await?;
 
         //  Read the executors from multiple functions
         let executors = node.get_executors().await?;
@@ -1897,9 +1888,11 @@ mod tests {
         let executor_id = "executor_id";
         let mut extractor = mock_extractor();
         extractor.input_mime_types = vec!["*/*".into()];
-        let addr = "addr";
-        node.register_executor(addr, executor_id, vec![extractor.clone()])
-            .await?;
+        node.register_executor(mock_executor(
+            executor_id.to_string(),
+            vec![extractor.clone()],
+        ))
+        .await?;
 
         let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
 
@@ -2023,9 +2016,11 @@ mod tests {
         //  Create an executor and associated extractor
         let executor_id = "executor_id";
         let extractor = mock_extractor();
-        let addr = "addr";
-        node.register_executor(addr, executor_id, vec![extractor.clone()])
-            .await?;
+        node.register_executor(mock_executor(
+            executor_id.to_string(),
+            vec![extractor.clone()],
+        ))
+        .await?;
 
         //  Create the extraction graph
         let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);

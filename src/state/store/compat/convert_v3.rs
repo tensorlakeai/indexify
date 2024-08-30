@@ -6,7 +6,7 @@ use tracing::info;
 
 use super::{convert_column, convert_v2_task, init_task_analytics, v3 as req_v3};
 use crate::state::{
-    store::{StateMachineColumns, CURRENT_STORE_VERSION, LOG_STORE_LOGS_COLUMN, STORE_VERSION},
+    store::{StateMachineColumns, CURRENT_STORE_VERSION, LOG_STORE_LOGS_COLUMN},
     NodeId,
 };
 
@@ -31,13 +31,6 @@ pub fn convert_v3(
             source: StorageIOError::read_state_machine(e),
         })
     })?;
-
-    db.put_cf(
-        StateMachineColumns::RaftState.cf(db),
-        STORE_VERSION,
-        CURRENT_STORE_VERSION.to_be_bytes(),
-    )
-    .map_err(|e| StorageIOError::read_state_machine(&e))?;
 
     init_task_analytics(db)?;
 

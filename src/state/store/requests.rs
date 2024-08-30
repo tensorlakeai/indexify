@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api::{self as internal_api, GarbageCollectionTask};
-use internal_api::{ExtractionGraphLink, StateChange, StateChangeId};
+use internal_api::{ExecutorMetadata, ExtractionGraphLink, StateChange, StateChangeId};
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
@@ -34,12 +34,7 @@ pub enum RequestPayload {
         address: String,
         coordinator_addr: String,
     },
-    RegisterExecutor {
-        addr: String,
-        executor_id: String,
-        extractors: Vec<internal_api::ExtractorDescription>,
-        ts_secs: u64,
-    },
+    RegisterExecutor(ExecutorMetadata),
     RemoveExecutor {
         executor_id: String,
     },
