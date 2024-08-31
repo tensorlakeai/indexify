@@ -237,8 +237,8 @@ pub struct RegisterExecutorRequest {
     pub num_cpus: u32,
     #[prost(uint64, tag = "8")]
     pub memory: u64,
-    #[prost(uint64, tag = "9")]
-    pub gpu_memory: u64,
+    #[prost(uint64, repeated, tag = "9")]
+    pub gpu_memory: ::prost::alloc::vec::Vec<u64>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
