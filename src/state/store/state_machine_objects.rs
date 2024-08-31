@@ -15,7 +15,6 @@ use indexify_internal_api::{
     TaskAnalytics,
 };
 use internal_api::{
-    v1,
     ContentMetadata,
     ContentMetadataId,
     ContentSource,
@@ -42,7 +41,6 @@ use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     ExecutorId,
-    ExtractionGraphId,
     ExtractionPolicyId,
     ExtractorName,
     JsonEncoder,
@@ -2682,27 +2680,6 @@ impl IndexifyState {
 
         Ok(())
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
-pub struct V1Snapshot {
-    pub executors: HashMap<ExecutorId, ExecutorMetadata>,
-    pub tasks: HashMap<TaskId, v1::Task>,
-    pub gc_tasks: HashMap<
-        indexify_internal_api::GarbageCollectionTaskId,
-        indexify_internal_api::GarbageCollectionTask,
-    >,
-    pub task_assignments: HashMap<ExecutorId, HashSet<TaskId>>,
-    pub state_changes: HashMap<StateChangeId, StateChange>,
-    pub content_table: HashMap<ContentMetadataId, v1::ContentMetadata>,
-    pub extraction_policies: HashMap<ExtractionPolicyId, v1::ExtractionPolicy>,
-    pub extractors: HashMap<ExtractorName, ExtractorDescription>,
-    pub namespaces: HashSet<NamespaceName>,
-    pub index_table: HashMap<String, Index>,
-    pub structured_data_schemas: HashMap<String, StructuredDataSchema>,
-    pub coordinator_address: HashMap<NodeId, String>,
-    pub extraction_graphs: HashMap<ExtractionGraphId, v1::ExtractionGraph>,
-    pub metrics: Metrics,
 }
 
 #[cfg(test)]
