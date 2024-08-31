@@ -23,7 +23,6 @@ pub mod task_allocator;
 mod http_api_objects;
 mod api_utils;
 mod blob_storage;
-mod caching;
 mod cmd;
 mod coordinator;
 mod coordinator_client;

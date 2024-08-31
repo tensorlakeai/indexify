@@ -13,7 +13,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
     Json,
     Router,
 };
@@ -56,7 +55,6 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     http_api_objects::*,
     blob_storage::{BlobStorage, ContentReader},
-    caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
     ingest_extracted_content::IngestExtractedContentState,
@@ -187,7 +185,6 @@ impl Server {
             registry,
             metrics: Arc::new(crate::metrics::server::Metrics::new()),
         };
-        let caches = Caches::new(self.config.cache.clone());
         let cors = CorsLayer::new()
             .allow_methods([Method::GET, Method::POST])
             .allow_origin(Any)
@@ -337,7 +334,6 @@ impl Server {
             .route("/ui/*rest", get(ui_handler))
             .layer(OtelAxumLayer::default())
             .layer(metrics)
-            .layer(Extension(caches))
             .layer(cors)
             .layer(DefaultBodyLimit::disable())
             .layer(tower_http::trace::TraceLayer::new_for_http());
