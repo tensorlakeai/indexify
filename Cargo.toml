@@ -16,6 +16,7 @@ members = [
     "crates/indexify_internal_api",
     "crates/indexify_proto",
     "crates/indexify_ui",
+    "crates/scheduler",
 ]
 
 [workspace.dependencies]

@@ -23,27 +23,28 @@ use utoipa::{schema, ToSchema};
 
 pub type ExtractionGraphId = String;
 pub type ExtractionGraphName = String;
+pub type ExecutorId = String;
+pub type TaskId = String;
 
-pub struct PlacementConstraint {}
-
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(build_fn(skip))]
 pub struct ComputeFunction {
     pub name: String,
     pub description: String,
-    pub placement_constraints: Vec<PlacementConstraint>,
-    pub image_name: String,
+    pub placement_constraints: LabelsFilter,
     pub function_name: String,
-
-    // Names of other compute functions
     pub edges: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct DynamicEdgeRouter {
     pub name: String,
     pub description: String,
-    pub source_function: String,
+    pub source_fn: String,
     pub target_functions: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ComputeGraph {
     pub name: String,
     pub namespace: String,
@@ -406,13 +407,6 @@ impl From<indexify_coordinator::Extractor> for ExtractorDescription {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutorInfo {
-    pub id: String,
-    pub last_seen: u64,
-    pub addr: String,
-    pub extractors: Vec<ExtractorDescription>,
-}
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRequest {
     pub extractor_name: String,
