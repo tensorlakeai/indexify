@@ -1257,7 +1257,7 @@ pub struct ExecutorMetadata {
     #[serde(default)]
     pub num_cpus: u32,
     #[serde(default)]
-    pub gpu_memory: byte_unit::Byte,
+    pub gpu_memory: Vec<byte_unit::Byte>,
 }
 
 impl From<indexify_coordinator::VersionInfo> for VersionInfo {
@@ -1285,7 +1285,7 @@ impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
             python_version: value.python_version.unwrap_or_default().into(),
             memory: value.memory.into(),
             num_cpus: value.num_cpus,
-            gpu_memory: value.gpu_memory.into(),
+            gpu_memory: value.gpu_memory.into_iter().map(Into::into).collect(),
         }
     }
 }

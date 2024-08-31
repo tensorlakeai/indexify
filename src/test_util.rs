@@ -188,7 +188,7 @@ pub mod db_utils {
             },
             num_cpus: 1,
             memory: (128u64 * 1024 * 1024 * 1024).into(),
-            gpu_memory: (16u64 * 1024 * 1024 * 1024).into(),
+            gpu_memory: vec![(16u64 * 1024 * 1024 * 1024).into()],
         }
     }
 
