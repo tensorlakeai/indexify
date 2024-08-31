@@ -911,3 +911,28 @@ pub struct ExtractionGraphRequest {
 pub struct ExtractionGraphResponse {
     pub indexes: Vec<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ComputeFn {
+    pub name: String,
+    pub description: Option<String>,
+    pub fn_name: String,
+    pub placement_constraints: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DynamicRoute {
+    pub name: String,
+    pub description: Option<String>,
+    pub source_fn: String,
+    pub target_fns: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateComputeGraph {
+    pub name: String,
+    pub description: Option<String>,
+    pub compute_fns: Vec<ComputeFn>,
+    pub edges: HashMap<String, Vec<String>>,
+    pub dynamic_routes: Vec<DynamicRoute>,
+}

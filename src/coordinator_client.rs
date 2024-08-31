@@ -23,7 +23,7 @@ use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
-    api::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments},
+    http_api_objects::{IndexifyAPIError, RaftMetricsSnapshotResponse, TaskAssignments},
     server_config::ServerConfig,
     state::grpc_config::GrpcConfig,
 };

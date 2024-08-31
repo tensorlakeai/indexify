@@ -54,7 +54,7 @@ use utoipa_redoc::{Redoc, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    api::*,
+    http_api_objects::*,
     blob_storage::{BlobStorage, ContentReader},
     caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
@@ -829,7 +829,7 @@ async fn update_labels(
 async fn list_content(
     Path((namespace, extraction_graph)): Path<(String, String)>,
     State(state): State<NamespaceEndpointState>,
-    axum_extra::extract::Query(filter): axum_extra::extract::Query<super::api::ListContent>,
+    axum_extra::extract::Query(filter): axum_extra::extract::Query<super::http_api_objects::ListContent>,
 ) -> Result<Json<ListContentResponse>, IndexifyAPIError> {
     let response = state
         .data_manager

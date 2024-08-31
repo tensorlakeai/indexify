@@ -10,7 +10,7 @@ use internal_api::ExtractedEmbeddings;
 use tracing::info;
 
 use crate::{
-    api,
+    http_api_objects,
     blob_storage::ContentReader,
     coordinator_client::CoordinatorClient,
     extractor_router::ExtractorRouter,
@@ -134,7 +134,7 @@ impl VectorIndexManager {
     ) -> Result<Vec<ScoredText>> {
         let _timer = Timer::start(&self.metrics.vector_search);
 
-        let content = api::Content {
+        let content = http_api_objects::Content {
             content_type: mime::TEXT_PLAIN.to_string(),
             bytes: query.as_bytes().into(),
             features: vec![],
@@ -188,7 +188,7 @@ impl VectorIndexManager {
     async fn generate_embedding(
         &self,
         extractor: &str,
-        content: api::Content,
+        content: http_api_objects::Content,
     ) -> Result<internal_api::Embedding> {
         let _timer = Timer::start(&self.metrics.vector_search_extract_embeddings);
         let feature = self

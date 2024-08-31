@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
 use crate::{
-    api::{self, BeginExtractedContentIngest, ExtractionGraphLink, ExtractionGraphRequest},
+    http_api_objects::{self, BeginExtractedContentIngest, ExtractionGraphLink, ExtractionGraphRequest},
     blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
     coordinator_client::{CoordinatorClient, CoordinatorServiceClient},
     grpc_helper::GrpcHelper,
@@ -42,11 +42,11 @@ pub struct WriteStreamResult {
 
 fn index_in_features(
     output_index_map: &HashMap<String, String>,
-    features: &[api::Feature],
+    features: &[http_api_objects::Feature],
     index_name: &str,
 ) -> bool {
     features.iter().any(|f| match f.feature_type {
-        api::FeatureType::Embedding => output_index_map
+        http_api_objects::FeatureType::Embedding => output_index_map
             .get(&f.name)
             .map_or(false, |index| index == index_name),
         _ => false,
@@ -125,34 +125,34 @@ impl DataManager {
     pub async fn list_extraction_graphs(
         &self,
         namespace: &str,
-    ) -> Result<Vec<api::ExtractionGraph>> {
+    ) -> Result<Vec<http_api_objects::ExtractionGraph>> {
         let graphs = self
             .coordinator_client
             .list_extraction_graphs(namespace)
             .await?;
         let mut api_graphs = Vec::new();
         for graph in graphs {
-            let api_graph: api::ExtractionGraph = graph.try_into()?;
+            let api_graph: http_api_objects::ExtractionGraph = graph.try_into()?;
             api_graphs.push(api_graph);
         }
         Ok(api_graphs)
     }
 
     #[tracing::instrument]
-    pub async fn list_namespaces(&self) -> Result<Vec<api::DataNamespace>> {
+    pub async fn list_namespaces(&self) -> Result<Vec<http_api_objects::DataNamespace>> {
         let req = indexify_coordinator::ListNamespaceRequest {};
         let response = self.get_coordinator_client().await?.list_ns(req).await?;
         let namespaces = response.into_inner().namespaces;
 
         let data_namespaces: Result<_, anyhow::Error> = namespaces
             .into_iter()
-            .map(|s| Ok(api::DataNamespace { name: s }))
+            .map(|s| Ok(http_api_objects::DataNamespace { name: s }))
             .collect();
         data_namespaces
     }
 
     #[tracing::instrument]
-    pub async fn create_namespace(&self, namespace: &api::DataNamespace) -> Result<()> {
+    pub async fn create_namespace(&self, namespace: &http_api_objects::DataNamespace) -> Result<()> {
         info!("creating data namespace: {}", namespace.name);
         let request = indexify_coordinator::CreateNamespaceRequest {
             name: namespace.name.clone(),
@@ -188,7 +188,7 @@ impl DataManager {
         &self,
         namespace: String,
         graph_name: String,
-    ) -> Result<Vec<api::ExtractionGraphLink>> {
+    ) -> Result<Vec<http_api_objects::ExtractionGraphLink>> {
         let req = indexify_coordinator::ExtractionGraphLinksRequest {
             namespace,
             source_graph_name: graph_name,
@@ -307,7 +307,7 @@ impl DataManager {
         labels_filter: &LabelsFilter,
         restart_key: Vec<u8>,
         limit: u64,
-    ) -> Result<api::ListContentResponse> {
+    ) -> Result<http_api_objects::ListContentResponse> {
         let labels_filter = labels_filter
             .0
             .iter()
@@ -348,7 +348,7 @@ impl DataManager {
     pub async fn add_texts(
         &self,
         namespace: &str,
-        content_list: Vec<api::ContentWithId>,
+        content_list: Vec<http_api_objects::ContentWithId>,
         extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
     ) -> Result<()> {
         for content_with_id in content_list {
@@ -523,7 +523,7 @@ impl DataManager {
         &self,
         _namespace: &str,
         content_ids: Vec<String>,
-    ) -> Result<Vec<api::ContentMetadata>> {
+    ) -> Result<Vec<http_api_objects::ContentMetadata>> {
         let req = indexify_coordinator::GetContentMetadataRequest {
             content_list: content_ids,
         };
@@ -535,7 +535,7 @@ impl DataManager {
             .into_inner();
         let mut content_list = vec![];
         for content in response.content_list {
-            let content: api::ContentMetadata = content.try_into()?;
+            let content: http_api_objects::ContentMetadata = content.try_into()?;
             content_list.push(content);
         }
         Ok(content_list)
@@ -547,7 +547,7 @@ impl DataManager {
         content_id: &str,
         extraction_graph_name: &str,
         extraction_policy: &str,
-    ) -> Result<Vec<api::ContentMetadata>> {
+    ) -> Result<Vec<http_api_objects::ContentMetadata>> {
         let response = self
             .coordinator_client
             .get_content_metadata_tree(
@@ -557,9 +557,9 @@ impl DataManager {
                 content_id,
             )
             .await?;
-        let mut content_list: Vec<api::ContentMetadata> = vec![];
+        let mut content_list: Vec<http_api_objects::ContentMetadata> = vec![];
         for content in response.content_list {
-            let content: api::ContentMetadata = content.try_into()?;
+            let content: http_api_objects::ContentMetadata = content.try_into()?;
             content_list.push(content);
         }
         Ok(content_list)
@@ -770,7 +770,7 @@ impl DataManager {
     // object
     fn combine_metadata(
         metadata: Vec<ExtractedMetadata>,
-        features: &[api::Feature],
+        features: &[http_api_objects::Feature],
         labels: HashMap<String, serde_json::Value>,
     ) -> HashMap<String, serde_json::Value> {
         let mut combined_metadata = HashMap::new();
@@ -780,7 +780,7 @@ impl DataManager {
             }
         }
         for feature in features {
-            if let api::FeatureType::Metadata = feature.feature_type {
+            if let http_api_objects::FeatureType::Metadata = feature.feature_type {
                 if let serde_json::Value::Object(data) = &feature.data {
                     for (k, v) in data {
                         combined_metadata.insert(k.clone(), v.clone());
@@ -800,13 +800,13 @@ impl DataManager {
         extraction_graph_name: &str,
         content_metadata: &indexify_coordinator::ContentMetadata,
         root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
-        features: Vec<api::Feature>,
+        features: Vec<http_api_objects::Feature>,
         output_index_mapping: &HashMap<String, String>,
         index_tables: &[String],
     ) -> Result<()> {
         let metadata_updated = features
             .iter()
-            .any(|feature| matches!(feature.feature_type, api::FeatureType::Metadata));
+            .any(|feature| matches!(feature.feature_type, http_api_objects::FeatureType::Metadata));
         let existing_metadata = self
             .metadata_index_manager
             .get_metadata_for_content(&content_metadata.namespace, &content_metadata.id)
@@ -849,14 +849,14 @@ impl DataManager {
         extraction_graph_name: &str,
         content_metadata: indexify_coordinator::ContentMetadata,
         root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
-        features: Vec<api::Feature>,
+        features: Vec<http_api_objects::Feature>,
         metadata: HashMap<String, serde_json::Value>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
         let content_metadata: internal_api::ContentMetadata = content_metadata.try_into()?;
         for feature in &features {
             match feature.feature_type {
-                api::FeatureType::Embedding => {
+                http_api_objects::FeatureType::Embedding => {
                     let embedding_payload: internal_api::Embedding =
                         serde_json::from_value(feature.data.clone()).map_err(|e| {
                             anyhow!("unable to get embedding from extracted data {}", e)
@@ -872,7 +872,7 @@ impl DataManager {
                     )
                     .await?;
                 }
-                api::FeatureType::Metadata => {
+                http_api_objects::FeatureType::Metadata => {
                     let extracted_attributes = ExtractedMetadata::new(
                         &content_metadata.id.id,
                         &content_metadata
@@ -903,7 +903,7 @@ impl DataManager {
         root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
         extractor: &str,
         extraction_graph_name: &str,
-        features: Vec<api::Feature>,
+        features: Vec<http_api_objects::Feature>,
         output_index_map: &HashMap<String, String>,
     ) -> Result<()> {
         let req = indexify_coordinator::CreateContentRequest {
@@ -967,7 +967,7 @@ impl DataManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<api::Index>> {
+    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<http_api_objects::Index>> {
         let req = indexify_coordinator::ListIndexesRequest {
             namespace: namespace.to_string(),
         };
@@ -1023,7 +1023,7 @@ impl DataManager {
     }
 
     #[tracing::instrument]
-    pub async fn list_extractors(&self) -> Result<Vec<api::ExtractorDescription>> {
+    pub async fn list_extractors(&self) -> Result<Vec<http_api_objects::ExtractorDescription>> {
         let req = indexify_coordinator::ListExtractorsRequest {};
         let response = self
             .get_coordinator_client()
@@ -1036,7 +1036,7 @@ impl DataManager {
             .extractors
             .into_iter()
             .map(|e| e.try_into())
-            .collect::<Result<Vec<api::ExtractorDescription>>>()?;
+            .collect::<Result<Vec<http_api_objects::ExtractorDescription>>>()?;
         Ok(extractors)
     }
 
@@ -1064,24 +1064,24 @@ mod tests {
     #[test]
     fn test_combine_metadata() {
         let _features = vec![
-            api::Feature {
+            http_api_objects::Feature {
                 name: String::from(""),
-                feature_type: api::FeatureType::Metadata,
+                feature_type: http_api_objects::FeatureType::Metadata,
                 data: json!({"key1": "value1"}),
             },
-            api::Feature {
+            http_api_objects::Feature {
                 name: String::from(""),
-                feature_type: api::FeatureType::Metadata,
+                feature_type: http_api_objects::FeatureType::Metadata,
                 data: json!({"key2": "value2"}),
             },
-            api::Feature {
+            http_api_objects::Feature {
                 name: String::from(""),
-                feature_type: api::FeatureType::Embedding,
+                feature_type: http_api_objects::FeatureType::Embedding,
                 data: json!({"values": "[0.1, 0.2, 0.3]"}),
             },
-            api::Feature {
+            http_api_objects::Feature {
                 name: String::from(""),
-                feature_type: api::FeatureType::Metadata,
+                feature_type: http_api_objects::FeatureType::Metadata,
                 data: json!({"key3": "value3"}),
             },
         ];

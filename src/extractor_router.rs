@@ -5,7 +5,7 @@ use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::GetExtractorCoordinatesRequest;
 use internal_api::ExtractResponse;
 
-use crate::{api::Content, coordinator_client::CoordinatorClient};
+use crate::{http_api_objects::Content, coordinator_client::CoordinatorClient};
 
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 

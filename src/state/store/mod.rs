@@ -73,7 +73,7 @@ use self::{
 };
 use super::{typ, NodeId, SnapshotData, TypeConfig};
 use crate::{
-    api::NewContentStreamStart,
+    http_api_objects::NewContentStreamStart,
     coordinator::ContentStream,
     metrics::{state_machine::Metrics, Timer},
     utils::OptionInspectNone,

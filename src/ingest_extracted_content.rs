@@ -20,7 +20,7 @@ use tokio::io::AsyncWriteExt;
 use tracing::info;
 
 use crate::{
-    api::*,
+    http_api_objects::*,
     blob_storage::StoragePartWriter,
     data_manager::DataManager,
     server::NamespaceEndpointState,

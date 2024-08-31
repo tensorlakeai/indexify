@@ -32,7 +32,7 @@ use tokio::sync::{broadcast, watch::Receiver};
 use tracing::{debug, info, warn};
 
 use crate::{
-    api::NewContentStreamStart,
+    http_api_objects::NewContentStreamStart,
     coordinator_client::CoordinatorClient,
     coordinator_service::EXECUTOR_HEARTBEAT_PERIOD,
     forwardable_coordinator::ForwardableCoordinator,

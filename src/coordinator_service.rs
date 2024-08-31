@@ -118,7 +118,7 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, warn, Instrument};
 
 use crate::{
-    api::{IndexifyAPIError, NewContentStreamStart},
+    http_api_objects::{IndexifyAPIError, NewContentStreamStart},
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
     garbage_collector::GarbageCollector,

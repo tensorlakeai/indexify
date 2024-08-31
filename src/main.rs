@@ -20,7 +20,7 @@ pub mod server_config;
 pub mod state;
 pub mod task_allocator;
 
-mod api;
+mod http_api_objects;
 mod api_utils;
 mod blob_storage;
 mod caching;
