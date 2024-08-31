@@ -6,7 +6,7 @@ use super::GlobalArgs;
 use crate::{
     coordinator_service::CoordinatorServer,
     prelude::*,
-    server,
+    http_api_server,
     server_config::ServerConfig,
 };
 
@@ -40,7 +40,7 @@ impl Args {
 
         debug!("Server config is: {:?}", config);
         let server =
-            server::Server::new(Arc::new(config.clone())).expect("failed to create server");
+            http_api_server::Server::new(Arc::new(config.clone())).expect("failed to create server");
 
         let server_handle = tokio::spawn({
             let registry = registry.clone();

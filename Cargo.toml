@@ -66,10 +66,10 @@ opensearch = { version = "2", default-features = false, features = [
 ] }
 opentelemetry = { version = "0.22", features = ["metrics"] }
 pgvector = { version = "0.3", features = ["sqlx"] }
-prost = { version = "0.12.6" }
-prost-types = { version = "0.12" }
-prost-wkt = "0.5.1"
-prost-wkt-types = { version = "0.5.1" }
+prost = { version = "0.13.2" }
+prost-types = { version = "0.13.2" }
+prost-wkt = "0.6"
+prost-wkt-types = { version = "0.6" }
 qdrant-client = { version = "1.9.0" }
 rand = { version = "0.8" }
 redis = { version = "0.24", features = [
@@ -108,7 +108,7 @@ sqlx = { version = "0.7.3", features = [
 ] }
 strum = { version = "0.26.1", features = ["derive"] }
 thiserror = "1"
-tonic = { version = "0.11.0", features = ["prost", "transport", "tls"] }
+tonic = { version = "0.12.2", features = ["prost", "transport", "tls"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-rustls = { version = "0.26" }

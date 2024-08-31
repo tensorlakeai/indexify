@@ -15,7 +15,7 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Layer};
 pub mod coordinator_filters;
 pub mod coordinator_service;
 pub mod metrics;
-pub mod server;
+pub mod http_api_server;
 pub mod server_config;
 pub mod state;
 pub mod task_allocator;

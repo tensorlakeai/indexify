@@ -23,7 +23,7 @@ use crate::{
     http_api_objects::*,
     blob_storage::StoragePartWriter,
     data_manager::DataManager,
-    server::NamespaceEndpointState,
+    http_api_server::NamespaceEndpointState,
 };
 
 // Web socket status codes start with 1000, 1000 and 1001 is success.
@@ -425,7 +425,7 @@ mod tests {
         data_manager::DataManager,
         metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
         metrics,
-        server::{NamespaceEndpointState, Server},
+        http_api_server::{NamespaceEndpointState, Server},
         server_config::{IndexStoreKind, ServerConfig},
         test_util::db_utils::{
             create_metadata,

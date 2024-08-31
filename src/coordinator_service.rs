@@ -142,7 +142,7 @@ pub struct CoordinatorServiceServer {
 
 const DEFAULT_MAX_PENDING_TASKS: u64 = 20;
 
-struct MetadataMap<'a>(&'a reqwest::header::HeaderMap);
+struct MetadataMap<'a>(&'a hyper::header::HeaderMap);
 
 impl<'a> Extractor for MetadataMap<'a> {
     fn get(&self, key: &str) -> Option<&str> {
