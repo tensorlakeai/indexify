@@ -16,7 +16,7 @@ members = [
     "crates/indexify_internal_api",
     "crates/indexify_proto",
     "crates/indexify_ui",
-    "crates/scheduler",
+    "crates/scheduler", 
 ]
 
 [workspace.dependencies]
@@ -131,6 +131,7 @@ object_store = { version = "0.9", features = ["aws"] }
 local-ip-address = { version = "0.6" }
 flate2 = "1"
 tar = "0.4"
+uuid = "1.10.0"
 walkdir = { version = "2" }
 lance = { version = "0.12.1", default-features = false }
 lancedb = { version = "0.5.2", default-features = false }
@@ -180,6 +181,7 @@ jsonschema = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
 moka = { workspace = true }
+uuid = { workspace = true }
 nanoid = { workspace = true }
 openraft = { workspace = true }
 opensearch = { workspace = true }
@@ -233,7 +235,6 @@ async-stream = "0.3.5"
 once_cell = "1.19.0"
 pin-project-lite = "0.2.13"
 gluesql = { workspace = true, default-features = false }
-uuid = "1.8.0"
 sha2 = "0.10.8"
 opentelemetry-prometheus = "0.15"
 prometheus = "0.13"

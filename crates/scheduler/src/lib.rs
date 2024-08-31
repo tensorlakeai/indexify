@@ -1,5 +1,5 @@
 use anyhow::Result;
-use indexify_internal_api::{ComputeFunction, ExecutorId, ExecutorMetadata, Task, TaskId};
+use indexify_internal_api::{ComputeFunction, ExecutorId, ExecutorMetadata, TaskId};
 use rand::seq::SliceRandom;
 
 pub struct TaskPlacement {
