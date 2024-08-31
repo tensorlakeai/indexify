@@ -6400,6 +6400,7 @@ dependencies = [
  "anyhow",
  "filter",
  "indexify_internal_api",
+ "rand",
  "serde",
  "serde_json",
 ]

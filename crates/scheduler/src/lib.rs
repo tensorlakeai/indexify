@@ -1,13 +1,14 @@
 use anyhow::Result;
 use indexify_internal_api::{ComputeFunction, ExecutorId, ExecutorMetadata, Task, TaskId};
+use rand::seq::SliceRandom;
 
 pub struct TaskPlacement {
-    pub task: Task,
-    pub executor: ExecutorId,
+    pub task_id: TaskId,
+    pub executor: Option<ExecutorId>,
 }
 
 pub struct TaskPlacementRequest {
-    pub content_id: String,
+    pub task_id: TaskId,
     pub compute_fn: ComputeFunction,
 }
 
@@ -24,20 +25,27 @@ impl TaskScheduler {
         Self { executors }
     }
 
-    pub fn schedule(&self) -> Result<TaskPlacements> {
-        // TODO: Implement task scheduling logic
-        Ok(TaskPlacements {
-            placements: Vec::new(),
-        })
+    pub fn schedule(&self, requests: Vec<TaskPlacementRequest>) -> Result<TaskPlacements> {
+        let mut placements = Vec::new();
+        for request in requests {
+            let executor_ids = self.filter_executors(&request)?;
+            let executor_id = executor_ids.choose(&mut rand::thread_rng());
+            placements.push(TaskPlacement {
+                task_id: request.task_id,
+                executor: executor_id.cloned(),
+            });
+        }
+        Ok(TaskPlacements { placements })
     }
 
-    pub fn filter_executors(
-        &self,
-        request: &TaskPlacementRequest,
-    ) -> Result<Vec<ExecutorMetadata>> {
+    fn filter_executors(&self, request: &TaskPlacementRequest) -> Result<Vec<ExecutorId>> {
         let mut filtered_executors = Vec::new();
 
-        for executor in &self.executors {}
+        for executor in &self.executors {
+            if request.compute_fn.matches_executor(executor) {
+                filtered_executors.push(executor.id.clone());
+            }
+        }
         Ok(filtered_executors)
     }
 }

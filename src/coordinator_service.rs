@@ -626,8 +626,12 @@ impl CoordinatorService for CoordinatorServiceServer {
         let request = request.into_inner();
         let executor_id = request.executor_id.clone();
 
+        let executor = request.try_into().map_err(|e| {
+            tonic::Status::aborted(format!("unable to convert executor metadata: {}", e))
+        })?;
+
         self.coordinator
-            .register_executor(request.into())
+            .register_executor(executor)
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 

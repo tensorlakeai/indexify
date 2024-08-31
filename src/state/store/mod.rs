@@ -1,8 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    fs::{self, File},
-    io::{BufReader, Cursor, Read},
+    fs,
+    io::Cursor,
     mem,
     ops::RangeBounds,
     path::{Path, PathBuf},
@@ -12,8 +12,6 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use compat::{init_graph_index, init_task_analytics};
-use flate2::bufread::ZlibDecoder;
 use indexify_internal_api::{
     ContentMetadata,
     ContentMetadataId,
@@ -47,17 +45,10 @@ use openraft::{
     StoredMembership,
     Vote,
 };
-use requests::{
-    CreateOrUpdateContentEntry,
-    StateMachineUpdateRequest,
-    V1RequestPayload,
-    V1StateMachineUpdateRequest,
-};
 use rocksdb::{
     checkpoint::Checkpoint,
     ColumnFamily,
     ColumnFamilyDescriptor,
-    DBCommon,
     Direction,
     IteratorMode,
     OptimisticTransactionDB,
@@ -69,7 +60,6 @@ use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
-use tracing::debug;
 use uuid::Uuid;
 
 type Node = BasicNode;
@@ -625,13 +615,10 @@ impl StateMachineStore {
                 .into());
             } else if store_version == 4 {
                 compat::convert_v4(&db, &log_store.db)?;
-            } else if store_version == 3 {
-                compat::convert_v3(&db, &log_store.db)?;
-            } else if store_version == 2 {
-                compat::convert_v2(&db, &log_store.db)?;
-            } else if store_version == 1 {
+            } else if store_version < 4 {
                 return Err(StorageIOError::read_state_machine(anyhow!(
-                    "Store version 1 is not supported"
+                    "Store version {} is not supported. Software update required.",
+                    store_version
                 ))
                 .into());
             }
@@ -1666,320 +1653,12 @@ pub(crate) fn open_logs(path: &Path) -> Result<OptimisticTransactionDB, StorageE
     open_db_with_columns(path, [store, logs])
 }
 
-fn get_v1_snapshot(snapshot_file_path: PathBuf) -> StorageResult<Option<StoredSnapshot>> {
-    if !snapshot_file_path.exists() {
-        debug!("The snapshot file does not exist");
-        return Ok(None);
-    }
-
-    let file = File::open(&snapshot_file_path).map_err(|e| StorageError::IO {
-        source: StorageIOError::read(&e),
-    })?;
-
-    //  Decompress the data with ZLib decoder
-    let buf_reader = BufReader::new(file);
-    let mut decoder = ZlibDecoder::new(buf_reader);
-    let mut decompressed_data = Vec::new();
-    decoder
-        .read_to_end(&mut decompressed_data)
-        .map_err(|e| StorageError::IO {
-            source: StorageIOError::read(&e),
-        })?;
-
-    //  deserialize the data and return it
-    let snapshot: StoredSnapshot =
-        JsonEncoder::decode(&decompressed_data).map_err(|e| StorageError::IO {
-            source: StorageIOError::read(&e),
-        })?;
-    Ok(Some(snapshot))
-}
-
-fn apply_v1_snapshot(
-    db: &OptimisticTransactionDB,
-    snapshot: &state_machine_objects::V1Snapshot,
-) -> StorageResult<()> {
-    fn put_cf<K, T>(
-        txn: &rocksdb::Transaction<OptimisticTransactionDB>,
-        cf: &ColumnFamily,
-        key: K,
-        value: &T,
-    ) -> StorageResult<()>
-    where
-        K: AsRef<[u8]>,
-        T: serde::Serialize + Debug,
-    {
-        let serialized =
-            serde_json::to_vec(value).map_err(|e| StorageIOError::write_state_machine(&e))?;
-        txn.put_cf(cf, key, serialized)
-            .map_err(|e| StorageIOError::write_state_machine(&e).into())
-    }
-
-    let txn = db.transaction();
-
-    //  Build the rocksdb forward indexes
-    for (_, eg) in &snapshot.extraction_graphs {
-        let cf = StateMachineColumns::ExtractionGraphs.cf(db);
-        let eg: ExtractionGraph = eg.clone().into();
-        put_cf(&txn, cf, &eg.key(), &eg)?;
-    }
-    for (executor_id, executor_metadata) in &snapshot.executors {
-        let cf = StateMachineColumns::Executors.cf(db);
-        put_cf(&txn, cf, executor_id, &executor_metadata)?;
-    }
-    for (task_id, task) in &snapshot.tasks {
-        let cf = StateMachineColumns::Tasks.cf(db);
-        let task = compat::convert_v1_task(task.clone(), db)
-            .map_err(|e| StorageIOError::read_snapshot(None, e))?;
-        put_cf(&txn, cf, task_id, &task)?;
-    }
-    for (gc_task_id, gc_task) in &snapshot.gc_tasks {
-        let cf = StateMachineColumns::GarbageCollectionTasks.cf(db);
-        put_cf(&txn, cf, gc_task_id, &gc_task)?;
-    }
-    for (executor_id, task_ids) in &snapshot.task_assignments {
-        let cf = StateMachineColumns::TaskAssignments.cf(db);
-        put_cf(&txn, cf, executor_id, &task_ids)?;
-    }
-    for (state_change_id, state_change) in &snapshot.state_changes {
-        let cf = StateMachineColumns::StateChanges.cf(db);
-        put_cf(&txn, cf, state_change_id.to_key(), &state_change)?;
-    }
-    for (_, content) in &snapshot.content_table {
-        let cf = StateMachineColumns::ContentTable.cf(db);
-        let content: ContentMetadata = content.clone().into();
-        put_cf(&txn, cf, &content.id_key(), &content)?;
-    }
-    for (extraction_policy_id, extraction_policy_ids) in &snapshot.extraction_policies {
-        let cf = StateMachineColumns::ExtractionPolicies.cf(db);
-        let policy: ExtractionPolicy = extraction_policy_ids.clone().into();
-        put_cf(&txn, cf, extraction_policy_id, &policy)?;
-    }
-    for (extractor_name, extractor_description) in &snapshot.extractors {
-        let cf = StateMachineColumns::Extractors.cf(db);
-        put_cf(&txn, cf, extractor_name, &extractor_description)?;
-    }
-    for namespace in &snapshot.namespaces {
-        let cf = StateMachineColumns::Namespaces.cf(db);
-        put_cf(&txn, cf, namespace, &namespace)?;
-    }
-    for (index_name, index) in &snapshot.index_table {
-        let cf = StateMachineColumns::IndexTable.cf(db);
-        put_cf(&txn, cf, index_name, &index)?;
-    }
-    for (schema_id, schema) in &snapshot.structured_data_schemas {
-        let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
-        put_cf(&txn, cf, schema_id, &schema)?;
-    }
-    for (node_id, addr) in &snapshot.coordinator_address {
-        let cf = StateMachineColumns::CoordinatorAddress.cf(db);
-        put_cf(&txn, cf, &node_id.to_string(), &addr)?;
-    }
-    txn.commit()
-        .map_err(|e| StorageIOError::write_state_machine(&e))?;
-    init_task_analytics(db)?;
-    init_graph_index(db)?;
-    Ok(())
-}
-
-// Convert the v1 store to the new store.
-// Split out the logs and store column families into new logs db
-// Restore sm store from snapshot if present
-// Store last log id and membership in sm store
-fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), StorageError<NodeId>> {
-    let opts = Options::default();
-    let cf_names = rocksdb::DB::list_cf(&opts, &v1_db_path).unwrap();
-    let cf_descriptors: Vec<ColumnFamilyDescriptor> = cf_names
-        .iter()
-        .map(|cf_name| ColumnFamilyDescriptor::new(cf_name, Options::default()))
-        .collect();
-
-    let v1_db: DBCommon<SingleThreaded, _> =
-        OptimisticTransactionDB::open_cf_descriptors(&opts, &v1_db_path, cf_descriptors).unwrap();
-
-    let new_db_path = db_path.join("store");
-    if new_db_path.exists() {
-        fs::remove_dir_all(&new_db_path).unwrap();
-    }
-
-    let new_log_path = db_path.join("log");
-    if new_log_path.exists() {
-        fs::remove_dir_all(&new_log_path).unwrap();
-    }
-
-    let db_name = Uuid::new_v4().to_string();
-    let new_db_path = new_db_path.join(db_name);
-    let new_db = open_db(&new_db_path).unwrap();
-    let logs = open_logs(&new_log_path).unwrap();
-
-    // Copy logs column to new logs db
-    for val in v1_db.iterator_cf(logs_column(&v1_db), IteratorMode::Start) {
-        let (key, value) = val.unwrap();
-        let entry: Entry<V1TypeConfig> = JsonEncoder::decode(&value).unwrap();
-
-        if let EntryPayload::Normal(req) = entry.payload {
-            let log = convert_v1_log(req, &v1_db).map_err(|e| StorageIOError::read_logs(e))?;
-            let updated_entry: typ::Entry = Entry {
-                log_id: entry.log_id,
-                payload: EntryPayload::Normal(log),
-            };
-
-            let updated_value = JsonEncoder::encode(&updated_entry).unwrap();
-            logs.put_cf(logs_column(&logs), key, updated_value).unwrap();
-            continue;
-        }
-
-        logs.put_cf(logs_column(&logs), key, value).unwrap();
-    }
-
-    for val in v1_db.iterator_cf(store_column(&v1_db), IteratorMode::Start) {
-        let (key, value) = val.unwrap();
-        logs.put_cf(store_column(&logs), key, value).unwrap();
-    }
-
-    // Restore new db from snapshot if present
-    let v1_snapshot_path = db_path.join("sm-blob");
-    let snapshot = get_v1_snapshot(v1_snapshot_path.clone()).unwrap();
-    if let Some(snapshot) = snapshot {
-        let indexify_state_snapshot: state_machine_objects::V1Snapshot =
-            JsonEncoder::decode(&snapshot.data).unwrap();
-
-        if let Some(data) = snapshot.meta.last_log_id {
-            let applied_data = JsonEncoder::encode(&data).unwrap();
-            new_db
-                .put_cf(
-                    StateMachineColumns::RaftState.cf(&new_db),
-                    LAST_APPLIED_LOG_ID_KEY,
-                    applied_data,
-                )
-                .unwrap();
-        }
-
-        let membership_data = JsonEncoder::encode(&snapshot.meta.last_membership).unwrap();
-        new_db
-            .put_cf(
-                StateMachineColumns::RaftState.cf(&new_db),
-                LAST_MEMBERSHIP_KEY,
-                membership_data,
-            )
-            .unwrap();
-
-        apply_v1_snapshot(&new_db, &indexify_state_snapshot).unwrap();
-
-        fs::remove_file(&v1_snapshot_path).unwrap();
-    }
-    new_db
-        .put_cf(
-            StateMachineColumns::RaftState.cf(&new_db),
-            STORE_VERSION,
-            CURRENT_STORE_VERSION.to_be_bytes(),
-        )
-        .unwrap();
-    fs::remove_dir_all(&v1_db_path).unwrap();
-    Ok(())
-}
-
-fn convert_v1_log(
-    log: V1StateMachineUpdateRequest,
-    db: &OptimisticTransactionDB,
-) -> Result<StateMachineUpdateRequest, anyhow::Error> {
-    let payload = match log.payload {
-        V1RequestPayload::JoinCluster {
-            node_id,
-            address,
-            coordinator_addr,
-        } => RequestPayload::JoinCluster {
-            node_id,
-            address,
-            coordinator_addr,
-        },
-        V1RequestPayload::RegisterExecutor {
-            addr,
-            executor_id,
-            extractors,
-            ts_secs: _,
-        } => RequestPayload::RegisterExecutor(ExecutorMetadata {
-            addr,
-            id: executor_id,
-            extractors,
-            ..Default::default()
-        }),
-        V1RequestPayload::RemoveExecutor { executor_id } => {
-            RequestPayload::RemoveExecutor { executor_id }
-        }
-        V1RequestPayload::CreateNamespace { name } => RequestPayload::CreateNamespace { name },
-        V1RequestPayload::CreateTasks { tasks } => {
-            let tasks: Result<Vec<Task>, _> = tasks
-                .into_iter()
-                .map(|t| compat::convert_v1_task(t, db))
-                .collect();
-            RequestPayload::CreateTasks { tasks: tasks? }
-        }
-        V1RequestPayload::AssignTask { assignments } => RequestPayload::AssignTask { assignments },
-        V1RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
-            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks }
-        }
-        V1RequestPayload::UpdateGarbageCollectionTask {
-            gc_task,
-            mark_finished,
-        } => RequestPayload::UpdateGarbageCollectionTask {
-            gc_task,
-            mark_finished,
-        },
-        V1RequestPayload::CreateExtractionGraph {
-            extraction_graph,
-            structured_data_schema,
-            indexes,
-        } => {
-            let extraction_graph: ExtractionGraph = extraction_graph.into();
-            RequestPayload::CreateExtractionGraph {
-                extraction_graph,
-                structured_data_schema,
-                indexes,
-            }
-        }
-        V1RequestPayload::CreateOrUpdateContent { entries } => {
-            let entries: Vec<CreateOrUpdateContentEntry> =
-                entries.into_iter().map(|e| e.into()).collect();
-            RequestPayload::CreateOrUpdateContent { entries }
-        }
-        V1RequestPayload::TombstoneContentTree { content_metadata } => {
-            let content_metadata: Vec<ContentMetadata> =
-                content_metadata.into_iter().map(|c| c.into()).collect();
-            RequestPayload::TombstoneContentTree { content_metadata }
-        }
-        V1RequestPayload::SetIndex { indexes } => RequestPayload::SetIndex { indexes },
-        V1RequestPayload::UpdateTask {
-            task,
-            executor_id,
-            update_time,
-        } => RequestPayload::UpdateTask {
-            task: compat::convert_v1_task(task, db)?,
-            executor_id,
-            update_time,
-        },
-        V1RequestPayload::MarkStateChangesProcessed { state_changes } => {
-            RequestPayload::MarkStateChangesProcessed { state_changes }
-        }
-    };
-
-    Ok(StateMachineUpdateRequest {
-        payload,
-        new_state_changes: log.new_state_changes,
-        state_changes_processed: log.state_changes_processed,
-    })
-}
-
 pub(crate) async fn new_storage<P: AsRef<Path>>(
     db_path: P,
 ) -> Result<(LogStore, Arc<StateMachineStore>)> {
     fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
     let db_path = PathBuf::from(db_path.as_ref());
-
-    let v1_db_path = db_path.clone().join("db");
-    if v1_db_path.exists() {
-        convert_v1_store(db_path.clone(), v1_db_path)?;
-    }
 
     let log_path = db_path.join("log");
     let log_db = open_logs(log_path.as_ref())?;
@@ -1998,17 +1677,6 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 
     Ok((log_store, Arc::new(sm_store)))
 }
-
-openraft::declare_raft_types!(
-    pub V1TypeConfig:
-        D = V1StateMachineUpdateRequest,
-        R = Response,
-        NodeId = NodeId,
-        Node = BasicNode,
-        Entry = Entry<V1TypeConfig>,
-        SnapshotData = SnapshotData,
-        AsyncRuntime = openraft::TokioRuntime
-);
 
 #[cfg(test)]
 mod tests {

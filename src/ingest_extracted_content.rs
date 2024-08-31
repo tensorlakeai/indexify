@@ -467,6 +467,9 @@ mod tests {
     ) -> Task {
         let mut task = Task {
             id: task_id.to_string(),
+            compute_fn_name: "test_fn".to_string(),
+            compute_graph_name: "test_graph".to_string(),
+            content_id: content_metadata.id.id.clone(),
             extractor: "".to_string(),
             extraction_policy_name: extraction_policy.name.to_string(),
             extraction_graph_name: extraction_policy.graph_name.clone(),

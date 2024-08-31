@@ -227,18 +227,11 @@ pub struct RegisterExecutorRequest {
     pub addr: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
     pub extractors: ::prost::alloc::vec::Vec<Extractor>,
-    #[prost(string, tag = "4")]
-    pub os_type: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "5")]
-    pub os_version: ::core::option::Option<VersionInfo>,
-    #[prost(message, optional, tag = "6")]
-    pub python_version: ::core::option::Option<VersionInfo>,
-    #[prost(uint32, tag = "7")]
-    pub num_cpus: u32,
-    #[prost(uint64, tag = "8")]
-    pub memory: u64,
-    #[prost(uint64, repeated, tag = "9")]
-    pub gpu_memory: ::prost::alloc::vec::Vec<u64>,
+    #[prost(map = "string, string", tag = "4")]
+    pub labels: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

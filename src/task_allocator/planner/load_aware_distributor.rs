@@ -316,6 +316,9 @@ mod tests {
         internal_api::Task {
             id: id.to_string(),
             extractor: extractor.to_string(),
+            compute_fn_name: "test_fn".to_string(),
+            compute_graph_name: "test_graph".to_string(),
+            content_id: content.id.to_string(),
             extraction_graph_name: extractor_graph_name.to_string(),
             extraction_policy_name: policy.to_string(),
             output_index_table_mapping: HashMap::new(),

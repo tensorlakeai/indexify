@@ -36,6 +36,12 @@ pub struct ComputeFunction {
     pub edges: Vec<String>,
 }
 
+impl ComputeFunction {
+    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
+        self.placement_constraints.matches(&executor.labels)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct DynamicEdgeRouter {
     pub name: String,
@@ -532,6 +538,9 @@ fn default_creation_time() -> SystemTime {
 #[schema(as = internal_api::Task)]
 pub struct Task {
     pub id: String,
+    pub compute_fn_name: String,
+    pub compute_graph_name: String,
+    pub content_id: String,
     pub extractor: String,
     pub extraction_policy_name: String,
     pub extraction_graph_name: String,
@@ -1229,44 +1238,23 @@ impl Default for ContentMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct VersionInfo {
-    pub major: u32,
-    pub minor: u32,
-    pub patch: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: String,
     pub addr: String,
     pub extractors: Vec<ExtractorDescription>,
-    #[serde(default)]
-    pub os_type: String,
-    #[serde(default)]
-    pub os_version: VersionInfo,
-    #[serde(default)]
-    pub python_version: VersionInfo,
-    #[serde(default)]
-    pub memory: byte_unit::Byte,
-    #[serde(default)]
-    pub num_cpus: u32,
-    #[serde(default)]
-    pub gpu_memory: Vec<byte_unit::Byte>,
+
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
-impl From<indexify_coordinator::VersionInfo> for VersionInfo {
-    fn from(value: indexify_coordinator::VersionInfo) -> Self {
-        Self {
-            major: value.major,
-            minor: value.minor,
-            patch: value.patch,
+impl TryFrom<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(value: indexify_coordinator::RegisterExecutorRequest) -> Result<Self> {
+        let mut labels = HashMap::new();
+        for (k, v) in value.labels {
+            labels.insert(k, serde_json::from_str(&v)?);
         }
-    }
-}
-
-impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
-    fn from(value: indexify_coordinator::RegisterExecutorRequest) -> Self {
-        Self {
+        Ok(Self {
             id: value.executor_id,
             addr: value.addr,
             extractors: value
@@ -1274,13 +1262,8 @@ impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
                 .into_iter()
                 .map(|extractor| extractor.into())
                 .collect(),
-            os_type: value.os_type,
-            os_version: value.os_version.unwrap_or_default().into(),
-            python_version: value.python_version.unwrap_or_default().into(),
-            memory: value.memory.into(),
-            num_cpus: value.num_cpus,
-            gpu_memory: value.gpu_memory.into_iter().map(Into::into).collect(),
-        }
+            labels,
+        })
     }
 }
 

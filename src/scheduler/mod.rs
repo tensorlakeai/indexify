@@ -216,6 +216,9 @@ impl Scheduler {
         let id = format!("{:x}", hasher.finish());
         let task = internal_api::Task {
             id,
+            compute_fn_name: "test_fn".to_string(),
+            compute_graph_name: "test_graph".to_string(),
+            content_id: content.id.id.clone(),
             extractor: extraction_policy.extractor.clone(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
             extraction_policy_name: extraction_policy.name.clone(),

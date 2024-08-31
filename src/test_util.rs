@@ -3,12 +3,7 @@ pub mod db_utils {
     use std::collections::HashMap;
 
     use filter::LabelsFilter;
-    use indexify_internal_api::{
-        self as internal_api,
-        ExecutorMetadata,
-        ExtractorDescription,
-        VersionInfo,
-    };
+    use indexify_internal_api::{self as internal_api, ExecutorMetadata, ExtractorDescription};
     use indexify_proto::indexify_coordinator::CreateContentStatus;
     use internal_api::{
         ContentMetadataId,
@@ -179,16 +174,10 @@ pub mod db_utils {
             id,
             addr: "localhost:8950".to_string(),
             extractors,
-            os_type: Default::default(),
-            os_version: Default::default(),
-            python_version: VersionInfo {
-                major: 3,
-                minor: 10,
-                patch: 0,
-            },
-            num_cpus: 1,
-            memory: (128u64 * 1024 * 1024 * 1024).into(),
-            gpu_memory: vec![(16u64 * 1024 * 1024 * 1024).into()],
+            labels: HashMap::from([
+                ("cpu".to_string(), json!(1.0)),
+                ("memory".to_string(), json!(1024.0 * 1024.0 * 1024.0)),
+            ]),
         }
     }
 

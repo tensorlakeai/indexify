@@ -7,20 +7,11 @@ use serde::de::DeserializeOwned;
 use super::{JsonEncode, JsonEncoder};
 use crate::state::{NodeId, StateMachineColumns};
 
-mod convert_v1;
-mod convert_v2;
-mod convert_v3;
 mod convert_v4;
-mod v2;
-mod v3;
 mod v4;
 
-pub use convert_v1::convert_v1_task;
-pub use convert_v2::convert_v2;
-pub use convert_v3::convert_v3;
 pub use convert_v4::convert_v4;
 use indexify_internal_api::{ContentMetadata, Task, TaskAnalytics, TaskOutcome};
-pub(crate) use v2::convert_v2_task;
 
 // This assumes that key value does not change with conversion.
 fn convert_column_value<T, U>(
