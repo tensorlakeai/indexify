@@ -80,7 +80,6 @@ pub struct NamespaceEndpointState {
         paths(
             create_namespace,
             list_namespaces,
-            list_extractors,
             list_executors,
             list_content,
             new_content_stream,
@@ -94,7 +93,6 @@ pub struct NamespaceEndpointState {
             link_extraction_graphs,
             extraction_graph_links,
             upload_file,
-            add_graph_to_content,
             list_tasks,
             get_content_tree_metadata,
             download_content,
@@ -217,10 +215,6 @@ impl Server {
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
-                post(add_graph_to_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
                 get(list_tasks).with_state(namespace_endpoint_state.clone()),
             )
@@ -249,10 +243,6 @@ impl Server {
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/content/:content_id/labels",
-                put(update_labels).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/content/:content_id/wait",
                 get(wait_content_extraction).with_state(namespace_endpoint_state.clone()),
             )
@@ -265,10 +255,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content/:content_id",
                 delete(delete_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/schemas",
-                get(list_schemas).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces",
@@ -285,10 +271,6 @@ impl Server {
             .route(
                 "/write_content",
                 get(ingest_extracted_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/extractors",
-                get(list_extractors).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/state_changes",
@@ -709,31 +691,6 @@ async fn extraction_graph_links(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(res))
-}
-
-#[tracing::instrument]
-#[utoipa::path(
-    put,
-    path = "/namespaces/{namespace}/content/{content_id}/labels",
-    request_body = UpdateLabelsRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Labels updated successfully"),
-        (status = BAD_REQUEST, description = "Unable to update labels")
-    ),
-)]
-#[axum::debug_handler]
-async fn update_labels(
-    Path((namespace, content_id)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(body): Json<UpdateLabelsRequest>,
-) -> Result<(), IndexifyAPIError> {
-    state
-        .data_manager
-        .update_labels(&namespace, &content_id, body.labels)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    Ok(())
 }
 
 /// List all the content ingested into an extraction graph
@@ -1402,40 +1359,6 @@ async fn new_content_stream(
     Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
 }
 
-/// Run extraction graph for a list of existing content
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content",
-    params(
-        ("namespace" = String, Path, description = "Namespace of the content"),
-        ("extraction_graph" = String, Path, description = "Extraction graph name"),
-    ),
-    request_body = AddGraphToContent,
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Content extraction started successfully"),
-        (status = BAD_REQUEST, description = "Unable to start content extraction")
-    ),
-)]
-#[axum::debug_handler]
-async fn add_graph_to_content(
-    Path((namespace, extraction_graph)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<AddGraphToContent>,
-) -> Result<(), IndexifyAPIError> {
-    state
-        .data_manager
-        .add_graph_to_content(namespace, extraction_graph, payload.content_ids)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to extract content: {}", e),
-            )
-        })?;
-    Ok(())
-}
-
 /// List all executors running extractors in the cluster
 #[tracing::instrument]
 #[utoipa::path(
@@ -1452,31 +1375,6 @@ async fn list_executors(
     State(_state): State<NamespaceEndpointState>,
 ) -> Result<Json<ListExecutorsResponse>, IndexifyAPIError> {
     Ok(Json(ListExecutorsResponse { executors: vec![] }))
-}
-
-/// List all extractors available in the cluster
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/extractors",
-    tag = "operations",
-    responses(
-        (status = 200, description = "List of extractors available", body = ListExtractorsResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_extractors(
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
-    let extractors = state
-        .data_manager
-        .list_extractors()
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .into_iter()
-        .collect();
-    Ok(Json(ListExtractorsResponse { extractors }))
 }
 
 /// List the state changes in the system
@@ -1601,60 +1499,6 @@ async fn list_task_assignments(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(response))
-}
-
-#[utoipa::path(
-    post,
-    path = "/namespace/{namespace}/schemas",
-    tag = "indexify",
-    responses(
-        (status = 200, description = "List of Schemas", body = GetStructuredDataSchemasResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "List Structured Data Schemas")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_schemas(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<GetStructuredDataSchemasResponse>, IndexifyAPIError> {
-    let results = state
-        .coordinator_client
-        .get()
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .list_schemas(tonic::Request::new(
-            indexify_coordinator::GetAllSchemaRequest {
-                namespace: namespace.clone(),
-            },
-        ))
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    let results = results.into_inner().schemas;
-    let mut ddls = HashMap::new();
-    let mut schemas = Vec::new();
-    for schema in results {
-        let columns = serde_json::from_str(&schema.columns).map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to parse schema columns: {} {}", schema.columns, e),
-            )
-        })?;
-
-        let schema = internal_api::StructuredDataSchema {
-            id: internal_api::StructuredDataSchema::schema_id(
-                &namespace,
-                &schema.extraction_graph_name,
-            ),
-            extraction_graph_name: schema.extraction_graph_name,
-            namespace: namespace.clone(),
-            columns,
-        };
-
-        ddls.insert(schema.extraction_graph_name.to_string(), schema.to_ddl());
-        schemas.push(schema);
-    }
-
-    Ok(Json(GetStructuredDataSchemasResponse { schemas, ddls }))
 }
 
 #[axum::debug_handler]
