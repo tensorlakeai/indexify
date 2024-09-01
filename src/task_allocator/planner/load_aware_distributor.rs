@@ -406,7 +406,7 @@ mod tests {
         )
         .await
         .unwrap();
-        shared_state.initialize_raft().await.unwrap();
+        shared_state.initialize_raft(config.node_id).await.unwrap();
 
         let task_ids: HashSet<TaskId> = shared_state
             .state_machine
@@ -441,7 +441,7 @@ mod tests {
         )
         .await
         .unwrap();
-        shared_state.initialize_raft().await.unwrap();
+        shared_state.initialize_raft(config.node_id).await.unwrap();
 
         // Add extractors and extractor bindings and ensure that we are creating tasks
         shared_state
@@ -498,7 +498,7 @@ mod tests {
         )
         .await
         .unwrap();
-        shared_state.initialize_raft().await.unwrap();
+        shared_state.initialize_raft(config.node_id).await.unwrap();
 
         let text_extractor = {
             let mut extractor = mock_extractor();
@@ -733,7 +733,7 @@ mod tests {
         )
         .await
         .unwrap();
-        shared_state.initialize_raft().await.unwrap();
+        shared_state.initialize_raft(config.node_id).await.unwrap();
 
         let text_extractor = {
             let mut extractor = mock_extractor();

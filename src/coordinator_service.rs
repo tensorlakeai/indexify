@@ -118,12 +118,12 @@ use tower::{Layer, Service, ServiceBuilder};
 use tracing::{error, info, warn, Instrument};
 
 use crate::{
-    api::{IndexifyAPIError, NewContentStreamStart},
+    api::{IndexifyAPIError, NewContentStreamStart, StateError},
     coordinator::Coordinator,
     coordinator_client::CoordinatorClient,
     garbage_collector::GarbageCollector,
     server_config::ServerConfig,
-    state::{self, grpc_config::GrpcConfig},
+    state::{self, forwardable_raft::RaftState, grpc_config::GrpcConfig},
 };
 
 type HBResponseStream = Pin<Box<dyn Stream<Item = Result<HeartbeatResponse, Status>> + Send>>;
@@ -1219,6 +1219,24 @@ pub struct CoordinatorServer {
     server_handle: axum_server::Handle,
 }
 
+#[axum::debug_handler]
+async fn server_state_handler(
+    State(app): State<Arc<state::App>>,
+) -> Result<axum::response::Json<RaftState>, StateError> {
+    let state = app
+        .forwardable_raft
+        .state()
+        .await
+        .map_err(|e| StateError::new(e.to_string().as_str()))?;
+
+    match state.server {
+        openraft::ServerState::Leader |
+        openraft::ServerState::Follower |
+        openraft::ServerState::Candidate => Ok(axum::response::Json(state)),
+        _ => Err(StateError::new("server is not in a ready state").state(state)),
+    }
+}
+
 async fn metrics_handler(
     State(app): State<Arc<state::App>>,
 ) -> Result<axum::response::Response<axum::body::Body>, IndexifyAPIError> {
@@ -1363,6 +1381,7 @@ where
 fn start_server(app: &CoordinatorServer) -> Result<JoinHandle<Result<()>>> {
     let server = axum::Router::new()
         .route("/metrics", get(metrics_handler))
+        .route("/state", get(server_state_handler))
         .with_state(app.shared_state.clone());
     let addr: SocketAddr = format!(
         "{}:{}",
@@ -1425,7 +1444,7 @@ impl CoordinatorServer {
 
         let shared_state = self.shared_state.clone();
         shared_state
-            .initialize_raft()
+            .initialize_raft(self.config.node_id)
             .await
             .map_err(|e| anyhow!("unable to initialize shared state: {}", e.to_string()))?;
         let leader_change_watcher = self.coordinator.get_leader_change_watcher();

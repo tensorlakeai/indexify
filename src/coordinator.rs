@@ -925,7 +925,7 @@ mod tests {
         )
         .await
         .expect("failed to initialize state");
-        shared_state.initialize_raft().await.unwrap();
+        shared_state.initialize_raft(config.node_id).await.unwrap();
         let coordinator = crate::coordinator::Coordinator::new(
             shared_state.clone(),
             coordinator_client,

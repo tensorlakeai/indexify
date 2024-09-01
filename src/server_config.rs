@@ -425,7 +425,9 @@ pub struct ServerConfig {
     pub tls: Option<TlsConfig>,
     pub coordinator_tls: Option<CoordinatorTls>,
     pub coordinator_client_tls: Option<CoordinatorClientTls>,
-    pub seed_node: String,
+    pub seed_node: Option<String>,
+    #[serde(default)]
+    pub initialize_raft: bool,
     pub node_id: u64,
     /// cache is the configuration for the server-side cache.
     #[serde(default)]
@@ -454,7 +456,8 @@ impl Default for ServerConfig {
             tls: None,
             coordinator_tls: None,
             coordinator_client_tls: None,
-            seed_node: "localhost:8970".into(),
+            seed_node: None,
+            initialize_raft: false,
             node_id: 0,
             cache: ServerCacheConfig::default(),
             state_store: StateStoreConfig::default(),

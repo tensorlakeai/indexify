@@ -1,10 +1,11 @@
 use std::{
-    collections::{hash_map::Entry, BTreeMap, HashMap},
+    collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap},
     sync::Arc,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use backon::{ExponentialBuilder, Retryable};
 use futures::lock::Mutex;
 use indexify_proto::indexify_raft::{
     raft_api_server::RaftApi,
@@ -14,8 +15,17 @@ use indexify_proto::indexify_raft::{
     SnapshotFileChunkRequest,
 };
 use openraft::{
-    error::{CheckIsLeaderError, Fatal, ForwardToLeader, RaftError},
+    error::{
+        ChangeMembershipError,
+        CheckIsLeaderError,
+        ClientWriteError,
+        Fatal,
+        ForwardToLeader,
+        RaftError,
+    },
     BasicNode,
+    ChangeMembers,
+    RaftTypeConfig,
     Snapshot,
     SnapshotMeta,
     StorageError,
@@ -92,25 +102,41 @@ impl RaftGrpcServer {
             .collect::<BTreeMap<_, _>>()
     }
 
-    /// Helper function to add node to the cluster only if it is not present
-    async fn add_node_to_cluster_if_absent(
+    async fn change_membership(
         &self,
-        node_id: NodeId,
-        address: &str,
-        coordinator_addr: &str,
-    ) -> Result<tonic::Response<RaftReply>, Status> {
-        let nodes_in_cluster = self.get_nodes_in_cluster();
-        if nodes_in_cluster.contains_key(&node_id) {
-            let response = StateMachineUpdateResponse {
-                handled_by: self.id,
-            };
-            return GrpcHelper::ok_response(response);
-        }
+        request: ChangeMembers<u64, BasicNode>,
+    ) -> std::result::Result<
+        openraft::raft::ClientWriteResponse<impl RaftTypeConfig>,
+        RaftError<u64, ClientWriteError<u64, BasicNode>>,
+    > {
+        (|| async { self.raft.change_membership(request.clone(), true).await })
+            .retry(ExponentialBuilder::default())
+            .sleep(tokio::time::sleep)
+            .notify(|err, dur| {
+                tracing::warn!(
+                    "retrying membership change for {:?} after {:?}: {:?}",
+                    request,
+                    dur,
+                    err
+                )
+            })
+            .when(|e| {
+                matches!(
+                    e,
+                    RaftError::APIError(ClientWriteError::ChangeMembershipError(
+                        ChangeMembershipError::InProgress(_)
+                    ))
+                )
+            })
+            .await
+    }
 
+    async fn add_node(&self, node_id: NodeId, address: &str) -> Result<(), Status> {
         info!(
             "Received request from new node with id {} and address {}",
             node_id, address
         );
+
         let node_to_add = BasicNode {
             addr: address.to_string(),
         };
@@ -122,14 +148,51 @@ impl RaftGrpcServer {
 
         info!("Done adding node {} as a learner", node_id);
 
-        let nodes_in_cluster = self.get_nodes_in_cluster(); //  re-fetch the nodes in the cluster to get the latest view (sync point)
-        let node_ids: Vec<u64> = nodes_in_cluster.keys().cloned().collect();
-        self.raft
-            .change_membership(node_ids, true)
+        self.change_membership(ChangeMembers::AddVoterIds(BTreeSet::from([node_id])))
             .await
             .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
 
-        //  add the coordinator address to state machine along with the leader
+        Ok(())
+    }
+
+    async fn remove_node(&self, node_id: NodeId) -> Result<(), Status> {
+        info!("Removing stale node {}", node_id);
+
+        self.change_membership(ChangeMembers::RemoveVoters(BTreeSet::from([node_id])))
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        self.change_membership(ChangeMembers::RemoveNodes(BTreeSet::from([node_id])))
+            .await
+            .map_err(|e| GrpcHelper::internal_err(e.to_string()))?;
+
+        info!("Successfully removed stale node {}", node_id);
+
+        Ok(())
+    }
+
+    /// Helper function to add node to the cluster only if it is not present
+    #[tracing::instrument(err, skip(self))]
+    async fn add_node_to_cluster_if_absent(
+        &self,
+        node_id: NodeId,
+        address: &str,
+        coordinator_addr: &str,
+    ) -> Result<tonic::Response<RaftReply>, Status> {
+        let nodes_in_cluster = self.get_nodes_in_cluster();
+        if nodes_in_cluster.contains_key(&node_id) {
+            if address == nodes_in_cluster[&node_id].addr {
+                return GrpcHelper::ok_response(StateMachineUpdateResponse {
+                    handled_by: self.id,
+                });
+            }
+
+            self.remove_node(node_id).await?;
+        }
+
+        self.add_node(node_id, address).await?;
+
+        // add the coordinator address to state machine along with the leader
         // coordinator address
         let state_machine_req = StateMachineUpdateRequest {
             payload: RequestPayload::JoinCluster {
@@ -417,6 +480,7 @@ impl RaftApi for RaftGrpcServer {
                 .leader_node
                 .ok_or_else(|| GrpcHelper::internal_err("Leader node not found"))?
                 .addr;
+
             let mut client = self
                 .raft_client
                 .get(&leader_address)

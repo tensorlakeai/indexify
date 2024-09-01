@@ -13,7 +13,7 @@ use serde_with::{serde_as, BytesOrString};
 use strum::{Display, EnumString};
 use utoipa::{openapi, IntoParams, ToSchema};
 
-use crate::{api_utils, metadata_storage, vectordbs};
+use crate::{api_utils, metadata_storage, state::forwardable_raft::RaftState, vectordbs};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphLink {
@@ -429,6 +429,37 @@ impl IntoResponse for IndexifyAPIError {
     fn into_response(self) -> Response {
         tracing::error!("API Error: {} - {}", self.status_code, self.message);
         (self.status_code, self.message).into_response()
+    }
+}
+
+#[derive(Serialize)]
+pub struct StateError {
+    #[serde(skip)]
+    status_code: StatusCode,
+    message: String,
+    state: Option<RaftState>,
+}
+
+impl StateError {
+    pub fn new(message: &str) -> Self {
+        Self {
+            status_code: StatusCode::INTERNAL_SERVER_ERROR,
+            message: message.to_string(),
+            state: None,
+        }
+    }
+
+    pub fn state(self, state: RaftState) -> Self {
+        Self {
+            state: Some(state),
+            ..self
+        }
+    }
+}
+
+impl IntoResponse for StateError {
+    fn into_response(self) -> Response {
+        (self.status_code, axum::Json(self)).into_response()
     }
 }
 
