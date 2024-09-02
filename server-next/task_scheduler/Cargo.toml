@@ -1,0 +1,12 @@
+[package]
+name = "task_scheduler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+rand.workspace = true
+serde_json.workspace = true
+data_model.workspace = true
+
