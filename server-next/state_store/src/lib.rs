@@ -1,21 +1,23 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{ComputeGraph, Namespace};
-use rocksdb::DB;
+use rocksdb::TransactionDB;
 
 pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
 
+#[derive(Clone)]
 pub struct IndexifyState {
-    pub db: Arc<DB>,
+    pub db: Arc<TransactionDB>,
 }
 
 impl IndexifyState {
 
-    pub fn new(path: &str) -> Self {
-        todo!()
+    pub fn new(path: PathBuf) -> Result<Self> {
+        TransactionDB::open_default(path).map(|db| Self { db: Arc::new(db) })
+        .map_err(|e| anyhow!("failed to open db: {}", e))
     }
     pub async fn create_namespace(&self, name: &str) -> Result<()> {
         Ok(())

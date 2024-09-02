@@ -5,8 +5,7 @@ use anyhow::Result;
 use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics};
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
-    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
-    DB,
+    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction, TransactionDB, DB
 };
 use strum::AsRefStr;
 
@@ -51,7 +50,7 @@ impl IndexifyObjectsColumns {
             })
             .unwrap()
     }
-    pub fn cf_db<'a>(&'a self, db: &'a DB) -> Arc<BoundColumnFamily> {
+    pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> Arc<BoundColumnFamily> {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
                 tracing::error!("failed to get column family handle for {}", self.as_ref());

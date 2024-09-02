@@ -2,7 +2,7 @@ use std::{mem, sync::Arc};
 
 use anyhow::Result;
 use data_model::StateChange;
-use rocksdb::{Direction, IteratorMode, ReadOptions, DB};
+use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
 use super::state_machine::IndexifyObjectsColumns;
@@ -15,11 +15,11 @@ pub struct FilterResponse<T> {
 }
 
 pub struct StateReader {
-    db: Arc<DB>,
+    db: Arc<TransactionDB>,
 }
 
 impl StateReader {
-    pub fn new(db: Arc<DB>) -> Self {
+    pub fn new(db: Arc<TransactionDB>) -> Self {
         Self { db }
     }
 
@@ -190,16 +190,16 @@ impl StateReader {
         Ok(state_changes)
     }
     pub fn get_all_rows_from_cf<V>(
+        &self,
         column: IndexifyObjectsColumns,
-        db: &DB,
     ) -> Result<Vec<(String, V)>>
     where
         V: DeserializeOwned,
     {
-        let cf_handle = db
+        let cf_handle = self.db
             .cf_handle(column.as_ref())
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
-        let iter = db.iterator_cf(&cf_handle, IteratorMode::Start);
+        let iter = self.db.iterator_cf(&cf_handle, IteratorMode::Start);
 
         iter.map(|item| {
             item.map_err(|e| anyhow::anyhow!(e.to_string()))
