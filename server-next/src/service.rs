@@ -19,7 +19,7 @@ impl Service {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let indexify_state = IndexifyState {};
+        let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?)?;
         let route_state = RouteState { indexify_state };
         let app = create_routes(route_state);
         let handle = Handle::new();
