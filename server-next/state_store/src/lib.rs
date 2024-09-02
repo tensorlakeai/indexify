@@ -1,8 +1,17 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    f32::consts::E,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use data_model::{ComputeGraph, Namespace};
-use rocksdb::TransactionDB;
+use rocksdb::{
+    ColumnFamilyDescriptor, Options, SingleThreaded, TransactionDB, TransactionDBOptions,
+};
+use state_machine::IndexifyObjectsColumns;
+use strum::IntoEnumIterator;
 
 pub mod scanner;
 pub mod serializer;
@@ -14,10 +23,11 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
-
     pub fn new(path: PathBuf) -> Result<Self> {
-        TransactionDB::open_default(path).map(|db| Self { db: Arc::new(db) })
-        .map_err(|e| anyhow!("failed to open db: {}", e))
+        fs::create_dir_all(path.clone())?;
+        TransactionDB::open_default(path)
+            .map(|db| Self { db: Arc::new(db) })
+            .map_err(|e| anyhow!("failed to open db: {}", e))
     }
     pub async fn create_namespace(&self, name: &str) -> Result<()> {
         Ok(())

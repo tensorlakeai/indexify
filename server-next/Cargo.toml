@@ -25,7 +25,8 @@ tonic = "0.12.2"
 prost-wkt-types = "0.6.0"
 anyhow = "1.0.86"
 serde_json = "1.0.127"
-rocksdb = {version ="0.22.0", features = ["multi-threaded-cf"]}
+# https://github.com/rust-rocksdb/rust-rocksdb/issues/881
+rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "1cf906dc4087f06631820f13855e6b27bd21b972", features=["multi-threaded-cf"]}
 data_model = { path = "data_model" }
 indexify_utils = { path = "utils" }
 indexify_proto = { path = "indexify_proto" }

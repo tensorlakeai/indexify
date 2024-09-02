@@ -5,7 +5,8 @@ use anyhow::Result;
 use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics};
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
-    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction, TransactionDB, DB
+    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
+    TransactionDB, DB,
 };
 use strum::AsRefStr;
 

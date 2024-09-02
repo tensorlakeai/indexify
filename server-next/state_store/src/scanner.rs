@@ -196,7 +196,8 @@ impl StateReader {
     where
         V: DeserializeOwned,
     {
-        let cf_handle = self.db
+        let cf_handle = self
+            .db
             .cf_handle(column.as_ref())
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
         let iter = self.db.iterator_cf(&cf_handle, IteratorMode::Start);
