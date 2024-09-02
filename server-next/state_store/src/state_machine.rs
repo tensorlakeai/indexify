@@ -1,13 +1,12 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 use tracing::error;
 
 use anyhow::Result;
-use data_model::{
-    ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics, TaskOutcome,
-};
+use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics};
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
-    ColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
+    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
+    DB,
 };
 use strum::AsRefStr;
 
@@ -45,7 +44,14 @@ pub enum IndexifyObjectsColumns {
 }
 
 impl IndexifyObjectsColumns {
-    pub fn cf<'a>(&'a self, db: &'a OptimisticTransactionDB) -> &'a ColumnFamily {
+    pub fn cf<'a>(&'a self, db: &'a OptimisticTransactionDB) -> Arc<BoundColumnFamily> {
+        db.cf_handle(self.as_ref())
+            .inspect_none(|| {
+                tracing::error!("failed to get column family handle for {}", self.as_ref());
+            })
+            .unwrap()
+    }
+    pub fn cf_db<'a>(&'a self, db: &'a DB) -> Arc<BoundColumnFamily> {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
                 tracing::error!("failed to get column family handle for {}", self.as_ref());
@@ -67,7 +73,7 @@ pub fn create_namespace(namespace: &Namespace, db: &OptimisticTransactionDB) -> 
 pub fn create_graph_input(db: &OptimisticTransactionDB, data_object: DataObject) -> Result<()> {
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
     db.put_cf(
-        IndexifyObjectsColumns::IngestedData.cf(&db),
+        &IndexifyObjectsColumns::IngestedData.cf(db),
         data_object.ingestion_object_key(),
         &serialized_data_object,
     )?;
@@ -82,7 +88,7 @@ pub fn create_compute_fn_output(
 ) -> Result<()> {
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
     txn.put_cf(
-        IndexifyObjectsColumns::FnOutputData.cf(&db),
+        &IndexifyObjectsColumns::FnOutputData.cf(db),
         data_object.fn_output_key(ingested_data_id),
         &serialized_data_object,
     )?;
@@ -100,13 +106,13 @@ pub fn delete_input_data_object(
     let prefix = format!("{}_{}_{}", namespace, compute_graph_name, data_object_id);
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        IndexifyObjectsColumns::IngestedData.cf(&db),
+        &IndexifyObjectsColumns::IngestedData.cf(db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        db.delete_cf(IndexifyObjectsColumns::IngestedData.cf(&db), &key.0)?;
+        db.delete_cf(&IndexifyObjectsColumns::IngestedData.cf(db), &key.0)?;
     }
     Ok(())
 }
@@ -117,7 +123,7 @@ pub fn create_compute_graph(
 ) -> Result<()> {
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
     db.put_cf(
-        IndexifyObjectsColumns::ComputeGraphs.cf(&db),
+        &IndexifyObjectsColumns::ComputeGraphs.cf(db),
         compute_graph.key(),
         &serialized_compute_graph,
     )?;
@@ -131,7 +137,7 @@ pub fn delete_compute_graph(
     name: &str,
 ) -> Result<()> {
     txn.delete_cf(
-        IndexifyObjectsColumns::ComputeGraphs.cf(&db),
+        &IndexifyObjectsColumns::ComputeGraphs.cf(db),
         format!("{}_{}", namespace, name),
     )?;
     // WHY IS THIS NOT WORKING
@@ -142,13 +148,13 @@ pub fn delete_compute_graph(
     let prefix = format!("{}_{}_{}", namespace, name, "");
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        IndexifyObjectsColumns::IngestedData.cf(&db),
+        &IndexifyObjectsColumns::IngestedData.cf(db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        txn.delete_cf(IndexifyObjectsColumns::IngestedData.cf(&db), &key.0)?;
+        txn.delete_cf(&IndexifyObjectsColumns::IngestedData.cf(db), &key.0)?;
     }
     Ok(())
 }
@@ -160,7 +166,7 @@ pub fn create_task(
 ) -> Result<()> {
     let serialized_task = JsonEncoder::encode(&task)?;
     txn.put_cf(
-        IndexifyObjectsColumns::Tasks.cf(&db),
+        &IndexifyObjectsColumns::Tasks.cf(db),
         task.key(),
         &serialized_task,
     )?;
@@ -168,7 +174,7 @@ pub fn create_task(
         "{}_{}_{}",
         task.namespace, task.compute_graph_name, task.ingested_data_id
     );
-    let graph_ctx = txn.get_cf(IndexifyObjectsColumns::GraphInvocationCtx.cf(db), &key)?;
+    let graph_ctx = txn.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf(db), &key)?;
     if graph_ctx.is_none() {
         error!("Graph context not found for task: {}", task.key());
     }
@@ -181,7 +187,7 @@ pub fn create_task(
     let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
 
     txn.put_cf(
-        IndexifyObjectsColumns::GraphInvocationCtx.cf(db),
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf(db),
         key,
         serialized_analytics,
     )?;
@@ -197,7 +203,7 @@ pub fn update_task_assignment(
 ) -> Result<()> {
     let task_assignments = db
         .get_cf(
-            IndexifyObjectsColumns::ExecutorTaskAssignments.cf(&db),
+            &IndexifyObjectsColumns::ExecutorTaskAssignments.cf(db),
             &executor_id,
         )?
         .unwrap_or_default();
@@ -212,7 +218,7 @@ pub fn update_task_assignment(
     }
     let serialized_task_assignments = JsonEncoder::encode(&task_assignments)?;
     txn.put_cf(
-        IndexifyObjectsColumns::ExecutorTaskAssignments.cf(&db),
+        &IndexifyObjectsColumns::ExecutorTaskAssignments.cf(db),
         &executor_id,
         &serialized_task_assignments,
     )?;

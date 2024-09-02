@@ -1,14 +1,22 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use data_model::{ComputeGraph, Namespace};
+use rocksdb::DB;
 
 pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
 
-#[derive(Clone)]
-pub struct IndexifyState {}
+pub struct IndexifyState {
+    pub db: Arc<DB>,
+}
 
 impl IndexifyState {
+
+    pub fn new(path: &str) -> Self {
+        todo!()
+    }
     pub async fn create_namespace(&self, name: &str) -> Result<()> {
         Ok(())
     }
@@ -23,5 +31,9 @@ impl IndexifyState {
 
     pub fn compute_graphs(&self, namespace: &str) -> Result<Vec<ComputeGraph>> {
         Ok(vec![])
+    }
+
+    pub fn reader(&self) -> scanner::StateReader {
+        scanner::StateReader::new(self.db.clone())
     }
 }
