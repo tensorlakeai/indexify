@@ -60,10 +60,10 @@ impl IndexifyObjectsColumns {
     }
 }
 
-pub fn create_namespace(namespace: &Namespace, db: &OptimisticTransactionDB) -> Result<()> {
-    let serialized_namespace = JsonEncoder::encode(&namespace.name)?;
+pub fn create_namespace(namespace: &Namespace, db: Arc<TransactionDB>) -> Result<()> {
+    let serialized_namespace = JsonEncoder::encode(&namespace)?;
     db.put_cf(
-        &IndexifyObjectsColumns::Namespaces.cf(&db),
+        &IndexifyObjectsColumns::Namespaces.cf_db(&db),
         &namespace.name,
         serialized_namespace,
     )?;

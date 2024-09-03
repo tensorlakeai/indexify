@@ -393,6 +393,7 @@ impl StateChange {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Namespace {
     pub name: String,
     pub created_at: u64,
