@@ -1,19 +1,13 @@
-use std::{
-    f32::consts::E,
-    fs,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraph, Namespace};
+use data_model::Namespace;
 use indexify_utils::get_epoch_time_in_ms;
-use rocksdb::{
-    ColumnFamilyDescriptor, Options, SingleThreaded, TransactionDB, TransactionDBOptions, DB,
-};
+use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 
+pub mod requests;
 pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
@@ -41,7 +35,16 @@ impl IndexifyState {
         Ok(Self { db: Arc::new(db) })
     }
 
-    pub async fn create_namespace(&self, name: &str) -> Result<()> {
+    pub async fn write(&self, request: requests::RequestType) -> Result<()> {
+        match request {
+            requests::RequestType::CreateNameSpace(namespace_request) => {
+                self.create_namespace(&namespace_request.name).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn create_namespace(&self, name: &str) -> Result<()> {
         let namespace = Namespace {
             name: name.to_string(),
             created_at: get_epoch_time_in_ms(),
@@ -57,6 +60,7 @@ impl IndexifyState {
 
 #[cfg(test)]
 mod tests {
+    use super::requests::{NamespaceRequest, RequestType};
     use super::*;
     use data_model::Namespace;
     use tempfile::TempDir;
@@ -65,11 +69,19 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_list_namespaces() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let indexify_state = IndexifyState::new("/tmp/foo".into())?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
 
         // Create namespaces
-        indexify_state.create_namespace("namespace1").await?;
-        indexify_state.create_namespace("namespace2").await?;
+        indexify_state
+            .write(RequestType::CreateNameSpace(NamespaceRequest {
+                name: "namespace1".to_string(),
+            }))
+            .await?;
+        indexify_state
+            .write(RequestType::CreateNameSpace(NamespaceRequest {
+                name: "namespace2".to_string(),
+            }))
+            .await?;
 
         // List namespaces
         let reader = indexify_state.reader();

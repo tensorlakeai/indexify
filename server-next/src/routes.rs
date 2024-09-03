@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 
-use state_store::IndexifyState;
+use state_store::{IndexifyState, requests::{RequestType, NamespaceRequest}};
 
 use crate::http_objects::{
     ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, IndexifyAPIError, NamespaceList,
@@ -74,7 +74,9 @@ async fn create_namespace(
 ) -> Result<(), IndexifyAPIError> {
     state
         .indexify_state
-        .create_namespace(&namespace.name)
+        .write(RequestType::CreateNameSpace(NamespaceRequest {
+            name: namespace.name,
+        }))
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
     Ok(())
