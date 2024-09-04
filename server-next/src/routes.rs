@@ -5,17 +5,20 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use futures::{StreamExt, TryFutureExt};
+use nanoid::nanoid;
+use sha2::{Digest, Sha256};
 use tracing::info;
 use std::sync::Arc;
 
-use blob_store::BlobStorage;
+use blob_store::{BlobStorage, BlobStorageWriter, WriteStreamResult};
 use state_store::{
     requests::{
         CreateComputeGraphRequest, DeleteComputeGraphRequest, NamespaceRequest, RequestType,
     },
     IndexifyState,
 };
-use utoipa::OpenApi;
+use utoipa::{openapi::schema, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
@@ -29,6 +32,7 @@ use crate::http_objects::{
             create_namespace,
             namespaces,
             create_compute_graph,
+            list_compute_graphs,
         ),
         components(
             schemas(
@@ -39,7 +43,9 @@ use crate::http_objects::{
                 ComputeGraph,
                 Node,
                 DynamicRouter,
-                ComputeFn
+                ComputeFn,
+                ComputeGraphCreateType,
+                ComputeGraphsList,
             )
         ),
         tags(
@@ -153,24 +159,75 @@ async fn namespaces(
     Ok(Json(NamespaceList { namespaces }))
 }
 
+#[allow(dead_code)]
+#[derive(ToSchema)]
+struct ComputeGraphCreateType {
+    compute_graph: ComputeGraph,
+    #[schema(format = "binary")]
+    code: String,
+}
+
 /// Create compute graph 
 #[utoipa::path(
     post,
     path = "/{namespace}/compute_graphs",
     tag = "operations",
+    request_body(content_type = "multipart/form-data", content = inline(ComputeGraphCreateType)),
     responses(
-        (status = 200, description = "Create a Compute Graph", body = ComputeGraph),
+        (status = 200, description = "Create a Compute Graph"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to create compute graphs")
     ),
 )]
 async fn create_compute_graph(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
-    Json(compute_graph): Json<ComputeGraph>,
+    mut compute_graph_code: Multipart,
 ) -> Result<(), IndexifyAPIError> {
-    // TODO Make this multipart
-    let code_path = "test";
-    let compute_graph = compute_graph.into_data_model(code_path)?;
+    let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
+    let mut write_result: Option<WriteStreamResult> = None;
+    while let Some(field) = compute_graph_code.next_field().await.unwrap() {
+        let name = field.name().clone();
+        if let Some(name) = name {
+            if name == "code" {
+                let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+                let mut hasher = Sha256::new();
+                let hashed_stream = stream.map(|item| {
+                    item.map(|bytes| {
+                        hasher.update(&bytes);
+                        bytes
+                    })
+                });
+
+                let file_name=format!("{}_{}", namespace, nanoid!());
+
+
+                let put_result = state.blob_storage.put(&file_name, hashed_stream).await.map_err(|e| IndexifyAPIError::internal_error(e))?;
+                let hash_result = hasher.finalize();
+                let hash = format!("{:x}", hash_result);
+                write_result = Some(WriteStreamResult{
+                    url: put_result.url,
+                    size_bytes: put_result.size_bytes,
+                    hash,
+                    file_name,
+                });
+            } else if name == "compute_graph" {
+                let text = field.text().await.map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                compute_graph_definition = Some(serde_json::from_str(&text)?);
+            }
+        }
+    }
+
+    if compute_graph_definition.is_none() {
+        return Err(IndexifyAPIError::bad_request("Compute graph definition is required"));
+    }
+
+    if write_result.is_none() {
+        return Err(IndexifyAPIError::bad_request("Code is required"));
+    }
+    let compute_graph_definition = compute_graph_definition.unwrap();
+    let code_url = write_result.unwrap().url;
+
+    let compute_graph = compute_graph_definition.into_data_model(&code_url)?;
     let name = compute_graph.name.clone();
     let request = RequestType::CreateComputeGraph(CreateComputeGraphRequest {
         namespace,
@@ -198,6 +255,16 @@ async fn delete_compute_graph(
     Ok(())
 }
 
+/// List compute graphs
+#[utoipa::path(
+    get,
+    path = "/{namespace}/compute_graphs",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Lists Compute Graph", body = ComputeGraphsList),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
 async fn list_compute_graphs(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,

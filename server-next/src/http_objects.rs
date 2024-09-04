@@ -2,9 +2,8 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{self, filter::LabelsFilter};
+use data_model;
 use serde::{Deserialize, Serialize};
-use serde_json::value;
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
@@ -29,12 +28,22 @@ impl IndexifyAPIError {
     pub fn not_found(message: &str) -> Self {
         Self::new(StatusCode::NOT_FOUND, message)
     }
+
+    pub fn bad_request(message: &str) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, message)
+    }
 }
 
 impl IntoResponse for IndexifyAPIError {
     fn into_response(self) -> Response {
         tracing::error!("API Error: {} - {}", self.status_code, self.message);
         (self.status_code, self.message).into_response()
+    }
+}
+
+impl From<serde_json::Error> for IndexifyAPIError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::bad_request(&e.to_string())
     }
 }
 
@@ -213,7 +222,7 @@ pub struct CreateNamespace {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraphsList {
     pub compute_graphs: Vec<ComputeGraph>,
     pub cursor: Option<String>,
@@ -244,9 +253,23 @@ pub struct CreateNamespaceResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct FileUpload {
+pub struct GraphInput{
     // file:///s3://bucket/key
     // file:///data/path/to/file
     pub payload: String,
     pub labels: HashMap<String, String>,
+    pub input: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexifyDataObject{
+    pub data_id: String,
+    pub payload: serde_json::Value,
+    pub hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexifyFile {
+    pub url: String,
+    pub hash: String,
 }

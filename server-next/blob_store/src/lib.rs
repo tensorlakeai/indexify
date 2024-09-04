@@ -17,6 +17,13 @@ pub mod disk;
 pub mod http;
 pub mod s3;
 
+pub struct WriteStreamResult {
+    pub url: String,
+    pub size_bytes: u64,
+    pub hash: String,
+    pub file_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct S3Config {
     pub bucket: String,
