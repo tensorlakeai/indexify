@@ -58,7 +58,7 @@ pub struct NamespaceList {
     pub namespaces: Vec<Namespace>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
@@ -97,7 +97,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DynamicRouter {
     pub name: String,
     pub source_fn: String,
@@ -127,7 +127,7 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub enum Node {
     DynamicRouter(DynamicRouter),
     ComputeFn(ComputeFn),
@@ -151,7 +151,7 @@ impl From<data_model::Node> for Node {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {
     pub name: String,
     pub namespace: String,
@@ -216,6 +216,7 @@ pub struct CreateNamespace {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ComputeGraphsList {
     pub compute_graphs: Vec<ComputeGraph>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

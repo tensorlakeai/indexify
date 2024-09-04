@@ -5,6 +5,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use tracing::info;
 use std::sync::Arc;
 
 use blob_store::BlobStorage;
@@ -19,7 +20,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
     ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, IndexifyAPIError, Namespace,
-    NamespaceList,
+    NamespaceList, Node, DynamicRouter, ComputeFn
 };
 
 #[derive(OpenApi)]
@@ -27,6 +28,7 @@ use crate::http_objects::{
         paths(
             create_namespace,
             namespaces,
+            create_compute_graph,
         ),
         components(
             schemas(
@@ -34,6 +36,10 @@ use crate::http_objects::{
                 NamespaceList,
                 IndexifyAPIError,
                 Namespace,
+                ComputeGraph,
+                Node,
+                DynamicRouter,
+                ComputeFn
             )
         ),
         tags(
@@ -132,8 +138,8 @@ async fn create_namespace(
     path = "/namespaces",
     tag = "operations",
     responses(
-        (status = 200, description = "List of Data Namespaces registered on the server", body = NamespaceList),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
+        (status = 200, description = "List all namespaces", body = NamespaceList),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to list namespace")
     ),
 )]
 async fn namespaces(
@@ -147,13 +153,25 @@ async fn namespaces(
     Ok(Json(NamespaceList { namespaces }))
 }
 
+/// Create compute graph 
+#[utoipa::path(
+    post,
+    path = "/{namespace}/compute_graphs",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Create a Compute Graph", body = ComputeGraph),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to create compute graphs")
+    ),
+)]
 async fn create_compute_graph(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
     Json(compute_graph): Json<ComputeGraph>,
 ) -> Result<(), IndexifyAPIError> {
+    // TODO Make this multipart
     let code_path = "test";
     let compute_graph = compute_graph.into_data_model(code_path)?;
+    let name = compute_graph.name.clone();
     let request = RequestType::CreateComputeGraph(CreateComputeGraphRequest {
         namespace,
         compute_graph,
@@ -163,6 +181,7 @@ async fn create_compute_graph(
         .write(request)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    info!("compute graph created: {}", name);
     Ok(())
 }
 
@@ -183,8 +202,14 @@ async fn list_compute_graphs(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
 ) -> Result<Json<ComputeGraphsList>, IndexifyAPIError> {
+    let (compute_graphs, cursor) = state
+        .indexify_state
+        .reader()
+        .list_compute_graphs(&namespace, None)
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
     Ok(Json(ComputeGraphsList {
-        compute_graphs: vec![],
+        compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
+        cursor: cursor.map(|c| String::from_utf8(c).unwrap()),
     }))
 }
 

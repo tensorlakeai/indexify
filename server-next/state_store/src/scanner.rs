@@ -28,7 +28,7 @@ impl StateReader {
         start_key_prefix: Option<String>,
         column: IndexifyObjectsColumns,
         limit: Option<usize>,
-    ) -> Result<(Vec<V>, Vec<u8>)>
+    ) -> Result<(Vec<V>, Option<Vec<u8>>)>
     where
         V: DeserializeOwned,
     {
@@ -51,19 +51,18 @@ impl StateReader {
         let mut items = Vec::new();
         let mut total = 0;
         let limit = limit.unwrap_or(usize::MAX);
-        let mut restart_key = "".to_string();
+        let mut restart_key = None;
         for kv in iter {
             let kv = kv?;
             let value = JsonEncoder::decode(&kv.1).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             items.push(value);
             total += 1;
             if total >= limit {
-                restart_key = String::from_utf8(kv.0.to_vec())
-                    .map_err(|e| anyhow!("unable to convert key to string {}", e))?;
+                restart_key.replace(kv.0.to_vec());
                 break;
             }
         }
-        Ok((items, restart_key.into()))
+        Ok((items, restart_key))
     }
 
     pub fn filter_join_cf<T, F, K>(
@@ -277,6 +276,20 @@ impl StateReader {
         Ok(compute_graphs)
     }
 
+    // TODO - Max please implement cursor based pagination in prefix scans
+    pub fn list_compute_graphs(
+        &self,
+        namespace: &str,
+        _cursor: Option<Vec<u8>>,
+    ) -> Result<(Vec<ComputeGraph>, Option<Vec<u8>>)> {
+        let (compute_graphs, cursor) = self.get_rows_from_cf_with_limits::<ComputeGraph>(
+            Some(namespace.to_string()),
+            IndexifyObjectsColumns::ComputeGraphs,
+            None,
+        )?;
+        Ok((compute_graphs, cursor))
+    }
+
     pub fn get_compute_graph(&self, namespace: &str, name: &str) -> Result<Option<ComputeGraph>> {
         let key = format!("{}_{}", namespace, name);
         let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
@@ -356,7 +369,7 @@ mod tests {
                 Some(3),
             )
             .unwrap();
-        let cursor = String::from_utf8(result.1.clone()).unwrap();
+        let cursor = String::from_utf8(result.1.unwrap().clone()).unwrap();
 
         assert_eq!(result.0.len(), 3);
         assert_eq!(cursor, "test_2");
@@ -368,8 +381,8 @@ mod tests {
                 Some(3),
             )
             .unwrap();
-        let cursor = String::from_utf8(result.1.clone()).unwrap();
+        let cursor = result.1;
         assert_eq!(result.0.len(), 2);
-        assert_eq!(cursor, "");
+        assert_eq!(cursor, None);
     }
 }
