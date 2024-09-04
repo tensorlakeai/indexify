@@ -1092,6 +1092,7 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-server",
+ "blob_store",
  "clap",
  "data_model",
  "figment",

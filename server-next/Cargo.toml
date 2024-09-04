@@ -60,6 +60,7 @@ data_model = { path = "data_model" }
 state_store = { path = "state_store" }
 indexify_proto = { path = "indexify_proto" }
 task_scheduler = { path = "task_scheduler" }
+blob_store = { path = "blob_store" }
 serde={workspace = true}
 serde_json={workspace = true}
 anyhow = {workspace=true}

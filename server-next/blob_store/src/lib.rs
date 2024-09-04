@@ -90,7 +90,7 @@ impl std::fmt::Debug for StoragePartWriter {
 }
 
 impl BlobStorage {
-    pub fn new_with_config(config: BlobStorageConfig) -> Self {
+    pub fn new(config: BlobStorageConfig) -> Self {
         Self { config }
     }
 
@@ -286,7 +286,7 @@ mod tests {
         ];
         let stream = stream::iter(data.into_iter().map(Ok));
 
-        let storage = BlobStorage::new_with_config(BlobStorageConfig {
+        let storage = BlobStorage::new(BlobStorageConfig {
             s3: Some(S3Config {
                 bucket: "test-bucket".to_string(),
                 region: "us-east-1".to_string(),
@@ -322,7 +322,7 @@ mod tests {
             Bytes::from("test_data_3"),
         ];
 
-        let storage = BlobStorage::new_with_config(BlobStorageConfig {
+        let storage = BlobStorage::new(BlobStorageConfig {
             s3: Some(S3Config {
                 bucket: "test-bucket".to_string(),
                 region: "us-east-1".to_string(),

@@ -11,8 +11,8 @@ use object_store::{
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use super::{BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, StoragePartWriter};
 use super::{BlobStorageConfig, PutResult};
+use super::{BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, StoragePartWriter};
 
 pub struct S3Storage {
     bucket: String,

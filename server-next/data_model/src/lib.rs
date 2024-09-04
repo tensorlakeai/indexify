@@ -25,25 +25,6 @@ pub struct DynamicEdgeRouter {
     pub target_functions: Vec<String>,
 }
 
-impl DynamicEdgeRouter {
-    pub fn create_task(
-        &self,
-        namespace: &str,
-        compute_graph_name: &str,
-        input_id: &str,
-        ingested_id: &str,
-    ) -> Result<Task> {
-        let task = TaskBuilder::default()
-            .namespace(namespace.to_string())
-            .compute_fn_name(self.name.clone())
-            .compute_graph_name(compute_graph_name.to_string())
-            .ingested_data_id(ingested_id.to_string())
-            .input_data_id(input_id.to_string())
-            .build()?;
-        Ok(task)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeFn {
     pub name: String,
@@ -56,7 +37,15 @@ impl ComputeFn {
     pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
         self.placement_constraints.matches(&executor.labels)
     }
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Node {
+    Router(DynamicEdgeRouter),
+    Compute(ComputeFn),
+}
+
+impl Node {
     pub fn create_task(
         &self,
         namespace: &str,
@@ -64,21 +53,19 @@ impl ComputeFn {
         input_id: &str,
         ingested_id: &str,
     ) -> Result<Task> {
+        let name = match self {
+            Node::Router(router) => router.name.clone(),
+            Node::Compute(compute) => compute.name.clone(),
+        };
         let task = TaskBuilder::default()
             .namespace(namespace.to_string())
-            .compute_fn_name(self.name.clone())
+            .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
             .ingested_data_id(ingested_id.to_string())
             .input_data_id(input_id.to_string())
             .build()?;
         Ok(task)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum GraphEdge {
-    Router(DynamicEdgeRouter),
-    Compute(ComputeFn),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -89,8 +76,8 @@ pub struct ComputeGraph {
     pub code_path: String,
     pub create_at: u64,
     pub tomb_stoned: bool,
-    pub start_fn: ComputeFn,
-    pub edges: HashMap<String, Vec<GraphEdge>>,
+    pub start_fn: Node,
+    pub edges: HashMap<String, Vec<Node>>,
 }
 
 impl ComputeGraph {

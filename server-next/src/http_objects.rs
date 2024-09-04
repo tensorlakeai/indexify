@@ -2,8 +2,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model;
+use data_model::{self, filter::LabelsFilter};
 use serde::{Deserialize, Serialize};
+use serde_json::value;
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
@@ -64,17 +65,90 @@ pub struct ComputeFn {
     pub description: String,
 }
 
+impl Into<data_model::ComputeFn> for &ComputeFn {
+    fn into(self) -> data_model::ComputeFn {
+        data_model::ComputeFn {
+            name: self.name.clone(),
+            fn_name: self.fn_name.clone(),
+            description: self.description.clone(),
+            placement_constraints: Default::default(),
+        }
+    }
+}
+
+impl Into<data_model::ComputeFn> for ComputeFn {
+    fn into(self) -> data_model::ComputeFn {
+        data_model::ComputeFn {
+            name: self.name.clone(),
+            fn_name: self.fn_name.clone(),
+            description: self.description.clone(),
+            placement_constraints: Default::default(),
+        }
+    }
+}
+
+impl From<data_model::ComputeFn> for ComputeFn {
+    fn from(c: data_model::ComputeFn) -> Self {
+        Self {
+            name: c.name,
+            fn_name: c.fn_name,
+            description: c.description,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DynamicRouter {
     pub name: String,
     pub source_fn: String,
+    pub description: String,
     pub target_fns: Vec<String>,
 }
 
+impl Into<data_model::DynamicEdgeRouter> for DynamicRouter {
+    fn into(self) -> data_model::DynamicEdgeRouter {
+        data_model::DynamicEdgeRouter {
+            name: self.name.clone(),
+            source_fn: self.source_fn.clone(),
+            description: self.description.clone(),
+            target_functions: self.target_fns.clone(),
+        }
+    }
+}
+
+impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
+    fn from(d: data_model::DynamicEdgeRouter) -> Self {
+        Self {
+            name: d.name,
+            source_fn: d.source_fn,
+            description: d.description,
+            target_fns: d.target_functions,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Edge {
+pub enum Node {
     DynamicRouter(DynamicRouter),
     ComputeFn(ComputeFn),
+}
+
+impl Into<data_model::Node> for Node {
+    fn into(self) -> data_model::Node {
+        match self {
+            Node::DynamicRouter(d) => data_model::Node::Router(d.into()),
+            Node::ComputeFn(c) => data_model::Node::Compute(c.into()),
+        }
+    }
+}
+
+impl From<data_model::Node> for Node {
+    fn from(node: data_model::Node) -> Self {
+        match node {
+            data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
+            data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,9 +156,56 @@ pub struct ComputeGraph {
     pub name: String,
     pub namespace: String,
     pub description: String,
-    pub fns: Vec<ComputeFn>,
-    pub edges: HashMap<String, Edge>,
+    pub start_fn: Node,
+    pub edges: HashMap<String, Vec<Node>>,
     pub created_at: u64,
+}
+
+impl ComputeGraph {
+    pub fn into_data_model(
+        self,
+        code_path: &str,
+    ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
+        let mut edges = HashMap::new();
+        for (k, v) in self.edges.into_iter() {
+            let v: Vec<data_model::Node> = v.into_iter().map(|e| e.into()).collect();
+            edges.insert(k, v);
+        }
+        let start_fn: data_model::Node = self.start_fn.into();
+        let compute_graph = data_model::ComputeGraph {
+            name: self.name,
+            namespace: self.namespace,
+            description: self.description,
+            start_fn,
+            code_path: code_path.to_string(),
+            edges,
+            create_at: 0,
+            tomb_stoned: false,
+        };
+        Ok(compute_graph)
+    }
+}
+
+impl From<data_model::ComputeGraph> for ComputeGraph {
+    fn from(compute_graph: data_model::ComputeGraph) -> Self {
+        let start_fn = match compute_graph.start_fn {
+            data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
+            data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
+        };
+        let mut edges = HashMap::new();
+        for (k, v) in compute_graph.edges.into_iter() {
+            let v: Vec<Node> = v.into_iter().map(|e| e.into()).collect();
+            edges.insert(k, v);
+        }
+        Self {
+            name: compute_graph.name,
+            namespace: compute_graph.namespace,
+            description: compute_graph.description,
+            start_fn,
+            edges,
+            created_at: compute_graph.create_at,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

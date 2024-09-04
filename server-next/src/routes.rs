@@ -7,8 +7,11 @@ use axum::{
 };
 use std::sync::Arc;
 
+use blob_store::BlobStorage;
 use state_store::{
-    requests::{NamespaceRequest, RequestType},
+    requests::{
+        CreateComputeGraphRequest, DeleteComputeGraphRequest, NamespaceRequest, RequestType,
+    },
     IndexifyState,
 };
 use utoipa::OpenApi;
@@ -43,6 +46,7 @@ struct ApiDoc;
 #[derive(Clone)]
 pub struct RouteState {
     pub indexify_state: Arc<IndexifyState>,
+    pub blob_storage: Arc<BlobStorage>,
 }
 
 pub fn create_routes(_route_state: RouteState) -> Router {
@@ -148,6 +152,17 @@ async fn create_compute_graph(
     State(state): State<RouteState>,
     Json(compute_graph): Json<ComputeGraph>,
 ) -> Result<(), IndexifyAPIError> {
+    let code_path = "test";
+    let compute_graph = compute_graph.into_data_model(code_path)?;
+    let request = RequestType::CreateComputeGraph(CreateComputeGraphRequest {
+        namespace,
+        compute_graph,
+    });
+    state
+        .indexify_state
+        .write(request)
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
     Ok(())
 }
 
@@ -155,6 +170,12 @@ async fn delete_compute_graph(
     Path((namespace, name)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
+    let request = RequestType::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name });
+    state
+        .indexify_state
+        .write(request)
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
     Ok(())
 }
 
@@ -168,17 +189,18 @@ async fn list_compute_graphs(
 }
 
 async fn get_compute_graph(
-    Path((namespace, compute_graph)): Path<(String, String)>,
+    Path((namespace, name)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<ComputeGraph>, IndexifyAPIError> {
-    Ok(Json(ComputeGraph {
-        name: "test".to_string(),
-        namespace: "test".to_string(),
-        description: "test".to_string(),
-        fns: vec![],
-        edges: Default::default(),
-        created_at: 0,
-    }))
+    let compute_graph = state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&namespace, &name)
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    if let Some(compute_graph) = compute_graph {
+        return Ok(Json(compute_graph.into()));
+    }
+    Err(IndexifyAPIError::not_found("Compute Graph not found"))
 }
 
 async fn ingested_data(

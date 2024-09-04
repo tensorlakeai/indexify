@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType, GraphEdge, InvokeComputeGraphEvent, StateChangeId, Task, TaskFinishedEvent,
+    ChangeType, InvokeComputeGraphEvent, Node, StateChangeId, Task, TaskFinishedEvent,
 };
 use state_store::{
     requests::{CreateTaskRequest, RequestType},
@@ -88,35 +88,19 @@ impl Scheduler {
         )?;
 
         let edges = edges.unwrap();
-        let mut tasks = vec![];
+        let mut new_tasks = vec![];
         for edge in edges {
-            match edge {
-                GraphEdge::Router(router) => {
-                    for output in &outputs {
-                        let task = router.create_task(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &output.id,
-                            &task.ingested_data_id,
-                        )?;
-                        tasks.push(task);
-                    }
-                }
-                GraphEdge::Compute(compute) => {
-                    for output in &outputs {
-                        let task = compute.create_task(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &output.id,
-                            &task.ingested_data_id,
-                        )?;
-                        tasks.push(task);
-                    }
-                }
+            for output in &outputs {
+                let new_task = edge.create_task(
+                    &task.namespace,
+                    &task.compute_graph_name,
+                    &output.id,
+                    &task.ingested_data_id,
+                )?;
+                new_tasks.push(new_task);
             }
         }
-
-        Ok(tasks)
+        Ok(new_tasks)
     }
 
     pub async fn run_scheduler(&self) -> Result<()> {

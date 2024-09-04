@@ -1,26 +1,12 @@
+use std::net::SocketAddr;
+
 use anyhow::Result;
+use blob_store::{BlobStorageConfig, DiskStorageConfig};
 use figment::{
     providers::{Format, Yaml},
     Figment,
 };
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct S3Config {
-    pub bucket: String,
-    pub region: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiskStorageConfig {
-    pub path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlobStorageConfig {
-    pub s3: Option<S3Config>,
-    pub disk: Option<DiskStorageConfig>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -48,6 +34,27 @@ impl ServerConfig {
     pub fn from_path(path: &str) -> Result<ServerConfig> {
         let config_str = std::fs::read_to_string(path)?;
         let config: ServerConfig = Figment::new().merge(Yaml::string(&config_str)).extract()?;
+        config.validate()?;
         Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.blob_storage.s3.is_some() && self.blob_storage.disk.is_some() {
+            return Err(anyhow::anyhow!(
+                "cannot specify both s3 and disk blob storage"
+            ));
+        }
+        if self.blob_storage.s3.is_none() && self.blob_storage.disk.is_none() {
+            return Err(anyhow::anyhow!(
+                "must specify one of s3 or disk blob storage"
+            ));
+        }
+        if self.listen_addr.parse::<SocketAddr>().is_err() {
+            return Err(anyhow::anyhow!(
+                "invalid listen address: {}",
+                self.listen_addr
+            ));
+        }
+        Ok(())
     }
 }

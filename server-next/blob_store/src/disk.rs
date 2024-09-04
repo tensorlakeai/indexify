@@ -12,14 +12,11 @@ use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+use super::PutResult;
 use super::{
-    BlobStoragePartWriter,
-    BlobStorageReader,
-    BlobStorageWriter,
-    DiskStorageConfig,
+    BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, DiskStorageConfig,
     StoragePartWriter,
 };
-use super::PutResult;
 
 const BUFFER_SIZE: usize = 1024 * 1024 * 2;
 
