@@ -2,7 +2,7 @@
 name = "indexify-server"
 version = "0.1.22"
 edition = "2021"
-authors = ["Diptanu Gon Choudhury <diptanu@tensorlake.ai>"]
+authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache-2.0"
 build = "build.rs"
 resolver = "2"
@@ -41,6 +41,8 @@ figment = {version="0.10.19",features=["yaml"]}
 axum = {version = "0.7.5", features = ["multipart", "macros", "tokio"]}
 axum-server = "0.7.1"
 tempfile = "3.12.0"
+utoipa = { version = "4.2.3", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 
 
 [dependencies]
@@ -60,6 +62,8 @@ axum-server={workspace=true}
 futures = "0.3.30"
 tokio-stream = "0.1.15"
 tracing-subscriber = "0.3.18"
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
 
 
 [build-dependencies]

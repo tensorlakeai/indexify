@@ -1,7 +1,7 @@
 use std::{mem, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use data_model::StateChange;
+use data_model::{Namespace, StateChange};
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
@@ -232,6 +232,7 @@ impl StateReader {
         }
         Ok(state_changes)
     }
+
     pub fn get_all_rows_from_cf<V>(
         &self,
         column: IndexifyObjectsColumns,
@@ -256,6 +257,15 @@ impl StateReader {
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
+    }
+
+    pub fn get_all_namespaces(&self, limit: Option<usize>) -> Result<Vec<Namespace>> {
+        let (namespaces, _) = self.get_rows_from_cf_with_limits::<Namespace>(
+            None,
+            IndexifyObjectsColumns::Namespaces,
+            limit,
+        )?;
+        Ok(namespaces)
     }
 }
 

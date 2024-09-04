@@ -10,18 +10,44 @@ use state_store::{
     requests::{NamespaceRequest, RequestType},
     IndexifyState,
 };
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
-    ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, IndexifyAPIError, NamespaceList,
+    ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, IndexifyAPIError, Namespace,
+    NamespaceList,
 };
+
+#[derive(OpenApi)]
+#[openapi(
+        paths(
+            create_namespace,
+            namespaces,
+        ),
+        components(
+            schemas(
+                CreateNamespace, 
+                NamespaceList,
+                IndexifyAPIError,
+                Namespace,
+            )
+        ),
+        tags(
+            (name = "indexify", description = "Indexify API")
+        )
+    )]
+
+struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
     pub indexify_state: IndexifyState,
 }
 
+
 pub fn create_routes(_route_state: RouteState) -> Router {
-    let app = Router::new()
+   let app = Router::new()
+        .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
         .route("/", get(index))
         .route(
             "/namespaces",
@@ -71,6 +97,17 @@ async fn index() -> &'static str {
     "Indexify Server"
 }
 
+/// Create a new namespace
+#[utoipa::path(
+    post,
+    path = "/namespaces",
+    request_body = CreateNamespace,
+    tag = "operations",
+    responses(
+        (status = 200, description = "Namespace created successfully"),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to create namespace")
+    ),
+)]
 async fn create_namespace(
     State(state): State<RouteState>,
     Json(namespace): Json<CreateNamespace>,
@@ -85,13 +122,27 @@ async fn create_namespace(
     Ok(())
 }
 
+/// List all namespaces
+#[utoipa::path(
+    get,
+    path = "/namespaces",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List of Data Namespaces registered on the server", body = NamespaceList),
+        (status = INTERNAL_SERVER_ERROR, description = "Unable to sync namespace")
+    ),
+)]
 async fn namespaces(
     State(state): State<RouteState>,
 ) -> Result<Json<NamespaceList>, IndexifyAPIError> {
-    Ok(Json(NamespaceList { namespaces: vec![] }))
+    let reader = state.indexify_state.reader();
+    let namespaces = reader
+        .get_all_namespaces(None)
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    let namespaces: Vec<Namespace> = namespaces.into_iter().map(|n| n.into()).collect();
+    Ok(Json(NamespaceList { namespaces }))
 }
 
-#[axum::debug_handler]
 async fn create_compute_graph(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,

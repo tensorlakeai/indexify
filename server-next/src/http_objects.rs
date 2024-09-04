@@ -1,12 +1,13 @@
+use data_model;
 use std::collections::HashMap;
-
+use utoipa::ToSchema;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, ToSchema)]
 pub struct IndexifyAPIError {
     status_code: StatusCode,
     message: String,
@@ -36,13 +37,22 @@ impl IntoResponse for IndexifyAPIError {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Namespace {
     name: String,
     created_at: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl From<data_model::Namespace> for Namespace {
+    fn from(namespace: data_model::Namespace) -> Self {
+        Self {
+            name: namespace.name,
+            created_at: namespace.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct NamespaceList {
     pub namespaces: Vec<Namespace>,
 }
@@ -77,7 +87,7 @@ pub struct ComputeGraph {
     pub created_at: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespace {
     pub name: String,
 }
