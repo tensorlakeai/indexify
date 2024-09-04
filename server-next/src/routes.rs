@@ -44,9 +44,8 @@ pub struct RouteState {
     pub indexify_state: IndexifyState,
 }
 
-
 pub fn create_routes(_route_state: RouteState) -> Router {
-   let app = Router::new()
+    let app = Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
         .route("/", get(index))
         .route(

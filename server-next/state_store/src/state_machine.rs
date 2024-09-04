@@ -60,7 +60,7 @@ impl IndexifyObjectsColumns {
     }
 }
 
-pub fn create_namespace(namespace: &Namespace, db: Arc<TransactionDB>) -> Result<()> {
+pub(crate) fn create_namespace(db: Arc<TransactionDB>, namespace: &Namespace) -> Result<()> {
     let serialized_namespace = JsonEncoder::encode(&namespace)?;
     db.put_cf(
         &IndexifyObjectsColumns::Namespaces.cf_db(&db),
@@ -117,13 +117,13 @@ pub fn delete_input_data_object(
     Ok(())
 }
 
-pub fn create_compute_graph(
-    db: &OptimisticTransactionDB,
+pub(crate) fn create_compute_graph(
+    db: Arc<TransactionDB>,
     compute_graph: ComputeGraph,
 ) -> Result<()> {
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
     db.put_cf(
-        &IndexifyObjectsColumns::ComputeGraphs.cf(db),
+        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
         &serialized_compute_graph,
     )?;
@@ -131,13 +131,13 @@ pub fn create_compute_graph(
 }
 
 pub fn delete_compute_graph(
-    db: &OptimisticTransactionDB,
-    txn: &Transaction<OptimisticTransactionDB>,
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
     namespace: &str,
     name: &str,
 ) -> Result<()> {
     txn.delete_cf(
-        &IndexifyObjectsColumns::ComputeGraphs.cf(db),
+        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         format!("{}_{}", namespace, name),
     )?;
     // WHY IS THIS NOT WORKING
@@ -148,13 +148,27 @@ pub fn delete_compute_graph(
     let prefix = format!("{}_{}_{}", namespace, name, "");
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        &IndexifyObjectsColumns::IngestedData.cf(db),
+        &IndexifyObjectsColumns::IngestedData.cf_db(&db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        txn.delete_cf(&IndexifyObjectsColumns::IngestedData.cf(db), &key.0)?;
+        txn.delete_cf(&IndexifyObjectsColumns::IngestedData.cf_db(&db), &key.0)?;
+    }
+
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
+    let prefix = format!("{}_{}_{}", namespace, name, "");
+    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
+    let iter = db.iterator_cf_opt(
+        &IndexifyObjectsColumns::FnOutputData.cf_db(&db),
+        read_options,
+        iterator_mode,
+    );
+    for key in iter {
+        let key = key?;
+        txn.delete_cf(&IndexifyObjectsColumns::FnOutputData.cf_db(&db), &key.0)?;
     }
     Ok(())
 }

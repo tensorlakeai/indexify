@@ -40,6 +40,14 @@ impl IndexifyState {
             requests::RequestType::CreateNameSpace(namespace_request) => {
                 self.create_namespace(&namespace_request.name).await?;
             }
+            requests::RequestType::CreateComputeGraph(create_compute_graph_request) => {
+                self.create_compute_graph(&create_compute_graph_request)
+                    .await?;
+            }
+            requests::RequestType::DeleteComputeGraph(delete_compute_graph_request) => {
+                self.delete_compute_graph(&delete_compute_graph_request)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -49,7 +57,26 @@ impl IndexifyState {
             name: name.to_string(),
             created_at: get_epoch_time_in_ms(),
         };
-        state_machine::create_namespace(&namespace, self.db.clone())?;
+        state_machine::create_namespace(self.db.clone(), &namespace)?;
+        Ok(())
+    }
+
+    async fn create_compute_graph(
+        &self,
+        create_compute_graph_request: &requests::CreateComputeGraphRequest,
+    ) -> Result<()> {
+        let compute_graph = create_compute_graph_request.compute_graph.clone();
+        state_machine::create_compute_graph(self.db.clone(), compute_graph)?;
+        Ok(())
+    }
+
+    async fn delete_compute_graph(
+        &self,
+        request: &requests::DeleteComputeGraphRequest,
+    ) -> Result<()> {
+        let txn = self.db.transaction();
+        state_machine::delete_compute_graph(self.db.clone(), &txn, &request.namespace, &request.name)?;
+        txn.commit()?;
         Ok(())
     }
 

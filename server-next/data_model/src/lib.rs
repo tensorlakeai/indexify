@@ -30,8 +30,7 @@ pub struct ComputeFn {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
-    pub function_name: String,
-    pub edges: Vec<String>,
+    pub fn_name: String,
 }
 
 impl ComputeFn {
@@ -50,9 +49,10 @@ pub enum GraphEdge {
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
+    pub description: String,
     pub code_path: String,
     pub create_at: u64,
-    pub tombstoned: bool,
+    pub tomb_stoned: bool,
     pub start_fn: ComputeFn,
     pub edges: HashMap<String, Vec<GraphEdge>>,
 }

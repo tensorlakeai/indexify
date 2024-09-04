@@ -1,7 +1,7 @@
 use std::{mem, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use data_model::{Namespace, StateChange};
+use data_model::{ComputeGraph, Namespace, StateChange};
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
@@ -266,6 +266,15 @@ impl StateReader {
             limit,
         )?;
         Ok(namespaces)
+    }
+
+    pub fn get_all_compute_graphs(&self, limit: Option<usize>) -> Result<Vec<ComputeGraph>> {
+        let (compute_graphs, _) = self.get_rows_from_cf_with_limits::<ComputeGraph>(
+            None,
+            IndexifyObjectsColumns::ComputeGraphs,
+            limit,
+        )?;
+        Ok(compute_graphs)
     }
 }
 
