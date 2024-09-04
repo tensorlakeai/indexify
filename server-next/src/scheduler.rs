@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Result};
-use data_model::{ChangeType, TaskFinishedEvent, InvokeComputeGraphEvent, StateChangeId, Task, GraphEdge};
+use data_model::{
+    ChangeType, GraphEdge, InvokeComputeGraphEvent, StateChangeId, Task, TaskFinishedEvent,
+};
 use state_store::{
     requests::{CreateTaskRequest, RequestType},
     IndexifyState,
@@ -57,8 +59,7 @@ impl Scheduler {
                 &task_finished_event.compute_fn,
                 &task_finished_event.task_id,
             )?
-            .ok_or(anyhow!(
-                "task not found: {:?}",task_finished_event))?;
+            .ok_or(anyhow!("task not found: {:?}", task_finished_event))?;
 
         let compute_graph = self
             .indexify_state
@@ -80,7 +81,11 @@ impl Scheduler {
         }
 
         // Get all the outputs of the compute fn
-        let outputs = self.indexify_state.reader().get_task_outputs(&task_finished_event.namespace, &task_finished_event.compute_graph, &task_finished_event.compute_fn)?;
+        let outputs = self.indexify_state.reader().get_task_outputs(
+            &task_finished_event.namespace,
+            &task_finished_event.compute_graph,
+            &task_finished_event.compute_fn,
+        )?;
 
         let edges = edges.unwrap();
         let mut tasks = vec![];
@@ -88,13 +93,23 @@ impl Scheduler {
             match edge {
                 GraphEdge::Router(router) => {
                     for output in &outputs {
-                        let task = router.create_task(&task.namespace, &task.compute_graph_name, &output.id, &task.ingested_data_id)?;
+                        let task = router.create_task(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &output.id,
+                            &task.ingested_data_id,
+                        )?;
                         tasks.push(task);
                     }
                 }
                 GraphEdge::Compute(compute) => {
                     for output in &outputs {
-                        let task = compute.create_task(&task.namespace, &task.compute_graph_name, &output.id, &task.ingested_data_id)?;
+                        let task = compute.create_task(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &output.id,
+                            &task.ingested_data_id,
+                        )?;
                         tasks.push(task);
                     }
                 }
@@ -112,7 +127,8 @@ impl Scheduler {
         for state_change in state_changes {
             let tasks: Vec<Task> = match state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => {
-                    let tasks = self.handle_invoke_compute_graph(invoke_compute_graph_event)
+                    let tasks = self
+                        .handle_invoke_compute_graph(invoke_compute_graph_event)
                         .await?;
                     tasks
                 }
@@ -124,8 +140,10 @@ impl Scheduler {
                     vec![]
                 }
             };
-            let _ = self.indexify_state
-                .write(RequestType::CreateTasks(CreateTaskRequest { tasks })).await?;
+            let _ = self
+                .indexify_state
+                .write(RequestType::CreateTasks(CreateTaskRequest { tasks }))
+                .await?;
         }
         Ok(())
     }
@@ -149,6 +167,23 @@ impl Scheduler {
                 }
             }
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use data_model::{DataObject, InvokeComputeGraphEvent, Task};
+    use state_store::{requests::RequestType, IndexifyState};
+    use tempfile::TempDir;
+    use tokio::sync::watch;
+
+    #[tokio::test]
+    async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
+        let scheduler = Scheduler::new(indexify_state.clone());
         Ok(())
     }
 }

@@ -70,11 +70,25 @@ pub(crate) fn create_namespace(db: Arc<TransactionDB>, namespace: &Namespace) ->
     Ok(())
 }
 
-pub fn create_graph_input(db: &OptimisticTransactionDB, data_object: DataObject) -> Result<()> {
+pub fn create_graph_input(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    namespace: &str,
+    compute_graph_name: &str,
+    data_object: DataObject,
+) -> Result<()> {
+    let compute_graph_key = format!("{}_{}", namespace, compute_graph_name);
+    let _ = txn
+        .get_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            &compute_graph_key,
+        )?
+        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+    let ingestion_object_key = data_object.ingestion_object_key();
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
-    db.put_cf(
-        &IndexifyObjectsColumns::IngestedData.cf(db),
-        data_object.ingestion_object_key(),
+    txn.put_cf(
+        &IndexifyObjectsColumns::IngestedData.cf_db(&db),
+        ingestion_object_key,
         &serialized_data_object,
     )?;
     Ok(())

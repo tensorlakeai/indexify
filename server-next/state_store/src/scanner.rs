@@ -309,7 +309,12 @@ impl StateReader {
         Ok(tasks)
     }
 
-    pub fn get_task_outputs(&self, namespace: &str, compute_graph: &str, compute_fn: &str) -> Result<Vec<DataObject>> {
+    pub fn get_task_outputs(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        compute_fn: &str,
+    ) -> Result<Vec<DataObject>> {
         let key = format!("{}_{}_{}", namespace, compute_graph, compute_fn);
         let (data_objects, _) = self.get_rows_from_cf_with_limits::<DataObject>(
             Some(key),

@@ -36,7 +36,11 @@ impl IndexifyState {
             sm_column_families,
         )
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
-        Ok(Self { db: Arc::new(db), state_change_tx: tx, state_change_rx: rx })
+        Ok(Self {
+            db: Arc::new(db),
+            state_change_tx: tx,
+            state_change_rx: rx,
+        })
     }
 
     pub fn get_state_change_watcher(&self) -> Receiver<StateChangeId> {
@@ -45,6 +49,10 @@ impl IndexifyState {
 
     pub async fn write(&self, request: requests::RequestType) -> Result<()> {
         match request {
+            requests::RequestType::InvokeComputeGraph(invoke_compute_graph_request) => {
+                self.invoke_compute_graph(&invoke_compute_graph_request)
+                    .await?;
+            }
             requests::RequestType::CreateNameSpace(namespace_request) => {
                 self.create_namespace(&namespace_request.name).await?;
             }
@@ -64,6 +72,22 @@ impl IndexifyState {
         for state_change in state_changes {
             self.state_change_tx.send(state_change).unwrap();
         }
+        Ok(())
+    }
+
+    async fn invoke_compute_graph(
+        &self,
+        request: &requests::InvokeComputeGraphRequest,
+    ) -> Result<()> {
+        let txn = self.db.transaction();
+        state_machine::create_graph_input(
+            self.db.clone(),
+            &txn,
+            &request.namespace,
+            &request.compute_graph_name,
+            request.data_object.clone(),
+        )?;
+        txn.commit()?;
         Ok(())
     }
 

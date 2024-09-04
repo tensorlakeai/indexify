@@ -1,15 +1,15 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
 use super::routes::RouteState;
+use super::scheduler::Scheduler;
 use crate::{config::ServerConfig, routes::create_routes};
 use anyhow::Result;
 use axum_server::Handle;
 use state_store::IndexifyState;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio;
 use tokio::signal;
 use tokio::sync::watch;
 use tracing::info;
-use super::scheduler::Scheduler;
 
 pub struct Service {
     pub config: ServerConfig,
@@ -23,14 +23,18 @@ impl Service {
     pub async fn start(&self) -> Result<()> {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let indexify_state = Arc::new(IndexifyState::new(self.config.state_store_path.parse()?)?);
-        let route_state = RouteState {indexify_state: indexify_state.clone() };
+        let route_state = RouteState {
+            indexify_state: indexify_state.clone(),
+        };
         let app = create_routes(route_state);
         let handle = Handle::new();
         let handle_sh = handle.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
         tokio::spawn(async move {
             info!("starting scheduler");
-            let _ = scheduler.start(shutdown_rx, indexify_state.get_state_change_watcher()).await;
+            let _ = scheduler
+                .start(shutdown_rx, indexify_state.get_state_change_watcher())
+                .await;
             info!("scheduler shutdown");
         });
         tokio::spawn(async move {

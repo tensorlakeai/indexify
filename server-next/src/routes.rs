@@ -1,11 +1,11 @@
 use anyhow::Result;
-use std::sync::Arc;
 use axum::{
     extract::{Multipart, Path, State},
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
+use std::sync::Arc;
 
 use state_store::{
     requests::{NamespaceRequest, RequestType},
