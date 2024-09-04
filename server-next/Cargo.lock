@@ -1099,6 +1099,7 @@ dependencies = [
  "futures",
  "indexify_proto",
  "nanoid",
+ "object_store",
  "prost-wkt-build",
  "serde",
  "serde_json",
@@ -1113,6 +1114,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "utoipa-swagger-ui",
+ "uuid",
  "vergen",
 ]
 
@@ -2901,6 +2903,15 @@ dependencies = [
  "url",
  "utoipa",
  "zip",
+]
+
+[[package]]
+name = "uuid"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
+dependencies = [
+ "getrandom",
 ]
 
 [[package]]

@@ -140,12 +140,15 @@ impl IndexifyState {
 mod tests {
     use std::collections::HashMap;
 
-    use super::requests::{NamespaceRequest, RequestType};
-    use super::*;
-    use data_model::{filter::LabelsFilter, ComputeFn, ComputeGraph, Namespace};
+    use data_model::{filter::LabelsFilter, ComputeFn, ComputeGraph, Namespace, Node};
     use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};
     use tempfile::TempDir;
     use tokio;
+
+    use super::{
+        requests::{NamespaceRequest, RequestType},
+        *,
+    };
 
     #[tokio::test]
     async fn test_create_and_list_namespaces() -> Result<()> {
@@ -194,12 +197,12 @@ mod tests {
             code_path: "/path/to/code".to_string(),
             create_at: 0,
             tomb_stoned: false,
-            start_fn: ComputeFn {
+            start_fn: Node::Compute(ComputeFn {
                 name: "start_fn".to_string(),
                 description: "Start function".to_string(),
                 placement_constraints: LabelsFilter::default(),
                 fn_name: "start_fn".to_string(),
-            },
+            }),
             edges: HashMap::new(),
         };
 

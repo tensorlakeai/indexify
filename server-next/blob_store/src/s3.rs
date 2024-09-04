@@ -6,24 +6,31 @@ use bytes::Bytes;
 use futures::{stream::BoxStream, Stream, StreamExt};
 use object_store::{
     aws::{AmazonS3, AmazonS3Builder},
+    buffered::BufWriter,
     ObjectStore,
 };
-use tokio::{io::AsyncWriteExt, sync::mpsc};
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use super::{BlobStorageConfig, PutResult};
-use super::{BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, StoragePartWriter};
+use super::{
+    BlobStorageConfig,
+    BlobStoragePartWriter,
+    BlobStorageReader,
+    BlobStorageWriter,
+    PutResult,
+    StoragePartWriter,
+};
 
 pub struct S3Storage {
     bucket: String,
-    client: AmazonS3,
+    client: Arc<dyn ObjectStore>,
 }
 
 impl S3Storage {
     pub fn new(bucket: &str, client: AmazonS3) -> Self {
         S3Storage {
             bucket: bucket.to_string(),
-            client,
+            client: Arc::new(client),
         }
     }
 }
@@ -40,7 +47,7 @@ impl BlobStorageWriter for S3Storage {
         while let Some(chunk) = data.next().await {
             let chunk = chunk?;
             size_bytes += chunk.len() as u64;
-            multipart.put_part(chunk.into());
+            multipart.put_part(chunk.into()).await?;
         }
         multipart.complete().await?;
         Ok(PutResult {
@@ -62,12 +69,11 @@ impl BlobStorageWriter for S3Storage {
 #[async_trait]
 impl BlobStoragePartWriter for S3Storage {
     async fn writer(&self, key: &str) -> Result<StoragePartWriter> {
-        todo!()
-        //let mut multipart = self.client.put_multipart(&key.into()).await?;
-        //Ok(StoragePartWriter {
-        //    writer: multipart.,
-        //    url: format!("s3://{}/{}", self.bucket, key),
-        //})
+        let writer = BufWriter::new(self.client.clone(), key.into());
+        Ok(StoragePartWriter {
+            writer: Box::new(writer),
+            url: format!("s3://{}/{}", self.bucket, key),
+        })
     }
 }
 

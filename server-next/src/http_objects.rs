@@ -1,10 +1,11 @@
+use std::collections::HashMap;
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use data_model;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use utoipa::ToSchema;
 
 #[derive(Debug, ToSchema)]
@@ -19,6 +20,10 @@ impl IndexifyAPIError {
             status_code,
             message: message.to_string(),
         }
+    }
+
+    pub fn _bad_request(e: &str) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, e)
     }
 
     pub fn internal_error(e: anyhow::Error) -> Self {
@@ -253,7 +258,7 @@ pub struct CreateNamespaceResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GraphInput{
+pub struct GraphInput {
     // file:///s3://bucket/key
     // file:///data/path/to/file
     pub payload: String,
@@ -262,7 +267,7 @@ pub struct GraphInput{
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexifyDataObject{
+pub struct IndexifyDataObject {
     pub data_id: String,
     pub payload: serde_json::Value,
     pub hash: String,

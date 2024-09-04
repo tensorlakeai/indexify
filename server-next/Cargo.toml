@@ -79,6 +79,8 @@ utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 sha2={workspace=true}
 nanoid={workspace=true}
+object_store.workspace = true
+uuid = { version = "1.10.0", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
