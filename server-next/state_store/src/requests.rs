@@ -1,9 +1,10 @@
-use data_model::ComputeGraph;
+use data_model::{ComputeGraph, Task};
 
 pub enum RequestType {
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
+    CreateTasks(CreateTaskRequest),
 }
 
 pub struct NamespaceRequest {
@@ -18,4 +19,8 @@ pub struct CreateComputeGraphRequest {
 pub struct DeleteComputeGraphRequest {
     pub namespace: String,
     pub name: String,
+}
+
+pub struct CreateTaskRequest {
+    pub tasks: Vec<Task>,
 }

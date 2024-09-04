@@ -1,11 +1,12 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use data_model::Namespace;
+use data_model::{Namespace, StateChangeId};
 use indexify_utils::get_epoch_time_in_ms;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
+use tokio::sync::watch::{Receiver, Sender};
 
 pub mod requests;
 pub mod scanner;
@@ -15,10 +16,13 @@ pub mod state_machine;
 #[derive(Clone)]
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
+    pub state_change_tx: Sender<StateChangeId>,
+    pub state_change_rx: Receiver<StateChangeId>,
 }
 
 impl IndexifyState {
     pub fn new(path: PathBuf) -> Result<Self> {
+        let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         fs::create_dir_all(path.clone())?;
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -32,7 +36,11 @@ impl IndexifyState {
             sm_column_families,
         )
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
-        Ok(Self { db: Arc::new(db) })
+        Ok(Self { db: Arc::new(db), state_change_tx: tx, state_change_rx: rx })
+    }
+
+    pub fn get_state_change_watcher(&self) -> Receiver<StateChangeId> {
+        self.state_change_rx.clone()
     }
 
     pub async fn write(&self, request: requests::RequestType) -> Result<()> {
@@ -48,6 +56,13 @@ impl IndexifyState {
                 self.delete_compute_graph(&delete_compute_graph_request)
                     .await?;
             }
+            requests::RequestType::CreateTasks(create_tasks_request) => {
+                self.create_tasks(&create_tasks_request).await?;
+            }
+        }
+        let state_changes = vec![StateChangeId::new(get_epoch_time_in_ms())];
+        for state_change in state_changes {
+            self.state_change_tx.send(state_change).unwrap();
         }
         Ok(())
     }
@@ -70,12 +85,24 @@ impl IndexifyState {
         Ok(())
     }
 
+    async fn create_tasks(&self, create_tasks_request: &requests::CreateTaskRequest) -> Result<()> {
+        let txn = self.db.transaction();
+        state_machine::create_tasks(self.db.clone(), &txn, create_tasks_request.tasks.clone())?;
+        txn.commit()?;
+        Ok(())
+    }
+
     async fn delete_compute_graph(
         &self,
         request: &requests::DeleteComputeGraphRequest,
     ) -> Result<()> {
         let txn = self.db.transaction();
-        state_machine::delete_compute_graph(self.db.clone(), &txn, &request.namespace, &request.name)?;
+        state_machine::delete_compute_graph(
+            self.db.clone(),
+            &txn,
+            &request.namespace,
+            &request.name,
+        )?;
         txn.commit()?;
         Ok(())
     }
@@ -91,7 +118,7 @@ mod tests {
 
     use super::requests::{NamespaceRequest, RequestType};
     use super::*;
-    use data_model::{Namespace, ComputeGraph, ComputeFn, filter::LabelsFilter};
+    use data_model::{filter::LabelsFilter, ComputeFn, ComputeGraph, Namespace};
     use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};
     use tempfile::TempDir;
     use tokio;

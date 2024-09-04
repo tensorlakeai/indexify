@@ -173,38 +173,41 @@ pub fn delete_compute_graph(
     Ok(())
 }
 
-pub fn create_task(
-    db: &OptimisticTransactionDB,
-    txn: &Transaction<OptimisticTransactionDB>,
-    task: Task,
+pub(crate) fn create_tasks(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    tasks: Vec<Task>,
 ) -> Result<()> {
-    let serialized_task = JsonEncoder::encode(&task)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::Tasks.cf(db),
-        task.key(),
-        &serialized_task,
-    )?;
-    let key = format!(
-        "{}_{}_{}",
-        task.namespace, task.compute_graph_name, task.ingested_data_id
-    );
-    let graph_ctx = txn.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf(db), &key)?;
-    if graph_ctx.is_none() {
-        error!("Graph context not found for task: {}", task.key());
-    }
-    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.unwrap())?;
-    let analytics = graph_ctx
-        .fn_task_analytics
-        .entry(task.compute_fn_name.clone())
-        .or_insert_with(|| TaskAnalytics::default());
-    analytics.pending();
-    let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
+    for task in tasks {
+        let serialized_task = JsonEncoder::encode(&task)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            task.key(),
+            &serialized_task,
+        )?;
+        let key = format!(
+            "{}_{}_{}",
+            task.namespace, task.compute_graph_name, task.ingested_data_id
+        );
+        let graph_ctx = txn.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?;
+        if graph_ctx.is_none() {
+            error!("Graph context not found for task: {}", task.key());
+        }
+        let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.unwrap())?;
+        let analytics = graph_ctx
+            .fn_task_analytics
+            .entry(task.compute_fn_name.clone())
+            .or_insert_with(|| TaskAnalytics::default());
+        analytics.pending();
+        let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
 
-    txn.put_cf(
-        &IndexifyObjectsColumns::GraphInvocationCtx.cf(db),
-        key,
-        serialized_analytics,
-    )?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            key,
+            serialized_analytics,
+        )?;
+    }
+
     Ok(())
 }
 

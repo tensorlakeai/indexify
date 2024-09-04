@@ -6,6 +6,7 @@ use tracing::error;
 mod config;
 mod http_objects;
 mod routes;
+mod scheduler;
 mod server;
 mod service;
 

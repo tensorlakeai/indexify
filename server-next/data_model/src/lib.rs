@@ -25,6 +25,25 @@ pub struct DynamicEdgeRouter {
     pub target_functions: Vec<String>,
 }
 
+impl DynamicEdgeRouter {
+    pub fn create_task(
+        &self,
+        namespace: &str,
+        compute_graph_name: &str,
+        input_id: &str,
+        ingested_id: &str,
+    ) -> Result<Task> {
+        let task = TaskBuilder::default()
+            .namespace(namespace.to_string())
+            .compute_fn_name(self.name.clone())
+            .compute_graph_name(compute_graph_name.to_string())
+            .ingested_data_id(ingested_id.to_string())
+            .input_data_id(input_id.to_string())
+            .build()?;
+        Ok(task)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeFn {
     pub name: String,
@@ -36,6 +55,23 @@ pub struct ComputeFn {
 impl ComputeFn {
     pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
         self.placement_constraints.matches(&executor.labels)
+    }
+
+    pub fn create_task(
+        &self,
+        namespace: &str,
+        compute_graph_name: &str,
+        input_id: &str,
+        ingested_id: &str,
+    ) -> Result<Task> {
+        let task = TaskBuilder::default()
+            .namespace(namespace.to_string())
+            .compute_fn_name(self.name.clone())
+            .compute_graph_name(compute_graph_name.to_string())
+            .ingested_data_id(ingested_id.to_string())
+            .input_data_id(input_id.to_string())
+            .build()?;
+        Ok(task)
     }
 }
 
@@ -326,9 +362,27 @@ pub struct InvokeComputeGraphEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct TaskFinishedEvent {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub task_id: String,
+}
+
+impl fmt::Display for TaskFinishedEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TaskFinishedEvent(namespace: {}, compute_graph: {}, compute_fn: {}, task_id: {})",
+            self.namespace, self.compute_graph, self.compute_fn, self.task_id
+        )
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
-    TaskFinished,
+    TaskFinished(TaskFinishedEvent),
     TombstoneIngestedData,
     TombstoneComputeGraph,
     ExecutorAdded,
@@ -339,7 +393,7 @@ impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::InvokeComputeGraph(_) => write!(f, "InvokeComputeGraph"),
-            ChangeType::TaskFinished => write!(f, "TaskFinished"),
+            ChangeType::TaskFinished(_) => write!(f, "TaskFinished"),
             ChangeType::TombstoneIngestedData => write!(f, "TombstoneIngestedData"),
             ChangeType::TombstoneComputeGraph => write!(f, "TombstoneComputeGraph"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),

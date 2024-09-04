@@ -1,7 +1,7 @@
 use std::{mem, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraph, Namespace, StateChange};
+use data_model::{ComputeGraph, DataObject, Namespace, StateChange, Task};
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
@@ -276,8 +276,49 @@ impl StateReader {
         )?;
         Ok(compute_graphs)
     }
-}
 
+    pub fn get_compute_graph(&self, namespace: &str, name: &str) -> Result<Option<ComputeGraph>> {
+        let key = format!("{}_{}", namespace, name);
+        let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
+        Ok(compute_graph)
+    }
+
+    pub fn get_task(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        compute_fn: &str,
+        task_id: &str,
+    ) -> Result<Option<Task>> {
+        let key = format!("{}_{}_{}_{}", namespace, compute_graph, compute_fn, task_id);
+        let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
+        Ok(task)
+    }
+
+    pub fn get_task_by_compute_graph(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+    ) -> Result<Vec<Task>> {
+        let key = format!("{}_{}", namespace, compute_graph);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<Task>(
+            Some(key),
+            IndexifyObjectsColumns::Tasks,
+            None,
+        )?;
+        Ok(tasks)
+    }
+
+    pub fn get_task_outputs(&self, namespace: &str, compute_graph: &str, compute_fn: &str) -> Result<Vec<DataObject>> {
+        let key = format!("{}_{}_{}", namespace, compute_graph, compute_fn);
+        let (data_objects, _) = self.get_rows_from_cf_with_limits::<DataObject>(
+            Some(key),
+            IndexifyObjectsColumns::FnOutputData,
+            None,
+        )?;
+        Ok(data_objects)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::super::requests::{NamespaceRequest, RequestType};

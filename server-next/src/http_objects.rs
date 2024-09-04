@@ -1,11 +1,11 @@
-use data_model;
-use std::collections::HashMap;
-use utoipa::ToSchema;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use data_model;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use utoipa::ToSchema;
 
 #[derive(Debug, ToSchema)]
 pub struct IndexifyAPIError {

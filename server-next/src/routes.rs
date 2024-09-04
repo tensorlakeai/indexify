@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::sync::Arc;
 use axum::{
     extract::{Multipart, Path, State},
     response::IntoResponse,
@@ -41,7 +42,7 @@ struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
-    pub indexify_state: IndexifyState,
+    pub indexify_state: Arc<IndexifyState>,
 }
 
 pub fn create_routes(_route_state: RouteState) -> Router {
