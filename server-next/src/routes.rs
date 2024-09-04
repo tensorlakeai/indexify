@@ -33,6 +33,7 @@ use crate::http_objects::{
             namespaces,
             create_compute_graph,
             list_compute_graphs,
+            get_compute_graph,
         ),
         components(
             schemas(
@@ -280,6 +281,16 @@ async fn list_compute_graphs(
     }))
 }
 
+/// Get a compute graph definition
+#[utoipa::path(
+    get,
+    path = "/{namespace}/compute_graphs/{name}",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Compute Graph Definition", body = ComputeGraph),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
 async fn get_compute_graph(
     Path((namespace, name)): Path<(String, String)>,
     State(state): State<RouteState>,
