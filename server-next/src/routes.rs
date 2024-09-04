@@ -37,6 +37,7 @@ use crate::http_objects::{
             create_compute_graph,
             list_compute_graphs,
             get_compute_graph,
+            delete_compute_graph,
         ),
         components(
             schemas(
@@ -78,35 +79,35 @@ pub fn create_routes(_route_state: RouteState) -> Router {
             post(create_namespace).with_state(_route_state.clone()),
         )
         .route(
-            "/:namespace/compute_graphs",
+            "/namespaces/:namespace/compute_graphs",
             post(create_compute_graph).with_state(_route_state.clone()),
         )
         .route(
-            "/:namespace/compute_graphs",
+            "/namespaces/:namespace/compute_graphs",
             get(list_compute_graphs).with_state(_route_state.clone()),
         )
         .route(
-            "/:namespace/compute_graphs",
+            "/namespaces/:namespace/compute_graphs",
             delete(delete_compute_graph).with_state(_route_state.clone()),
         )
         .route(
-            "/:namespace/compute_graphs/{:compute_graph}/",
+            "/namespaces/:namespace/compute_graphs/:compute_graph",
             get(get_compute_graph).with_state(_route_state.clone()),
         )
         .route(
-            "/:namespace/compute_graphs/:compute_graph/inputs",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/inputs",
             get(ingested_data).with_state(_route_state.clone()),
         )
         .route(
-            "/:namespace/compute_graphs/:compute_graph/inputs",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/inputs",
             post(upload_data).with_state(_route_state.clone()),
         )
         .route(
-            "/{:namespace}/compute_graphs/{:compute_graph}/inputs/{object_id}/outputs/{object_id}",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:object_id/outputs/:object_id",
             get(get_output).with_state(_route_state.clone()),
         )
         .route(
-            "/{:namespace}/compute_graphs/{:compute_graph}/notify",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/notify",
             get(notify_on_change).with_state(_route_state.clone()),
         );
 
@@ -174,7 +175,7 @@ struct ComputeGraphCreateType {
 /// Create compute graph 
 #[utoipa::path(
     post,
-    path = "/{namespace}/compute_graphs",
+    path = "/namespaces/{namespace}/compute_graphs",
     tag = "operations",
     request_body(content_type = "multipart/form-data", content = inline(ComputeGraphCreateType)),
     responses(
@@ -231,6 +232,16 @@ async fn create_compute_graph(
     Ok(())
 }
 
+/// Delete compute graph
+#[utoipa::path(
+    delete,
+    path = "/namespaces/{namespace}/compute_graphs/{name}",
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "Extraction graph deleted successfully"),
+        (status = BAD_REQUEST, description = "Unable to delete extraction graph")
+    ),
+)]
 async fn delete_compute_graph(
     Path((namespace, name)): Path<(String, String)>,
     State(state): State<RouteState>,
@@ -247,7 +258,7 @@ async fn delete_compute_graph(
 /// List compute graphs
 #[utoipa::path(
     get,
-    path = "/{namespace}/compute_graphs",
+    path = "/namespaces/{namespace}/compute_graphs",
     tag = "operations",
     responses(
         (status = 200, description = "Lists Compute Graph", body = ComputeGraphsList),
@@ -272,7 +283,7 @@ async fn list_compute_graphs(
 /// Get a compute graph definition
 #[utoipa::path(
     get,
-    path = "/{namespace}/compute_graphs/{name}",
+    path = "/namespaces/{namespace}/compute_graphs/{name}",
     tag = "operations",
     responses(
         (status = 200, description = "Compute Graph Definition", body = ComputeGraph),
