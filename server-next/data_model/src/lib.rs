@@ -1,15 +1,17 @@
-use anyhow::anyhow;
-use anyhow::Result;
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 pub mod filter;
+use std::fmt::{self, Display};
+
 use filter::LabelsFilter;
 use indexify_proto::indexify_coordinator;
-use std::fmt::{self, Display};
 
 pub type ExecutorId = String;
 pub type TaskId = String;
@@ -18,11 +20,11 @@ fn default_creation_time() -> SystemTime {
     UNIX_EPOCH
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
-pub struct DynamicEdgeRouter {
+pub struct DynamicRouter {
     pub name: String,
     pub description: String,
     pub source_fn: String,
-    pub target_functions: Vec<String>,
+    pub target_fns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -30,8 +32,7 @@ pub struct ComputeFn {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
-    pub function_name: String,
-    pub edges: Vec<String>,
+    pub fn_name: String,
 }
 
 impl ComputeFn {
@@ -41,25 +42,30 @@ impl ComputeFn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum GraphEdge {
-    Router(DynamicEdgeRouter),
+pub enum Edge {
+    Router(DynamicRouter),
     Compute(ComputeFn),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
+    pub description: String,
     pub name: String,
     pub code_path: String,
-    pub create_at: u64,
+    pub created_at: SystemTime,
     pub tombstoned: bool,
     pub start_fn: ComputeFn,
-    pub edges: HashMap<String, Vec<GraphEdge>>,
+    pub edges: HashMap<String, Vec<Edge>>,
 }
 
 impl ComputeGraph {
     pub fn key(&self) -> String {
         format!("{}_{}", self.namespace, self.name)
+    }
+
+    pub fn namespace_prefix(namespace: &str) -> String {
+        format!("{}_", namespace)
     }
 }
 

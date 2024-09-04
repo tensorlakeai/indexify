@@ -1,14 +1,19 @@
 use std::{collections::HashSet, sync::Arc};
-use tracing::error;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics};
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
-    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
-    TransactionDB, DB,
+    BoundColumnFamily,
+    Direction,
+    IteratorMode,
+    OptimisticTransactionDB,
+    ReadOptions,
+    Transaction,
+    TransactionDB,
 };
 use strum::AsRefStr;
+use tracing::error;
 
 use super::serializer::{JsonEncode, JsonEncoder};
 
@@ -51,6 +56,7 @@ impl IndexifyObjectsColumns {
             })
             .unwrap()
     }
+
     pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> Arc<BoundColumnFamily> {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
@@ -60,10 +66,10 @@ impl IndexifyObjectsColumns {
     }
 }
 
-pub fn create_namespace(namespace: &Namespace, db: Arc<TransactionDB>) -> Result<()> {
+pub fn create_namespace(namespace: &Namespace, db: &TransactionDB) -> Result<()> {
     let serialized_namespace = JsonEncoder::encode(&namespace)?;
     db.put_cf(
-        &IndexifyObjectsColumns::Namespaces.cf_db(&db),
+        &IndexifyObjectsColumns::Namespaces.cf_db(db),
         &namespace.name,
         serialized_namespace,
     )?;
@@ -117,16 +123,35 @@ pub fn delete_input_data_object(
     Ok(())
 }
 
-pub fn create_compute_graph(
-    db: &OptimisticTransactionDB,
-    compute_graph: ComputeGraph,
-) -> Result<()> {
+pub fn create_compute_graph(db: &TransactionDB, compute_graph: &ComputeGraph) -> Result<()> {
+    let txn = db.transaction();
+    let cf = IndexifyObjectsColumns::ComputeGraphs.cf_db(db);
+    let ns = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::Namespaces.cf_db(db),
+        &compute_graph.namespace,
+        true,
+    )?;
+    if ns.is_none() {
+        return Err(anyhow!(
+            "Namespace {} does not exist",
+            compute_graph.namespace
+        ));
+    }
+    let key = compute_graph.key();
+    let res = txn.get_for_update_cf(&cf, &key, true)?;
+    if res.is_some() {
+        return Err(anyhow!(
+            "Compute graph {} already exists",
+            compute_graph.name
+        ));
+    }
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
-    db.put_cf(
-        &IndexifyObjectsColumns::ComputeGraphs.cf(db),
-        compute_graph.key(),
+    txn.put_cf(
+        &IndexifyObjectsColumns::ComputeGraphs.cf_db(db),
+        &key,
         &serialized_compute_graph,
     )?;
+    txn.commit()?;
     Ok(())
 }
 
@@ -226,9 +251,9 @@ pub fn update_task_assignment(
 }
 
 pub fn mark_task_completed(
-    db: &OptimisticTransactionDB,
-    txn: &Transaction<OptimisticTransactionDB>,
-    task: Task,
+    _db: &OptimisticTransactionDB,
+    _txn: &Transaction<OptimisticTransactionDB>,
+    _task: Task,
 ) -> Result<()> {
     Ok(())
 }

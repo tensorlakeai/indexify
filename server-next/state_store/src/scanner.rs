@@ -107,6 +107,7 @@ impl StateReader {
         &self,
         column: IndexifyObjectsColumns,
         filter: F,
+        key_prefix: &[u8],
         start: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<FilterResponse<T>, anyhow::Error>
@@ -119,7 +120,13 @@ impl StateReader {
         read_options.set_readahead_size(4_194_304);
         let mode = match start {
             Some(start) => IteratorMode::From(start, Direction::Forward),
-            None => IteratorMode::Start,
+            None => {
+                if key_prefix.is_empty() {
+                    IteratorMode::Start
+                } else {
+                    IteratorMode::From(key_prefix, Direction::Forward)
+                }
+            }
         };
         let iter = self.db.iterator_cf_opt(&cf, read_options, mode);
         let mut items = Vec::new();
@@ -129,7 +136,7 @@ impl StateReader {
         for kv in iter {
             if let Ok((key, value)) = kv {
                 let item = JsonEncoder::decode::<T>(&value)?;
-                if !filter(&item) {
+                if !key.starts_with(key_prefix) {
                     break;
                 }
                 if filter(&item) {
@@ -189,6 +196,7 @@ impl StateReader {
         }
         Ok(state_changes)
     }
+
     pub fn get_all_rows_from_cf<V>(
         &self,
         column: IndexifyObjectsColumns,
