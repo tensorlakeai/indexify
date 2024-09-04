@@ -9,7 +9,7 @@ resolver = "2"
 
 [workspace]
 members = [
-    ".", 
+    ".", "blob_store", 
     "data_model",
     "indexify_proto",
     "state_store",
@@ -43,6 +43,16 @@ axum-server = "0.7.1"
 tempfile = "3.12.0"
 utoipa = { version = "4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
+object_store = {version= "0.11.0", features = ["aws"]}
+futures = "0.3.30"
+bytes = "1.7.1"
+async-trait = "0.1.82"
+tokio-stream = "0.1.15"
+reqwest = { version = "0.12.7", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+async-stream = "0.3.5"
 
 
 [dependencies]

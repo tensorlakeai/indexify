@@ -1,0 +1,20 @@
+[package]
+name = "blob_store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+object_store = {workspace = true}
+futures = {workspace = true}
+anyhow = {workspace = true}
+bytes = {workspace = true}
+async-trait = {workspace = true}
+serde = {workspace = true}
+tokio = {workspace = true}
+tokio-stream = {workspace = true}
+tracing = {workspace = true}
+reqwest = {workspace = true}
+async-stream = {workspace = true}
+
+[dev-dependencies]
+tempfile = {workspace = true}

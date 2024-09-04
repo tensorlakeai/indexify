@@ -120,3 +120,11 @@ pub struct GraphOutputNotification {
 pub struct CreateNamespaceResponse {
     pub name: Namespace,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileUpload {
+    // file:///s3://bucket/key
+    // file:///data/path/to/file
+    pub payload: String,
+    pub labels: HashMap<String, String>,
+}
