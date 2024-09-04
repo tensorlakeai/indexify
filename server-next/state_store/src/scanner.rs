@@ -1,6 +1,6 @@
 use std::{mem, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::StateChange;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -21,6 +21,49 @@ pub struct StateReader {
 impl StateReader {
     pub fn new(db: Arc<TransactionDB>) -> Self {
         Self { db }
+    }
+
+    pub fn get_rows_from_cf_with_limits<V>(
+        &self,
+        start_key_prefix: Option<String>,
+        column: IndexifyObjectsColumns,
+        limit: Option<usize>,
+    ) -> Result<(Vec<V>, Vec<u8>)>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = self
+            .db
+            .cf_handle(column.as_ref())
+            .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
+
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let prefix = start_key_prefix
+            .unwrap_or("".to_string())
+            .as_bytes()
+            .to_vec();
+        let iterator_mode = IteratorMode::From(&prefix, Direction::Forward);
+        let iter = self
+            .db
+            .iterator_cf_opt(&cf_handle, read_options, iterator_mode);
+
+        let mut items = Vec::new();
+        let mut total = 0;
+        let limit = limit.unwrap_or(usize::MAX);
+        let mut restart_key = "".to_string();
+        for kv in iter {
+            let kv = kv?;
+            let value = JsonEncoder::decode(&kv.1).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            items.push(value);
+            total += 1;
+            if total >= limit {
+                restart_key = String::from_utf8(kv.0.to_vec())
+                    .map_err(|e| anyhow!("unable to convert key to string {}", e))?;
+                break;
+            }
+        }
+        Ok((items, restart_key.into()))
     }
 
     pub fn filter_join_cf<T, F, K>(
@@ -213,5 +256,55 @@ impl StateReader {
                 })
         })
         .collect::<Result<Vec<(String, V)>, _>>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::requests::{NamespaceRequest, RequestType};
+    use super::super::IndexifyState;
+    use super::*;
+    use data_model::Namespace;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_get_rows_from_cf_with_limits() {
+        let temp_dir = TempDir::new().unwrap();
+        let indexify_state =
+            IndexifyState::new(PathBuf::from(temp_dir.path().join("state"))).unwrap();
+        for i in 0..4 {
+            let name = format!("test_{}", i);
+            indexify_state
+                .write(RequestType::CreateNameSpace(NamespaceRequest {
+                    name: name.clone(),
+                }))
+                .await
+                .unwrap();
+        }
+
+        let reader = indexify_state.reader();
+        let result = reader
+            .get_rows_from_cf_with_limits::<Namespace>(
+                Some("test_".to_string()),
+                IndexifyObjectsColumns::Namespaces,
+                Some(3),
+            )
+            .unwrap();
+        let cursor = String::from_utf8(result.1.clone()).unwrap();
+
+        assert_eq!(result.0.len(), 3);
+        assert_eq!(cursor, "test_2");
+
+        let result = reader
+            .get_rows_from_cf_with_limits::<Namespace>(
+                Some("test_2".to_string()),
+                IndexifyObjectsColumns::Namespaces,
+                Some(3),
+            )
+            .unwrap();
+        let cursor = String::from_utf8(result.1.clone()).unwrap();
+        assert_eq!(result.0.len(), 2);
+        assert_eq!(cursor, "");
     }
 }

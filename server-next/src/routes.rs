@@ -6,7 +6,10 @@ use axum::{
     Json, Router,
 };
 
-use state_store::{IndexifyState, requests::{RequestType, NamespaceRequest}};
+use state_store::{
+    requests::{NamespaceRequest, RequestType},
+    IndexifyState,
+};
 
 use crate::http_objects::{
     ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, IndexifyAPIError, NamespaceList,
