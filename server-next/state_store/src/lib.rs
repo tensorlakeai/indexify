@@ -87,9 +87,12 @@ impl IndexifyState {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::requests::{NamespaceRequest, RequestType};
     use super::*;
-    use data_model::Namespace;
+    use data_model::{Namespace, ComputeGraph, ComputeFn, filter::LabelsFilter};
+    use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};
     use tempfile::TempDir;
     use tokio;
 
@@ -123,6 +126,71 @@ mod tests {
         // Check if the namespaces were created
         assert!(namespaces.iter().any(|ns| ns.name == "namespace1"));
         assert!(namespaces.iter().any(|ns| ns.name == "namespace2"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_read_and_delete_compute_graph() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
+
+        // Create a compute graph
+        let compute_graph = ComputeGraph {
+            namespace: "namespace1".to_string(),
+            name: "compute_graph1".to_string(),
+            description: "A test compute graph".to_string(),
+            code_path: "/path/to/code".to_string(),
+            create_at: 0,
+            tomb_stoned: false,
+            start_fn: ComputeFn {
+                name: "start_fn".to_string(),
+                description: "Start function".to_string(),
+                placement_constraints: LabelsFilter::default(),
+                fn_name: "start_fn".to_string(),
+            },
+            edges: HashMap::new(),
+        };
+
+        indexify_state
+            .write(RequestType::CreateComputeGraph(CreateComputeGraphRequest {
+                namespace: "namespace1".to_string(),
+                compute_graph: compute_graph.clone(),
+            }))
+            .await?;
+
+        // Read the compute graph
+        let reader = indexify_state.reader();
+        let result = reader
+            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
+            .unwrap();
+        let compute_graphs = result
+            .iter()
+            .map(|(_, cg)| cg.clone())
+            .collect::<Vec<ComputeGraph>>();
+
+        // Check if the compute graph was created
+        assert!(compute_graphs.iter().any(|cg| cg.name == "compute_graph1"));
+
+        // Delete the compute graph
+        indexify_state
+            .write(RequestType::DeleteComputeGraph(DeleteComputeGraphRequest {
+                namespace: "namespace1".to_string(),
+                name: "compute_graph1".to_string(),
+            }))
+            .await?;
+
+        // Read the compute graph again
+        let result = reader
+            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
+            .unwrap();
+        let compute_graphs = result
+            .iter()
+            .map(|(_, cg)| cg.clone())
+            .collect::<Vec<ComputeGraph>>();
+
+        // Check if the compute graph was deleted
+        assert!(!compute_graphs.iter().any(|cg| cg.name == "compute_graph1"));
 
         Ok(())
     }

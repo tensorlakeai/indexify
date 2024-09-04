@@ -6,7 +6,7 @@ use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, 
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
     BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
-    TransactionDB, DB,
+    TransactionDB,
 };
 use strum::AsRefStr;
 
@@ -240,9 +240,9 @@ pub fn update_task_assignment(
 }
 
 pub fn mark_task_completed(
-    db: &OptimisticTransactionDB,
-    txn: &Transaction<OptimisticTransactionDB>,
-    task: Task,
+    _db: &OptimisticTransactionDB,
+    _txn: &Transaction<OptimisticTransactionDB>,
+    _task: Task,
 ) -> Result<()> {
     Ok(())
 }
