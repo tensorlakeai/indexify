@@ -1,0 +1,48 @@
+FROM lukemathwalker/cargo-chef:latest-rust-slim-bookworm AS chef
+WORKDIR /app
+RUN apt-get update && apt-get install -y \
+    software-properties-common unzip \
+    build-essential make cmake ca-certificates \
+    curl pkg-config git \
+    sqlite3 clang gcc g++ \
+    protobuf-compiler
+RUN RUN curl -sL https://deb.nodesource.com/setup_22.x | bash && \
+    apt-get install -y \
+    nodejs \
+    npm
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS rust-builder
+COPY --from=planner /app/recipe.json recipe.json
+COPY rust-toolchain.toml .
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --bin indexify
+
+FROM ubuntu:22.04 AS runner
+
+RUN apt update
+
+RUN apt-get update && apt install -y \
+    curl \
+    libssl-dev \
+    python3-dev \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN update-ca-certificates
+
+WORKDIR /indexify
+
+COPY --from=rust-builder /app/target/release/indexify ./
+
+COPY sample_config.yaml ./config/indexify.yaml
+
+ENV PATH="/indexify:${PATH}"
+
+COPY ./scripts/docker_compose_start.sh .
+
+ENTRYPOINT [ "/indexify/indexify" ]
