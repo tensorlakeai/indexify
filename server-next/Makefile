@@ -68,19 +68,6 @@ local-dev-tls-insecure: ## Generate local development TLS certificates (insecure
 
 .PHONY: local-dev-tls-insecure
 
-test:
-	./run_tests.sh
-
-.PHONY: do_script
-install-py: ## Install python dependencies
-	$(MAKE) -C ${src_py_dir} install_deps.sh
-
-shell: ## Run shell in container
-	docker run --net host -v ${current_dir}:/indexify-build/indexify -it ${DOCKER_USERNAME}/indexify-build /bin/bash
-
-serve-docs: ## Serve documentation
-	(cd docs && mkdocs serve)
-
 install: build-release ## Build the application and install it to the system
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(APPLICATION_NAME)
