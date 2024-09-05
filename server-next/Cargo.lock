@@ -312,6 +312,7 @@ dependencies = [
  "object_store",
  "reqwest",
  "serde",
+ "sha2",
  "tempfile",
  "tokio",
  "tokio-stream",

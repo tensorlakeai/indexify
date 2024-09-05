@@ -96,7 +96,7 @@ pub struct DataObject {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub payload_url: String,
-    pub payload_hash: [u8; 32],
+    pub payload_hash: String,
 }
 
 impl DataObject {

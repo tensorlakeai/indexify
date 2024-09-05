@@ -11,6 +11,7 @@ use object_store::{
     WriteMultipart,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::io::AsyncWrite;
 
 use self::{disk::DiskFileReader, s3::S3FileReader};
@@ -42,6 +43,7 @@ pub struct BlobStorageConfig {
 pub struct PutResult {
     pub url: String,
     pub size_bytes: u64,
+    pub sha256_hash: String,
 }
 
 #[async_trait]
@@ -120,22 +122,33 @@ impl BlobStorage {
     pub async fn put(
         &self,
         key: &str,
-        mut data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
+        data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult, anyhow::Error> {
+        let mut hasher = Sha256::new();
+        let mut hashed_stream = data.map(|item| {
+            item.map(|bytes| {
+                hasher.update(&bytes);
+                bytes
+            })
+        });
+
         let path = object_store::path::Path::from(key);
         let m = self.object_store.put_multipart(&path).await?;
         let mut w = WriteMultipart::new(m);
         let mut size_bytes = 0;
-        while let Some(chunk) = data.next().await {
+        while let Some(chunk) = hashed_stream.next().await {
             w.wait_for_capacity(1).await?;
             let chunk = chunk?;
             size_bytes += chunk.len() as u64;
             w.write(&chunk);
         }
         w.finish().await?;
+
+        let hash = format!("{:x}", hasher.finalize());
         Ok(PutResult {
             url: self.path_url(&path),
             size_bytes,
+            sha256_hash: hash,
         })
     }
 

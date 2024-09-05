@@ -109,21 +109,17 @@ impl Scheduler {
         for state_change in state_changes {
             let tasks: Vec<Task> = match state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => {
-                    let tasks = self
-                        .handle_invoke_compute_graph(invoke_compute_graph_event)
-                        .await?;
-                    tasks
+                    self.handle_invoke_compute_graph(invoke_compute_graph_event)
+                        .await?
                 }
                 ChangeType::TaskFinished(task_finished_event) => {
-                    let tasks = self.handle_task_finished(task_finished_event).await?;
-                    tasks
+                    self.handle_task_finished(task_finished_event).await?
                 }
                 _ => {
                     vec![]
                 }
             };
-            let _ = self
-                .indexify_state
+            self.indexify_state
                 .write(RequestType::CreateTasks(CreateTaskRequest { tasks }))
                 .await?;
         }

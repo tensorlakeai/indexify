@@ -11,7 +11,6 @@ use axum::{
 use data_model::DataObjectBuilder;
 use futures::{stream, StreamExt};
 use nanoid::nanoid;
-use sha2::{Digest, Sha256};
 use state_store::{
     requests::{
         CreateComputeGraphRequest,
@@ -80,52 +79,50 @@ pub struct RouteState {
     pub blob_storage: blob_store::BlobStorage,
 }
 
-pub fn create_routes(_route_state: RouteState) -> Router {
-    let app = Router::new()
+pub fn create_routes(route_state: RouteState) -> Router {
+    Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
         .route("/", get(index))
         .route(
             "/namespaces",
-            get(namespaces).with_state(_route_state.clone()),
+            get(namespaces).with_state(route_state.clone()),
         )
         .route(
             "/namespaces",
-            post(create_namespace).with_state(_route_state.clone()),
+            post(create_namespace).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs",
-            post(create_compute_graph).with_state(_route_state.clone()),
+            post(create_compute_graph).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs",
-            get(list_compute_graphs).with_state(_route_state.clone()),
+            get(list_compute_graphs).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs",
-            delete(delete_compute_graph).with_state(_route_state.clone()),
+            delete(delete_compute_graph).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph",
-            get(get_compute_graph).with_state(_route_state.clone()),
+            get(get_compute_graph).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
-            get(graph_invocations).with_state(_route_state.clone()),
+            get(graph_invocations).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
-            post(upload_data).with_state(_route_state.clone()),
+            post(upload_data).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/outputs/:object_id",
-            get(get_output).with_state(_route_state.clone()),
+            get(get_output).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/notify",
-            get(notify_on_change).with_state(_route_state.clone()),
-        );
-
-    app
+            get(notify_on_change).with_state(route_state.clone()),
+        )
 }
 
 async fn index() -> &'static str {
@@ -153,7 +150,7 @@ async fn create_namespace(
             name: namespace.name,
         }))
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
 }
 
@@ -173,7 +170,7 @@ async fn namespaces(
     let reader = state.indexify_state.reader();
     let namespaces = reader
         .get_all_namespaces(None)
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     let namespaces: Vec<Namespace> = namespaces.into_iter().map(|n| n.into()).collect();
     Ok(Json(NamespaceList { namespaces }))
 }
@@ -205,7 +202,7 @@ async fn create_compute_graph(
     let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
     let mut code_url: Option<String> = None;
     while let Some(field) = compute_graph_code.next_field().await.unwrap() {
-        let name = field.name().clone();
+        let name = field.name();
         if let Some(name) = name {
             if name == "code" {
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
@@ -216,7 +213,7 @@ async fn create_compute_graph(
                     .blob_storage
                     .put(&file_name, stream)
                     .await
-                    .map_err(|e| IndexifyAPIError::internal_error(e))?;
+                    .map_err(IndexifyAPIError::internal_error)?;
                 code_url = Some(put_result.url);
             } else if name == "compute_graph" {
                 let text = field
@@ -250,7 +247,7 @@ async fn create_compute_graph(
         .indexify_state
         .write(request)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     info!("compute graph created: {}", name);
     Ok(())
 }
@@ -274,7 +271,7 @@ async fn delete_compute_graph(
         .indexify_state
         .write(request)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
 }
 
@@ -296,7 +293,7 @@ async fn list_compute_graphs(
         .indexify_state
         .reader()
         .list_compute_graphs(&namespace, None)
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ComputeGraphsList {
         compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
         cursor: cursor.map(|c| String::from_utf8(c).unwrap()),
@@ -321,7 +318,7 @@ async fn get_compute_graph(
         .indexify_state
         .reader()
         .get_compute_graph(&namespace, &name)
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     if let Some(compute_graph) = compute_graph {
         return Ok(Json(compute_graph.into()));
     }
@@ -332,7 +329,7 @@ async fn get_compute_graph(
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{name}",
-    tag = "operations",
+    tag = "ingestion",
     responses(
         (status = 200, description = "Compute Graph Definition", body = GraphInvocations),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
@@ -346,19 +343,19 @@ async fn graph_invocations(
         .indexify_state
         .reader()
         .list_invocations(&namespace, &compute_graph, None)
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     let mut api_data_objects = vec![];
     for data_object in data_objects {
         let payload = state
             .blob_storage
             .read_bytes(&data_object.payload_url)
             .await
-            .map_err(|e| IndexifyAPIError::internal_error(e))?;
+            .map_err(IndexifyAPIError::internal_error)?;
         let payload = serde_json::from_slice(&payload)?;
         api_data_objects.push(DataObject {
             id: data_object.id,
             data: payload,
-            hash: String::from_utf8(data_object.payload_hash.to_vec()).unwrap(),
+            hash: data_object.payload_hash,
         });
     }
     Ok(Json(GraphInvocations {
@@ -370,7 +367,7 @@ async fn graph_invocations(
 #[utoipa::path(
     post,
     path = "/{namespace}/compute_graphs/{name}/inputs",
-    tag = "operations",
+    tag = "ingestion",
     responses(
         (status = 200, description = "upload successful"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
@@ -391,25 +388,14 @@ async fn upload_data(
                 let name = Uuid::new_v4().to_string();
                 info!("writing to blob store, file name = {:?}", name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-                let mut hasher = Sha256::new();
-                let hashed_stream = stream.map(|item| {
-                    item.map(|bytes| {
-                        hasher.update(&bytes);
-                        bytes
-                    })
-                });
-                let res = state
-                    .blob_storage
-                    .put(&name, hashed_stream)
-                    .await
-                    .map_err(|e| {
-                        IndexifyAPIError::internal_error(anyhow!(
-                            "failed to write to blob store: {}",
-                            e
-                        ))
-                    })?;
+                let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
+                    IndexifyAPIError::internal_error(anyhow!(
+                        "failed to write to blob store: {}",
+                        e
+                    ))
+                })?;
                 url = Some(res.url);
-                hash = Some(format!("{:x}", hasher.finalize()));
+                hash = Some(res.sha256_hash);
             } else if name == "metadata" {
                 let text = field
                     .text()
@@ -429,7 +415,6 @@ async fn upload_data(
         sha_256: hash.unwrap(),
     };
     let payload_json = serde_json::to_string(&payload)?;
-    let payload_hash = Sha256::digest(payload_json.as_bytes());
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = stream::once(async move {
         let payload_json = payload_json.as_bytes().to_vec().clone();
@@ -447,7 +432,7 @@ async fn upload_data(
         .compute_graph_name(compute_graph.clone())
         .compute_fn_name("".to_string())
         .payload_url(put_result.url)
-        .payload_hash(payload_hash.into())
+        .payload_hash(put_result.sha256_hash)
         .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

@@ -4,7 +4,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -79,23 +78,23 @@ pub struct ComputeFn {
     pub description: String,
 }
 
-impl Into<data_model::ComputeFn> for &ComputeFn {
-    fn into(self) -> data_model::ComputeFn {
+impl From<&ComputeFn> for data_model::ComputeFn {
+    fn from(val: &ComputeFn) -> Self {
         data_model::ComputeFn {
-            name: self.name.clone(),
-            fn_name: self.fn_name.clone(),
-            description: self.description.clone(),
+            name: val.name.clone(),
+            fn_name: val.fn_name.clone(),
+            description: val.description.clone(),
             placement_constraints: Default::default(),
         }
     }
 }
 
-impl Into<data_model::ComputeFn> for ComputeFn {
-    fn into(self) -> data_model::ComputeFn {
+impl From<ComputeFn> for data_model::ComputeFn {
+    fn from(val: ComputeFn) -> Self {
         data_model::ComputeFn {
-            name: self.name.clone(),
-            fn_name: self.fn_name.clone(),
-            description: self.description.clone(),
+            name: val.name.clone(),
+            fn_name: val.fn_name.clone(),
+            description: val.description.clone(),
             placement_constraints: Default::default(),
         }
     }
@@ -119,13 +118,13 @@ pub struct DynamicRouter {
     pub target_fns: Vec<String>,
 }
 
-impl Into<data_model::DynamicEdgeRouter> for DynamicRouter {
-    fn into(self) -> data_model::DynamicEdgeRouter {
+impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
+    fn from(val: DynamicRouter) -> Self {
         data_model::DynamicEdgeRouter {
-            name: self.name.clone(),
-            source_fn: self.source_fn.clone(),
-            description: self.description.clone(),
-            target_functions: self.target_fns.clone(),
+            name: val.name.clone(),
+            source_fn: val.source_fn.clone(),
+            description: val.description.clone(),
+            target_functions: val.target_fns.clone(),
         }
     }
 }
@@ -147,9 +146,9 @@ pub enum Node {
     ComputeFn(ComputeFn),
 }
 
-impl Into<data_model::Node> for Node {
-    fn into(self) -> data_model::Node {
-        match self {
+impl From<Node> for data_model::Node {
+    fn from(val: Node) -> Self {
+        match val {
             Node::DynamicRouter(d) => data_model::Node::Router(d.into()),
             Node::ComputeFn(c) => data_model::Node::Compute(c.into()),
         }
