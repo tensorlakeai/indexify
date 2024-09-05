@@ -27,7 +27,22 @@ use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 use crate::http_objects::{
-    ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, DynamicRouter, GraphInvocations, IndexifyAPIError, GraphInputFile, InvocationResult, Namespace, NamespaceList, Node
+    ComputeFn,
+    ComputeGraph,
+    ComputeGraphsList,
+    CreateNamespace,
+    DataObject,
+    DynamicRouter,
+    GraphInputFile,
+    GraphInvocations,
+    IndexifyAPIError,
+    InvocationResult,
+    Namespace,
+    NamespaceList,
+    Node,
+    Task,
+    TaskOutcome,
+    Tasks,
 };
 
 #[derive(OpenApi)]
@@ -41,6 +56,8 @@ use crate::http_objects::{
             get_compute_graph,
             delete_compute_graph,
             get_outputs,
+            list_tasks,
+            delete_invocation,
         ),
         components(
             schemas(
@@ -55,6 +72,9 @@ use crate::http_objects::{
                 ComputeGraphCreateType,
                 ComputeGraphsList,
                 InvocationResult,
+                Task,
+                TaskOutcome,
+                Tasks,
             )
         ),
         tags(
@@ -99,6 +119,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(get_compute_graph).with_state(route_state.clone()),
         )
         .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/tasks",
+            get(list_tasks).with_state(route_state.clone()),
+        )
+        .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
             get(graph_invocations).with_state(route_state.clone()),
         )
@@ -109,6 +133,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
             get(get_outputs).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
+            delete(delete_invocation).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/notify",
@@ -364,14 +392,14 @@ struct InvokeWithFile {
     /// File to upload
     file: Option<String>,
 
-    /// JSON encoded payload for graph input. You should either provide a file or a payload.
-    /// Both file and payload are not accepted.
-    payload: Option<serde_json::Value>
+    /// JSON encoded payload for graph input. You should either provide a file
+    /// or a payload. Both file and payload are not accepted.
+    payload: Option<serde_json::Value>,
 }
 /// Upload data to a compute graph
 #[utoipa::path(
     post,
-    path = "namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
     request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
     tag = "ingestion",
     responses(
@@ -459,7 +487,6 @@ async fn upload_data(
     Ok(())
 }
 
-
 /// Get output of a compute graph invocation
 #[utoipa::path(
     get,
@@ -483,4 +510,40 @@ async fn notify_on_change(
     State(_state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     Ok(())
+}
+
+/// List tasks for a compute graph invocation
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/tasks",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List tasks for a given invocation id", body = Tasks),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+#[axum::debug_handler]
+async fn list_tasks(
+    Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
+    State(_state): State<RouteState>,
+) -> Result<Json<Tasks>, IndexifyAPIError> {
+    todo!()
+}
+
+/// Delete a specific invocation  
+#[utoipa::path(
+    delete,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Invocation has been deleted"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+#[axum::debug_handler]
+async fn delete_invocation(
+    Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
+    State(_state): State<RouteState>,
+) -> Result<Json<Tasks>, IndexifyAPIError> {
+    todo!()
 }

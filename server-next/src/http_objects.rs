@@ -277,9 +277,29 @@ pub struct GraphInputFile {
     pub sha_256: String,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvocationResult {
     pub outputs: HashMap<String, Vec<DataObject>>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum TaskOutcome {
+    Unknown,
+    Success,
+    Failure,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Task {
+    pub id: String,
+    pub status: TaskOutcome,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Tasks {
+    pub tasks: Vec<Task>,
     pub cursor: Option<String>,
 }
