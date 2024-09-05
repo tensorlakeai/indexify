@@ -151,30 +151,7 @@ impl BlobStorage {
             )
         }
     }
-}
-
-fn parse_s3_url(s3_url: &str) -> Result<(&str, &str), &str> {
-    let Some(("s3", url)) = s3_url.split_once("://") else {
-        return Err("Invalid S3 URL format");
-    };
-
-    let Some((bucket, key)) = url.split_once('/') else {
-        return Err("Invalid S3 URL format");
-    };
-
-    Ok((bucket, key))
-}
-
-#[derive(Debug)]
-pub struct ContentReader {
-    config: Arc<BlobStorageConfig>,
-}
-
-impl ContentReader {
-    pub fn new(config: Arc<BlobStorageConfig>) -> Self {
-        Self { config }
-    }
-
+    
     pub fn get(&self, key: &str) -> BlobStorageReaderTS {
         if key.starts_with("s3://") {
             let (bucket, key) = parse_s3_url(key)
@@ -191,7 +168,7 @@ impl ContentReader {
         Arc::new(DiskFileReader::new())
     }
 
-    pub async fn bytes(&self, key: &str) -> Result<Bytes> {
+    pub async fn read_bytes(&self, key: &str) -> Result<Bytes> {
         let reader = self.get(key);
         let mut stream = reader.get(key).await?;
         let mut bytes = BytesMut::new();
@@ -200,4 +177,16 @@ impl ContentReader {
         }
         Ok(bytes.into())
     }
+}
+
+fn parse_s3_url(s3_url: &str) -> Result<(&str, &str), &str> {
+    let Some(("s3", url)) = s3_url.split_once("://") else {
+        return Err("Invalid S3 URL format");
+    };
+
+    let Some((bucket, key)) = url.split_once('/') else {
+        return Err("Invalid S3 URL format");
+    };
+
+    Ok((bucket, key))
 }

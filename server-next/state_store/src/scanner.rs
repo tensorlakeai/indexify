@@ -276,6 +276,21 @@ impl StateReader {
         Ok(compute_graphs)
     }
 
+    pub fn list_invocations(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<DataObject>> {
+        let key = format!("{}_{}", namespace, compute_graph);
+        let (invocations, _) = self.get_rows_from_cf_with_limits::<DataObject>(
+            Some(key),
+            IndexifyObjectsColumns::IngestedData,
+            limit,
+        )?;
+        Ok(invocations)
+    }
+
     // TODO - Max please implement cursor based pagination in prefix scans
     pub fn list_compute_graphs(
         &self,

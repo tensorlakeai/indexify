@@ -237,6 +237,7 @@ pub struct ComputeGraphsList {
 pub struct DataObject {
     pub id: String,
     pub data: serde_json::Value,
+    pub hash: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -252,9 +253,15 @@ pub struct GraphOutputNotification {
     pub fn_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateNamespaceResponse {
     pub name: Namespace,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GraphInvocations {
+    pub invocations: Vec<DataObject>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -264,13 +271,6 @@ pub struct GraphInput {
     pub payload: String,
     pub labels: HashMap<String, String>,
     pub input: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IndexifyDataObject {
-    pub data_id: String,
-    pub payload: serde_json::Value,
-    pub hash: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

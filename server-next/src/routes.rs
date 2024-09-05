@@ -24,8 +24,8 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
-    ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, IndexifyAPIError, Namespace,
-    NamespaceList, Node, DynamicRouter, ComputeFn
+    ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, DynamicRouter,
+    GraphInvocations, IndexifyAPIError, Namespace, NamespaceList, Node,
 };
 
 #[derive(OpenApi)]
@@ -95,15 +95,15 @@ pub fn create_routes(_route_state: RouteState) -> Router {
             get(get_compute_graph).with_state(_route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/inputs",
-            get(ingested_data).with_state(_route_state.clone()),
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
+            get(graph_invocations).with_state(_route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/inputs",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
             post(upload_data).with_state(_route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:object_id/outputs/:object_id",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/outputs/:object_id",
             get(get_output).with_state(_route_state.clone()),
         )
         .route(
@@ -172,7 +172,7 @@ struct ComputeGraphCreateType {
     code: String,
 }
 
-/// Create compute graph 
+/// Create compute graph
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/compute_graphs",
@@ -196,19 +196,24 @@ async fn create_compute_graph(
             if name == "code" {
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
 
-                let file_name=format!("{}_{}", namespace, nanoid!());
+                let file_name = format!("{}_{}", namespace, nanoid!());
 
                 let put_result = state.blob_storage.put(&file_name, stream).await.map_err(|e| IndexifyAPIError::internal_error(e))?;
                 code_url = Some(put_result.url);
             } else if name == "compute_graph" {
-                let text = field.text().await.map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
                 compute_graph_definition = Some(serde_json::from_str(&text)?);
             }
         }
     }
 
     if compute_graph_definition.is_none() {
-        return Err(IndexifyAPIError::bad_request("Compute graph definition is required"));
+        return Err(IndexifyAPIError::bad_request(
+            "Compute graph definition is required",
+        ));
     }
 
     if code_url.is_none() {
@@ -305,11 +310,43 @@ async fn get_compute_graph(
     Err(IndexifyAPIError::not_found("Compute Graph not found"))
 }
 
-async fn ingested_data(
-    Path((_namespace, _compute_graph)): Path<(String, String)>,
-    State(_state): State<RouteState>,
-) -> Result<Json<Vec<DataObject>>, IndexifyAPIError> {
-    Ok(Json(vec![]))
+/// List Graph invocations
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{name}",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Compute Graph Definition", body = GraphInvocations),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn graph_invocations(
+    Path((namespace, compute_graph)): Path<(String, String)>,
+    State(state): State<RouteState>,
+) -> Result<Json<GraphInvocations>, IndexifyAPIError> {
+    let data_objects = state
+        .indexify_state
+        .reader()
+        .list_invocations(&namespace, &compute_graph, None)
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    let mut api_data_objects = vec![];
+    for data_object in data_objects {
+        let payload = state
+            .blob_storage
+            .read_bytes(&data_object.payload_url)
+            .await
+            .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        let payload = serde_json::from_slice(&payload)?;
+        api_data_objects.push(DataObject {
+            id: data_object.id,
+            data: payload,
+            hash: String::from_utf8(data_object.payload_hash.to_vec()).unwrap(),
+        });
+    }
+    Ok(Json(GraphInvocations {
+        invocations: api_data_objects,
+        cursor: None,
+    }))
 }
 
 #[utoipa::path(
@@ -341,14 +378,15 @@ async fn upload_data(
             let res = state.blob_storage.put(&name, hashed_stream).await.map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
             })?;
-            let hash = hasher.finalize();
+
+            //let hash= format!("{:x}", hasher.finalize());
 
             let data_object = DataObjectBuilder::default()
                 .namespace(namespace.clone())
                 .compute_graph_name(compute_graph.clone())
                 .compute_fn_name("".to_string())
                 .payload_url(res.url)
-                .payload_hash(hash.into())
+                .payload_hash(hasher.finalize().into())
                 .build()
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
@@ -370,10 +408,7 @@ async fn get_output(
     Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
     State(_state): State<RouteState>,
 ) -> Result<Json<DataObject>, IndexifyAPIError> {
-    Ok(Json(DataObject {
-        id: "test".to_string(),
-        data: serde_json::json!({}),
-    }))
+    todo!()
 }
 
 async fn notify_on_change(
