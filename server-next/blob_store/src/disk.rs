@@ -12,9 +12,12 @@ use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use super::PutResult;
 use super::{
-    BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, DiskStorageConfig,
+    BlobStoragePartWriter,
+    BlobStorageReader,
+    BlobStorageWriter,
+    DiskStorageConfig,
+    PutResult,
     StoragePartWriter,
 };
 

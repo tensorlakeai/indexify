@@ -1,32 +1,45 @@
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use axum::{
     extract::{Multipart, Path, State},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
+    Json,
+    Router,
 };
 use data_model::DataObjectBuilder;
 use futures::{stream, StreamExt};
 use nanoid::nanoid;
-use sha2::Digest;
-use sha2::Sha256;
-use std::sync::Arc;
-use tracing::info;
-use uuid::Uuid;
-
+use sha2::{Digest, Sha256};
 use state_store::{
     requests::{
-        CreateComputeGraphRequest, DeleteComputeGraphRequest, InvokeComputeGraphRequest,
-        NamespaceRequest, RequestType,
+        CreateComputeGraphRequest,
+        DeleteComputeGraphRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
+        RequestType,
     },
     IndexifyState,
 };
+use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
+use uuid::Uuid;
 
 use crate::http_objects::{
-    ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, DynamicRouter,
-    GraphInvocations, IndexifyAPIError, IndexifyFile, Namespace, NamespaceList, Node,
+    ComputeFn,
+    ComputeGraph,
+    ComputeGraphsList,
+    CreateNamespace,
+    DataObject,
+    DynamicRouter,
+    GraphInvocations,
+    IndexifyAPIError,
+    IndexifyFile,
+    Namespace,
+    NamespaceList,
+    Node,
 };
 
 #[derive(OpenApi)]

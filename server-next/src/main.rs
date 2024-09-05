@@ -1,6 +1,7 @@
+use std::{path::PathBuf, process};
+
 use clap::Parser;
 use service::Service;
-use std::{path::PathBuf, process};
 use tracing::error;
 
 mod config;

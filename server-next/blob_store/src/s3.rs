@@ -13,7 +13,11 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::{
-    BlobStorageConfig, BlobStoragePartWriter, BlobStorageReader, BlobStorageWriter, PutResult,
+    BlobStorageConfig,
+    BlobStoragePartWriter,
+    BlobStorageReader,
+    BlobStorageWriter,
+    PutResult,
     StoragePartWriter,
 };
 

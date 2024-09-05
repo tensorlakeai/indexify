@@ -1,14 +1,19 @@
 use std::{collections::HashSet, sync::Arc};
-use tracing::error;
 
 use anyhow::Result;
 use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics};
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
-    BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction,
+    BoundColumnFamily,
+    Direction,
+    IteratorMode,
+    OptimisticTransactionDB,
+    ReadOptions,
+    Transaction,
     TransactionDB,
 };
 use strum::AsRefStr;
+use tracing::error;
 
 use super::serializer::{JsonEncode, JsonEncoder};
 
@@ -51,6 +56,7 @@ impl IndexifyObjectsColumns {
             })
             .unwrap()
     }
+
     pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> Arc<BoundColumnFamily> {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {

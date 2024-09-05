@@ -24,9 +24,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     //            "#[derive(serde::Deserialize, serde::Serialize)]",
     //        )
     //        .extern_path(".google.protobuf.Any", "::prost_wkt_types::Any")
-    //        .extern_path(".google.protobuf.Timestamp", "::prost_wkt_types::Timestamp")
-    //        .extern_path(".google.protobuf.Value", "::prost_wkt_types::Value")
-    //        .compile(
+    //        .extern_path(".google.protobuf.Timestamp",
+    // "::prost_wkt_types::Timestamp")        .extern_path(".google.protobuf.
+    // Value", "::prost_wkt_types::Value")        .compile(
     //            &["protos/coordinator_service.proto", "protos/raft.proto"],
     //            &["protos"],
     //        )
