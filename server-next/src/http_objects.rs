@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::ComputeGraphCode;
+use data_model::{ComputeGraphCode, TaskId};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -307,12 +307,39 @@ pub enum TaskOutcome {
     Failure,
 }
 
+impl From<data_model::TaskOutcome> for TaskOutcome {
+    fn from(outcome: data_model::TaskOutcome) -> Self {
+        match outcome {
+            data_model::TaskOutcome::Unknown => TaskOutcome::Unknown,
+            data_model::TaskOutcome::Success => TaskOutcome::Success,
+            data_model::TaskOutcome::Failure => TaskOutcome::Failure,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Task {
-    pub id: String,
-    pub status: TaskOutcome,
-    pub created_at: u64,
-    pub updated_at: u64,
+    pub id: TaskId,
+    pub namespace: String,
+    pub compute_fn_name: String,
+    pub compute_graph_name: String,
+    pub invocation_id: String,
+    pub input_data_id: String,
+    pub outcome: TaskOutcome,
+}
+
+impl From<data_model::Task> for Task {
+    fn from(task: data_model::Task) -> Self {
+        Self {
+            id: task.id,
+            namespace: task.namespace,
+            compute_fn_name: task.compute_fn_name,
+            compute_graph_name: task.compute_graph_name,
+            invocation_id: task.invocation_id,
+            input_data_id: task.input_data_id,
+            outcome: task.outcome.into(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

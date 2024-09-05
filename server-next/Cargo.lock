@@ -2153,7 +2153,9 @@ name = "state_store"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "data_model",
+ "futures",
  "indexify_utils",
  "rocksdb",
  "serde",

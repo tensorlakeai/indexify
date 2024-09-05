@@ -1,7 +1,7 @@
 use std::{mem, sync::Arc};
 
 use anyhow::Result;
-use data_model::{ComputeGraph, DataObject, Namespace, StateChange, Task};
+use data_model::{ComputeGraph, DataObject, ExecutorId, Namespace, StateChange, Task};
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
@@ -351,6 +351,20 @@ impl StateReader {
             None,
         )?;
         Ok(data_objects)
+    }
+
+    pub fn get_tasks_by_executor(&self, executor: &ExecutorId, limit: usize) -> Result<Vec<Task>> {
+        let prefix = format!("{}_", executor);
+        let res = self.filter_join_cf(
+            IndexifyObjectsColumns::TaskAllocations,
+            IndexifyObjectsColumns::Tasks,
+            |_| true,
+            prefix.as_bytes(),
+            Task::key_from_executor_key,
+            None,
+            Some(limit),
+        )?;
+        Ok(res.items)
     }
 }
 #[cfg(test)]
