@@ -1,24 +1,26 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use data_model::DataObjectBuilder;
+use uuid::Uuid;
+use sha2::Sha256;
+use sha2::Digest;
 use axum::{
     extract::{Multipart, Path, State},
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
-use futures::{StreamExt, TryFutureExt};
+use futures::StreamExt;
 use nanoid::nanoid;
-use sha2::{Digest, Sha256};
 use tracing::info;
 use std::sync::Arc;
 
-use blob_store::{BlobStorage, BlobStorageWriter, WriteStreamResult};
 use state_store::{
     requests::{
-        CreateComputeGraphRequest, DeleteComputeGraphRequest, NamespaceRequest, RequestType,
+        CreateComputeGraphRequest, DeleteComputeGraphRequest, InvokeComputeGraphRequest, NamespaceRequest, RequestType
     },
     IndexifyState,
 };
-use utoipa::{openapi::schema, OpenApi, ToSchema};
+use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
@@ -31,6 +33,7 @@ use crate::http_objects::{
         paths(
             create_namespace,
             namespaces,
+            upload_data,
             create_compute_graph,
             list_compute_graphs,
             get_compute_graph,
@@ -59,7 +62,7 @@ struct ApiDoc;
 #[derive(Clone)]
 pub struct RouteState {
     pub indexify_state: Arc<IndexifyState>,
-    pub blob_storage: Arc<BlobStorage>,
+    pub blob_storage: blob_store::BlobStorage,
 }
 
 pub fn create_routes(_route_state: RouteState) -> Router {
@@ -185,32 +188,17 @@ async fn create_compute_graph(
     mut compute_graph_code: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
-    let mut write_result: Option<WriteStreamResult> = None;
+    let mut code_url: Option<String> = None;
     while let Some(field) = compute_graph_code.next_field().await.unwrap() {
         let name = field.name().clone();
         if let Some(name) = name {
             if name == "code" {
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-                let mut hasher = Sha256::new();
-                let hashed_stream = stream.map(|item| {
-                    item.map(|bytes| {
-                        hasher.update(&bytes);
-                        bytes
-                    })
-                });
 
                 let file_name=format!("{}_{}", namespace, nanoid!());
 
-
-                let put_result = state.blob_storage.put(&file_name, hashed_stream).await.map_err(|e| IndexifyAPIError::internal_error(e))?;
-                let hash_result = hasher.finalize();
-                let hash = format!("{:x}", hash_result);
-                write_result = Some(WriteStreamResult{
-                    url: put_result.url,
-                    size_bytes: put_result.size_bytes,
-                    hash,
-                    file_name,
-                });
+                let put_result = state.blob_storage.put(&file_name, stream).await.map_err(|e| IndexifyAPIError::internal_error(e))?;
+                code_url = Some(put_result.url);
             } else if name == "compute_graph" {
                 let text = field.text().await.map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
                 compute_graph_definition = Some(serde_json::from_str(&text)?);
@@ -222,11 +210,11 @@ async fn create_compute_graph(
         return Err(IndexifyAPIError::bad_request("Compute graph definition is required"));
     }
 
-    if write_result.is_none() {
+    if code_url.is_none() {
         return Err(IndexifyAPIError::bad_request("Code is required"));
     }
     let compute_graph_definition = compute_graph_definition.unwrap();
-    let code_url = write_result.unwrap().url;
+    let code_url = code_url.unwrap();
 
     let compute_graph = compute_graph_definition.into_data_model(&code_url)?;
     let name = compute_graph.name.clone();
@@ -307,23 +295,69 @@ async fn get_compute_graph(
 }
 
 async fn ingested_data(
-    Path((namespace, compute_graph)): Path<(String, String)>,
-    State(state): State<RouteState>,
+    Path((_namespace, _compute_graph)): Path<(String, String)>,
+    State(_state): State<RouteState>,
 ) -> Result<Json<Vec<DataObject>>, IndexifyAPIError> {
     Ok(Json(vec![]))
 }
 
+#[utoipa::path(
+    post,
+    path = "/{namespace}/compute_graphs/{name}/inputs",
+    tag = "operations",
+    responses(
+        (status = 200, description = "upload successful"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
 async fn upload_data(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
-    files: Multipart,
+    mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
+    while let Some(field) = files.next_field().await.unwrap() {
+        if let Some(_) = field.file_name() {
+            let name = Uuid::new_v4().to_string();
+            info!("writing to blob store, file name = {:?}", name);
+            let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+            let mut hasher = Sha256::new();
+            let hashed_stream = stream.map(|item| {
+                item.map(|bytes| {
+                    hasher.update(&bytes);
+                    bytes
+                })
+            });
+            let res = state.blob_storage.put(&name, hashed_stream).await.map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
+            })?;
+            let hash = hasher.finalize();
+
+            let data_object = DataObjectBuilder::default()
+                .namespace(namespace.clone())
+                .compute_graph_name(compute_graph.clone())
+                .compute_fn_name("".to_string())
+                .payload_url(res.url)
+                .payload_hash(hash.into())
+                .build()
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            })?;
+
+            state.indexify_state.write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest{
+                namespace: namespace.clone(),
+                compute_graph_name: compute_graph.clone(),
+                data_object
+            })).await.map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            })?;
+        }
+    }
     Ok(())
 }
 
 async fn get_output(
-    Path((namespace, compute_graph, object_id)): Path<(String, String, String)>,
-    State(state): State<RouteState>,
+    Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
+    State(_state): State<RouteState>,
 ) -> Result<Json<DataObject>, IndexifyAPIError> {
     Ok(Json(DataObject {
         id: "test".to_string(),
@@ -332,8 +366,8 @@ async fn get_output(
 }
 
 async fn notify_on_change(
-    Path((namespace, compute_graph)): Path<(String, String)>,
-    State(state): State<RouteState>,
+    Path((_namespace, _compute_graph)): Path<(String, String)>,
+    State(_state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     Ok(())
 }

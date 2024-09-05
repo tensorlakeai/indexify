@@ -1,16 +1,14 @@
-use super::routes::RouteState;
-use super::scheduler::Scheduler;
-use crate::{config::ServerConfig, routes::create_routes};
+use std::{net::SocketAddr, sync::Arc};
+
 use anyhow::Result;
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use state_store::IndexifyState;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio;
-use tokio::signal;
-use tokio::sync::watch;
+use tokio::{self, signal, sync::watch};
 use tracing::info;
+
+use super::{routes::RouteState, scheduler::Scheduler};
+use crate::{config::ServerConfig, routes::create_routes};
 
 pub struct Service {
     pub config: ServerConfig,
@@ -24,10 +22,10 @@ impl Service {
     pub async fn start(&self) -> Result<()> {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let indexify_state = Arc::new(IndexifyState::new(self.config.state_store_path.parse()?)?);
-        let blob_storage = Arc::new(BlobStorage::new(self.config.blob_storage.clone()));
+        let blob_storage = BlobStorage::new(self.config.blob_storage.clone())?;
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
-            blob_storage: blob_storage.clone(),
+            blob_storage,
         };
         let app = create_routes(route_state);
         let handle = Handle::new();

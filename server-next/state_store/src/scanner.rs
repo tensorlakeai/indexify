@@ -1,6 +1,6 @@
 use std::{mem, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use data_model::{ComputeGraph, DataObject, Namespace, StateChange, Task};
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -339,12 +339,18 @@ impl StateReader {
 }
 #[cfg(test)]
 mod tests {
-    use super::super::requests::{NamespaceRequest, RequestType};
-    use super::super::IndexifyState;
-    use super::*;
-    use data_model::Namespace;
     use std::path::PathBuf;
+
+    use data_model::Namespace;
     use tempfile::TempDir;
+
+    use super::{
+        super::{
+            requests::{NamespaceRequest, RequestType},
+            IndexifyState,
+        },
+        *,
+    };
 
     #[tokio::test]
     async fn test_get_rows_from_cf_with_limits() {

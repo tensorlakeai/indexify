@@ -1,14 +1,12 @@
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
-use data_model::{
-    ChangeType, InvokeComputeGraphEvent, Node, StateChangeId, Task, TaskFinishedEvent,
-};
+use data_model::{ChangeType, InvokeComputeGraphEvent, StateChangeId, Task, TaskFinishedEvent};
 use state_store::{
     requests::{CreateTaskRequest, RequestType},
     IndexifyState,
 };
-use std::sync::Arc;
-use tokio;
-use tokio::sync::watch::Receiver;
+use tokio::{self, sync::watch::Receiver};
 use tracing::{error, info};
 
 pub struct Scheduler {
@@ -157,17 +155,16 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use data_model::{DataObject, InvokeComputeGraphEvent, Task};
-    use state_store::{requests::RequestType, IndexifyState};
+    use state_store::IndexifyState;
     use tempfile::TempDir;
-    use tokio::sync::watch;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let _scheduler = Scheduler::new(indexify_state.clone());
         Ok(())
     }
 }

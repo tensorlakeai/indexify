@@ -1,15 +1,17 @@
-use anyhow::anyhow;
-use anyhow::Result;
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 pub mod filter;
+use std::fmt::{self, Display};
+
 use filter::LabelsFilter;
 use indexify_proto::indexify_coordinator;
-use std::fmt::{self, Display};
 
 pub type ExecutorId = String;
 pub type TaskId = String;
@@ -94,7 +96,7 @@ pub struct DataObject {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub payload_url: String,
-    pub payload_hash: String,
+    pub payload_hash: [u8; 32],
 }
 
 impl DataObject {
