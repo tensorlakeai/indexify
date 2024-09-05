@@ -6,9 +6,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
 use object_store::{
     aws::{AmazonS3, AmazonS3Builder},
-    local,
-    ObjectStore,
-    WriteMultipart,
+    local, ObjectStore, WriteMultipart,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWrite;
@@ -151,7 +149,7 @@ impl BlobStorage {
             )
         }
     }
-    
+
     pub fn get(&self, key: &str) -> BlobStorageReaderTS {
         if key.starts_with("s3://") {
             let (bucket, key) = parse_s3_url(key)

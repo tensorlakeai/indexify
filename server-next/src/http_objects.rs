@@ -266,15 +266,14 @@ pub struct GraphInvocations {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GraphInput {
-    // file:///s3://bucket/key
-    // file:///data/path/to/file
-    pub payload: String,
-    pub labels: HashMap<String, String>,
-    pub input: serde_json::Value,
+    pub payload: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexifyFile {
+    // file:///s3://bucket/key
+    // file:///data/path/to/file
     pub url: String,
-    pub hash: String,
+    pub metadata: serde_json::Value,
+    pub sha_256: String,
 }
