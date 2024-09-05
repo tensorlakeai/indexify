@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -27,18 +27,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 use crate::http_objects::{
-    ComputeFn,
-    ComputeGraph,
-    ComputeGraphsList,
-    CreateNamespace,
-    DataObject,
-    DynamicRouter,
-    GraphInvocations,
-    IndexifyAPIError,
-    IndexifyFile,
-    Namespace,
-    NamespaceList,
-    Node,
+    ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, DynamicRouter, GraphInvocations, IndexifyAPIError, GraphInputFile, InvocationResult, Namespace, NamespaceList, Node
 };
 
 #[derive(OpenApi)]
@@ -51,6 +40,7 @@ use crate::http_objects::{
             list_compute_graphs,
             get_compute_graph,
             delete_compute_graph,
+            get_outputs,
         ),
         components(
             schemas(
@@ -64,6 +54,7 @@ use crate::http_objects::{
                 ComputeFn,
                 ComputeGraphCreateType,
                 ComputeGraphsList,
+                InvocationResult,
             )
         ),
         tags(
@@ -116,8 +107,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
             post(upload_data).with_state(route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/outputs/:object_id",
-            get(get_output).with_state(route_state.clone()),
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
+            get(get_outputs).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/notify",
@@ -256,7 +247,7 @@ async fn create_compute_graph(
 #[utoipa::path(
     delete,
     path = "/namespaces/{namespace}/compute_graphs/{name}",
-    tag = "ingestion",
+    tag = "operations",
     responses(
         (status = 200, description = "Extraction graph deleted successfully"),
         (status = BAD_REQUEST, description = "Unable to delete extraction graph")
@@ -354,7 +345,7 @@ async fn graph_invocations(
         let payload = serde_json::from_slice(&payload)?;
         api_data_objects.push(DataObject {
             id: data_object.id,
-            data: payload,
+            payload,
             hash: data_object.payload_hash,
         });
     }
@@ -364,12 +355,28 @@ async fn graph_invocations(
     }))
 }
 
+#[allow(dead_code)]
+#[derive(ToSchema)]
+struct InvokeWithFile {
+    /// Extra metadata for file
+    metadata: Option<HashMap<String, serde_json::Value>>,
+    #[schema(format = "binary")]
+    /// File to upload
+    file: Option<String>,
+
+    /// JSON encoded payload for graph input. You should either provide a file or a payload.
+    /// Both file and payload are not accepted.
+    payload: Option<serde_json::Value>
+}
+/// Upload data to a compute graph
 #[utoipa::path(
     post,
-    path = "/{namespace}/compute_graphs/{name}/inputs",
+    path = "namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
+    request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
     tag = "ingestion",
     responses(
         (status = 200, description = "upload successful"),
+        (status = 400, description = "bad request"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
@@ -409,7 +416,7 @@ async fn upload_data(
     if url.is_none() {
         return Err(IndexifyAPIError::bad_request("file is required"));
     }
-    let payload = IndexifyFile {
+    let payload = GraphInputFile {
         metadata: metadata.unwrap_or_default(),
         url: url.unwrap(),
         sha_256: hash.unwrap(),
@@ -452,10 +459,22 @@ async fn upload_data(
     Ok(())
 }
 
-async fn get_output(
+
+/// Get output of a compute graph invocation
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
+    tag = "retrieval",
+    responses(
+        (status = 200, description = "Get outputs of Graph for a given invocation id", body = InvocationResult),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+#[axum::debug_handler]
+async fn get_outputs(
     Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
     State(_state): State<RouteState>,
-) -> Result<Json<DataObject>, IndexifyAPIError> {
+) -> Result<Json<InvocationResult>, IndexifyAPIError> {
     todo!()
 }
 

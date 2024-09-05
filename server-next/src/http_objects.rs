@@ -232,10 +232,10 @@ pub struct ComputeGraphsList {
     pub cursor: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DataObject {
     pub id: String,
-    pub data: serde_json::Value,
+    pub payload: serde_json::Value,
     pub hash: String,
 }
 
@@ -263,16 +263,23 @@ pub struct GraphInvocations {
     pub cursor: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GraphInput {
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GraphInputJson {
     pub payload: serde_json::Value,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IndexifyFile {
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GraphInputFile {
     // file:///s3://bucket/key
     // file:///data/path/to/file
     pub url: String,
     pub metadata: serde_json::Value,
     pub sha_256: String,
+}
+
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvocationResult {
+    pub outputs: HashMap<String, Vec<DataObject>>,
+    pub cursor: Option<String>,
 }
