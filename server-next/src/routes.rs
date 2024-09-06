@@ -446,10 +446,29 @@ async fn notify_on_change(
 )]
 #[axum::debug_handler]
 async fn list_tasks(
-    Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
+    Path((_namespace, _compute_graph, invocation_id)): Path<(String, String, String)>,
     State(_state): State<RouteState>,
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
-    todo!()
+    let tasks = _state.indexify_state.reader().list_tasks_by_compute_graph(
+        &_namespace,
+        &_compute_graph,
+        &invocation_id,
+    );
+    let tasks = tasks.map(|tasks| {
+        tasks
+            .into_iter()
+            .map(|task| Task {
+                id: task.id,
+                status: TaskOutcome::Unknown,
+                created_at: 0,
+                updated_at: 0,
+            })
+            .collect()
+    });
+    Ok(Json(Tasks {
+        tasks: tasks.unwrap_or_default(),
+        cursor: None,
+    }))
 }
 
 /// Delete a specific invocation  

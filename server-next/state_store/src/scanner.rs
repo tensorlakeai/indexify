@@ -323,12 +323,13 @@ impl StateReader {
         Ok(task)
     }
 
-    pub fn get_task_by_compute_graph(
+    pub fn list_tasks_by_compute_graph(
         &self,
         namespace: &str,
         compute_graph: &str,
+        invocation_id: &str,
     ) -> Result<Vec<Task>> {
-        let key = format!("{}_{}", namespace, compute_graph);
+        let key = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
         let (tasks, _) = self.get_rows_from_cf_with_limits::<Task>(
             Some(key),
             IndexifyObjectsColumns::Tasks,

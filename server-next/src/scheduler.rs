@@ -172,10 +172,11 @@ mod tests {
             .write(RequestType::CreateComputeGraph(cg_request))
             .await?;
         let scheduler = Scheduler::new(indexify_state.clone());
+        let mock_data_object = mock_data_object();
         let request = InvokeComputeGraphRequest {
             namespace: "test".to_string(),
             compute_graph_name: "graph_A".to_string(),
-            data_object: mock_data_object(),
+            data_object: mock_data_object.clone(),
         };
         indexify_state
             .write(RequestType::InvokeComputeGraph(request))
@@ -184,7 +185,7 @@ mod tests {
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .get_task_by_compute_graph("test", "graph_A")
+            .list_tasks_by_compute_graph("test", "graph_A", &mock_data_object.id)
             .unwrap();
         assert_eq!(tasks.len(), 1);
         Ok(())

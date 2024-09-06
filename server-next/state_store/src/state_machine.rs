@@ -46,7 +46,7 @@ pub enum IndexifyObjectsColumns {
     Namespaces,    //  Namespaces
     ComputeGraphs, //  Ns_ComputeGraphName -> ComputeGraph
 
-    Tasks,              //  Ns_CG_Fn_TaskId -> Task
+    Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
 
     GraphInvocations, //  Ns_Graph_Id -> DataObject
@@ -113,7 +113,7 @@ pub fn create_graph_input(
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
         .compute_graph_name(compute_graph_name.to_string())
-        .ingested_data_object_id(data_object.id.clone())
+        .invocation_id(data_object.id.clone())
         .fn_task_analytics(HashMap::new())
         .build()?;
     txn.put_cf(

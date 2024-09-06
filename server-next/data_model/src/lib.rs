@@ -176,7 +176,7 @@ impl DataObjectBuilder {
 pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
-    pub ingested_data_object_id: String,
+    pub invocation_id: String,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
 }
 
@@ -184,7 +184,7 @@ impl GraphInvocationCtx {
     pub fn key(&self) -> String {
         format!(
             "{}_{}_{}",
-            self.namespace, self.compute_graph_name, self.ingested_data_object_id
+            self.namespace, self.compute_graph_name, self.invocation_id
         )
     }
 }
@@ -199,14 +199,14 @@ impl GraphInvocationCtxBuilder {
             .compute_graph_name
             .clone()
             .ok_or(anyhow!("compute_graph_name is required"))?;
-        let ingested_data_object_id = self
-            .ingested_data_object_id
+        let invocation_id = self
+            .invocation_id
             .clone()
             .ok_or(anyhow!("ingested_data_object_id is required"))?;
         Ok(GraphInvocationCtx {
             namespace,
             compute_graph_name: cg_name,
-            ingested_data_object_id,
+            invocation_id,
             fn_task_analytics: HashMap::new(),
         })
     }
@@ -239,9 +239,14 @@ impl Task {
     }
 
     pub fn key(&self) -> String {
+        // <namespace>_<compute_graph_name>_<invocation_id>_<fn_name>_<task_id>
         format!(
-            "{}_{}_{}_{}",
-            self.namespace, self.compute_graph_name, self.compute_fn_name, self.id
+            "{}_{}_{}_{}_{}",
+            self.namespace,
+            self.compute_graph_name,
+            self.invocation_id,
+            self.compute_fn_name,
+            self.id
         )
     }
 }
