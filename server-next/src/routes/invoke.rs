@@ -14,7 +14,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::RouteState;
-use crate::http_objects::{GraphInputFile, IndexifyAPIError};
+use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId};
 
 #[allow(dead_code)]
 #[derive(ToSchema)]
@@ -41,7 +41,7 @@ pub async fn invoke_with_file(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
     mut files: Multipart,
-) -> Result<(), IndexifyAPIError> {
+) -> Result<Json<InvocationId>, IndexifyAPIError> {
     let mut metadata: Option<serde_json::Value> = None;
     let mut put_result: Option<PutResult> = None;
 
@@ -105,6 +105,8 @@ pub async fn invoke_with_file(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
+    let id = data_object.id.clone();
+
     state
         .indexify_state
         .write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest {
@@ -116,7 +118,7 @@ pub async fn invoke_with_file(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-    Ok(())
+    Ok(Json(InvocationId { id }))
 }
 
 /// Upload JSON serialized object to a compute graph
@@ -135,7 +137,7 @@ pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
     Json(payload): Json<serde_json::Value>,
-) -> Result<(), IndexifyAPIError> {
+) -> Result<Json<InvocationId>, IndexifyAPIError> {
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = stream::once(async move {
         let payload_json = serde_json::to_string(&payload)?.as_bytes().to_vec().clone();
@@ -162,7 +164,7 @@ pub async fn invoke_with_object(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-
+    let id = data_object.id.clone();
     state
         .indexify_state
         .write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest {
@@ -174,5 +176,5 @@ pub async fn invoke_with_object(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-    Ok(())
+    Ok(Json(InvocationId { id }))
 }

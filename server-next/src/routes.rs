@@ -4,7 +4,7 @@ use anyhow::Result;
 use axum::{
     body::Body,
     extract::{Multipart, Path, State},
-    http::Response,
+    http::{header::CONTENT_TYPE, Method, Response},
     response::IntoResponse,
     routing::{delete, get, post},
     Json,
@@ -23,6 +23,7 @@ use state_store::{
     },
     IndexifyState,
 };
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
@@ -98,6 +99,11 @@ pub struct RouteState {
 }
 
 pub fn create_routes(route_state: RouteState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST])
+        .allow_origin(Any)
+        .allow_headers([CONTENT_TYPE]);
+
     Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
         .route("/", get(index))
@@ -157,6 +163,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
             get(get_code).with_state(route_state.clone()),
         )
+        .layer(cors)
 }
 
 async fn index() -> &'static str {

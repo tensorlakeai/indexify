@@ -321,6 +321,11 @@ pub struct Tasks {
     pub cursor: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvocationId {
+    pub id: String,
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
