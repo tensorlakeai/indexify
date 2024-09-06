@@ -285,7 +285,7 @@ impl StateReader {
         let key = format!("{}_{}", namespace, compute_graph);
         let (invocations, _) = self.get_rows_from_cf_with_limits::<DataObject>(
             Some(key),
-            IndexifyObjectsColumns::IngestedData,
+            IndexifyObjectsColumns::GraphInvocations,
             limit,
         )?;
         Ok(invocations)
@@ -346,7 +346,7 @@ impl StateReader {
         let key = format!("{}_{}_{}", namespace, compute_graph, compute_fn);
         let (data_objects, _) = self.get_rows_from_cf_with_limits::<DataObject>(
             Some(key),
-            IndexifyObjectsColumns::FnOutputData,
+            IndexifyObjectsColumns::FnOutputs,
             None,
         )?;
         Ok(data_objects)

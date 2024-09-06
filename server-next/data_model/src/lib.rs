@@ -1,17 +1,17 @@
+pub mod filter;
+pub mod test_objects;
+
 use std::{
     collections::HashMap,
+    fmt::{self, Display},
     hash::{DefaultHasher, Hash, Hasher},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
-use serde::{Deserialize, Serialize};
-pub mod filter;
-use std::fmt::{self, Display};
-
 use filter::LabelsFilter;
-use indexify_proto::indexify_coordinator;
+use serde::{Deserialize, Serialize};
 
 pub type ExecutorId = String;
 pub type TaskId = String;
@@ -53,7 +53,7 @@ impl Node {
         namespace: &str,
         compute_graph_name: &str,
         input_id: &str,
-        ingested_id: &str,
+        invocation_id: &str,
     ) -> Result<Task> {
         let name = match self {
             Node::Router(router) => router.name.clone(),
@@ -63,7 +63,7 @@ impl Node {
             .namespace(namespace.to_string())
             .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
-            .ingested_data_id(ingested_id.to_string())
+            .invocation_id(invocation_id.to_string())
             .input_data_id(input_id.to_string())
             .build()?;
         Ok(task)
@@ -226,7 +226,7 @@ pub struct Task {
     pub namespace: String,
     pub compute_fn_name: String,
     pub compute_graph_name: String,
-    pub ingested_data_id: String,
+    pub invocation_id: String,
     pub input_data_id: String,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
@@ -274,15 +274,15 @@ impl TaskBuilder {
             .input_data_id
             .clone()
             .ok_or(anyhow!("input data object id is not present"))?;
-        let ingested_data_id = self
-            .ingested_data_id
+        let invocation_id= self
+            .invocation_id
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
         let mut hasher = DefaultHasher::new();
         cg_name.hash(&mut hasher);
         compute_fn_name.hash(&mut hasher);
         input_data_id.hash(&mut hasher);
-        ingested_data_id.hash(&mut hasher);
+        invocation_id.hash(&mut hasher);
         namespace.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         let task = Task {
@@ -290,26 +290,12 @@ impl TaskBuilder {
             compute_graph_name: cg_name,
             compute_fn_name,
             input_data_id,
-            ingested_data_id,
+            invocation_id,
             namespace,
             outcome: TaskOutcome::Unknown,
             creation_time: default_creation_time(),
         };
         Ok(task)
-    }
-}
-
-impl TryFrom<Task> for indexify_coordinator::Task {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Task) -> Result<Self> {
-        Ok(indexify_coordinator::Task {
-            id: value.id,
-            namespace: value.namespace,
-            input_data_object_id: value.input_data_id,
-            compute_graph_name: value.compute_graph_name,
-            compute_fn_name: value.compute_fn_name,
-        })
     }
 }
 
@@ -350,7 +336,7 @@ pub struct ExecutorMetadata {
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct InvokeComputeGraphEvent {
-    pub ingested_data_id: String,
+    pub invocation_id: String,
     pub namespace: String,
     pub compute_graph: String,
 }

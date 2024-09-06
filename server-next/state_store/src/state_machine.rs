@@ -37,8 +37,8 @@ pub enum IndexifyObjectsColumns {
     Tasks,              //  Ns_CG_Fn_TaskId -> Task
     GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
 
-    IngestedData, //  Ns_Graph_Id -> DataObject
-    FnOutputData, //  Ns_Graph_<Ingested_Id>_Fn_Id -> DataObject
+    GraphInvocations, //  Ns_Graph_Id -> DataObject
+    FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> DataObject
 
     StateChanges, //  StateChangeId -> StateChange
 
@@ -93,7 +93,7 @@ pub fn create_graph_input(
     let ingestion_object_key = data_object.ingestion_object_key();
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
     txn.put_cf(
-        &IndexifyObjectsColumns::IngestedData.cf_db(&db),
+        &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         ingestion_object_key,
         &serialized_data_object,
     )?;
@@ -108,7 +108,7 @@ pub fn create_compute_fn_output(
 ) -> Result<()> {
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
     txn.put_cf(
-        &IndexifyObjectsColumns::FnOutputData.cf(db),
+        &IndexifyObjectsColumns::FnOutputs.cf(db),
         data_object.fn_output_key(ingested_data_id),
         &serialized_data_object,
     )?;
@@ -126,13 +126,13 @@ pub(crate) fn delete_input_data_object(
     let prefix = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        &IndexifyObjectsColumns::IngestedData.cf_db(&db),
+        &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        db.delete_cf(&IndexifyObjectsColumns::IngestedData.cf_db(&db), &key.0)?;
+        db.delete_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(&db), &key.0)?;
     }
 
     // FIXME - Delete the data objects which are outputs of the compute functions of
@@ -171,13 +171,13 @@ pub fn delete_compute_graph(
     let prefix = format!("{}_{}_{}", namespace, name, "");
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        &IndexifyObjectsColumns::IngestedData.cf_db(&db),
+        &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        txn.delete_cf(&IndexifyObjectsColumns::IngestedData.cf_db(&db), &key.0)?;
+        txn.delete_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(&db), &key.0)?;
     }
 
     let mut read_options = ReadOptions::default();
@@ -185,13 +185,13 @@ pub fn delete_compute_graph(
     let prefix = format!("{}_{}_{}", namespace, name, "");
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        &IndexifyObjectsColumns::FnOutputData.cf_db(&db),
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        txn.delete_cf(&IndexifyObjectsColumns::FnOutputData.cf_db(&db), &key.0)?;
+        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key.0)?;
     }
     Ok(())
 }
@@ -210,7 +210,7 @@ pub(crate) fn create_tasks(
         )?;
         let key = format!(
             "{}_{}_{}",
-            task.namespace, task.compute_graph_name, task.ingested_data_id
+            task.namespace, task.compute_graph_name, task.invocation_id
         );
         let graph_ctx = txn.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?;
         if graph_ctx.is_none() {

@@ -11,25 +11,19 @@ resolver = "2"
 members = [
     ".", "blob_store", 
     "data_model",
-    "indexify_proto",
     "state_store",
     "task_scheduler",
     "utils",
 ]
 
 [workspace.dependencies]
-prost = "0.13.2"
-prost-wkt = "0.6.0"
 serde = "1.0.209"
-tonic = "0.12.2"
-prost-wkt-types = "0.6.0"
 anyhow = "1.0.86"
 serde_json = "1.0.127"
 # https://github.com/rust-rocksdb/rust-rocksdb/issues/881
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "1cf906dc4087f06631820f13855e6b27bd21b972", features=["multi-threaded-cf"]}
 data_model = { path = "data_model" }
 indexify_utils = { path = "utils" }
-indexify_proto = { path = "indexify_proto" }
 state_store = { path = "state_store" }
 strum = { version = "0.26.3", features = ["derive"] }
 tracing = "0.1.40"
@@ -64,7 +58,6 @@ tower-http = { version = "0.5.2", default-features = false, features = [
 [dependencies]
 data_model = { path = "data_model" }
 state_store = { path = "state_store" }
-indexify_proto = { path = "indexify_proto" }
 task_scheduler = { path = "task_scheduler" }
 blob_store = { path = "blob_store" }
 serde={workspace = true}
@@ -102,8 +95,6 @@ vergen = { version = "8", features = [
     "rustc",
     "si",
 ] }
-tonic-build = { version = "0.12.2", features = ["prost"] }
-prost-wkt-build = "0.6"
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
