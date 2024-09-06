@@ -53,6 +53,8 @@ use crate::http_objects::{
             create_namespace,
             namespaces,
             invoke::invoke_with_file,
+            invoke::invoke_with_object,
+            graph_invocations,
             create_compute_graph,
             list_compute_graphs,
             get_compute_graph,
@@ -77,6 +79,7 @@ use crate::http_objects::{
                 Task,
                 TaskOutcome,
                 Tasks,
+                GraphInvocations,
             )
         ),
         tags(
@@ -360,7 +363,7 @@ async fn get_compute_graph(
 /// List Graph invocations
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{name}",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
     tag = "ingestion",
     responses(
         (status = 200, description = "Compute Graph Definition", body = GraphInvocations),
