@@ -100,9 +100,9 @@ pub struct RouteState {
 
 pub fn create_routes(route_state: RouteState) -> Router {
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_origin(Any)
-        .allow_headers([CONTENT_TYPE]);
+        .allow_headers(Any);
 
     Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
