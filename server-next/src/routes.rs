@@ -324,7 +324,7 @@ async fn list_compute_graphs(
 /// Get a compute graph definition
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{name}",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}",
     tag = "operations",
     responses(
         (status = 200, description = "Compute Graph Definition", body = ComputeGraph),
