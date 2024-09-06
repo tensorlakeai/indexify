@@ -10,6 +10,7 @@ use axum::{
     Json,
     Router,
 };
+use blob_store::PutResult;
 use data_model::DataObjectBuilder;
 use futures::{stream, StreamExt};
 use nanoid::nanoid;
@@ -225,19 +226,19 @@ async fn create_compute_graph(
     mut compute_graph_code: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
-    let mut code_url: Option<String> = None;
+    let mut put_result: Option<PutResult> = None;
     while let Some(field) = compute_graph_code.next_field().await.unwrap() {
         let name = field.name();
         if let Some(name) = name {
             if name == "code" {
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
                 let file_name = format!("{}_{}", namespace, nanoid!());
-                let put_result = state
+                let result = state
                     .blob_storage
                     .put(&file_name, stream)
                     .await
                     .map_err(IndexifyAPIError::internal_error)?;
-                code_url = Some(put_result.url);
+                put_result = Some(result);
             } else if name == "compute_graph" {
                 let text = field
                     .text()
@@ -256,13 +257,16 @@ async fn create_compute_graph(
         ));
     }
 
-    if code_url.is_none() {
+    if put_result.is_none() {
         return Err(IndexifyAPIError::bad_request("Code is required"));
     }
+    let put_result = put_result.unwrap();
     let compute_graph_definition = compute_graph_definition.unwrap();
-    let code_url = code_url.unwrap();
-
-    let compute_graph = compute_graph_definition.into_data_model(&code_url)?;
+    let compute_graph = compute_graph_definition.into_data_model(
+        &put_result.url,
+        &put_result.sha256_hash,
+        put_result.size_bytes,
+    )?;
     let name = compute_graph.name.clone();
     let request = RequestType::CreateComputeGraph(CreateComputeGraphRequest {
         namespace,
@@ -566,15 +570,19 @@ async fn get_code(
     if compute_graph.is_none() {
         return Err(IndexifyAPIError::not_found("Compute Graph not found"));
     }
-    let resp_builder = Response::builder().header("Content-Type", "application/octet-stream");
-    let storage_reader = _state.blob_storage.get(&compute_graph.unwrap().code_path);
-    let content_stream = storage_reader
+    let compute_graph = compute_graph.unwrap();
+    let storage_reader = _state.blob_storage.get(&compute_graph.code.path);
+    let code_stream = storage_reader
         .get()
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
-    resp_builder
-        .body(Body::from_stream(content_stream))
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
-    Ok(())
+    Response::builder()
+        .header("Content-Type", "application/octet-stream")
+        .header(
+            "Content-Length",
+            compute_graph.code.clone().size.to_string(),
+        )
+        .body(Body::from_stream(code_stream))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }

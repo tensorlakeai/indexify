@@ -71,11 +71,18 @@ impl Node {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraphCode {
+    pub path: String,
+    pub size: u64,
+    pub sha256_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
     pub description: String,
-    pub code_path: String,
+    pub code: ComputeGraphCode,
     pub create_at: u64,
     pub tomb_stoned: bool,
     pub start_fn: Node,

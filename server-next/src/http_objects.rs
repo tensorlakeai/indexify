@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use data_model::ComputeGraphCode;
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -186,6 +187,8 @@ impl ComputeGraph {
     pub fn into_data_model(
         self,
         code_path: &str,
+        sha256_hash: &str,
+        size: u64,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut edges = HashMap::new();
         for (k, v) in self.edges.into_iter() {
@@ -198,7 +201,11 @@ impl ComputeGraph {
             namespace: self.namespace,
             description: self.description,
             start_fn,
-            code_path: code_path.to_string(),
+            code: ComputeGraphCode {
+                sha256_hash: sha256_hash.to_string(),
+                size,
+                path: code_path.to_string(),
+            },
             edges,
             create_at: 0,
             tomb_stoned: false,

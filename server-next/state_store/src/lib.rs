@@ -140,7 +140,14 @@ impl IndexifyState {
 mod tests {
     use std::collections::HashMap;
 
-    use data_model::{filter::LabelsFilter, ComputeFn, ComputeGraph, Namespace, Node};
+    use data_model::{
+        filter::LabelsFilter,
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphCode,
+        Namespace,
+        Node,
+    };
     use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};
     use tempfile::TempDir;
     use tokio;
@@ -194,7 +201,11 @@ mod tests {
             namespace: "namespace1".to_string(),
             name: "compute_graph1".to_string(),
             description: "A test compute graph".to_string(),
-            code_path: "/path/to/code".to_string(),
+            code: ComputeGraphCode {
+                sha256_hash: "hash".to_string(),
+                size: 123,
+                path: "http://url".to_string(),
+            },
             create_at: 0,
             tomb_stoned: false,
             start_fn: Node::Compute(ComputeFn {
