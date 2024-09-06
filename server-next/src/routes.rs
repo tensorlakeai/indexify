@@ -132,7 +132,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(get_compute_graph).with_state(route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/tasks",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/tasks",
             get(list_tasks).with_state(route_state.clone()),
         )
         .route(
@@ -437,7 +437,7 @@ async fn notify_on_change(
 /// List tasks for a compute graph invocation
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/tasks",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks",
     tag = "operations",
     responses(
         (status = 200, description = "List tasks for a given invocation id", body = Tasks),
@@ -446,12 +446,12 @@ async fn notify_on_change(
 )]
 #[axum::debug_handler]
 async fn list_tasks(
-    Path((_namespace, _compute_graph, invocation_id)): Path<(String, String, String)>,
-    State(_state): State<RouteState>,
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
-    let tasks = _state.indexify_state.reader().list_tasks_by_compute_graph(
-        &_namespace,
-        &_compute_graph,
+    let tasks = state.indexify_state.reader().list_tasks_by_compute_graph(
+        &namespace,
+        &compute_graph,
         &invocation_id,
     );
     let tasks = tasks.map(|tasks| {
