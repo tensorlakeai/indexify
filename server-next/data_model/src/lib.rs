@@ -274,7 +274,7 @@ impl TaskBuilder {
             .input_data_id
             .clone()
             .ok_or(anyhow!("input data object id is not present"))?;
-        let invocation_id= self
+        let invocation_id = self
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
@@ -406,25 +406,13 @@ impl From<StateChangeId> for u64 {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,
     pub object_id: String,
     pub change_type: ChangeType,
     pub created_at: u64,
     pub processed_at: Option<u64>,
-}
-
-impl StateChange {
-    pub fn new(object_id: String, change_type: ChangeType, created_at: u64) -> Self {
-        Self {
-            id: StateChangeId(0),
-            object_id,
-            change_type,
-            created_at,
-            processed_at: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
