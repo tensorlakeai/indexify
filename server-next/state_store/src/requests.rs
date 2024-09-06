@@ -6,6 +6,7 @@ pub enum RequestType {
     CreateComputeGraph(CreateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
     CreateTasks(CreateTaskRequest),
+    DeleteInvocation(DeleteInvocationRequest),
 }
 
 pub struct InvokeComputeGraphRequest {
@@ -30,4 +31,10 @@ pub struct DeleteComputeGraphRequest {
 
 pub struct CreateTaskRequest {
     pub tasks: Vec<Task>,
+}
+
+pub struct DeleteInvocationRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
 }

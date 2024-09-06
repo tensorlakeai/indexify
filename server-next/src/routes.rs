@@ -17,6 +17,7 @@ use state_store::{
     requests::{
         CreateComputeGraphRequest,
         DeleteComputeGraphRequest,
+        DeleteInvocationRequest,
         NamespaceRequest,
         RequestType,
     },
@@ -456,26 +457,35 @@ async fn list_tasks(
 )]
 #[axum::debug_handler]
 async fn delete_invocation(
-    Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
-    State(_state): State<RouteState>,
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
-    todo!()
+    let request = RequestType::DeleteInvocation(DeleteInvocationRequest {
+        namespace,
+        compute_graph,
+        invocation_id,
+    });
+    let _ = state
+        .indexify_state
+        .write(request)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
 }
 
 async fn get_code(
-    Path((_namespace, _compute_graph)): Path<(String, String)>,
-    State(_state): State<RouteState>,
+    Path((namespace, compute_graph)): Path<(String, String)>,
+    State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let compute_graph = _state
+    let compute_graph = state
         .indexify_state
         .reader()
-        .get_compute_graph(&_namespace, &_compute_graph)
+        .get_compute_graph(&namespace, &compute_graph)
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
     if compute_graph.is_none() {
         return Err(IndexifyAPIError::not_found("Compute Graph not found"));
     }
     let compute_graph = compute_graph.unwrap();
-    let storage_reader = _state.blob_storage.get(&compute_graph.code.path);
+    let storage_reader = state.blob_storage.get(&compute_graph.code.path);
     let code_stream = storage_reader
         .get()
         .await
