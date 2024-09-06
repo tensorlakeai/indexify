@@ -459,7 +459,7 @@ async fn list_tasks(
 async fn delete_invocation(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
-) -> Result<Json<Tasks>, IndexifyAPIError> {
+) -> Result<(), IndexifyAPIError> {
     let request = RequestType::DeleteInvocation(DeleteInvocationRequest {
         namespace,
         compute_graph,
@@ -470,6 +470,7 @@ async fn delete_invocation(
         .write(request)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
+    Ok(())
 }
 
 async fn get_code(

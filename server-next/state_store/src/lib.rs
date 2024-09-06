@@ -67,6 +67,9 @@ impl IndexifyState {
             requests::RequestType::CreateTasks(create_tasks_request) => {
                 self.create_tasks(&create_tasks_request).await?;
             }
+            requests::RequestType::DeleteInvocation(delete_invocation_request) => {
+                self.delete_invocation(&delete_invocation_request).await?;
+            }
         }
         let state_changes = vec![StateChangeId::new(get_epoch_time_in_ms())];
         for state_change in state_changes {
@@ -88,6 +91,16 @@ impl IndexifyState {
             request.data_object.clone(),
         )?;
         txn.commit()?;
+        Ok(())
+    }
+
+    async fn delete_invocation(&self, request: &requests::DeleteInvocationRequest) -> Result<()> {
+        state_machine::delete_input_data_object(
+            self.db.clone(),
+            &request.namespace,
+            &request.compute_graph,
+            &request.invocation_id,
+        )?;
         Ok(())
     }
 

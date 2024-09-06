@@ -115,25 +115,28 @@ pub fn create_compute_fn_output(
     Ok(())
 }
 
-pub fn delete_input_data_object(
-    db: &OptimisticTransactionDB,
-    data_object_id: &str,
+pub(crate) fn delete_input_data_object(
+    db: Arc<TransactionDB>,
     namespace: &str,
-    compute_graph_name: &str,
+    compute_graph: &str,
+    invocation_id: &str,
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}_{}_{}", namespace, compute_graph_name, data_object_id);
+    let prefix = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
-        &IndexifyObjectsColumns::IngestedData.cf(db),
+        &IndexifyObjectsColumns::IngestedData.cf_db(&db),
         read_options,
         iterator_mode,
     );
     for key in iter {
         let key = key?;
-        db.delete_cf(&IndexifyObjectsColumns::IngestedData.cf(db), &key.0)?;
+        db.delete_cf(&IndexifyObjectsColumns::IngestedData.cf_db(&db), &key.0)?;
     }
+
+    // FIXME - Delete the data objects which are outputs of the compute functions of
+    // the invocation
     Ok(())
 }
 
