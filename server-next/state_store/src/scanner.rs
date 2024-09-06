@@ -220,8 +220,8 @@ impl StateReader {
         let mut state_changes = Vec::new();
         let mut count = 0;
         for kv in iter {
-            if let Ok((key, _)) = kv {
-                let state_change = JsonEncoder::decode::<StateChange>(&key)?;
+            if let Ok((_, serialized_sc)) = kv {
+                let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
                 state_changes.push(state_change);
                 count += 1;
             }

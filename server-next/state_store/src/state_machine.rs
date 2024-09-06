@@ -1,7 +1,19 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::Result;
-use data_model::{ComputeGraph, DataObject, GraphInvocationCtx, Namespace, Task, TaskAnalytics};
+use data_model::{
+    ComputeGraph,
+    DataObject,
+    GraphInvocationCtx,
+    GraphInvocationCtxBuilder,
+    Namespace,
+    StateChange,
+    Task,
+    TaskAnalytics,
+};
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
     BoundColumnFamily,
@@ -96,6 +108,18 @@ pub fn create_graph_input(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         ingestion_object_key,
         &serialized_data_object,
+    )?;
+
+    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        .namespace(namespace.to_string())
+        .compute_graph_name(compute_graph_name.to_string())
+        .ingested_data_object_id(data_object.id.clone())
+        .fn_task_analytics(HashMap::new())
+        .build()?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        graph_invocation_ctx.key(),
+        &JsonEncoder::encode(&graph_invocation_ctx)?,
     )?;
     Ok(())
 }
@@ -270,5 +294,27 @@ pub fn mark_task_completed(
     _txn: &Transaction<OptimisticTransactionDB>,
     _task: Task,
 ) -> Result<()> {
+    Ok(())
+}
+
+pub(crate) fn save_state_changes(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    state_changes: Vec<StateChange>,
+) -> Result<()> {
+    for state_change in state_changes {
+        let serialized_state_change = JsonEncoder::encode(&state_change)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::StateChanges.cf_db(&db),
+            &state_change.id.to_key(),
+            serialized_state_change.clone(),
+        )?;
+
+        txn.put_cf(
+            &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+            &state_change.id.to_key(),
+            serialized_state_change,
+        )?;
+    }
     Ok(())
 }

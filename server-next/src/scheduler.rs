@@ -38,8 +38,8 @@ impl Scheduler {
         let task = compute_graph.start_fn.create_task(
             &event.namespace,
             &event.compute_graph,
-            &event.ingested_data_id,
-            &event.ingested_data_id,
+            &event.invocation_id,
+            &event.invocation_id,
         )?;
         Ok(vec![task])
     }
@@ -93,7 +93,7 @@ impl Scheduler {
                     &task.namespace,
                     &task.compute_graph_name,
                     &output.id,
-                    &task.ingested_data_id,
+                    &task.invocation_id,
                 )?;
                 new_tasks.push(new_task);
             }
@@ -151,7 +151,11 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use state_store::IndexifyState;
+    use data_model::{test_objects::tests, DataObjectBuilder, DataPayload};
+    use state_store::{
+        requests::{CreateComputeGraphRequest, InvokeComputeGraphRequest},
+        IndexifyState,
+    };
     use tempfile::TempDir;
 
     use super::*;
@@ -160,7 +164,38 @@ mod tests {
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
-        let _scheduler = Scheduler::new(indexify_state.clone());
+        let cg_request = CreateComputeGraphRequest {
+            namespace: "test".to_string(),
+            compute_graph: tests::mock_graph_a(),
+        };
+        indexify_state
+            .write(RequestType::CreateComputeGraph(cg_request))
+            .await?;
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let request = InvokeComputeGraphRequest {
+            namespace: "test".to_string(),
+            compute_graph_name: "graph_A".to_string(),
+            data_object: DataObjectBuilder::default()
+                .namespace("test".to_string())
+                .compute_graph_name("graph_A".to_string())
+                .payload(DataPayload {
+                    path: "test".to_string(),
+                    size: 23,
+                    sha256_hash: "hash1232".to_string(),
+                })
+                .compute_fn_name("fn_b".to_string())
+                .build()?,
+        };
+        indexify_state
+            .write(RequestType::InvokeComputeGraph(request))
+            .await
+            .unwrap();
+        scheduler.run_scheduler().await?;
+        let tasks = indexify_state
+            .reader()
+            .get_task_by_compute_graph("test", "graph_A")
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
         Ok(())
     }
 }

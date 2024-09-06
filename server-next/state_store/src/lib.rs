@@ -1,7 +1,22 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    vec,
+};
 
 use anyhow::{anyhow, Result};
-use data_model::{Namespace, StateChangeId};
+use data_model::{
+    ChangeType,
+    InvokeComputeGraphEvent,
+    Namespace,
+    StateChange,
+    StateChangeBuilder,
+    StateChangeId,
+};
 use indexify_utils::get_epoch_time_in_ms;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::IndexifyObjectsColumns;
@@ -18,6 +33,7 @@ pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
     pub state_change_tx: Sender<StateChangeId>,
     pub state_change_rx: Receiver<StateChangeId>,
+    pub last_state_change_id: Arc<AtomicU64>,
 }
 
 impl IndexifyState {
@@ -40,6 +56,7 @@ impl IndexifyState {
             db: Arc::new(db),
             state_change_tx: tx,
             state_change_rx: rx,
+            last_state_change_id: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -48,32 +65,31 @@ impl IndexifyState {
     }
 
     pub async fn write(&self, request: requests::RequestType) -> Result<()> {
-        match request {
+        let state_changes = match request {
             requests::RequestType::InvokeComputeGraph(invoke_compute_graph_request) => {
                 self.invoke_compute_graph(&invoke_compute_graph_request)
-                    .await?;
+                    .await?
             }
             requests::RequestType::CreateNameSpace(namespace_request) => {
-                self.create_namespace(&namespace_request.name).await?;
+                self.create_namespace(&namespace_request.name).await?
             }
             requests::RequestType::CreateComputeGraph(create_compute_graph_request) => {
                 self.create_compute_graph(&create_compute_graph_request)
-                    .await?;
+                    .await?
             }
             requests::RequestType::DeleteComputeGraph(delete_compute_graph_request) => {
                 self.delete_compute_graph(&delete_compute_graph_request)
-                    .await?;
+                    .await?
             }
             requests::RequestType::CreateTasks(create_tasks_request) => {
-                self.create_tasks(&create_tasks_request).await?;
+                self.create_tasks(&create_tasks_request).await?
             }
             requests::RequestType::DeleteInvocation(delete_invocation_request) => {
-                self.delete_invocation(&delete_invocation_request).await?;
+                self.delete_invocation(&delete_invocation_request).await?
             }
-        }
-        let state_changes = vec![StateChangeId::new(get_epoch_time_in_ms())];
+        };
         for state_change in state_changes {
-            self.state_change_tx.send(state_change).unwrap();
+            self.state_change_tx.send(state_change.id).unwrap();
         }
         Ok(())
     }
@@ -81,8 +97,20 @@ impl IndexifyState {
     async fn invoke_compute_graph(
         &self,
         request: &requests::InvokeComputeGraphRequest,
-    ) -> Result<()> {
+    ) -> Result<Vec<StateChange>> {
         let txn = self.db.transaction();
+        let last_change_id = self.last_state_change_id.fetch_add(1, Ordering::Relaxed);
+        let state_change = StateChangeBuilder::default()
+            .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
+                namespace: request.namespace.clone(),
+                invocation_id: request.data_object.id.clone(),
+                compute_graph: request.compute_graph_name.clone(),
+            }))
+            .created_at(get_epoch_time_in_ms())
+            .object_id(request.data_object.id.clone())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()?;
         state_machine::create_graph_input(
             self.db.clone(),
             &txn,
@@ -90,49 +118,56 @@ impl IndexifyState {
             &request.compute_graph_name,
             request.data_object.clone(),
         )?;
+        state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
         txn.commit()?;
-        Ok(())
+        Ok(vec![state_change])
     }
 
-    async fn delete_invocation(&self, request: &requests::DeleteInvocationRequest) -> Result<()> {
+    async fn delete_invocation(
+        &self,
+        request: &requests::DeleteInvocationRequest,
+    ) -> Result<Vec<StateChange>> {
         state_machine::delete_input_data_object(
             self.db.clone(),
             &request.namespace,
             &request.compute_graph,
             &request.invocation_id,
         )?;
-        Ok(())
+        Ok(vec![])
     }
 
-    async fn create_namespace(&self, name: &str) -> Result<()> {
+    async fn create_namespace(&self, name: &str) -> Result<Vec<StateChange>> {
         let namespace = Namespace {
             name: name.to_string(),
             created_at: get_epoch_time_in_ms(),
         };
         state_machine::create_namespace(self.db.clone(), &namespace)?;
-        Ok(())
+        Ok(vec![])
     }
 
     async fn create_compute_graph(
         &self,
         create_compute_graph_request: &requests::CreateComputeGraphRequest,
-    ) -> Result<()> {
+    ) -> Result<Vec<StateChange>> {
         let compute_graph = create_compute_graph_request.compute_graph.clone();
         state_machine::create_compute_graph(self.db.clone(), compute_graph)?;
-        Ok(())
+        Ok(vec![])
     }
 
-    async fn create_tasks(&self, create_tasks_request: &requests::CreateTaskRequest) -> Result<()> {
+    async fn create_tasks(
+        &self,
+        create_tasks_request: &requests::CreateTaskRequest,
+    ) -> Result<Vec<StateChange>> {
         let txn = self.db.transaction();
         state_machine::create_tasks(self.db.clone(), &txn, create_tasks_request.tasks.clone())?;
         txn.commit()?;
-        Ok(())
+        Ok(vec![])
     }
 
     async fn delete_compute_graph(
         &self,
         request: &requests::DeleteComputeGraphRequest,
-    ) -> Result<()> {
+    ) -> Result<Vec<StateChange>> {
         let txn = self.db.transaction();
         state_machine::delete_compute_graph(
             self.db.clone(),
@@ -141,7 +176,7 @@ impl IndexifyState {
             &request.name,
         )?;
         txn.commit()?;
-        Ok(())
+        Ok(vec![])
     }
 
     pub fn reader(&self) -> scanner::StateReader {
