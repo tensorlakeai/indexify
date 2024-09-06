@@ -62,7 +62,7 @@ const IndividualContentPage = () => {
       >
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
-          <Typography color="text.primary">Extraction Graph</Typography>
+          <Typography color="text.primary">Compute Graph</Typography>
         </Link>
         <Link color="inherit" to={`/${namespace}/extraction-graphs/${extractorName}`}>
           <Typography color="text.primary">{extractorName}</Typography>

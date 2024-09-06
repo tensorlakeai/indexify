@@ -47,7 +47,7 @@ export async function IndividualExtractionGraphPageLoader({
 
   const extractionGraph = extractionGraphs.find(graph => graph.name === extractorName);
   if (!extractionGraph) {
-    throw new Error(`Extraction graph ${extractorName} not found`);
+    throw new Error(`Compute graph ${extractorName} not found`);
   }
 
   return {

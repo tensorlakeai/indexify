@@ -34,7 +34,7 @@ const IndexTable = ({
     },
     {
       field: 'extractionGraphName',
-      headerName: 'Extraction Graph Name',
+      headerName: 'Compute Graph Name',
       flex: 2,
       valueGetter: (params) => params.row.name,
       renderCell: (params) => {

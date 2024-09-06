@@ -96,7 +96,7 @@ const UploadButton = ({ client, extractionGraph }: Props) => {
             Select a file to upload and choose an extraction graph.
           </Typography>
           <OutlinedInput
-            label="Extraction Graph"
+            label="Compute Graph"
             value={extractionGraph}
             fullWidth
             notched={false}

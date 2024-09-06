@@ -188,7 +188,7 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
                 <Typography variant="subtitle2">{content.namespace}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-                <Typography variant="caption" sx={{ color: "#757A82" }}>Ingested Content ID:</Typography>
+                <Typography variant="caption" sx={{ color: "#757A82" }}>Invocation ID:</Typography>
                 <Typography variant="subtitle2">{content.ingested_content_id}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
@@ -196,7 +196,7 @@ const TasksContentDrawer: React.FC<ContentDrawerProps> = ({ open, onClose, conte
                 <Typography variant="subtitle2">{content.hash}</Typography>
               </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ marginBottom: 1 }}>
-                <Typography variant="caption" sx={{ color: "#757A82" }}>Extraction Graph Names:</Typography>
+                <Typography variant="caption" sx={{ color: "#757A82" }}>Compute Graph Names:</Typography>
                 <Typography variant="subtitle2">{content.extraction_graph_names.join(', ')}</Typography>
               </Stack>
             </Grid>

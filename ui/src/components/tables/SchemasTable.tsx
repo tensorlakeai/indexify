@@ -13,7 +13,7 @@ const SchemasTable = ({ schemas }: { schemas: ISchema[] }) => {
     { field: 'namespace', headerName: 'namespace', width: 200 },
     {
       field: 'extraction_graph_name',
-      headerName: 'Extraction Graph',
+      headerName: 'Compute Graph',
       width: 250,
     },
     {
