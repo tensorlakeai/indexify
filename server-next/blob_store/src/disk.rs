@@ -8,18 +8,22 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::BlobStorageReader;
 
-pub struct DiskFileReader {}
+pub struct DiskFileReader {
+    file_path: String,
+}
 impl DiskFileReader {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(fil_path: &str) -> Self {
+        Self {
+            file_path: fil_path.to_string(),
+        }
     }
 }
 
 #[async_trait]
 impl BlobStorageReader for DiskFileReader {
-    async fn get(&self, file_path: &str) -> Result<BoxStream<'static, Result<Bytes>>> {
+    async fn get(&self) -> Result<BoxStream<'static, Result<Bytes>>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let file_path = file_path.trim_start_matches("file://").to_string();
+        let file_path = &self.file_path.trim_start_matches("file://").to_string();
         let client = LocalFileSystem::new();
         let get_result = client
             .get(&file_path.clone().into())

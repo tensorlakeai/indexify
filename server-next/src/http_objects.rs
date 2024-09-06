@@ -30,6 +30,10 @@ impl IndexifyAPIError {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str())
     }
 
+    pub fn internal_error_str(e: &str) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, e)
+    }
+
     pub fn not_found(message: &str) -> Self {
         Self::new(StatusCode::NOT_FOUND, message)
     }

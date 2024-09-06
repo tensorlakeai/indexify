@@ -63,7 +63,7 @@ pub trait BlobStoragePartWriter {
 
 #[async_trait]
 pub trait BlobStorageReader {
-    async fn get(&self, key: &str) -> Result<BoxStream<'static, Result<Bytes>>>;
+    async fn get(&self) -> Result<BoxStream<'static, Result<Bytes>>>;
 }
 
 #[derive(Clone)]
@@ -174,16 +174,16 @@ impl BlobStorage {
         }
 
         if key.starts_with("http") {
-            return Arc::new(http::HttpReader {});
+            return Arc::new(http::HttpReader::new(key));
         }
 
         // If it's not S3, assume it's a file
-        Arc::new(DiskFileReader::new())
+        Arc::new(DiskFileReader::new(key))
     }
 
     pub async fn read_bytes(&self, key: &str) -> Result<Bytes> {
         let reader = self.get(key);
-        let mut stream = reader.get(key).await?;
+        let mut stream = reader.get().await?;
         let mut bytes = BytesMut::new();
         while let Some(chunk) = stream.next().await {
             bytes.extend_from_slice(&chunk?);

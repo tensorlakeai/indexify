@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use axum::{
+    body::Body,
     extract::{Multipart, Path, State},
+    http::Response,
     response::IntoResponse,
     routing::{delete, get, post},
     Json,
@@ -142,6 +144,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/namespaces/:namespace/compute_graphs/:compute_graph/notify",
             get(notify_on_change).with_state(route_state.clone()),
         )
+        .route(
+            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
+            get(get_code).with_state(route_state.clone()),
+        )
 }
 
 async fn index() -> &'static str {
@@ -225,9 +231,7 @@ async fn create_compute_graph(
         if let Some(name) = name {
             if name == "code" {
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-
                 let file_name = format!("{}_{}", namespace, nanoid!());
-
                 let put_result = state
                     .blob_storage
                     .put(&file_name, stream)
@@ -548,4 +552,29 @@ async fn delete_invocation(
     State(_state): State<RouteState>,
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
     todo!()
+}
+
+async fn get_code(
+    Path((_namespace, _compute_graph)): Path<(String, String)>,
+    State(_state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let compute_graph = _state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&_namespace, &_compute_graph)
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    if compute_graph.is_none() {
+        return Err(IndexifyAPIError::not_found("Compute Graph not found"));
+    }
+    let resp_builder = Response::builder().header("Content-Type", "application/octet-stream");
+    let storage_reader = _state.blob_storage.get(&compute_graph.unwrap().code_path);
+    let content_stream = storage_reader
+        .get()
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+
+    resp_builder
+        .body(Body::from_stream(content_stream))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
+    Ok(())
 }
