@@ -1099,6 +1099,7 @@ dependencies = [
  "figment",
  "futures",
  "indexify_proto",
+ "indexify_utils",
  "nanoid",
  "object_store",
  "prost-wkt-build",

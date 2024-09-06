@@ -239,7 +239,9 @@ async fn create_compute_graph(
                     .text()
                     .await
                     .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                compute_graph_definition = Some(serde_json::from_str(&text)?);
+                let mut json_value: serde_json::Value = serde_json::from_str(&text)?;
+                json_value["namespace"] = serde_json::Value::String(namespace.clone());
+                compute_graph_definition = Some(serde_json::from_value(json_value)?);
             }
         }
     }

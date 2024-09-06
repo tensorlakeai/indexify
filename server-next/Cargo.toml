@@ -81,6 +81,7 @@ sha2={workspace=true}
 nanoid={workspace=true}
 object_store.workspace = true
 uuid = { version = "1.10.0", features = ["v4"] }
+indexify_utils = {workspace=true}
 
 [dev-dependencies]
 tempfile = { workspace = true }

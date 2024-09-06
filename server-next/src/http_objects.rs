@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -142,7 +143,9 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub enum Node {
+    #[serde(rename = "dynamic_router")]
     DynamicRouter(DynamicRouter),
+    #[serde(rename = "compute_fn")]
     ComputeFn(ComputeFn),
 }
 
@@ -169,8 +172,9 @@ pub struct ComputeGraph {
     pub name: String,
     pub namespace: String,
     pub description: String,
-    pub start_fn: Node,
+    pub start_node: Node,
     pub edges: HashMap<String, Vec<Node>>,
+    #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
 }
 
@@ -184,7 +188,7 @@ impl ComputeGraph {
             let v: Vec<data_model::Node> = v.into_iter().map(|e| e.into()).collect();
             edges.insert(k, v);
         }
-        let start_fn: data_model::Node = self.start_fn.into();
+        let start_fn: data_model::Node = self.start_node.into();
         let compute_graph = data_model::ComputeGraph {
             name: self.name,
             namespace: self.namespace,
@@ -214,7 +218,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             name: compute_graph.name,
             namespace: compute_graph.namespace,
             description: compute_graph.description,
-            start_fn,
+            start_node: start_fn,
             edges,
             created_at: compute_graph.create_at,
         }
@@ -302,4 +306,18 @@ pub struct Task {
 pub struct Tasks {
     pub tasks: Vec<Task>,
     pub cursor: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_compute_graph_deserialization() {
+        // Don't delete this. It makes it easier
+        // to test the deserialization of the ComputeGraph struct
+        // from the python side
+        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"edges":{"extractor_a":[{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":""}}],"extractor_b":[{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":""}}]}}"#;
+        let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
+        json_value["namespace"] = serde_json::Value::String("test".to_string());
+        let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
+    }
 }
