@@ -251,7 +251,8 @@ pub struct ComputeGraphsList {
 pub struct DataObject {
     pub id: String,
     pub payload: serde_json::Value,
-    pub hash: String,
+    pub payload_size: u64,
+    pub payload_sha_256: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -283,13 +284,14 @@ pub struct GraphInputJson {
     pub payload: serde_json::Value,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct GraphInputFile {
     // file:///s3://bucket/key
     // file:///data/path/to/file
     pub url: String,
     pub metadata: serde_json::Value,
     pub sha_256: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

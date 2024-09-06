@@ -95,6 +95,13 @@ impl ComputeGraph {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DataPayload {
+    pub path: String,
+    pub size: u64,
+    pub sha256_hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct DataObject {
@@ -102,8 +109,7 @@ pub struct DataObject {
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
-    pub payload_url: String,
-    pub payload_hash: String,
+    pub payload: DataPayload,
 }
 
 impl DataObject {
@@ -111,8 +117,8 @@ impl DataObject {
         let mut hasher = DefaultHasher::new();
         self.namespace.hash(&mut hasher);
         self.compute_graph_name.hash(&mut hasher);
-        self.payload_hash.hash(&mut hasher);
-        self.payload_url.hash(&mut hasher);
+        self.payload.sha256_hash.hash(&mut hasher);
+        self.payload.path.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         format!("{}_{}_{}", self.namespace, self.compute_graph_name, id)
     }
@@ -122,8 +128,8 @@ impl DataObject {
         self.namespace.hash(&mut hasher);
         self.compute_graph_name.hash(&mut hasher);
         self.compute_fn_name.hash(&mut hasher);
-        self.payload_hash.hash(&mut hasher);
-        self.payload_url.hash(&mut hasher);
+        self.payload.sha256_hash.hash(&mut hasher);
+        self.payload.path.hash(&mut hasher);
         ingestion_object_id.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         format!(
@@ -147,28 +153,20 @@ impl DataObjectBuilder {
             .compute_fn_name
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
-        let payload_hash = self
-            .payload_hash
-            .clone()
-            .ok_or(anyhow!("payload_hash is required"))?;
-        let payload_url = self
-            .payload_url
-            .clone()
-            .ok_or(anyhow!("payload_url is required"))?;
+        let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         fn_name.hash(&mut hasher);
-        payload_hash.hash(&mut hasher);
-        payload_url.hash(&mut hasher);
+        payload.sha256_hash.hash(&mut hasher);
+        payload.path.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         Ok(DataObject {
             id,
             namespace: ns,
             compute_graph_name: cg_name,
             compute_fn_name: fn_name,
-            payload_url,
-            payload_hash,
+            payload,
         })
     }
 }
