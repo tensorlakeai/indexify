@@ -1,12 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use data_model::{
     ComputeGraph,
     DataObject,
+    ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
     Namespace,
@@ -29,9 +27,7 @@ use tracing::error;
 
 use super::serializer::{JsonEncode, JsonEncoder};
 
-pub type TaskId = String;
 pub type ContentId = String;
-pub type ExecutorId = String;
 pub type ExecutorIdRef<'a> = &'a str;
 pub type ExtractionEventId = String;
 pub type ExtractionPolicyId = String;
@@ -56,7 +52,7 @@ pub enum IndexifyObjectsColumns {
 
     // Reverse Indexes
     UnprocessedStateChanges, //  StateChangeId -> Empty
-    ExecutorTaskAssignments, //  ExecutorId -> TaskId
+    TaskAllocations,         //  ExecutorId -> TaskId
     UnallocatedTasks,        //  NS_TaskId -> Empty
 }
 
@@ -259,33 +255,18 @@ pub(crate) fn create_tasks(
 }
 
 pub fn update_task_assignment(
-    db: &OptimisticTransactionDB,
-    txn: &Transaction<OptimisticTransactionDB>,
-    task_id: TaskId,
-    executor_id: ExecutorId,
+    db: &TransactionDB,
+    txn: &Transaction<TransactionDB>,
+    task: &Task,
+    executor_id: &ExecutorId,
     should_add: bool,
 ) -> Result<()> {
-    let task_assignments = db
-        .get_cf(
-            &IndexifyObjectsColumns::ExecutorTaskAssignments.cf(db),
-            &executor_id,
-        )?
-        .unwrap_or_default();
-    let mut task_assignments: HashSet<TaskId> = task_assignments
-        .iter()
-        .map(|task_id| task_id.to_string())
-        .collect();
+    let key = task.make_allocation_key(executor_id);
     if should_add {
-        task_assignments.insert(task_id.clone());
+        txn.put_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(db), key, &[])?;
     } else {
-        task_assignments.remove(&task_id);
+        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(db), key)?;
     }
-    let serialized_task_assignments = JsonEncoder::encode(&task_assignments)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::ExecutorTaskAssignments.cf(db),
-        &executor_id,
-        &serialized_task_assignments,
-    )?;
     Ok(())
 }
 

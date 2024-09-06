@@ -13,8 +13,29 @@ use derive_builder::Builder;
 use filter::LabelsFilter;
 use serde::{Deserialize, Serialize};
 
-pub type ExecutorId = String;
-pub type TaskId = String;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct ExecutorId(String);
+
+impl Display for ExecutorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl ExecutorId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TaskId(String);
+
+impl Display for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 fn default_creation_time() -> SystemTime {
     UNIX_EPOCH
@@ -222,7 +243,7 @@ pub enum TaskOutcome {
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct Task {
-    pub id: String,
+    pub id: TaskId,
     pub namespace: String,
     pub compute_fn_name: String,
     pub compute_graph_name: String,
@@ -248,6 +269,26 @@ impl Task {
             self.compute_fn_name,
             self.id
         )
+    }
+
+    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
+        let duration = self.creation_time.duration_since(UNIX_EPOCH).unwrap();
+        let secs = duration.as_secs() as u128;
+        let nsecs = duration.subsec_nanos() as u128;
+        let nsecs = secs * 1_000_000_000 + nsecs;
+        format!("{}_{}_{}", executor_id, nsecs, self.key(),)
+    }
+
+    pub fn key_from_executor_key(executor_key: &[u8]) -> Result<Vec<u8>> {
+        let pos_1 = executor_key
+            .iter()
+            .position(|&x| x == b'_')
+            .ok_or(anyhow!("invalid executor key"))?;
+        let pos_2 = executor_key[pos_1 + 1..]
+            .iter()
+            .position(|&x| x == b'_')
+            .ok_or(anyhow!("invalid executor key"))?;
+        Ok(executor_key[pos_1 + 1 + pos_2 + 1..].to_vec())
     }
 }
 
@@ -291,14 +332,14 @@ impl TaskBuilder {
         namespace.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         let task = Task {
-            id,
+            id: TaskId(id),
             compute_graph_name: cg_name,
             compute_fn_name,
             input_data_id,
             invocation_id,
             namespace,
             outcome: TaskOutcome::Unknown,
-            creation_time: default_creation_time(),
+            creation_time: SystemTime::now(),
         };
         Ok(task)
     }
@@ -334,7 +375,7 @@ impl TaskAnalytics {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
-    pub id: String,
+    pub id: ExecutorId,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
 }

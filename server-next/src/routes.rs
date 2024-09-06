@@ -4,7 +4,7 @@ use anyhow::Result;
 use axum::{
     body::Body,
     extract::{Multipart, Path, State},
-    http::{header::CONTENT_TYPE, Method, Response},
+    http::{Method, Response},
     response::IntoResponse,
     routing::{delete, get, post},
     Json,
@@ -162,6 +162,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
             get(get_code).with_state(route_state.clone()),
+        )
+        .route(
+            "/executors/:id/tasks",
+            get(executor_tasks).with_state(route_state.clone()),
         )
         .layer(cors)
 }
@@ -434,6 +438,28 @@ async fn notify_on_change(
     Ok(())
 }
 
+async fn executor_tasks(
+    Path(executor_id): Path<String>,
+    State(state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let stream = state_store::task_stream(
+        state.indexify_state,
+        data_model::ExecutorId::new(executor_id),
+        10,
+    );
+    let stream = stream.map(|item| match item {
+        Ok(item) => {
+            let item: Vec<Task> = item.into_iter().map(Into::into).collect();
+            axum::response::sse::Event::default().json_data(item)
+        }
+        Err(e) => {
+            tracing::error!("error in task stream: {}", e);
+            Err(axum::Error::new(e))
+        }
+    });
+    Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
 /// List tasks for a compute graph invocation
 #[utoipa::path(
     get,
@@ -454,17 +480,7 @@ async fn list_tasks(
         &compute_graph,
         &invocation_id,
     );
-    let tasks = tasks.map(|tasks| {
-        tasks
-            .into_iter()
-            .map(|task| Task {
-                id: task.id,
-                status: TaskOutcome::Unknown,
-                created_at: 0,
-                updated_at: 0,
-            })
-            .collect()
-    });
+    let tasks = tasks.map(|tasks| tasks.into_iter().map(Into::into).collect());
     Ok(Json(Tasks {
         tasks: tasks.unwrap_or_default(),
         cursor: None,
