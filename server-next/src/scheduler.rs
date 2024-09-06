@@ -151,7 +151,7 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::{test_objects::tests, DataObjectBuilder, DataPayload};
+    use data_model::test_objects::tests::{self, mock_data_object};
     use state_store::{
         requests::{CreateComputeGraphRequest, InvokeComputeGraphRequest},
         IndexifyState,
@@ -175,16 +175,7 @@ mod tests {
         let request = InvokeComputeGraphRequest {
             namespace: "test".to_string(),
             compute_graph_name: "graph_A".to_string(),
-            data_object: DataObjectBuilder::default()
-                .namespace("test".to_string())
-                .compute_graph_name("graph_A".to_string())
-                .payload(DataPayload {
-                    path: "test".to_string(),
-                    size: 23,
-                    sha256_hash: "hash1232".to_string(),
-                })
-                .compute_fn_name("fn_b".to_string())
-                .build()?,
+            data_object: mock_data_object(),
         };
         indexify_state
             .write(RequestType::InvokeComputeGraph(request))
