@@ -80,6 +80,7 @@ use crate::http_objects::{
                 TaskOutcome,
                 Tasks,
                 GraphInvocations,
+                DataObject,
             )
         ),
         tags(
