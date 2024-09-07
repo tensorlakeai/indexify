@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use blob_store::PutResult;
-use data_model::DataObjectBuilder;
+use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
 use state_store::requests::{InvokeComputeGraphRequest, RequestType};
 use tracing::info;
@@ -95,24 +95,22 @@ pub async fn invoke_with_file(
         size: put_result.size_bytes,
         sha256_hash: put_result.sha256_hash,
     };
-    let data_object = DataObjectBuilder::default()
+    let invocation_payload = InvocationPayloadBuilder::default()
         .namespace(namespace.clone())
         .compute_graph_name(compute_graph.clone())
-        .compute_fn_name("".to_string())
         .payload(data_payload)
         .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
 
-    let id = data_object.id.clone();
-
+    let id = invocation_payload.id.clone();
     state
         .indexify_state
         .write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest {
             namespace: namespace.clone(),
             compute_graph_name: compute_graph.clone(),
-            data_object,
+            invocation_payload,
         }))
         .await
         .map_err(|e| {
@@ -155,22 +153,21 @@ pub async fn invoke_with_object(
         size: put_result.size_bytes,
         sha256_hash: put_result.sha256_hash,
     };
-    let data_object = DataObjectBuilder::default()
+    let invocation_payload = InvocationPayloadBuilder::default()
         .namespace(namespace.clone())
         .compute_graph_name(compute_graph.clone())
-        .compute_fn_name("".to_string())
         .payload(data_payload)
         .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-    let id = data_object.id.clone();
+    let id = invocation_payload.id.clone();
     state
         .indexify_state
         .write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest {
             namespace: namespace.clone(),
             compute_graph_name: compute_graph.clone(),
-            data_object,
+            invocation_payload,
         }))
         .await
         .map_err(|e| {

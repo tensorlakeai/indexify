@@ -1,7 +1,15 @@
 use std::{mem, sync::Arc};
 
 use anyhow::Result;
-use data_model::{ComputeGraph, DataObject, ExecutorId, Namespace, StateChange, Task};
+use data_model::{
+    ComputeGraph,
+    ExecutorId,
+    InvocationPayload,
+    Namespace,
+    NodeOutput,
+    StateChange,
+    Task,
+};
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
@@ -281,9 +289,9 @@ impl StateReader {
         namespace: &str,
         compute_graph: &str,
         limit: Option<usize>,
-    ) -> Result<Vec<DataObject>> {
+    ) -> Result<Vec<InvocationPayload>> {
         let key = format!("{}_{}", namespace, compute_graph);
-        let (invocations, _) = self.get_rows_from_cf_with_limits::<DataObject>(
+        let (invocations, _) = self.get_rows_from_cf_with_limits::<InvocationPayload>(
             Some(key),
             IndexifyObjectsColumns::GraphInvocations,
             limit,
@@ -343,9 +351,9 @@ impl StateReader {
         namespace: &str,
         compute_graph: &str,
         compute_fn: &str,
-    ) -> Result<Vec<DataObject>> {
+    ) -> Result<Vec<NodeOutput>> {
         let key = format!("{}_{}_{}", namespace, compute_graph, compute_fn);
-        let (data_objects, _) = self.get_rows_from_cf_with_limits::<DataObject>(
+        let (data_objects, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
             Some(key),
             IndexifyObjectsColumns::FnOutputs,
             None,

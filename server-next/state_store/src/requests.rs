@@ -1,7 +1,8 @@
-use data_model::{ComputeGraph, DataObject, Task};
+use data_model::{ComputeGraph, InvocationPayload, NodeOutput, Task};
 
 pub enum RequestType {
     InvokeComputeGraph(InvokeComputeGraphRequest),
+    FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
@@ -9,10 +10,20 @@ pub enum RequestType {
     DeleteInvocation(DeleteInvocationRequest),
 }
 
+pub struct FinalizeTaskRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub invocation_id: String,
+    pub task_id: String,
+    pub node_output: NodeOutput,
+    pub task_outcome: data_model::TaskOutcome,
+}
+
 pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
-    pub data_object: DataObject,
+    pub invocation_payload: InvocationPayload,
 }
 
 pub struct NamespaceRequest {

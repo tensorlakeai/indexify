@@ -28,7 +28,9 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
+mod internal_ingest;
 mod invoke;
+use internal_ingest::{ingest_files_from_executor, ingest_objects_from_executor};
 use invoke::{invoke_with_file, invoke_with_object};
 
 use crate::http_objects::{
@@ -164,7 +166,15 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(get_code).with_state(route_state.clone()),
         )
         .route(
-            "/executors/:id/tasks",
+            "/internal/ingest_files",
+            post(ingest_files_from_executor).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/ingest_objects",
+            post(ingest_objects_from_executor).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/executors/:id/tasks",
             get(executor_tasks).with_state(route_state.clone()),
         )
         .layer(cors)

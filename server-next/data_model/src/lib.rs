@@ -11,6 +11,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use filter::LabelsFilter;
+use indexify_utils::default_creation_time;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -37,9 +38,6 @@ impl Display for TaskId {
     }
 }
 
-fn default_creation_time() -> SystemTime {
-    UNIX_EPOCH
-}
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
 pub struct DynamicEdgeRouter {
     pub name: String,
@@ -117,51 +115,44 @@ impl ComputeGraph {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RouterOutput {
+    pub edges: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DataPayload {
     pub path: String,
     pub size: u64,
     pub sha256_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum OutputPayload {
+    Router(RouterOutput),
+    Fn(DataPayload),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
-pub struct DataObject {
+pub struct NodeOutput {
     pub id: String,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
-    pub payload: DataPayload,
+    pub payload: OutputPayload,
 }
 
-impl DataObject {
-    pub fn ingestion_object_key(&self) -> String {
-        let mut hasher = DefaultHasher::new();
-        self.namespace.hash(&mut hasher);
-        self.compute_graph_name.hash(&mut hasher);
-        self.payload.sha256_hash.hash(&mut hasher);
-        self.payload.path.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
-        format!("{}_{}_{}", self.namespace, self.compute_graph_name, id)
-    }
-
-    pub fn fn_output_key(&self, ingestion_object_id: &str) -> String {
-        let mut hasher = DefaultHasher::new();
-        self.namespace.hash(&mut hasher);
-        self.compute_graph_name.hash(&mut hasher);
-        self.compute_fn_name.hash(&mut hasher);
-        self.payload.sha256_hash.hash(&mut hasher);
-        self.payload.path.hash(&mut hasher);
-        ingestion_object_id.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
+impl NodeOutput {
+    pub fn fn_output_key(&self, invocation_id: &str) -> String {
         format!(
             "{}_{}_{}_{}_{}",
-            self.namespace, self.compute_graph_name, ingestion_object_id, self.compute_fn_name, id
+            self.namespace, self.compute_graph_name, invocation_id, self.compute_fn_name, self.id
         )
     }
 }
 
-impl DataObjectBuilder {
-    pub fn build(&mut self) -> Result<DataObject> {
+impl NodeOutputBuilder {
+    pub fn build(&mut self) -> Result<NodeOutput> {
         let ns = self
             .namespace
             .clone()
@@ -179,14 +170,60 @@ impl DataObjectBuilder {
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         fn_name.hash(&mut hasher);
-        payload.sha256_hash.hash(&mut hasher);
-        payload.path.hash(&mut hasher);
+        match &payload {
+            OutputPayload::Router(router) => router.edges.hash(&mut hasher),
+            OutputPayload::Fn(data) => {
+                data.sha256_hash.hash(&mut hasher);
+                data.path.hash(&mut hasher);
+            }
+        }
         let id = format!("{:x}", hasher.finish());
-        Ok(DataObject {
+        Ok(NodeOutput {
             id,
             namespace: ns,
             compute_graph_name: cg_name,
             compute_fn_name: fn_name,
+            payload,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct InvocationPayload {
+    pub id: String,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub payload: DataPayload,
+}
+
+impl InvocationPayload {
+    pub fn key(&self) -> String {
+        format!("{}_{}_{}", self.namespace, self.compute_graph_name, self.id)
+    }
+}
+
+impl InvocationPayloadBuilder {
+    pub fn build(&mut self) -> Result<InvocationPayload> {
+        let ns = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is required"))?;
+        let cg_name = self
+            .compute_graph_name
+            .clone()
+            .ok_or(anyhow!("compute_graph_name is required"))?;
+        let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
+        let mut hasher = DefaultHasher::new();
+        ns.hash(&mut hasher);
+        cg_name.hash(&mut hasher);
+        payload.sha256_hash.hash(&mut hasher);
+        payload.path.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        Ok(InvocationPayload {
+            id,
+            namespace: ns,
+            compute_graph_name: cg_name,
             payload,
         })
     }

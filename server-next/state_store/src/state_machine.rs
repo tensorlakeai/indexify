@@ -2,15 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use data_model::{
-    ComputeGraph,
-    DataObject,
-    ExecutorId,
-    GraphInvocationCtx,
-    GraphInvocationCtxBuilder,
-    Namespace,
-    StateChange,
-    Task,
-    TaskAnalytics,
+    ComputeGraph, NodeOutput, ExecutorId, GraphInvocationCtx, GraphInvocationCtxBuilder, InvocationPayload, Namespace, StateChange, Task, TaskAnalytics
 };
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
@@ -45,8 +37,8 @@ pub enum IndexifyObjectsColumns {
     Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
 
-    GraphInvocations, //  Ns_Graph_Id -> DataObject
-    FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> DataObject
+    GraphInvocations, //  Ns_Graph_Id -> InvocationPayload 
+    FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput 
 
     StateChanges, //  StateChangeId -> StateChange
 
@@ -89,7 +81,7 @@ pub fn create_graph_input(
     txn: &Transaction<TransactionDB>,
     namespace: &str,
     compute_graph_name: &str,
-    data_object: DataObject,
+    invocation_payload: InvocationPayload,
 ) -> Result<()> {
     let compute_graph_key = format!("{}_{}", namespace, compute_graph_name);
     let _ = txn
@@ -98,18 +90,17 @@ pub fn create_graph_input(
             &compute_graph_key,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let ingestion_object_key = data_object.ingestion_object_key();
-    let serialized_data_object = JsonEncoder::encode(&data_object)?;
+    let serialized_data_object = JsonEncoder::encode(&invocation_payload)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        ingestion_object_key,
+        invocation_payload.key(),
         &serialized_data_object,
     )?;
 
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(namespace.to_string())
         .compute_graph_name(compute_graph_name.to_string())
-        .invocation_id(data_object.id.clone())
+        .invocation_id(invocation_payload.id.clone())
         .fn_task_analytics(HashMap::new())
         .build()?;
     txn.put_cf(
@@ -123,7 +114,7 @@ pub fn create_graph_input(
 pub fn create_compute_fn_output(
     db: &OptimisticTransactionDB,
     txn: &Transaction<OptimisticTransactionDB>,
-    data_object: DataObject,
+    data_object: NodeOutput,
     ingested_data_id: &str,
 ) -> Result<()> {
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
@@ -271,10 +262,14 @@ pub fn update_task_assignment(
 }
 
 pub fn mark_task_completed(
-    _db: &OptimisticTransactionDB,
-    _txn: &Transaction<OptimisticTransactionDB>,
-    _task: Task,
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    task: &str,
 ) -> Result<()> {
+    // 1. Write the data to fn outputs 
+    // 2. Update the task status in the graph invocation context
+    // 3. Delete task from task allocation table 
+    // 4. 
     Ok(())
 }
 

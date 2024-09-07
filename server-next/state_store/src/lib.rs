@@ -19,6 +19,7 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     Task,
+    TaskFinishedEvent,
     TaskId,
 };
 use futures::Stream;
@@ -142,6 +143,9 @@ impl IndexifyState {
                 self.invoke_compute_graph(&invoke_compute_graph_request)
                     .await?
             }
+            requests::RequestType::FinalizeTask(finalize_task) => {
+                self.finalize_task(&finalize_task).await?
+            }
             requests::RequestType::CreateNameSpace(namespace_request) => {
                 self.create_namespace(&namespace_request.name).await?
             }
@@ -166,6 +170,33 @@ impl IndexifyState {
         Ok(())
     }
 
+    async fn finalize_task(
+        &self,
+        request: &requests::FinalizeTaskRequest,
+    ) -> Result<Vec<StateChange>> {
+        let txn = self.db.transaction();
+        let last_change_id = self
+            .last_state_change_id
+            .fetch_add(1, atomic::Ordering::Relaxed);
+        let state_change = StateChangeBuilder::default()
+            .change_type(ChangeType::TaskFinished(TaskFinishedEvent {
+                namespace: request.namespace.clone(),
+                compute_graph: request.compute_graph.clone(),
+                compute_fn: request.compute_fn.clone(),
+                task_id: request.task_id.clone(),
+            }))
+            .created_at(get_epoch_time_in_ms())
+            .object_id(request.task_id.clone())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()?;
+
+        state_machine::mark_task_completed(self.db.clone(), &txn, &request.task_id)?;
+        state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
+        txn.commit()?;
+        Ok(vec![state_change])
+    }
+
     async fn invoke_compute_graph(
         &self,
         request: &requests::InvokeComputeGraphRequest,
@@ -177,11 +208,11 @@ impl IndexifyState {
         let state_change = StateChangeBuilder::default()
             .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
                 namespace: request.namespace.clone(),
-                invocation_id: request.data_object.id.clone(),
+                invocation_id: request.invocation_payload.id.clone(),
                 compute_graph: request.compute_graph_name.clone(),
             }))
             .created_at(get_epoch_time_in_ms())
-            .object_id(request.data_object.id.clone())
+            .object_id(request.invocation_payload.id.clone())
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()?;
@@ -190,7 +221,7 @@ impl IndexifyState {
             &txn,
             &request.namespace,
             &request.compute_graph_name,
-            request.data_object.clone(),
+            request.invocation_payload.clone(),
         )?;
         state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
         txn.commit()?;

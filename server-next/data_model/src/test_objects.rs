@@ -2,10 +2,14 @@ pub mod tests {
     use std::collections::HashMap;
 
     use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute};
-    use crate::{DataObject, DataObjectBuilder, DataPayload};
+    use crate::{
+        DataPayload,
+        InvocationPayload,
+        InvocationPayloadBuilder,
+    };
 
-    pub fn mock_data_object() -> DataObject {
-        DataObjectBuilder::default()
+    pub fn mock_invocation_payload() -> InvocationPayload {
+        InvocationPayloadBuilder::default()
             .namespace("test".to_string())
             .compute_graph_name("graph_A".to_string())
             .payload(DataPayload {
@@ -13,7 +17,6 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash1232".to_string(),
             })
-            .compute_fn_name("fn_b".to_string())
             .build()
             .unwrap()
     }

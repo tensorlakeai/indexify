@@ -151,7 +151,7 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::test_objects::tests::{self, mock_data_object};
+    use data_model::test_objects::tests::{self, mock_invocation_payload};
     use state_store::{
         requests::{CreateComputeGraphRequest, InvokeComputeGraphRequest},
         IndexifyState,
@@ -172,11 +172,11 @@ mod tests {
             .write(RequestType::CreateComputeGraph(cg_request))
             .await?;
         let scheduler = Scheduler::new(indexify_state.clone());
-        let mock_data_object = mock_data_object();
+        let mock_data_object = mock_invocation_payload();
         let request = InvokeComputeGraphRequest {
             namespace: "test".to_string(),
             compute_graph_name: "graph_A".to_string(),
-            data_object: mock_data_object.clone(),
+            invocation_payload: mock_data_object.clone(),
         };
         indexify_state
             .write(RequestType::InvokeComputeGraph(request))
