@@ -191,7 +191,13 @@ impl IndexifyState {
             .processed_at(None)
             .build()?;
 
-        state_machine::mark_task_completed(self.db.clone(), &txn, &request.task_id)?;
+        state_machine::mark_task_completed(
+            self.db.clone(),
+            &txn,
+            &request.task_id,
+            &request.task_outcome,
+            request.node_output.clone(),
+        )?;
         state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
         txn.commit()?;
         Ok(vec![state_change])

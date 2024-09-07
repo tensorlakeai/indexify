@@ -2,11 +2,7 @@ pub mod tests {
     use std::collections::HashMap;
 
     use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute};
-    use crate::{
-        DataPayload,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-    };
+    use crate::{DataPayload, InvocationPayload, InvocationPayloadBuilder};
 
     pub fn mock_invocation_payload() -> InvocationPayload {
         InvocationPayloadBuilder::default()

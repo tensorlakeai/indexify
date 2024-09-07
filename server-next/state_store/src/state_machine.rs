@@ -1,8 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph, NodeOutput, ExecutorId, GraphInvocationCtx, GraphInvocationCtxBuilder, InvocationPayload, Namespace, StateChange, Task, TaskAnalytics
+    ComputeGraph,
+    ExecutorId,
+    GraphInvocationCtx,
+    GraphInvocationCtxBuilder,
+    InvocationPayload,
+    Namespace,
+    NodeOutput,
+    StateChange,
+    Task,
+    TaskAnalytics,
 };
 use indexify_utils::OptionInspectNone;
 use rocksdb::{
@@ -30,19 +39,18 @@ pub type SchemaId = String;
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum IndexifyObjectsColumns {
-    Executors,     //  ExecutorId -> Executor Metadata
-    Namespaces,    //  Namespaces
-    ComputeGraphs, //  Ns_ComputeGraphName -> ComputeGraph
+    Executors,               //  ExecutorId -> Executor Metadata
+    Namespaces,              //  Namespaces
+    ComputeGraphs,           //  Ns_ComputeGraphName -> ComputeGraph
 
-    Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
-    GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
+    Tasks,                   //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
+    GraphInvocationCtx,      //  Ns_CG_IngestedId -> GraphInvocationCtx
 
-    GraphInvocations, //  Ns_Graph_Id -> InvocationPayload 
-    FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput 
+    GraphInvocations,        //  Ns_Graph_Id -> InvocationPayload
+    FnOutputs,               //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
 
-    StateChanges, //  StateChangeId -> StateChange
+    StateChanges,            //  StateChangeId -> StateChange
 
-    // Reverse Indexes
     UnprocessedStateChanges, //  StateChangeId -> Empty
     TaskAllocations,         //  ExecutorId -> TaskId
     UnallocatedTasks,        //  NS_TaskId -> Empty
@@ -264,12 +272,59 @@ pub fn update_task_assignment(
 pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    task: &str,
+    task_id: &str,
+    task_outcome: &data_model::TaskOutcome,
+    output: NodeOutput,
 ) -> Result<()> {
-    // 1. Write the data to fn outputs 
-    // 2. Update the task status in the graph invocation context
-    // 3. Delete task from task allocation table 
-    // 4. 
+    let task = txn
+        .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_id)?
+        .ok_or(anyhow!("Task not found: {}", &task_id))?;
+    let mut task = JsonEncoder::decode::<Task>(&task)?;
+    let value = JsonEncoder::encode(&output)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        output.fn_output_key(&output.invocation_id),
+        value,
+    )?;
+    let graph_ctx_key = format!(
+        "{}_{}_{}",
+        output.namespace, output.compute_graph_name, output.invocation_id
+    );
+    let graph_ctx = txn
+        .get_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &graph_ctx_key,
+        )?
+        .ok_or(anyhow!("Graph context not found for task: {}", &task_id))?;
+    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
+    let analytics = graph_ctx
+        .fn_task_analytics
+        .entry(output.compute_fn_name.clone())
+        .or_insert_with(|| TaskAnalytics::default());
+    match task_outcome {
+        data_model::TaskOutcome::Success => analytics.success(),
+        data_model::TaskOutcome::Failure => analytics.fail(),
+        _ => {}
+    }
+    let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        graph_ctx_key,
+        serialized_analytics,
+    )?;
+
+    txn.delete_cf(
+        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+        &task.key(),
+    )?;
+
+    task.outcome = task_outcome.clone();
+    let task_bytes = JsonEncoder::encode(&task)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::Tasks.cf_db(&db),
+        task.key(),
+        task_bytes,
+    )?;
     Ok(())
 }
 

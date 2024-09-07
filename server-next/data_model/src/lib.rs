@@ -139,6 +139,7 @@ pub struct NodeOutput {
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
+    pub invocation_id: String,
     pub payload: OutputPayload,
 }
 
@@ -165,6 +166,10 @@ impl NodeOutputBuilder {
             .compute_fn_name
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
+        let invocation_id = self
+            .invocation_id
+            .clone()
+            .ok_or(anyhow!("invocation_id is required"))?;
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
@@ -182,6 +187,7 @@ impl NodeOutputBuilder {
             id,
             namespace: ns,
             compute_graph_name: cg_name,
+            invocation_id,
             compute_fn_name: fn_name,
             payload,
         })
