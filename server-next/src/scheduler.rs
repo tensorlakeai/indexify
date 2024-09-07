@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ChangeType, InvokeComputeGraphEvent, StateChangeId, Task, TaskFinishedEvent};
+use data_model::{ChangeType, InvokeComputeGraphEvent, OutputPayload, StateChangeId, Task, TaskFinishedEvent};
 use state_store::{
     requests::{CreateTaskRequest, RequestType},
     IndexifyState,
@@ -78,18 +78,33 @@ impl Scheduler {
             return Ok(vec![]);
         }
 
+
+        let mut out_edges = Vec::from_iter(edges.iter().cloned().flatten());
+
         // Get all the outputs of the compute fn
         let outputs = self.indexify_state.reader().get_task_outputs(
             &task_finished_event.namespace,
             &task_finished_event.compute_graph,
             &task_finished_event.compute_fn,
         )?;
+        for output in &outputs {
+            if let OutputPayload::Router(router_output) = &output.payload {
+                for edge in &router_output.edges {
+                    out_edges.push(edge);
+                }
+            }
+        }
 
-        let edges = edges.unwrap();
         let mut new_tasks = vec![];
-        for edge in edges {
+        for edge in out_edges {
             for output in &outputs {
-                let new_task = edge.create_task(
+                let compute_fn = compute_graph.nodes.get(edge);
+                if compute_fn.is_none() {
+                    error!("compute fn not found: {:?}", edge);
+                    continue;
+                }
+                let compute_fn = compute_fn.unwrap();
+                let new_task = compute_fn.create_task(
                     &task.namespace,
                     &task.compute_graph_name,
                     &output.id,
@@ -120,7 +135,7 @@ impl Scheduler {
                 }
             };
             self.indexify_state
-                .write(RequestType::CreateTasks(CreateTaskRequest { tasks }))
+                .write(RequestType::CreateTasks(CreateTaskRequest { tasks, processed_state_changes: vec![state_change.id.clone()] }))
                 .await?;
         }
         Ok(())
@@ -189,5 +204,17 @@ mod tests {
             .unwrap();
         assert_eq!(tasks.len(), 1);
         Ok(())
+    }
+
+    async fn crete_tasks_when_after_fn_finishes() {
+
+    }
+
+    async fn create_tasks_when_router_finishes() {
+
+    }
+
+    async fn mark_invocation_completed() {
+
     }
 }

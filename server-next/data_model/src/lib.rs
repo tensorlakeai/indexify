@@ -67,6 +67,15 @@ pub enum Node {
 }
 
 impl Node {
+    pub fn name(&self) -> &str {
+        match self {
+            Node::Router(router) => &router.name,
+            Node::Compute(compute) => &compute.name,
+        }
+    }
+}
+
+impl Node {
     pub fn create_task(
         &self,
         namespace: &str,
@@ -105,7 +114,8 @@ pub struct ComputeGraph {
     pub create_at: u64,
     pub tomb_stoned: bool,
     pub start_fn: Node,
-    pub edges: HashMap<String, Vec<Node>>,
+    pub nodes: HashMap<String, Node>,
+    pub edges: HashMap<String, Vec<String>>,
 }
 
 impl ComputeGraph {

@@ -1,4 +1,4 @@
-use data_model::{ComputeGraph, InvocationPayload, NodeOutput, Task};
+use data_model::{ComputeGraph, ExecutorId, InvocationPayload, NodeOutput, StateChangeId, Task};
 
 pub enum RequestType {
     InvokeComputeGraph(InvokeComputeGraphRequest),
@@ -18,6 +18,7 @@ pub struct FinalizeTaskRequest {
     pub task_id: String,
     pub node_output: NodeOutput,
     pub task_outcome: data_model::TaskOutcome,
+    pub executor_id: ExecutorId,
 }
 
 pub struct InvokeComputeGraphRequest {
@@ -42,6 +43,7 @@ pub struct DeleteComputeGraphRequest {
 
 pub struct CreateTaskRequest {
     pub tasks: Vec<Task>,
+    pub processed_state_changes: Vec<StateChangeId>,
 }
 
 pub struct DeleteInvocationRequest {

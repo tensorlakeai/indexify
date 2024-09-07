@@ -197,6 +197,7 @@ impl IndexifyState {
             &request.task_id,
             &request.task_outcome,
             request.node_output.clone(),
+            &request.executor_id.clone(),
         )?;
         state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
         txn.commit()?;
@@ -358,14 +359,7 @@ mod tests {
     use std::collections::HashMap;
 
     use data_model::{
-        filter::LabelsFilter,
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        GraphInvocationCtxBuilder,
-        Namespace,
-        Node,
-        TaskBuilder,
+        test_objects::tests::{mock_graph_a, TEST_NAMESPACE}, ComputeGraph, GraphInvocationCtxBuilder, Namespace, TaskBuilder
     };
     use futures::StreamExt;
     use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};
@@ -418,29 +412,10 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
 
         // Create a compute graph
-        let compute_graph = ComputeGraph {
-            namespace: "namespace1".to_string(),
-            name: "compute_graph1".to_string(),
-            description: "A test compute graph".to_string(),
-            code: ComputeGraphCode {
-                sha256_hash: "hash".to_string(),
-                size: 123,
-                path: "http://url".to_string(),
-            },
-            create_at: 0,
-            tomb_stoned: false,
-            start_fn: Node::Compute(ComputeFn {
-                name: "start_fn".to_string(),
-                description: "Start function".to_string(),
-                placement_constraints: LabelsFilter::default(),
-                fn_name: "start_fn".to_string(),
-            }),
-            edges: HashMap::new(),
-        };
-
+        let compute_graph = mock_graph_a();
         indexify_state
             .write(RequestType::CreateComputeGraph(CreateComputeGraphRequest {
-                namespace: "namespace1".to_string(),
+                namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: compute_graph.clone(),
             }))
             .await?;
@@ -456,13 +431,13 @@ mod tests {
             .collect::<Vec<ComputeGraph>>();
 
         // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "compute_graph1"));
+        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
 
         // Delete the compute graph
         indexify_state
             .write(RequestType::DeleteComputeGraph(DeleteComputeGraphRequest {
-                namespace: "namespace1".to_string(),
-                name: "compute_graph1".to_string(),
+                namespace: TEST_NAMESPACE.to_string(),
+                name: "graph_A".to_string(),
             }))
             .await?;
 
@@ -476,7 +451,7 @@ mod tests {
             .collect::<Vec<ComputeGraph>>();
 
         // Check if the compute graph was deleted
-        assert!(!compute_graphs.iter().any(|cg| cg.name == "compute_graph1"));
+        assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
 
         Ok(())
     }
@@ -511,6 +486,7 @@ mod tests {
             .write(requests::RequestType::CreateTasks(
                 requests::CreateTaskRequest {
                     tasks: vec![task.clone()],
+                    processed_state_changes: vec![],
                 },
             ))
             .await?;
@@ -553,6 +529,7 @@ mod tests {
             .write(requests::RequestType::CreateTasks(
                 requests::CreateTaskRequest {
                     tasks: vec![task_1.clone()],
+                    processed_state_changes: vec![],
                 },
             ))
             .await?;

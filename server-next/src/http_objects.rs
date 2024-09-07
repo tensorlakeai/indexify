@@ -77,7 +77,7 @@ pub struct NamespaceList {
     pub namespaces: Vec<Namespace>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
@@ -116,7 +116,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct DynamicRouter {
     pub name: String,
     pub source_fn: String,
@@ -146,12 +146,21 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub enum Node {
     #[serde(rename = "dynamic_router")]
     DynamicRouter(DynamicRouter),
     #[serde(rename = "compute_fn")]
     ComputeFn(ComputeFn),
+}
+
+impl Node {
+    pub fn name(&self) -> String {
+        match self {
+            Node::DynamicRouter(d) => d.name.clone(),
+            Node::ComputeFn(c) => c.name.clone(),
+        }
+    }
 }
 
 impl From<Node> for data_model::Node {
@@ -191,9 +200,16 @@ impl ComputeGraph {
         size: u64,
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut edges = HashMap::new();
+        let mut nodes = HashMap::new();
+        nodes.insert(self.start_node.name().clone(), self.start_node.clone().into());
         for (k, v) in self.edges.into_iter() {
             let v: Vec<data_model::Node> = v.into_iter().map(|e| e.into()).collect();
-            edges.insert(k, v);
+            let mut edge_names = Vec::new();
+            for node in &v {
+                nodes.insert(node.name().to_string(), node.clone());
+                edge_names.push(node.name().to_string());
+            }
+            edges.insert(k, edge_names);
         }
         let start_fn: data_model::Node = self.start_node.into();
         let compute_graph = data_model::ComputeGraph {
@@ -206,6 +222,7 @@ impl ComputeGraph {
                 size,
                 path: code_path.to_string(),
             },
+            nodes,
             edges,
             create_at: 0,
             tomb_stoned: false,
@@ -222,8 +239,10 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
         };
         let mut edges = HashMap::new();
         for (k, v) in compute_graph.edges.into_iter() {
-            let v: Vec<Node> = v.into_iter().map(|e| e.into()).collect();
-            edges.insert(k, v);
+            for node_name in &v {
+                let node = compute_graph.nodes.get(node_name).unwrap();
+                edges.entry(k.clone()).or_insert_with(Vec::new).push(node.clone().into());
+            }
         }
         Self {
             name: compute_graph.name,

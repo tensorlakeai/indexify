@@ -4,9 +4,11 @@ pub mod tests {
     use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute};
     use crate::{DataPayload, InvocationPayload, InvocationPayloadBuilder};
 
+    pub const TEST_NAMESPACE: &str = "test_ns";
+
     pub fn mock_invocation_payload() -> InvocationPayload {
         InvocationPayloadBuilder::default()
-            .namespace("test".to_string())
+            .namespace(TEST_NAMESPACE.to_string())
             .compute_graph_name("graph_A".to_string())
             .payload(DataPayload {
                 path: "test".to_string(),
@@ -18,7 +20,7 @@ pub mod tests {
     }
 
     pub fn mock_graph_a() -> ComputeGraph {
-        let _fn_a = ComputeFn {
+        let fn_a = ComputeFn {
             name: "fn_a".to_string(),
             description: "description fn_a".to_string(),
             fn_name: "fn_a".to_string(),
@@ -37,11 +39,12 @@ pub mod tests {
             placement_constraints: Default::default(),
         };
         ComputeGraph {
-            namespace: "test".to_string(),
+            namespace: TEST_NAMESPACE.to_string(),
             name: "graph_A".to_string(),
+            nodes: HashMap::from([("fn_b".to_string(), Node::Compute(fn_b)), ("fn_c".to_string(), Node::Compute(fn_c)), ("fn_a".to_string(), Node::Compute(fn_a))]),
             edges: HashMap::from([(
                 "fn_a".to_string(),
-                vec![Node::Compute(fn_b), Node::Compute(fn_c)],
+                vec!["fn_b".to_string(), "fn_c".to_string()],
             )]),
             description: "description graph_A".to_string(),
             code: ComputeGraphCode {

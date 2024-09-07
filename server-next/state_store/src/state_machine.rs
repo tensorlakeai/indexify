@@ -275,6 +275,7 @@ pub fn mark_task_completed(
     task_id: &str,
     task_outcome: &data_model::TaskOutcome,
     output: NodeOutput,
+    executor_id: &ExecutorId,
 ) -> Result<()> {
     let task = txn
         .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_id)?
@@ -315,7 +316,7 @@ pub fn mark_task_completed(
 
     txn.delete_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        &task.key(),
+        &task.make_allocation_key(executor_id),
     )?;
 
     task.outcome = task_outcome.clone();
