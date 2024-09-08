@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, vec};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -31,7 +31,7 @@ pub enum TaskOutput {
 
 #[derive(Serialize, Deserialize)]
 pub struct TaskResult {
-    output: TaskOutput,
+    outputs: Vec<TaskOutput>,
     outcome: TaskOutcome,
     namespace: String,
     compute_graph: String,
@@ -129,12 +129,16 @@ pub async fn ingest_objects_from_executor(
     State(state): State<RouteState>,
     Json(task_result): Json<TaskResult>,
 ) -> Result<(), IndexifyAPIError> {
-    let node_output = match &task_result.output {
-        TaskOutput::Router(output) => write_router_output(output, &task_result)?,
-        TaskOutput::Fn(fn_output) => {
-            write_fn_output(state.clone(), fn_output, &task_result).await?
-        }
-    };
+    let mut node_outputs = vec![];
+    for output in &task_result.outputs {
+        let node_output = match output {
+            TaskOutput::Router(output) => write_router_output(output, &task_result)?,
+            TaskOutput::Fn(fn_output) => {
+                write_fn_output(state.clone(), fn_output, &task_result).await?
+            }
+        };
+        node_outputs.push(node_output);
+    }
     state
         .indexify_state
         .write(RequestType::FinalizeTask(FinalizeTaskRequest {
@@ -143,7 +147,7 @@ pub async fn ingest_objects_from_executor(
             compute_fn: task_result.compute_fn.to_string(),
             invocation_id: task_result.invocation_id.to_string(),
             task_id: TaskId::new(task_result.task_id.to_string()),
-            node_output,
+            node_outputs,
             task_outcome: task_result.outcome.clone(),
             executor_id: ExecutorId::new(task_result.executor_id.clone()),
         }))

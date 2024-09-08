@@ -24,7 +24,7 @@ pub struct FinalizeTaskRequest {
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
-    pub node_output: NodeOutput,
+    pub node_outputs: Vec<NodeOutput>,
     pub task_outcome: data_model::TaskOutcome,
     pub executor_id: ExecutorId,
 }

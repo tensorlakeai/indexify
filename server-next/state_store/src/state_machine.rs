@@ -278,7 +278,7 @@ pub fn mark_task_completed(
     invocation_id: &str,
     task_id: &str,
     task_outcome: &data_model::TaskOutcome,
-    output: NodeOutput,
+    outputs: Vec<NodeOutput>,
     executor_id: &ExecutorId,
 ) -> Result<()> {
     let task_key = format!(
@@ -289,16 +289,15 @@ pub fn mark_task_completed(
         .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)?
         .ok_or(anyhow!("Task not found: {}", &task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
-    let value = JsonEncoder::encode(&output)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-        output.key(&output.invocation_id),
-        value,
-    )?;
-    let graph_ctx_key = format!(
-        "{}_{}_{}",
-        output.namespace, output.compute_graph_name, output.invocation_id
-    );
+    for output in outputs {
+        let serialized_output = JsonEncoder::encode(&output)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+            output.key(&output.invocation_id),
+            serialized_output,
+        )?;
+    }
+    let graph_ctx_key = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
     let graph_ctx = txn
         .get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
@@ -308,7 +307,7 @@ pub fn mark_task_completed(
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     let analytics = graph_ctx
         .fn_task_analytics
-        .entry(output.compute_fn_name.clone())
+        .entry(compute_fn.to_string())
         .or_insert_with(|| TaskAnalytics::default());
     match task_outcome {
         data_model::TaskOutcome::Success => analytics.success(),

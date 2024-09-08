@@ -66,7 +66,7 @@ pub mod tests {
                 compute_fn: "fn_a".to_string(),
                 invocation_id: invocation_id.to_string(),
                 task_id: task_id.clone(),
-                node_output: mock_node_fn_output_fn_a(&invocation_id, task_id),
+                node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, task_id)],
                 task_outcome: TaskOutcome::Success,
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
             };

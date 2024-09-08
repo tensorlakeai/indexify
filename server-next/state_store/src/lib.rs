@@ -202,7 +202,7 @@ impl IndexifyState {
             &request.invocation_id,
             &request.task_id.to_string(),
             &request.task_outcome,
-            request.node_output.clone(),
+            request.node_outputs.clone(),
             &request.executor_id.clone(),
         )?;
         state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;

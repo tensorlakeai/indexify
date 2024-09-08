@@ -215,7 +215,10 @@ mod tests {
         let task_id = &tasks[0].id;
 
         // Finish the task and check if new tasks are created
-        state_store.finalize_task(&mock_invocation_payload().id, task_id).await.unwrap();
+        state_store
+            .finalize_task(&mock_invocation_payload().id, task_id)
+            .await
+            .unwrap();
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
