@@ -19,7 +19,8 @@ use state_store::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
         NamespaceRequest,
-        RequestType,
+        RequestPayload,
+        StateMachineUpdateRequest,
     },
     IndexifyState,
 };
@@ -201,9 +202,12 @@ async fn create_namespace(
 ) -> Result<(), IndexifyAPIError> {
     state
         .indexify_state
-        .write(RequestType::CreateNameSpace(NamespaceRequest {
-            name: namespace.name,
-        }))
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::CreateNameSpace(NamespaceRequest {
+                name: namespace.name,
+            }),
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
@@ -297,13 +301,16 @@ async fn create_compute_graph(
         put_result.size_bytes,
     )?;
     let name = compute_graph.name.clone();
-    let request = RequestType::CreateComputeGraph(CreateComputeGraphRequest {
+    let request = RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
         namespace,
         compute_graph,
     });
     state
         .indexify_state
-        .write(request)
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     info!("compute graph created: {}", name);
@@ -324,10 +331,13 @@ async fn delete_compute_graph(
     Path((namespace, name)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestType::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name });
+    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name });
     state
         .indexify_state
-        .write(request)
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
@@ -512,14 +522,17 @@ async fn delete_invocation(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestType::DeleteInvocation(DeleteInvocationRequest {
+    let request = RequestPayload::DeleteInvocation(DeleteInvocationRequest {
         namespace,
         compute_graph,
         invocation_id,
     });
     let _ = state
         .indexify_state
-        .write(request)
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())

@@ -8,7 +8,7 @@ use axum::{
 use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId, TaskOutcome};
 use futures::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use state_store::requests::{FinalizeTaskRequest, RequestType};
+use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -139,18 +139,22 @@ pub async fn ingest_objects_from_executor(
         };
         node_outputs.push(node_output);
     }
+    let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
+        namespace: task_result.compute_graph.to_string(),
+        compute_graph: task_result.compute_graph.to_string(),
+        compute_fn: task_result.compute_fn.to_string(),
+        invocation_id: task_result.invocation_id.to_string(),
+        task_id: TaskId::new(task_result.task_id.to_string()),
+        node_outputs,
+        task_outcome: task_result.outcome.clone(),
+        executor_id: ExecutorId::new(task_result.executor_id.clone()),
+    });
     state
         .indexify_state
-        .write(RequestType::FinalizeTask(FinalizeTaskRequest {
-            namespace: task_result.compute_graph.to_string(),
-            compute_graph: task_result.compute_graph.to_string(),
-            compute_fn: task_result.compute_fn.to_string(),
-            invocation_id: task_result.invocation_id.to_string(),
-            task_id: TaskId::new(task_result.task_id.to_string()),
-            node_outputs,
-            task_outcome: task_result.outcome.clone(),
-            executor_id: ExecutorId::new(task_result.executor_id.clone()),
-        }))
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

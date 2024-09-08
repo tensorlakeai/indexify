@@ -8,7 +8,7 @@ use axum::{
 use blob_store::PutResult;
 use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
-use state_store::requests::{InvokeComputeGraphRequest, RequestType};
+use state_store::requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -105,13 +105,17 @@ pub async fn invoke_with_file(
         })?;
 
     let id = invocation_payload.id.clone();
+    let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+        namespace: namespace.clone(),
+        compute_graph_name: compute_graph.clone(),
+        invocation_payload,
+    });
     state
         .indexify_state
-        .write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest {
-            namespace: namespace.clone(),
-            compute_graph_name: compute_graph.clone(),
-            invocation_payload,
-        }))
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
@@ -162,13 +166,17 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let id = invocation_payload.id.clone();
+    let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
+        namespace: namespace.clone(),
+        compute_graph_name: compute_graph.clone(),
+        invocation_payload,
+    });
     state
         .indexify_state
-        .write(RequestType::InvokeComputeGraph(InvokeComputeGraphRequest {
-            namespace: namespace.clone(),
-            compute_graph_name: compute_graph.clone(),
-            invocation_payload,
-        }))
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

@@ -6,14 +6,14 @@ use data_model::{
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
-    InvocationPayload,
     Namespace,
     NodeOutput,
     StateChange,
+    StateChangeId,
     Task,
     TaskAnalytics,
 };
-use indexify_utils::OptionInspectNone;
+use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use rocksdb::{
     BoundColumnFamily,
     Direction,
@@ -27,6 +27,13 @@ use strum::AsRefStr;
 use tracing::error;
 
 use super::serializer::{JsonEncode, JsonEncoder};
+use crate::requests::{
+    CreateTasksRequest,
+    DeleteInvocationRequest,
+    FinalizeTaskRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+};
 
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -74,11 +81,15 @@ impl IndexifyObjectsColumns {
     }
 }
 
-pub(crate) fn create_namespace(db: Arc<TransactionDB>, namespace: &Namespace) -> Result<()> {
-    let serialized_namespace = JsonEncoder::encode(&namespace)?;
+pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -> Result<()> {
+    let ns = Namespace {
+        name: req.name.clone(),
+        created_at: get_epoch_time_in_ms(),
+    };
+    let serialized_namespace = JsonEncoder::encode(&ns)?;
     db.put_cf(
         &IndexifyObjectsColumns::Namespaces.cf_db(&db),
-        &namespace.name,
+        &ns.name,
         serialized_namespace,
     )?;
     Ok(())
@@ -87,28 +98,26 @@ pub(crate) fn create_namespace(db: Arc<TransactionDB>, namespace: &Namespace) ->
 pub fn create_graph_input(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    namespace: &str,
-    compute_graph_name: &str,
-    invocation_payload: InvocationPayload,
+    req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
-    let compute_graph_key = format!("{}_{}", namespace, compute_graph_name);
+    let compute_graph_key = format!("{}_{}", req.namespace, req.compute_graph_name);
     let _ = txn
         .get_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &compute_graph_key,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let serialized_data_object = JsonEncoder::encode(&invocation_payload)?;
+    let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        invocation_payload.key(),
+        req.invocation_payload.key(),
         &serialized_data_object,
     )?;
 
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
-        .namespace(namespace.to_string())
-        .compute_graph_name(compute_graph_name.to_string())
-        .invocation_id(invocation_payload.id.clone())
+        .namespace(req.namespace.to_string())
+        .compute_graph_name(req.compute_graph_name.to_string())
+        .invocation_id(req.invocation_payload.id.clone())
         .fn_task_analytics(HashMap::new())
         .build()?;
     txn.put_cf(
@@ -136,13 +145,14 @@ pub fn create_compute_fn_output(
 
 pub(crate) fn delete_input_data_object(
     db: Arc<TransactionDB>,
-    namespace: &str,
-    compute_graph: &str,
-    invocation_id: &str,
+    req: &DeleteInvocationRequest,
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
+    let prefix = format!(
+        "{}_{}_{}",
+        req.namespace, req.compute_graph, req.invocation_id
+    );
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
@@ -218,9 +228,9 @@ pub fn delete_compute_graph(
 pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    tasks: Vec<Task>,
+    req: &CreateTasksRequest,
 ) -> Result<()> {
-    for task in tasks {
+    for task in &req.tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
             &IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -249,7 +259,15 @@ pub(crate) fn create_tasks(
             serialized_analytics,
         )?;
     }
-
+    if req.invocation_finished {
+        mark_invocation_finished(
+            db,
+            txn,
+            &req.namespace,
+            &req.compute_graph,
+            &req.invocation_id,
+        )?;
+    }
     Ok(())
 }
 
@@ -272,24 +290,17 @@ pub fn update_task_assignment(
 pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    namespace: &str,
-    compute_graph: &str,
-    compute_fn: &str,
-    invocation_id: &str,
-    task_id: &str,
-    task_outcome: &data_model::TaskOutcome,
-    outputs: Vec<NodeOutput>,
-    executor_id: &ExecutorId,
+    req: &FinalizeTaskRequest,
 ) -> Result<()> {
     let task_key = format!(
         "{}_{}_{}_{}_{}",
-        namespace, compute_graph, invocation_id, compute_fn, task_id
+        req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
     );
     let task = txn
         .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)?
-        .ok_or(anyhow!("Task not found: {}", &task_id))?;
+        .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
-    for output in outputs {
+    for output in &req.node_outputs {
         let serialized_output = JsonEncoder::encode(&output)?;
         txn.put_cf(
             &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
@@ -297,19 +308,25 @@ pub fn mark_task_completed(
             serialized_output,
         )?;
     }
-    let graph_ctx_key = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
+    let graph_ctx_key = format!(
+        "{}_{}_{}",
+        req.namespace, req.compute_graph, req.invocation_id
+    );
     let graph_ctx = txn
         .get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &graph_ctx_key,
         )?
-        .ok_or(anyhow!("Graph context not found for task: {}", &task_id))?;
+        .ok_or(anyhow!(
+            "Graph context not found for task: {}",
+            &req.task_id
+        ))?;
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     let analytics = graph_ctx
         .fn_task_analytics
-        .entry(compute_fn.to_string())
+        .entry(req.compute_fn.to_string())
         .or_insert_with(|| TaskAnalytics::default());
-    match task_outcome {
+    match req.task_outcome {
         data_model::TaskOutcome::Success => analytics.success(),
         data_model::TaskOutcome::Failure => analytics.fail(),
         _ => {}
@@ -323,10 +340,10 @@ pub fn mark_task_completed(
 
     txn.delete_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        &task.make_allocation_key(executor_id),
+        &task.make_allocation_key(&req.executor_id),
     )?;
 
-    task.outcome = task_outcome.clone();
+    task.outcome = req.task_outcome.clone();
     let task_bytes = JsonEncoder::encode(&task)?;
     txn.put_cf(
         &IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -339,7 +356,7 @@ pub fn mark_task_completed(
 pub(crate) fn save_state_changes(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    state_changes: Vec<StateChange>,
+    state_changes: &Vec<StateChange>,
 ) -> Result<()> {
     for state_change in state_changes {
         let serialized_state_change = JsonEncoder::encode(&state_change)?;
@@ -349,16 +366,48 @@ pub(crate) fn save_state_changes(
             serialized_state_change.clone(),
         )?;
 
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
-            &state_change.id.to_key(),
-            serialized_state_change,
-        )?;
+        if state_change.processed_at.is_none() {
+            println!("Writing unprocessed state change: {}", state_change.id);
+            txn.put_cf(
+                &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+                &state_change.id.to_key(),
+                serialized_state_change,
+            )?;
+        } else {
+            txn.delete_cf(
+                &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+                &state_change.id.to_key(),
+            )?;
+        }
     }
     Ok(())
 }
 
-pub(crate) fn mark_invocation_finished(
+pub(crate) fn mark_state_changes_processed(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    state_change_ids: &Vec<StateChangeId>,
+) -> Result<()> {
+    let mut state_changes = Vec::new();
+    for state_change_id in state_change_ids {
+        let state_change = txn.get_cf(
+            &IndexifyObjectsColumns::StateChanges.cf_db(&db),
+            state_change_id.to_key(),
+        )?;
+        if state_change.is_none() {
+            error!("State change not found: {}", state_change_id);
+            continue;
+        }
+        let state_change = state_change.unwrap();
+        let mut state_change: StateChange = JsonEncoder::decode(&state_change)?;
+        state_change.processed_at = Some(get_epoch_time_in_ms());
+        state_changes.push(state_change);
+    }
+    save_state_changes(db, txn, &state_changes)?;
+    Ok(())
+}
+
+fn mark_invocation_finished(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     namespace: &str,
@@ -368,7 +417,10 @@ pub(crate) fn mark_invocation_finished(
     let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
     let graph_ctx = txn
         .get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?
-        .ok_or(anyhow!("Graph context not found for invocation: {}", &invocation_id))?;
+        .ok_or(anyhow!(
+            "Graph context not found for invocation: {}",
+            &invocation_id
+        ))?;
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     graph_ctx.completed = true;
     let serialized_graph_ctx = JsonEncoder::encode(&graph_ctx)?;

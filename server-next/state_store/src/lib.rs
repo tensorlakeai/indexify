@@ -4,17 +4,30 @@ use std::{
     fs,
     path::PathBuf,
     pin::Pin,
-    sync::{atomic, atomic::AtomicU64, Arc, RwLock},
+    sync::{
+        atomic::{self, AtomicU64},
+        Arc,
+        RwLock,
+    },
     time::SystemTime,
     vec,
 };
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType, ExecutorId, InvokeComputeGraphEvent, Namespace, StateChange, StateChangeBuilder, StateChangeId, Task, TaskFinishedEvent, TaskId
+    ChangeType,
+    ExecutorId,
+    InvokeComputeGraphEvent,
+    StateChange,
+    StateChangeBuilder,
+    StateChangeId,
+    Task,
+    TaskFinishedEvent,
+    TaskId,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
+use requests::StateMachineUpdateRequest;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
@@ -129,37 +142,63 @@ impl IndexifyState {
         self.state_change_rx.clone()
     }
 
-    pub async fn write(&self, request: requests::RequestType) -> Result<()> {
-        let state_changes = match request {
-            requests::RequestType::InvokeComputeGraph(invoke_compute_graph_request) => {
-                self.invoke_compute_graph(&invoke_compute_graph_request)
-                    .await?
+    pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+        let txn = self.db.transaction();
+        let new_state_changes = match request.payload {
+            requests::RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
+                let state_changes = self
+                    .invoke_compute_graph(&invoke_compute_graph_request)
+                    .await?;
+                state_machine::create_graph_input(
+                    self.db.clone(),
+                    &txn,
+                    &invoke_compute_graph_request,
+                )?;
+                state_changes
             }
-            requests::RequestType::FinalizeTask(finalize_task) => {
-                self.finalize_task(&finalize_task).await?
+            requests::RequestPayload::FinalizeTask(finalize_task) => {
+                let state_changes = self.finalize_task(&finalize_task).await?;
+                state_machine::mark_task_completed(self.db.clone(), &txn, &finalize_task)?;
+                state_changes
             }
-            requests::RequestType::CreateNameSpace(namespace_request) => {
-                self.create_namespace(&namespace_request.name).await?
+            requests::RequestPayload::CreateNameSpace(namespace_request) => {
+                state_machine::create_namespace(self.db.clone(), &namespace_request)?;
+                vec![]
             }
-            requests::RequestType::CreateComputeGraph(create_compute_graph_request) => {
-                self.create_compute_graph(&create_compute_graph_request)
-                    .await?
+            requests::RequestPayload::CreateComputeGraph(req) => {
+                state_machine::create_compute_graph(self.db.clone(), req.compute_graph)?;
+                vec![]
             }
-            requests::RequestType::DeleteComputeGraph(delete_compute_graph_request) => {
-                self.delete_compute_graph(&delete_compute_graph_request)
-                    .await?
+            requests::RequestPayload::DeleteComputeGraph(request) => {
+                state_machine::delete_compute_graph(
+                    self.db.clone(),
+                    &txn,
+                    &request.namespace,
+                    &request.name,
+                )?;
+                vec![]
             }
-            requests::RequestType::CreateTasks(create_tasks_request) => {
-                self.create_tasks(&create_tasks_request).await?
+            requests::RequestPayload::DeleteInvocation(request) => {
+                state_machine::delete_input_data_object(self.db.clone(), &request)?;
+                vec![]
             }
-            requests::RequestType::DeleteInvocation(delete_invocation_request) => {
-                self.delete_invocation(&delete_invocation_request).await?
-            }
-            requests::RequestType::MarkInvocationFinished(mark_invocation_finished_request) => {
-                self.mark_invocation_finished(&mark_invocation_finished_request)?
+            requests::RequestPayload::SchedulerUpdate(request) => {
+                for req in &request.task_requests {
+                    state_machine::create_tasks(self.db.clone(), &txn, req)?;
+                }
+                vec![]
             }
         };
-        for state_change in state_changes {
+        if !new_state_changes.is_empty() {
+            state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
+        }
+        state_machine::mark_state_changes_processed(
+            self.db.clone(),
+            &txn,
+            &request.state_changes_processed,
+        )?;
+        txn.commit()?;
+        for state_change in new_state_changes {
             self.state_change_tx.send(state_change.id).unwrap();
         }
         Ok(())
@@ -169,7 +208,6 @@ impl IndexifyState {
         &self,
         request: &requests::FinalizeTaskRequest,
     ) -> Result<Vec<StateChange>> {
-        let txn = self.db.transaction();
         let last_change_id = self
             .last_state_change_id
             .fetch_add(1, atomic::Ordering::Relaxed);
@@ -186,21 +224,6 @@ impl IndexifyState {
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()?;
-
-        state_machine::mark_task_completed(
-            self.db.clone(),
-            &txn,
-            &request.namespace,
-            &request.compute_graph,
-            &request.compute_fn,
-            &request.invocation_id,
-            &request.task_id.to_string(),
-            &request.task_outcome,
-            request.node_outputs.clone(),
-            &request.executor_id.clone(),
-        )?;
-        state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
-        txn.commit()?;
         Ok(vec![state_change])
     }
 
@@ -208,7 +231,6 @@ impl IndexifyState {
         &self,
         request: &requests::InvokeComputeGraphRequest,
     ) -> Result<Vec<StateChange>> {
-        let txn = self.db.transaction();
         let last_change_id = self
             .last_state_change_id
             .fetch_add(1, atomic::Ordering::Relaxed);
@@ -223,87 +245,7 @@ impl IndexifyState {
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()?;
-        state_machine::create_graph_input(
-            self.db.clone(),
-            &txn,
-            &request.namespace,
-            &request.compute_graph_name,
-            request.invocation_payload.clone(),
-        )?;
-        state_machine::save_state_changes(self.db.clone(), &txn, vec![state_change.clone()])?;
-        txn.commit()?;
         Ok(vec![state_change])
-    }
-
-    async fn delete_invocation(
-        &self,
-        request: &requests::DeleteInvocationRequest,
-    ) -> Result<Vec<StateChange>> {
-        state_machine::delete_input_data_object(
-            self.db.clone(),
-            &request.namespace,
-            &request.compute_graph,
-            &request.invocation_id,
-        )?;
-        Ok(vec![])
-    }
-
-    async fn create_namespace(&self, name: &str) -> Result<Vec<StateChange>> {
-        let namespace = Namespace {
-            name: name.to_string(),
-            created_at: get_epoch_time_in_ms(),
-        };
-        state_machine::create_namespace(self.db.clone(), &namespace)?;
-        Ok(vec![])
-    }
-
-    async fn create_compute_graph(
-        &self,
-        create_compute_graph_request: &requests::CreateComputeGraphRequest,
-    ) -> Result<Vec<StateChange>> {
-        let compute_graph = create_compute_graph_request.compute_graph.clone();
-        state_machine::create_compute_graph(self.db.clone(), compute_graph)?;
-        Ok(vec![])
-    }
-
-    async fn create_tasks(
-        &self,
-        create_tasks_request: &requests::CreateTaskRequest,
-    ) -> Result<Vec<StateChange>> {
-        let txn = self.db.transaction();
-        state_machine::create_tasks(self.db.clone(), &txn, create_tasks_request.tasks.clone())?;
-        txn.commit()?;
-        Ok(vec![])
-    }
-
-    async fn delete_compute_graph(
-        &self,
-        request: &requests::DeleteComputeGraphRequest,
-    ) -> Result<Vec<StateChange>> {
-        let txn = self.db.transaction();
-        state_machine::delete_compute_graph(
-            self.db.clone(),
-            &txn,
-            &request.namespace,
-            &request.name,
-        )?;
-        txn.commit()?;
-        Ok(vec![])
-    }
-
-    pub fn mark_invocation_finished(
-        &self,
-        request: &requests::MarkInvocationFinishedRequest,
-    ) -> Result<Vec<StateChange>> {
-        let txn = self.db.transaction();
-        state_machine::mark_invocation_finished(
-            self.db.clone(),
-            &txn,
-            &request.namespace,
-            &request.compute_graph,
-            &request.invocation_id,
-        )?;
-        Ok(vec![])
     }
 
     pub fn reader(&self) -> scanner::StateReader {
@@ -381,12 +323,12 @@ mod tests {
         TaskBuilder,
     };
     use futures::StreamExt;
-    use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};
+    use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest, SchedulerUpdateRequest};
     use tempfile::TempDir;
     use tokio;
 
     use super::{
-        requests::{NamespaceRequest, RequestType},
+        requests::{NamespaceRequest, RequestPayload},
         *,
     };
     use crate::serializer::{JsonEncode, JsonEncoder};
@@ -398,14 +340,20 @@ mod tests {
 
         // Create namespaces
         indexify_state
-            .write(RequestType::CreateNameSpace(NamespaceRequest {
-                name: "namespace1".to_string(),
-            }))
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateNameSpace(NamespaceRequest {
+                    name: "namespace1".to_string(),
+                }),
+                state_changes_processed: vec![],
+            })
             .await?;
         indexify_state
-            .write(RequestType::CreateNameSpace(NamespaceRequest {
-                name: "namespace2".to_string(),
-            }))
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateNameSpace(NamespaceRequest {
+                    name: "namespace2".to_string(),
+                }),
+                state_changes_processed: vec![],
+            })
             .await?;
 
         // List namespaces
@@ -433,10 +381,13 @@ mod tests {
         // Create a compute graph
         let compute_graph = mock_graph_a();
         indexify_state
-            .write(RequestType::CreateComputeGraph(CreateComputeGraphRequest {
-                namespace: TEST_NAMESPACE.to_string(),
-                compute_graph: compute_graph.clone(),
-            }))
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    compute_graph: compute_graph.clone(),
+                }),
+                state_changes_processed: vec![],
+            })
             .await?;
 
         // Read the compute graph
@@ -454,10 +405,13 @@ mod tests {
 
         // Delete the compute graph
         indexify_state
-            .write(RequestType::DeleteComputeGraph(DeleteComputeGraphRequest {
-                namespace: TEST_NAMESPACE.to_string(),
-                name: "graph_A".to_string(),
-            }))
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: "graph_A".to_string(),
+                }),
+                state_changes_processed: vec![],
+            })
             .await?;
 
         // Read the compute graph again
@@ -501,13 +455,21 @@ mod tests {
             &JsonEncoder::encode(&graph_invocation_ctx)?,
         )?;
 
+        let create_tasks_request = requests::CreateTasksRequest {
+            namespace: task.namespace.clone(),
+            compute_graph: task.compute_graph_name.clone(),
+            invocation_id: task.invocation_id.clone(),
+            invocation_finished: false,
+            tasks: vec![task.clone()],
+        };
+
         indexify_state
-            .write(requests::RequestType::CreateTasks(
-                requests::CreateTaskRequest {
-                    tasks: vec![task.clone()],
-                    processed_state_changes: vec![],
-                },
-            ))
+            .write(StateMachineUpdateRequest {
+                payload: requests::RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
+                    task_requests: vec![create_tasks_request],
+                }),
+                state_changes_processed: vec![],
+            })
             .await?;
 
         indexify_state.update_task_assignment(&task, &executor_id, true)?;
@@ -544,13 +506,21 @@ mod tests {
             &JsonEncoder::encode(&graph_invocation_ctx)?,
         )?;
 
+        let request = SchedulerUpdateRequest {
+            task_requests: vec![requests::CreateTasksRequest {
+                tasks: vec![task_1.clone()],
+                namespace: task_1.namespace.clone(),
+                compute_graph: task_1.compute_graph_name.clone(),
+                invocation_id: task_1.invocation_id.clone(),
+                invocation_finished: false,
+            }],
+        };
+
         indexify_state
-            .write(requests::RequestType::CreateTasks(
-                requests::CreateTaskRequest {
-                    tasks: vec![task_1.clone()],
-                    processed_state_changes: vec![],
-                },
-            ))
+            .write(StateMachineUpdateRequest {
+                payload: requests::RequestPayload::SchedulerUpdate(request),
+                state_changes_processed: vec![],
+            })
             .await?;
 
         indexify_state.update_task_assignment(&task_1, &executor_id, true)?;

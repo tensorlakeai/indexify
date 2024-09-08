@@ -2,7 +2,14 @@ use std::{mem, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph, ExecutorId, GraphInvocationCtx, InvocationPayload, Namespace, NodeOutput, StateChange, Task
+    ComputeGraph,
+    ExecutorId,
+    GraphInvocationCtx,
+    InvocationPayload,
+    Namespace,
+    NodeOutput,
+    StateChange,
+    Task,
 };
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -222,6 +229,7 @@ impl StateReader {
         let mut state_changes = Vec::new();
         let mut count = 0;
         for kv in iter {
+            println!("kv {:?}", kv);
             if let Ok((_, serialized_sc)) = kv {
                 let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
                 state_changes.push(state_change);
@@ -381,9 +389,17 @@ impl StateReader {
         Ok(res.items)
     }
 
-    pub fn invocation_ctx(&self, namespace: &str, compute_graph: &str, invocation_id: &str) -> Result<GraphInvocationCtx> {
+    pub fn invocation_ctx(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> Result<GraphInvocationCtx> {
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
-        let value = self.db.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db), &key)?;
+        let value = self.db.get_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
+            &key,
+        )?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("invocation ctx not found")),
@@ -399,11 +415,12 @@ mod tests {
 
     use super::{
         super::{
-            requests::{NamespaceRequest, RequestType},
+            requests::{NamespaceRequest, RequestPayload},
             IndexifyState,
         },
         *,
     };
+    use crate::requests::StateMachineUpdateRequest;
 
     #[tokio::test]
     async fn test_get_rows_from_cf_with_limits() {
@@ -413,9 +430,12 @@ mod tests {
         for i in 0..4 {
             let name = format!("test_{}", i);
             indexify_state
-                .write(RequestType::CreateNameSpace(NamespaceRequest {
-                    name: name.clone(),
-                }))
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateNameSpace(NamespaceRequest {
+                        name: name.clone(),
+                    }),
+                    state_changes_processed: vec![],
+                })
                 .await
                 .unwrap();
         }

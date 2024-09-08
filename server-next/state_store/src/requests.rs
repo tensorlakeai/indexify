@@ -8,15 +8,23 @@ use data_model::{
     TaskId,
 };
 
-pub enum RequestType {
+pub struct StateMachineUpdateRequest {
+    pub payload: RequestPayload,
+    pub state_changes_processed: Vec<StateChangeId>,
+}
+
+pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     FinalizeTask(FinalizeTaskRequest),
-    MarkInvocationFinished(MarkInvocationFinishedRequest),
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
-    CreateTasks(CreateTaskRequest),
     DeleteInvocation(DeleteInvocationRequest),
+    SchedulerUpdate(SchedulerUpdateRequest),
+}
+
+pub struct StateChangeProcessedRequest {
+    pub state_change_ids: Vec<StateChangeId>,
 }
 
 pub struct FinalizeTaskRequest {
@@ -50,9 +58,17 @@ pub struct DeleteComputeGraphRequest {
     pub name: String,
 }
 
-pub struct CreateTaskRequest {
+pub struct CreateTasksRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
     pub tasks: Vec<Task>,
-    pub processed_state_changes: Vec<StateChangeId>,
+    // Invocation ID -> Finished
+    pub invocation_finished: bool,
+}
+
+pub struct SchedulerUpdateRequest {
+    pub task_requests: Vec<CreateTasksRequest>,
 }
 
 pub struct DeleteInvocationRequest {

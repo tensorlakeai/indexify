@@ -21,7 +21,8 @@ pub mod tests {
             CreateComputeGraphRequest,
             FinalizeTaskRequest,
             InvokeComputeGraphRequest,
-            RequestType,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
         IndexifyState,
     };
@@ -40,7 +41,10 @@ pub mod tests {
                 compute_graph: tests::mock_graph_a(),
             };
             indexify_state
-                .write(RequestType::CreateComputeGraph(cg_request))
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::CreateComputeGraph(cg_request),
+                    state_changes_processed: vec![],
+                })
                 .await?;
             let invocation_payload = mock_invocation_payload();
             let request = InvokeComputeGraphRequest {
@@ -49,7 +53,10 @@ pub mod tests {
                 invocation_payload: invocation_payload.clone(),
             };
             indexify_state
-                .write(RequestType::InvokeComputeGraph(request))
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::InvokeComputeGraph(request),
+                    state_changes_processed: vec![],
+                })
                 .await
                 .unwrap();
 
@@ -71,7 +78,10 @@ pub mod tests {
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
             };
             self.indexify_state
-                .write(RequestType::FinalizeTask(request))
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::FinalizeTask(request),
+                    state_changes_processed: vec![],
+                })
                 .await
         }
     }

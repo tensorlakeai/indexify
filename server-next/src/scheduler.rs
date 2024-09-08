@@ -10,12 +10,25 @@ use data_model::{
     TaskFinishedEvent,
 };
 use state_store::{
-    requests::{CreateTaskRequest, MarkInvocationFinishedRequest, RequestType},
+    requests::{
+        CreateTasksRequest,
+        RequestPayload,
+        SchedulerUpdateRequest,
+        StateMachineUpdateRequest,
+    },
     IndexifyState,
 };
 use tokio::{self, sync::watch::Receiver};
 use tracing::{error, info};
 
+#[derive(Debug)]
+struct TaskCreationResult {
+    namespace: String,
+    compute_graph: String,
+    tasks: Vec<Task>,
+    invocation_finished: bool,
+    invocation_id: String,
+}
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
 }
@@ -28,7 +41,7 @@ impl Scheduler {
     async fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
-    ) -> Result<Vec<Task>> {
+    ) -> Result<TaskCreationResult> {
         let compute_graph = self
             .indexify_state
             .reader()
@@ -38,7 +51,13 @@ impl Scheduler {
                 "compute graph not found: {:?} {:?}",
                 event.namespace, event.compute_graph
             );
-            return Ok(vec![]);
+            return Ok(TaskCreationResult {
+                tasks: vec![],
+                namespace: event.namespace.clone(),
+                invocation_id: event.invocation_id.clone(),
+                compute_graph: event.compute_graph.clone(),
+                invocation_finished: false,
+            });
         }
         let compute_graph = compute_graph.unwrap();
         // Crate a task for the compute graph
@@ -48,13 +67,19 @@ impl Scheduler {
             &event.invocation_id,
             &event.invocation_id,
         )?;
-        Ok(vec![task])
+        Ok(TaskCreationResult {
+            namespace: event.namespace.clone(),
+            compute_graph: event.compute_graph.clone(),
+            invocation_id: event.invocation_id.clone(),
+            tasks: vec![task],
+            invocation_finished: false,
+        })
     }
 
     async fn handle_task_finished(
         &self,
         task_finished_event: TaskFinishedEvent,
-    ) -> Result<Vec<Task>> {
+    ) -> Result<TaskCreationResult> {
         let task = self
             .indexify_state
             .reader()
@@ -82,26 +107,24 @@ impl Scheduler {
         // Find the edges
         let edges = compute_graph.edges.get(&task_finished_event.compute_fn);
         if edges.is_none() {
-            // Mark the graph to be completed
             let invocation_ctx = self.indexify_state.reader().invocation_ctx(
                 &task_finished_event.namespace,
                 &task_finished_event.compute_graph,
                 &task_finished_event.invocation_id,
             )?;
             if invocation_ctx.outstanding_tasks == 0 {
-                self.indexify_state.write(RequestType::MarkInvocationFinished(
-                    MarkInvocationFinishedRequest {
-                        namespace: task_finished_event.namespace,
-                        compute_graph: task_finished_event.compute_graph.clone(),
-                        invocation_id: task_finished_event.invocation_id,
-                    },
-                )).await?;
+                info!(
+                    "compute graph completed: {:?}",
+                    task_finished_event.compute_graph
+                );
+                return Ok(TaskCreationResult {
+                    namespace: task_finished_event.namespace.clone(),
+                    compute_graph: task_finished_event.compute_graph.clone(),
+                    invocation_id: task_finished_event.invocation_id.clone(),
+                    tasks: vec![],
+                    invocation_finished: true,
+                });
             }
-            info!(
-                "compute graph completed: {:?}",
-                task_finished_event.compute_graph
-            );
-            return Ok(vec![]);
         }
 
         let mut out_edges = Vec::from_iter(edges.iter().cloned().flatten());
@@ -140,7 +163,13 @@ impl Scheduler {
                 new_tasks.push(new_task);
             }
         }
-        Ok(new_tasks)
+        Ok(TaskCreationResult {
+            namespace: task_finished_event.namespace.clone(),
+            compute_graph: task_finished_event.compute_graph.clone(),
+            invocation_id: task_finished_event.invocation_id.clone(),
+            tasks: new_tasks,
+            invocation_finished: false,
+        })
     }
 
     pub async fn run_scheduler(&self) -> Result<()> {
@@ -148,27 +177,39 @@ impl Scheduler {
             .indexify_state
             .reader()
             .get_unprocessed_state_changes()?;
+        println!("state changes {:?}", state_changes);
+        let mut create_task_requests = vec![];
+        let mut processed_state_changes = vec![];
         for state_change in state_changes {
-            let tasks: Vec<Task> = match state_change.change_type {
-                ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => {
+            processed_state_changes.push(state_change.id.clone());
+            let result = match state_change.change_type {
+                ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
                     self.handle_invoke_compute_graph(invoke_compute_graph_event)
-                        .await?
-                }
+                        .await?,
+                ),
                 ChangeType::TaskFinished(task_finished_event) => {
-                    self.handle_task_finished(task_finished_event).await?
+                    Some(self.handle_task_finished(task_finished_event).await?)
                 }
-                _ => {
-                    vec![]
-                }
+                _ => None,
             };
-            self.indexify_state
-                .write(RequestType::CreateTasks(CreateTaskRequest {
-                    tasks,
-                    processed_state_changes: vec![state_change.id.clone()],
-                }))
-                .await?;
+            if let Some(result) = result {
+                let request = CreateTasksRequest {
+                    namespace: result.namespace.clone(),
+                    invocation_id: result.invocation_id.clone(),
+                    compute_graph: result.compute_graph.clone(),
+                    invocation_finished: result.invocation_finished,
+                    tasks: result.tasks,
+                };
+                create_task_requests.push(request);
+            }
         }
-        Ok(())
+        let scheduler_update_request = StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
+                task_requests: create_task_requests,
+            }),
+            state_changes_processed: processed_state_changes,
+        };
+        self.indexify_state.write(scheduler_update_request).await
     }
 
     pub async fn start(
@@ -212,6 +253,11 @@ mod tests {
             .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
             .unwrap();
         assert_eq!(tasks.len(), 1);
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .get_unprocessed_state_changes()
+            .unwrap();
+        assert_eq!(unprocessed_state_changes.len(), 0);
         Ok(())
     }
 
@@ -239,10 +285,12 @@ mod tests {
             .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
             .unwrap();
         assert_eq!(tasks.len(), 3);
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .get_unprocessed_state_changes()
+            .unwrap();
+        assert_eq!(unprocessed_state_changes.len(), 0);
         Ok(())
     }
 
-    async fn create_tasks_when_router_finishes() {}
-
-    async fn mark_invocation_completed() {}
 }

@@ -552,6 +552,12 @@ impl From<StateChangeId> for u64 {
     }
 }
 
+impl Display for StateChangeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,
