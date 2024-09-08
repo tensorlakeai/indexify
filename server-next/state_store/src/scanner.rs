@@ -1,14 +1,8 @@
 use std::{mem, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph,
-    ExecutorId,
-    InvocationPayload,
-    Namespace,
-    NodeOutput,
-    StateChange,
-    Task,
+    ComputeGraph, ExecutorId, GraphInvocationCtx, InvocationPayload, Namespace, NodeOutput, StateChange, Task
 };
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -385,6 +379,15 @@ impl StateReader {
             Some(limit),
         )?;
         Ok(res.items)
+    }
+
+    pub fn invocation_ctx(&self, namespace: &str, compute_graph: &str, invocation_id: &str) -> Result<GraphInvocationCtx> {
+        let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
+        let value = self.db.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db), &key)?;
+        match value {
+            Some(value) => Ok(JsonEncoder::decode(&value)?),
+            None => Err(anyhow!("invocation ctx not found")),
+        }
     }
 }
 #[cfg(test)]

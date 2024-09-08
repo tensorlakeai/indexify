@@ -289,6 +289,8 @@ pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
+    pub completed: bool,
+    pub outstanding_tasks: u16,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
 }
 
@@ -298,6 +300,10 @@ impl GraphInvocationCtx {
             "{}_{}_{}",
             self.namespace, self.compute_graph_name, self.invocation_id
         )
+    }
+
+    pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
+        format!("{}_{}_{}", ns, cg, id)
     }
 }
 
@@ -319,6 +325,8 @@ impl GraphInvocationCtxBuilder {
             namespace,
             compute_graph_name: cg_name,
             invocation_id,
+            completed: false,
+            outstanding_tasks: 0,
             fn_task_analytics: HashMap::new(),
         })
     }

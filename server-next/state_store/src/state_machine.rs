@@ -357,3 +357,25 @@ pub(crate) fn save_state_changes(
     }
     Ok(())
 }
+
+pub(crate) fn mark_invocation_finished(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    namespace: &str,
+    compute_graph: &str,
+    invocation_id: &str,
+) -> Result<()> {
+    let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
+    let graph_ctx = txn
+        .get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?
+        .ok_or(anyhow!("Graph context not found for invocation: {}", &invocation_id))?;
+    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
+    graph_ctx.completed = true;
+    let serialized_graph_ctx = JsonEncoder::encode(&graph_ctx)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        key,
+        serialized_graph_ctx,
+    )?;
+    Ok(())
+}

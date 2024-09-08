@@ -11,16 +11,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType,
-    ExecutorId,
-    InvokeComputeGraphEvent,
-    Namespace,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    Task,
-    TaskFinishedEvent,
-    TaskId,
+    ChangeType, ExecutorId, InvokeComputeGraphEvent, Namespace, StateChange, StateChangeBuilder, StateChangeId, Task, TaskFinishedEvent, TaskId
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
@@ -164,6 +155,9 @@ impl IndexifyState {
             requests::RequestType::DeleteInvocation(delete_invocation_request) => {
                 self.delete_invocation(&delete_invocation_request).await?
             }
+            requests::RequestType::MarkInvocationFinished(mark_invocation_finished_request) => {
+                self.mark_invocation_finished(&mark_invocation_finished_request)?
+            }
         };
         for state_change in state_changes {
             self.state_change_tx.send(state_change.id).unwrap();
@@ -294,6 +288,21 @@ impl IndexifyState {
             &request.name,
         )?;
         txn.commit()?;
+        Ok(vec![])
+    }
+
+    pub fn mark_invocation_finished(
+        &self,
+        request: &requests::MarkInvocationFinishedRequest,
+    ) -> Result<Vec<StateChange>> {
+        let txn = self.db.transaction();
+        state_machine::mark_invocation_finished(
+            self.db.clone(),
+            &txn,
+            &request.namespace,
+            &request.compute_graph,
+            &request.invocation_id,
+        )?;
         Ok(vec![])
     }
 

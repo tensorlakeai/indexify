@@ -11,6 +11,7 @@ use data_model::{
 pub enum RequestType {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     FinalizeTask(FinalizeTaskRequest),
+    MarkInvocationFinished(MarkInvocationFinishedRequest),
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
@@ -55,6 +56,12 @@ pub struct CreateTaskRequest {
 }
 
 pub struct DeleteInvocationRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
+}
+
+pub struct MarkInvocationFinishedRequest {
     pub namespace: String,
     pub compute_graph: String,
     pub invocation_id: String,

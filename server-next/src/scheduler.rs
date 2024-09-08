@@ -10,7 +10,7 @@ use data_model::{
     TaskFinishedEvent,
 };
 use state_store::{
-    requests::{CreateTaskRequest, RequestType},
+    requests::{CreateTaskRequest, MarkInvocationFinishedRequest, RequestType},
     IndexifyState,
 };
 use tokio::{self, sync::watch::Receiver};
@@ -83,6 +83,20 @@ impl Scheduler {
         let edges = compute_graph.edges.get(&task_finished_event.compute_fn);
         if edges.is_none() {
             // Mark the graph to be completed
+            let invocation_ctx = self.indexify_state.reader().invocation_ctx(
+                &task_finished_event.namespace,
+                &task_finished_event.compute_graph,
+                &task_finished_event.invocation_id,
+            )?;
+            if invocation_ctx.outstanding_tasks == 0 {
+                self.indexify_state.write(RequestType::MarkInvocationFinished(
+                    MarkInvocationFinishedRequest {
+                        namespace: task_finished_event.namespace,
+                        compute_graph: task_finished_event.compute_graph.clone(),
+                        invocation_id: task_finished_event.invocation_id,
+                    },
+                )).await?;
+            }
             info!(
                 "compute graph completed: {:?}",
                 task_finished_event.compute_graph
