@@ -1085,6 +1085,10 @@ dependencies = [
 [[package]]
 name = "indexify_utils"
 version = "0.1.0"
+dependencies = [
+ "futures",
+ "pin-project",
+]
 
 [[package]]
 name = "indexmap"

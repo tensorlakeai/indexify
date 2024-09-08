@@ -1,8 +1,9 @@
-use std::{path::PathBuf, process};
+use std::path::PathBuf;
 
 use clap::Parser;
 use service::Service;
 use tracing::error;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
 mod executors;
@@ -21,11 +22,9 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
-    if let Err(err) = tracing::subscriber::set_global_default(subscriber) {
-        println!("Error setting up tracing: {}", err);
-        process::exit(1);
-    }
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let cli = Cli::parse();
     let config = match cli.config {
