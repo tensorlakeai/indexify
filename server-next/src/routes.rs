@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{MatchedPath, Multipart, Path, Request, State},
+    extract::{MatchedPath, Multipart, Path, Request, State, Query},
     http::{Method, Response},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -51,6 +51,7 @@ use crate::{
         GraphInvocations,
         IndexifyAPIError,
         InvocationResult,
+        ListParams,
         Namespace,
         NamespaceList,
         Node,
@@ -252,7 +253,7 @@ async fn namespaces(
 ) -> Result<Json<NamespaceList>, IndexifyAPIError> {
     let reader = state.indexify_state.reader();
     let namespaces = reader
-        .get_all_namespaces(None)
+        .get_all_namespaces()
         .map_err(IndexifyAPIError::internal_error)?;
     let namespaces: Vec<Namespace> = namespaces.into_iter().map(|n| n.into()).collect();
     Ok(Json(NamespaceList { namespaces }))
@@ -379,16 +380,21 @@ async fn delete_compute_graph(
 )]
 async fn list_compute_graphs(
     Path(namespace): Path<String>,
+    Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<ComputeGraphsList>, IndexifyAPIError> {
     let (compute_graphs, cursor) = state
         .indexify_state
         .reader()
-        .list_compute_graphs(&namespace, None)
+        .list_compute_graphs(
+            &namespace,
+            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.limit,
+        )
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ComputeGraphsList {
         compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
-        cursor: cursor.map(|c| String::from_utf8(c).unwrap()),
+        cursor,
     }))
 }
 
@@ -429,14 +435,20 @@ async fn get_compute_graph(
 )]
 async fn graph_invocations(
     Path((namespace, compute_graph)): Path<(String, String)>,
+    Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<GraphInvocations>, IndexifyAPIError> {
-    let data_objects = state
+    let (data_objects, cursor) = state
         .indexify_state
         .reader()
-        .list_invocations(&namespace, &compute_graph, None)
+        .list_invocations(
+            &namespace,
+            &compute_graph,
+            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.limit,
+        )
         .map_err(IndexifyAPIError::internal_error)?;
-    let mut api_data_objects = vec![];
+    let mut invocations = vec![];
     for data_object in data_objects {
         let payload = state
             .blob_storage
@@ -444,7 +456,7 @@ async fn graph_invocations(
             .await
             .map_err(IndexifyAPIError::internal_error)?;
         let payload = serde_json::from_slice(&payload)?;
-        api_data_objects.push(DataObject {
+        invocations.push(DataObject {
             id: data_object.id,
             payload,
             payload_size: data_object.payload.size,
@@ -452,8 +464,8 @@ async fn graph_invocations(
         });
     }
     Ok(Json(GraphInvocations {
-        invocations: api_data_objects,
-        cursor: None,
+        invocations,
+        cursor,
     }))
 }
 
@@ -550,18 +562,22 @@ async fn executor_tasks(
 #[axum::debug_handler]
 async fn list_tasks(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
-    let tasks = state.indexify_state.reader().list_tasks_by_compute_graph(
-        &namespace,
-        &compute_graph,
-        &invocation_id,
-    );
-    let tasks = tasks.map(|tasks| tasks.into_iter().map(Into::into).collect());
-    Ok(Json(Tasks {
-        tasks: tasks.unwrap_or_default(),
-        cursor: None,
-    }))
+    let (tasks, cursor) = state
+        .indexify_state
+        .reader()
+        .list_tasks_by_compute_graph(
+            &namespace,
+            &compute_graph,
+            &invocation_id,
+            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.limit,
+        )
+        .map_err(IndexifyAPIError::internal_error)?;
+    let tasks = tasks.into_iter().map(Into::into).collect();
+    Ok(Json(Tasks { tasks, cursor }))
 }
 
 /// Delete a specific invocation  

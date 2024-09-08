@@ -37,7 +37,7 @@ pub mod tests {
             let temp_dir = TempDir::new()?;
             let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
             let cg_request = CreateComputeGraphRequest {
-                namespace: "test".to_string(),
+                namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: tests::mock_graph_a(),
             };
             indexify_state
