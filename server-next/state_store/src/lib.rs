@@ -36,6 +36,7 @@ pub mod requests;
 pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
+pub mod test_state_store;
 
 #[derive(Debug, Clone)]
 pub struct UnfinishedTask {

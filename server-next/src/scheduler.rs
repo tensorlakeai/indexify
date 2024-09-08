@@ -182,51 +182,20 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::{
-        test_objects::tests::{
-            self,
-            mock_invocation_payload,
-            mock_node_fn_output_fn_a,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-        },
-        ExecutorId,
-        TaskOutcome,
-    };
-    use state_store::{
-        requests::{CreateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest},
-        IndexifyState,
-    };
-    use tempfile::TempDir;
+    use data_model::test_objects::tests::mock_invocation_payload;
+    use state_store::test_state_store::tests::TestStateStore;
 
     use super::*;
 
     #[tokio::test]
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
-        let cg_request = CreateComputeGraphRequest {
-            namespace: "test".to_string(),
-            compute_graph: tests::mock_graph_a(),
-        };
-        indexify_state
-            .write(RequestType::CreateComputeGraph(cg_request))
-            .await?;
+        let state_store = TestStateStore::new().await?;
+        let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
-        let mock_data_object = mock_invocation_payload();
-        let request = InvokeComputeGraphRequest {
-            namespace: "test".to_string(),
-            compute_graph_name: "graph_A".to_string(),
-            invocation_payload: mock_data_object.clone(),
-        };
-        indexify_state
-            .write(RequestType::InvokeComputeGraph(request))
-            .await
-            .unwrap();
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph("test", "graph_A", &mock_data_object.id)
+            .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
             .unwrap();
         assert_eq!(tasks.len(), 1);
         Ok(())
@@ -234,52 +203,23 @@ mod tests {
 
     #[tokio::test]
     async fn crete_tasks_when_after_fn_finishes() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
-        let cg_request = CreateComputeGraphRequest {
-            namespace: "test".to_string(),
-            compute_graph: tests::mock_graph_a(),
-        };
-        indexify_state
-            .write(RequestType::CreateComputeGraph(cg_request))
-            .await?;
+        let state_store = TestStateStore::new().await?;
+        let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
-        let invocation_payload = mock_invocation_payload();
-        let request = InvokeComputeGraphRequest {
-            namespace: TEST_NAMESPACE.to_string(),
-            compute_graph_name: "graph_A".to_string(),
-            invocation_payload: invocation_payload.clone(),
-        };
-        indexify_state
-            .write(RequestType::InvokeComputeGraph(request))
-            .await
-            .unwrap();
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph("test", "graph_A", &invocation_payload.id)
+            .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
             .unwrap();
         assert_eq!(tasks.len(), 1);
         let task_id = &tasks[0].id;
 
         // Finish the task and check if new tasks are created
-        let request = FinalizeTaskRequest {
-            namespace: TEST_NAMESPACE.to_string(),
-            compute_graph: "graph_A".to_string(),
-            compute_fn: "fn_a".to_string(),
-            invocation_id: invocation_payload.id.clone(),
-            task_id: tasks[0].id.clone(),
-            node_output: mock_node_fn_output_fn_a(&invocation_payload.id, task_id),
-            task_outcome: TaskOutcome::Success,
-            executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-        };
-        indexify_state
-            .write(RequestType::FinalizeTask(request))
-            .await?;
+        state_store.finalize_task(&mock_invocation_payload().id, task_id).await.unwrap();
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph("test", "graph_A", &invocation_payload.id)
+            .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
             .unwrap();
         assert_eq!(tasks.len(), 3);
         Ok(())

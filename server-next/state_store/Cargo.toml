@@ -17,11 +17,4 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 futures.workspace = true
 async-stream = "0.3.5"
-
-
-[dev-dependencies]
 tempfile = { workspace = true }
-
-
-
-
