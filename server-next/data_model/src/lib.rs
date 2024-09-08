@@ -475,8 +475,15 @@ impl TaskAnalytics {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
+    pub runner_name: String,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
+}
+
+impl ExecutorMetadata {
+    pub fn key(&self) -> String {
+        format!("{}", self.id)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]

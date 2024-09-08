@@ -188,6 +188,14 @@ impl IndexifyState {
                 }
                 vec![]
             }
+            requests::RequestPayload::RegisterExecutor(request) => {
+                state_machine::register_executor(self.db.clone(), &txn, &request)?;
+                vec![]
+            }
+            requests::RequestPayload::DeregisterExecutor(request) => {
+                state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
+                vec![]
+            }
         };
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;

@@ -378,6 +378,14 @@ pub struct InvocationId {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExecutorMetadata {
+    pub id: String,
+    pub address: String,
+    pub runner_name: String,
+    pub labels: HashMap<String, serde_json::Value>,
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

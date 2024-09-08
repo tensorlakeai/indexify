@@ -30,9 +30,11 @@ use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
     CreateTasksRequest,
     DeleteInvocationRequest,
+    DeregisterExecutorRequest,
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
+    RegisterExecutorRequest,
 };
 
 pub type ContentId = String;
@@ -428,6 +430,32 @@ fn mark_invocation_finished(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         key,
         serialized_graph_ctx,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn register_executor(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: &RegisterExecutorRequest,
+) -> Result<()> {
+    let serialized_executor_metadata = JsonEncoder::encode(&req.executor)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::Executors.cf_db(&db),
+        req.executor.key(),
+        serialized_executor_metadata,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn deregister_executor(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: &DeregisterExecutorRequest,
+) -> Result<()> {
+    txn.delete_cf(
+        &IndexifyObjectsColumns::Executors.cf_db(&db),
+        req.executor_id.to_string(),
     )?;
     Ok(())
 }

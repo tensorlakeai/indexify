@@ -1,6 +1,7 @@
 use data_model::{
     ComputeGraph,
     ExecutorId,
+    ExecutorMetadata,
     InvocationPayload,
     NodeOutput,
     StateChangeId,
@@ -21,10 +22,8 @@ pub enum RequestPayload {
     DeleteComputeGraph(DeleteComputeGraphRequest),
     DeleteInvocation(DeleteInvocationRequest),
     SchedulerUpdate(SchedulerUpdateRequest),
-}
-
-pub struct StateChangeProcessedRequest {
-    pub state_change_ids: Vec<StateChangeId>,
+    RegisterExecutor(RegisterExecutorRequest),
+    DeregisterExecutor(DeregisterExecutorRequest),
 }
 
 pub struct FinalizeTaskRequest {
@@ -77,8 +76,10 @@ pub struct DeleteInvocationRequest {
     pub invocation_id: String,
 }
 
-pub struct MarkInvocationFinishedRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
+pub struct RegisterExecutorRequest {
+    pub executor: ExecutorMetadata,
+}
+
+pub struct DeregisterExecutorRequest {
+    pub executor_id: String,
 }

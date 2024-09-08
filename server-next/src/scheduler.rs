@@ -292,5 +292,4 @@ mod tests {
         assert_eq!(unprocessed_state_changes.len(), 0);
         Ok(())
     }
-
 }

@@ -8,7 +8,7 @@ use tokio::{self, signal, sync::watch};
 use tracing::info;
 
 use super::{routes::RouteState, scheduler::Scheduler};
-use crate::{config::ServerConfig, routes::create_routes};
+use crate::{config::ServerConfig, executors::ExecutorManager, routes::create_routes};
 
 pub struct Service {
     pub config: ServerConfig,
@@ -23,9 +23,11 @@ impl Service {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let indexify_state = Arc::new(IndexifyState::new(self.config.state_store_path.parse()?)?);
         let blob_storage = BlobStorage::new(self.config.blob_storage.clone())?;
+        let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()));
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
             blob_storage,
+            executor_manager,
         };
         let app = create_routes(route_state);
         let handle = Handle::new();

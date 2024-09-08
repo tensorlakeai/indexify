@@ -34,22 +34,26 @@ mod invoke;
 use internal_ingest::{ingest_files_from_executor, ingest_objects_from_executor};
 use invoke::{invoke_with_file, invoke_with_object};
 
-use crate::http_objects::{
-    ComputeFn,
-    ComputeGraph,
-    ComputeGraphsList,
-    CreateNamespace,
-    DataObject,
-    DynamicRouter,
-    GraphInvocations,
-    IndexifyAPIError,
-    InvocationResult,
-    Namespace,
-    NamespaceList,
-    Node,
-    Task,
-    TaskOutcome,
-    Tasks,
+use crate::{
+    executors::ExecutorManager,
+    http_objects::{
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphsList,
+        CreateNamespace,
+        DataObject,
+        DynamicRouter,
+        ExecutorMetadata,
+        GraphInvocations,
+        IndexifyAPIError,
+        InvocationResult,
+        Namespace,
+        NamespaceList,
+        Node,
+        Task,
+        TaskOutcome,
+        Tasks,
+    },
 };
 
 #[derive(OpenApi)]
@@ -99,6 +103,7 @@ struct ApiDoc;
 pub struct RouteState {
     pub indexify_state: Arc<IndexifyState>,
     pub blob_storage: blob_store::BlobStorage,
+    pub executor_manager: Arc<ExecutorManager>,
 }
 
 pub fn create_routes(route_state: RouteState) -> Router {
@@ -461,7 +466,22 @@ async fn notify_on_change(
 async fn executor_tasks(
     Path(executor_id): Path<String>,
     State(state): State<RouteState>,
+    Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    state
+        .executor_manager
+        .register_executor(&data_model::ExecutorMetadata {
+            id: data_model::ExecutorId::new(payload.id.clone()),
+            runner_name: payload.runner_name.clone(),
+            addr: payload.address.clone(),
+            labels: payload.labels.clone(),
+        })
+        .await
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+    let _guard = TaskStreamGuard {
+        executor_id: data_model::ExecutorId::new(executor_id.clone()),
+        executor_manager: state.executor_manager.clone(),
+    };
     let stream = state_store::task_stream(
         state.indexify_state,
         data_model::ExecutorId::new(executor_id),
@@ -478,6 +498,27 @@ async fn executor_tasks(
         }
     });
     Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+struct TaskStreamGuard {
+    executor_id: data_model::ExecutorId,
+    executor_manager: Arc<ExecutorManager>,
+}
+
+impl Drop for TaskStreamGuard {
+    fn drop(&mut self) {
+        let executor_id = self.executor_id.clone();
+        let executor_manager = self.executor_manager.clone();
+        tokio::spawn(async move {
+            tracing::info!("de-registering executor: {}", executor_id);
+            if let Err(err) = executor_manager
+                .deregister_executor(&executor_id.to_string())
+                .await
+            {
+                tracing::error!("failed to deregister executor: {}", err);
+            }
+        });
+    }
 }
 
 /// List tasks for a compute graph invocation

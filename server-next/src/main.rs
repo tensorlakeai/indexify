@@ -5,6 +5,7 @@ use service::Service;
 use tracing::error;
 
 mod config;
+mod executors;
 mod http_objects;
 mod routes;
 mod scheduler;
