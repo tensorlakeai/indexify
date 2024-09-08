@@ -5,7 +5,7 @@ use axum::{
     extract::{Multipart, State},
     Json,
 };
-use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskOutcome};
+use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId, TaskOutcome};
 use futures::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use state_store::requests::{FinalizeTaskRequest, RequestType};
@@ -142,7 +142,7 @@ pub async fn ingest_objects_from_executor(
             compute_graph: task_result.compute_graph.to_string(),
             compute_fn: task_result.compute_fn.to_string(),
             invocation_id: task_result.invocation_id.to_string(),
-            task_id: task_result.task_id.to_string(),
+            task_id: TaskId::new(task_result.task_id.to_string()),
             node_output,
             task_outcome: task_result.outcome.clone(),
             executor_id: ExecutorId::new(task_result.executor_id.clone()),

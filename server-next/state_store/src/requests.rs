@@ -1,4 +1,12 @@
-use data_model::{ComputeGraph, ExecutorId, InvocationPayload, NodeOutput, StateChangeId, Task};
+use data_model::{
+    ComputeGraph,
+    ExecutorId,
+    InvocationPayload,
+    NodeOutput,
+    StateChangeId,
+    Task,
+    TaskId,
+};
 
 pub enum RequestType {
     InvokeComputeGraph(InvokeComputeGraphRequest),
@@ -15,7 +23,7 @@ pub struct FinalizeTaskRequest {
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    pub task_id: String,
+    pub task_id: TaskId,
     pub node_output: NodeOutput,
     pub task_outcome: data_model::TaskOutcome,
     pub executor_id: ExecutorId,

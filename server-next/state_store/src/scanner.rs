@@ -323,10 +323,14 @@ impl StateReader {
         &self,
         namespace: &str,
         compute_graph: &str,
+        invocation_id: &str,
         compute_fn: &str,
         task_id: &str,
     ) -> Result<Option<Task>> {
-        let key = format!("{}_{}_{}_{}", namespace, compute_graph, compute_fn, task_id);
+        let key = format!(
+            "{}_{}_{}_{}_{}",
+            namespace, compute_graph, invocation_id, compute_fn, task_id
+        );
         let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
         Ok(task)
     }
@@ -350,9 +354,17 @@ impl StateReader {
         &self,
         namespace: &str,
         compute_graph: &str,
+        invocation_id: &str,
         compute_fn: &str,
+        task_id: &str,
     ) -> Result<Vec<NodeOutput>> {
-        let key = format!("{}_{}_{}", namespace, compute_graph, compute_fn);
+        let key = NodeOutput::key_list_by_task(
+            namespace,
+            compute_graph,
+            invocation_id,
+            compute_fn,
+            task_id,
+        );
         let (data_objects, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
             Some(key),
             IndexifyObjectsColumns::FnOutputs,

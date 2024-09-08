@@ -201,7 +201,10 @@ impl ComputeGraph {
     ) -> Result<data_model::ComputeGraph, IndexifyAPIError> {
         let mut edges = HashMap::new();
         let mut nodes = HashMap::new();
-        nodes.insert(self.start_node.name().clone(), self.start_node.clone().into());
+        nodes.insert(
+            self.start_node.name().clone(),
+            self.start_node.clone().into(),
+        );
         for (k, v) in self.edges.into_iter() {
             let v: Vec<data_model::Node> = v.into_iter().map(|e| e.into()).collect();
             let mut edge_names = Vec::new();
@@ -241,7 +244,10 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
         for (k, v) in compute_graph.edges.into_iter() {
             for node_name in &v {
                 let node = compute_graph.nodes.get(node_name).unwrap();
-                edges.entry(k.clone()).or_insert_with(Vec::new).push(node.clone().into());
+                edges
+                    .entry(k.clone())
+                    .or_insert_with(Vec::new)
+                    .push(node.clone().into());
             }
         }
         Self {

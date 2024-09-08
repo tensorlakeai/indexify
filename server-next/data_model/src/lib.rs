@@ -32,9 +32,21 @@ impl ExecutorId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TaskId(String);
 
+impl TaskId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+}
+
 impl Display for TaskId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for TaskId {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
     }
 }
 
@@ -150,14 +162,33 @@ pub struct NodeOutput {
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub invocation_id: String,
+    pub task_id: TaskId,
     pub payload: OutputPayload,
 }
 
 impl NodeOutput {
-    pub fn fn_output_key(&self, invocation_id: &str) -> String {
+    pub fn key(&self, invocation_id: &str) -> String {
+        format!(
+            "{}_{}_{}_{}_{}_{}",
+            self.namespace,
+            self.compute_graph_name,
+            invocation_id,
+            self.compute_fn_name,
+            self.task_id,
+            self.id
+        )
+    }
+
+    pub fn key_list_by_task(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+        task_id: &str,
+    ) -> String {
         format!(
             "{}_{}_{}_{}_{}",
-            self.namespace, self.compute_graph_name, invocation_id, self.compute_fn_name, self.id
+            namespace, compute_graph, invocation_id, compute_fn, task_id
         )
     }
 }
@@ -180,11 +211,13 @@ impl NodeOutputBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
+        let task_id = self.task_id.clone().ok_or(anyhow!("task_id is required"))?;
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
         fn_name.hash(&mut hasher);
+        task_id.0.hash(&mut hasher);
         match &payload {
             OutputPayload::Router(router) => router.edges.hash(&mut hasher),
             OutputPayload::Fn(data) => {
@@ -200,6 +233,7 @@ impl NodeOutputBuilder {
             invocation_id,
             compute_fn_name: fn_name,
             payload,
+            task_id,
         })
     }
 }
@@ -215,6 +249,10 @@ pub struct InvocationPayload {
 
 impl InvocationPayload {
     pub fn key(&self) -> String {
+        format!("{}_{}_{}", self.namespace, self.compute_graph_name, self.id)
+    }
+
+    pub fn invocation_context_key(&self) -> String {
         format!("{}_{}_{}", self.namespace, self.compute_graph_name, self.id)
     }
 }
@@ -445,7 +483,8 @@ pub struct TaskFinishedEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
-    pub task_id: String,
+    pub invocation_id: String,
+    pub task_id: TaskId,
 }
 
 impl fmt::Display for TaskFinishedEvent {

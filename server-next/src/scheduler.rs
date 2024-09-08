@@ -1,7 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ChangeType, InvokeComputeGraphEvent, OutputPayload, StateChangeId, Task, TaskFinishedEvent};
+use data_model::{
+    ChangeType,
+    InvokeComputeGraphEvent,
+    OutputPayload,
+    StateChangeId,
+    Task,
+    TaskFinishedEvent,
+};
 use state_store::{
     requests::{CreateTaskRequest, RequestType},
     IndexifyState,
@@ -54,8 +61,9 @@ impl Scheduler {
             .get_task(
                 &task_finished_event.namespace,
                 &task_finished_event.compute_graph,
+                &task_finished_event.invocation_id,
                 &task_finished_event.compute_fn,
-                &task_finished_event.task_id,
+                &task_finished_event.task_id.to_string(),
             )?
             .ok_or(anyhow!("task not found: {:?}", task_finished_event))?;
 
@@ -75,9 +83,12 @@ impl Scheduler {
         let edges = compute_graph.edges.get(&task_finished_event.compute_fn);
         if edges.is_none() {
             // Mark the graph to be completed
+            info!(
+                "compute graph completed: {:?}",
+                task_finished_event.compute_graph
+            );
             return Ok(vec![]);
         }
-
 
         let mut out_edges = Vec::from_iter(edges.iter().cloned().flatten());
 
@@ -85,7 +96,9 @@ impl Scheduler {
         let outputs = self.indexify_state.reader().get_task_outputs(
             &task_finished_event.namespace,
             &task_finished_event.compute_graph,
+            &task_finished_event.invocation_id,
             &task_finished_event.compute_fn,
+            &task_finished_event.task_id.to_string(),
         )?;
         for output in &outputs {
             if let OutputPayload::Router(router_output) = &output.payload {
@@ -135,7 +148,10 @@ impl Scheduler {
                 }
             };
             self.indexify_state
-                .write(RequestType::CreateTasks(CreateTaskRequest { tasks, processed_state_changes: vec![state_change.id.clone()] }))
+                .write(RequestType::CreateTasks(CreateTaskRequest {
+                    tasks,
+                    processed_state_changes: vec![state_change.id.clone()],
+                }))
                 .await?;
         }
         Ok(())
@@ -166,9 +182,19 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::test_objects::tests::{self, mock_invocation_payload};
+    use data_model::{
+        test_objects::tests::{
+            self,
+            mock_invocation_payload,
+            mock_node_fn_output_fn_a,
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
+        },
+        ExecutorId,
+        TaskOutcome,
+    };
     use state_store::{
-        requests::{CreateComputeGraphRequest, InvokeComputeGraphRequest},
+        requests::{CreateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest},
         IndexifyState,
     };
     use tempfile::TempDir;
@@ -206,15 +232,60 @@ mod tests {
         Ok(())
     }
 
-    async fn crete_tasks_when_after_fn_finishes() {
+    #[tokio::test]
+    async fn crete_tasks_when_after_fn_finishes() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
+        let cg_request = CreateComputeGraphRequest {
+            namespace: "test".to_string(),
+            compute_graph: tests::mock_graph_a(),
+        };
+        indexify_state
+            .write(RequestType::CreateComputeGraph(cg_request))
+            .await?;
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let invocation_payload = mock_invocation_payload();
+        let request = InvokeComputeGraphRequest {
+            namespace: TEST_NAMESPACE.to_string(),
+            compute_graph_name: "graph_A".to_string(),
+            invocation_payload: invocation_payload.clone(),
+        };
+        indexify_state
+            .write(RequestType::InvokeComputeGraph(request))
+            .await
+            .unwrap();
+        scheduler.run_scheduler().await?;
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph("test", "graph_A", &invocation_payload.id)
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        let task_id = &tasks[0].id;
 
+        // Finish the task and check if new tasks are created
+        let request = FinalizeTaskRequest {
+            namespace: TEST_NAMESPACE.to_string(),
+            compute_graph: "graph_A".to_string(),
+            compute_fn: "fn_a".to_string(),
+            invocation_id: invocation_payload.id.clone(),
+            task_id: tasks[0].id.clone(),
+            node_output: mock_node_fn_output_fn_a(&invocation_payload.id, task_id),
+            task_outcome: TaskOutcome::Success,
+            executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+        };
+        indexify_state
+            .write(RequestType::FinalizeTask(request))
+            .await?;
+        scheduler.run_scheduler().await?;
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph("test", "graph_A", &invocation_payload.id)
+            .unwrap();
+        assert_eq!(tasks.len(), 3);
+        Ok(())
     }
 
-    async fn create_tasks_when_router_finishes() {
+    async fn create_tasks_when_router_finishes() {}
 
-    }
-
-    async fn mark_invocation_completed() {
-
-    }
+    async fn mark_invocation_completed() {}
 }

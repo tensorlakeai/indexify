@@ -39,17 +39,17 @@ pub type SchemaId = String;
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum IndexifyObjectsColumns {
-    Executors,               //  ExecutorId -> Executor Metadata
-    Namespaces,              //  Namespaces
-    ComputeGraphs,           //  Ns_ComputeGraphName -> ComputeGraph
+    Executors,     //  ExecutorId -> Executor Metadata
+    Namespaces,    //  Namespaces
+    ComputeGraphs, //  Ns_ComputeGraphName -> ComputeGraph
 
-    Tasks,                   //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
-    GraphInvocationCtx,      //  Ns_CG_IngestedId -> GraphInvocationCtx
+    Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
+    GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
 
-    GraphInvocations,        //  Ns_Graph_Id -> InvocationPayload
-    FnOutputs,               //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
+    GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
+    FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
 
-    StateChanges,            //  StateChangeId -> StateChange
+    StateChanges, //  StateChangeId -> StateChange
 
     UnprocessedStateChanges, //  StateChangeId -> Empty
     TaskAllocations,         //  ExecutorId -> TaskId
@@ -128,7 +128,7 @@ pub fn create_compute_fn_output(
     let serialized_data_object = JsonEncoder::encode(&data_object)?;
     txn.put_cf(
         &IndexifyObjectsColumns::FnOutputs.cf(db),
-        data_object.fn_output_key(ingested_data_id),
+        data_object.key(ingested_data_id),
         &serialized_data_object,
     )?;
     Ok(())
@@ -272,19 +272,27 @@ pub fn update_task_assignment(
 pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
+    namespace: &str,
+    compute_graph: &str,
+    compute_fn: &str,
+    invocation_id: &str,
     task_id: &str,
     task_outcome: &data_model::TaskOutcome,
     output: NodeOutput,
     executor_id: &ExecutorId,
 ) -> Result<()> {
+    let task_key = format!(
+        "{}_{}_{}_{}_{}",
+        namespace, compute_graph, invocation_id, compute_fn, task_id
+    );
     let task = txn
-        .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_id)?
+        .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)?
         .ok_or(anyhow!("Task not found: {}", &task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
     let value = JsonEncoder::encode(&output)?;
     txn.put_cf(
         &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-        output.fn_output_key(&output.invocation_id),
+        output.key(&output.invocation_id),
         value,
     )?;
     let graph_ctx_key = format!(

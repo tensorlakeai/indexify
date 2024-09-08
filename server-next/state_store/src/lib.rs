@@ -183,10 +183,11 @@ impl IndexifyState {
                 namespace: request.namespace.clone(),
                 compute_graph: request.compute_graph.clone(),
                 compute_fn: request.compute_fn.clone(),
+                invocation_id: request.invocation_id.clone(),
                 task_id: request.task_id.clone(),
             }))
             .created_at(get_epoch_time_in_ms())
-            .object_id(request.task_id.clone())
+            .object_id(request.task_id.clone().to_string())
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()?;
@@ -194,7 +195,11 @@ impl IndexifyState {
         state_machine::mark_task_completed(
             self.db.clone(),
             &txn,
-            &request.task_id,
+            &request.namespace,
+            &request.compute_graph,
+            &request.compute_fn,
+            &request.invocation_id,
+            &request.task_id.to_string(),
             &request.task_outcome,
             request.node_output.clone(),
             &request.executor_id.clone(),
@@ -359,7 +364,11 @@ mod tests {
     use std::collections::HashMap;
 
     use data_model::{
-        test_objects::tests::{mock_graph_a, TEST_NAMESPACE}, ComputeGraph, GraphInvocationCtxBuilder, Namespace, TaskBuilder
+        test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        ComputeGraph,
+        GraphInvocationCtxBuilder,
+        Namespace,
+        TaskBuilder,
     };
     use futures::StreamExt;
     use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest};

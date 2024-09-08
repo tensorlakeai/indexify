@@ -1,10 +1,40 @@
 pub mod tests {
     use std::collections::HashMap;
 
-    use super::super::{ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute};
-    use crate::{DataPayload, InvocationPayload, InvocationPayloadBuilder};
+    use super::super::{
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphCode,
+        Node,
+        Node::Compute,
+        NodeOutput,
+    };
+    use crate::{
+        DataPayload,
+        InvocationPayload,
+        InvocationPayloadBuilder,
+        NodeOutputBuilder,
+        TaskId,
+    };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
+    pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
+
+    pub fn mock_node_fn_output_fn_a(invocation_id: &str, task_id: &TaskId) -> NodeOutput {
+        NodeOutputBuilder::default()
+            .namespace(TEST_NAMESPACE.to_string())
+            .compute_fn_name("fn_a".to_string())
+            .compute_graph_name("graph_A".to_string())
+            .invocation_id(invocation_id.to_string())
+            .task_id(task_id.clone())
+            .payload(crate::OutputPayload::Fn(DataPayload {
+                sha256_hash: "3433".to_string(),
+                path: "eere".to_string(),
+                size: 12,
+            }))
+            .build()
+            .unwrap()
+    }
 
     pub fn mock_invocation_payload() -> InvocationPayload {
         InvocationPayloadBuilder::default()
@@ -41,7 +71,11 @@ pub mod tests {
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_A".to_string(),
-            nodes: HashMap::from([("fn_b".to_string(), Node::Compute(fn_b)), ("fn_c".to_string(), Node::Compute(fn_c)), ("fn_a".to_string(), Node::Compute(fn_a))]),
+            nodes: HashMap::from([
+                ("fn_b".to_string(), Node::Compute(fn_b)),
+                ("fn_c".to_string(), Node::Compute(fn_c)),
+                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+            ]),
             edges: HashMap::from([(
                 "fn_a".to_string(),
                 vec!["fn_b".to_string(), "fn_c".to_string()],
@@ -54,12 +88,7 @@ pub mod tests {
             },
             create_at: 5,
             tomb_stoned: false,
-            start_fn: Compute(ComputeFn {
-                name: "fn_a".to_string(),
-                description: "description fn_a".to_string(),
-                fn_name: "fn_a".to_string(),
-                placement_constraints: Default::default(),
-            }),
+            start_fn: Compute(fn_a),
         }
     }
 }
