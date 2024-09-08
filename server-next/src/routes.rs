@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{MatchedPath, Multipart, Path, Request, State, Query},
     http::{Method, Response},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -12,6 +12,7 @@ use axum::{
 };
 use blob_store::PutResult;
 use futures::StreamExt;
+use indexify_utils::GuardStreamExt;
 use nanoid::nanoid;
 use state_store::{
     requests::{
@@ -24,7 +25,10 @@ use state_store::{
     },
     IndexifyState,
 };
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
@@ -183,6 +187,21 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/executors/:id/tasks",
             get(executor_tasks).with_state(route_state.clone()),
+        )
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|req: &Request| {
+                    let method = req.method();
+                    let uri = req.uri();
+
+                    let matched_path = req
+                        .extensions()
+                        .get::<MatchedPath>()
+                        .map(|matched_path| matched_path.as_str());
+
+                    tracing::debug_span!("request", %method, %uri, matched_path)
+                })
+                .on_failure(()),
         )
         .layer(cors)
 }
@@ -490,47 +509,44 @@ async fn executor_tasks(
         })
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
-    let _guard = TaskStreamGuard {
-        executor_id: data_model::ExecutorId::new(executor_id.clone()),
-        executor_manager: state.executor_manager.clone(),
-    };
     let stream = state_store::task_stream(
         state.indexify_state,
-        data_model::ExecutorId::new(executor_id),
+        data_model::ExecutorId::new(executor_id.clone()),
         10,
     );
-    let stream = stream.map(|item| match item {
-        Ok(item) => {
-            let item: Vec<Task> = item.into_iter().map(Into::into).collect();
-            axum::response::sse::Event::default().json_data(item)
-        }
-        Err(e) => {
-            tracing::error!("error in task stream: {}", e);
-            Err(axum::Error::new(e))
-        }
-    });
-    Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
-}
-
-struct TaskStreamGuard {
-    executor_id: data_model::ExecutorId,
-    executor_manager: Arc<ExecutorManager>,
-}
-
-impl Drop for TaskStreamGuard {
-    fn drop(&mut self) {
-        let executor_id = self.executor_id.clone();
-        let executor_manager = self.executor_manager.clone();
-        tokio::spawn(async move {
-            tracing::info!("de-registering executor: {}", executor_id);
-            if let Err(err) = executor_manager
-                .deregister_executor(&executor_id.to_string())
-                .await
-            {
-                tracing::error!("failed to deregister executor: {}", err);
+    let executor_id_clone = executor_id.clone();
+    let executor_manager_clone = state.executor_manager.clone();
+    let stream = stream
+        .map(|item| match item {
+            Ok(item) => {
+                let item: Vec<Task> = item.into_iter().map(Into::into).collect();
+                axum::response::sse::Event::default().json_data(item)
             }
+            Err(e) => {
+                tracing::error!("error in task stream: {}", e);
+                Err(axum::Error::new(e))
+            }
+        })
+        .guard(|| {
+            tokio::spawn(async move {
+                tracing::info!(
+                    "task strema closed. de-registering executor: {}",
+                    executor_id_clone
+                );
+                if let Err(err) = executor_manager_clone
+                    .deregister_executor(&executor_id.to_string())
+                    .await
+                {
+                    tracing::error!("failed to deregister executor: {}", err);
+                }
+            });
+            ()
         });
-    }
+    Ok(axum::response::Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(1))
+            .text("keep-alive-text"),
+    ))
 }
 
 /// List tasks for a compute graph invocation

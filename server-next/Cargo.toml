@@ -53,6 +53,7 @@ tower-http = { version = "0.5.2", default-features = false, features = [
     "cors",
     "trace",
 ] }
+pin-project = "1.1.5"
 
 
 [dependencies]
