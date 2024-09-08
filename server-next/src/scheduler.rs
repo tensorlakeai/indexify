@@ -237,7 +237,7 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::test_objects::tests::mock_invocation_payload;
+    use data_model::test_objects::tests::{mock_invocation_payload, TEST_NAMESPACE};
     use state_store::test_state_store::tests::TestStateStore;
 
     use super::*;
@@ -250,8 +250,15 @@ mod tests {
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
-            .unwrap();
+            .list_tasks_by_compute_graph(
+                TEST_NAMESPACE,
+                "graph_A",
+                &state_store.invocation_payload_id,
+                None,
+                None,
+            )
+            .unwrap()
+            .0;
         assert_eq!(tasks.len(), 1);
         let unprocessed_state_changes = indexify_state
             .reader()
@@ -262,15 +269,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crete_tasks_when_after_fn_finishes() -> Result<()> {
+    async fn create_tasks_when_after_fn_finishes() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
-            .unwrap();
+            .list_tasks_by_compute_graph(
+                TEST_NAMESPACE,
+                "graph_A",
+                &state_store.invocation_payload_id,
+                None,
+                None,
+            )
+            .unwrap()
+            .0;
         assert_eq!(tasks.len(), 1);
         let task_id = &tasks[0].id;
 
@@ -282,8 +296,15 @@ mod tests {
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph("test", "graph_A", &state_store.invocation_payload_id)
-            .unwrap();
+            .list_tasks_by_compute_graph(
+                TEST_NAMESPACE,
+                "graph_A",
+                &state_store.invocation_payload_id,
+                None,
+                None,
+            )
+            .unwrap()
+            .0;
         assert_eq!(tasks.len(), 3);
         let unprocessed_state_changes = indexify_state
             .reader()

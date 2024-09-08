@@ -58,6 +58,12 @@ impl From<serde_json::Error> for IndexifyAPIError {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ListParams {
+    pub limit: Option<usize>,
+    pub cursor: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Namespace {
     name: String,
     created_at: u64,
@@ -269,7 +275,7 @@ pub struct CreateNamespace {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraphsList {
     pub compute_graphs: Vec<ComputeGraph>,
-    pub cursor: Option<String>,
+    pub cursor: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -301,7 +307,7 @@ pub struct CreateNamespaceResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GraphInvocations {
     pub invocations: Vec<DataObject>,
-    pub cursor: Option<String>,
+    pub cursor: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -370,7 +376,7 @@ impl From<data_model::Task> for Task {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Tasks {
     pub tasks: Vec<Task>,
-    pub cursor: Option<String>,
+    pub cursor: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

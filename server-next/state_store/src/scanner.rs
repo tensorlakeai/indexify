@@ -34,7 +34,8 @@ impl StateReader {
 
     pub fn get_rows_from_cf_with_limits<V>(
         &self,
-        start_key_prefix: Option<String>,
+        key_prefix: &[u8],
+        restart_key: Option<&[u8]>,
         column: IndexifyObjectsColumns,
         limit: Option<usize>,
     ) -> Result<(Vec<V>, Option<Vec<u8>>)>
@@ -48,26 +49,27 @@ impl StateReader {
 
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(4_194_304);
-        let prefix = start_key_prefix
-            .unwrap_or("".to_string())
-            .as_bytes()
-            .to_vec();
-        let iterator_mode = IteratorMode::From(&prefix, Direction::Forward);
+        let iterator_mode = match restart_key {
+            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
+            None => IteratorMode::From(&key_prefix, Direction::Forward),
+        };
         let iter = self
             .db
             .iterator_cf_opt(&cf_handle, read_options, iterator_mode);
 
         let mut items = Vec::new();
-        let mut total = 0;
         let limit = limit.unwrap_or(usize::MAX);
         let mut restart_key = None;
         for kv in iter {
-            let kv = kv?;
-            let value = JsonEncoder::decode(&kv.1).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            items.push(value);
-            total += 1;
-            if total >= limit {
-                restart_key.replace(kv.0.to_vec());
+            let (key, value) = kv?;
+            if !key.starts_with(key_prefix) {
+                break;
+            }
+            let value = JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            if items.len() < limit {
+                items.push(value);
+            } else {
+                restart_key.replace(key.into());
                 break;
             }
         }
@@ -268,49 +270,43 @@ impl StateReader {
         .collect::<Result<Vec<(String, V)>, _>>()
     }
 
-    pub fn get_all_namespaces(&self, limit: Option<usize>) -> Result<Vec<Namespace>> {
+    pub fn get_all_namespaces(&self) -> Result<Vec<Namespace>> {
         let (namespaces, _) = self.get_rows_from_cf_with_limits::<Namespace>(
+            &[],
             None,
             IndexifyObjectsColumns::Namespaces,
-            limit,
+            None,
         )?;
         Ok(namespaces)
-    }
-
-    pub fn get_all_compute_graphs(&self, limit: Option<usize>) -> Result<Vec<ComputeGraph>> {
-        let (compute_graphs, _) = self.get_rows_from_cf_with_limits::<ComputeGraph>(
-            None,
-            IndexifyObjectsColumns::ComputeGraphs,
-            limit,
-        )?;
-        Ok(compute_graphs)
     }
 
     pub fn list_invocations(
         &self,
         namespace: &str,
         compute_graph: &str,
+        cursor: Option<&[u8]>,
         limit: Option<usize>,
-    ) -> Result<Vec<InvocationPayload>> {
+    ) -> Result<(Vec<InvocationPayload>, Option<Vec<u8>>)> {
         let key = format!("{}_{}", namespace, compute_graph);
-        let (invocations, _) = self.get_rows_from_cf_with_limits::<InvocationPayload>(
-            Some(key),
+        self.get_rows_from_cf_with_limits::<InvocationPayload>(
+            key.as_bytes(),
+            cursor,
             IndexifyObjectsColumns::GraphInvocations,
             limit,
-        )?;
-        Ok(invocations)
+        )
     }
 
-    // TODO - Max please implement cursor based pagination in prefix scans
     pub fn list_compute_graphs(
         &self,
         namespace: &str,
-        _cursor: Option<Vec<u8>>,
+        cursor: Option<&[u8]>,
+        limit: Option<usize>,
     ) -> Result<(Vec<ComputeGraph>, Option<Vec<u8>>)> {
         let (compute_graphs, cursor) = self.get_rows_from_cf_with_limits::<ComputeGraph>(
-            Some(namespace.to_string()),
+            namespace.as_bytes(),
+            cursor,
             IndexifyObjectsColumns::ComputeGraphs,
-            None,
+            limit,
         )?;
         Ok((compute_graphs, cursor))
     }
@@ -342,14 +338,16 @@ impl StateReader {
         namespace: &str,
         compute_graph: &str,
         invocation_id: &str,
-    ) -> Result<Vec<Task>> {
-        let key = format!("{}_{}_{}", namespace, compute_graph, invocation_id);
-        let (tasks, _) = self.get_rows_from_cf_with_limits::<Task>(
-            Some(key),
+        restart_key: Option<&[u8]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let key = format!("{}_{}_{}_", namespace, compute_graph, invocation_id);
+        self.get_rows_from_cf_with_limits::<Task>(
+            key.as_bytes(),
+            restart_key,
             IndexifyObjectsColumns::Tasks,
-            None,
-        )?;
-        Ok(tasks)
+            limit,
+        )
     }
 
     pub fn get_task_outputs(
@@ -368,7 +366,8 @@ impl StateReader {
             task_id,
         );
         let (data_objects, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
-            Some(key),
+            key.as_bytes(),
+            None,
             IndexifyObjectsColumns::FnOutputs,
             None,
         )?;
@@ -443,7 +442,8 @@ mod tests {
         let reader = indexify_state.reader();
         let result = reader
             .get_rows_from_cf_with_limits::<Namespace>(
-                Some("test_".to_string()),
+                "test_".as_bytes(),
+                None,
                 IndexifyObjectsColumns::Namespaces,
                 Some(3),
             )
@@ -451,11 +451,12 @@ mod tests {
         let cursor = String::from_utf8(result.1.unwrap().clone()).unwrap();
 
         assert_eq!(result.0.len(), 3);
-        assert_eq!(cursor, "test_2");
+        assert_eq!(cursor, "test_3");
 
         let result = reader
             .get_rows_from_cf_with_limits::<Namespace>(
-                Some("test_2".to_string()),
+                "test_".as_bytes(),
+                Some("test_2".as_bytes()),
                 IndexifyObjectsColumns::Namespaces,
                 Some(3),
             )
