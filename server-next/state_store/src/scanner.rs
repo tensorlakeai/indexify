@@ -447,12 +447,14 @@ impl StateReader {
     }
 
     pub fn unallocated_tasks(&self) -> Result<Vec<Task>> {
-        let (tasks, _) = self.get_rows_from_cf_with_limits::<Task>(
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<String>(
             &[],
             None,
             IndexifyObjectsColumns::UnallocatedTasks,
             None,
         )?;
+        let keys = tasks.iter().map(|key| key.as_bytes()).collect();
+        let tasks = self.get_rows_from_cf_multi_key(keys, IndexifyObjectsColumns::Tasks)?;
         Ok(tasks)
     }
 

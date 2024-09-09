@@ -186,6 +186,21 @@ impl IndexifyState {
                 for req in &request.task_requests {
                     state_machine::create_tasks(self.db.clone(), &txn, req)?;
                 }
+                for allocation in &request.allocations {
+                    state_machine::allocate_tasks(
+                        self.db.clone(),
+                        &txn,
+                        &allocation.task,
+                        &allocation.executor,
+                    )?;
+                    self.unfinished_tasks_by_executor
+                        .write()
+                        .unwrap()
+                        .get_mut(&allocation.executor)
+                        .map(|tasks| {
+                            tasks.added();
+                        });
+                }
                 vec![]
             }
             requests::RequestPayload::RegisterExecutor(request) => {
@@ -194,6 +209,10 @@ impl IndexifyState {
             }
             requests::RequestPayload::DeregisterExecutor(request) => {
                 state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
+                self.unfinished_tasks_by_executor
+                    .write()
+                    .unwrap()
+                    .remove(&ExecutorId::new(request.executor_id.to_string()));
                 vec![]
             }
         };
@@ -259,37 +278,6 @@ impl IndexifyState {
     pub fn reader(&self) -> scanner::StateReader {
         scanner::StateReader::new(self.db.clone())
     }
-
-    pub fn update_task_assignment(
-        &self,
-        task: &Task,
-        executor_id: &ExecutorId,
-        should_add: bool,
-    ) -> Result<()> {
-        let txn = self.db.transaction();
-        state_machine::update_task_assignment(
-            self.db.as_ref(),
-            &txn,
-            task,
-            executor_id,
-            should_add,
-        )?;
-        txn.commit()?;
-
-        self.unfinished_tasks_by_executor
-            .write()
-            .unwrap()
-            .get_mut(executor_id)
-            .map(|tasks| {
-                if should_add {
-                    tasks.added();
-                } else {
-                    tasks.removed();
-                }
-            });
-
-        Ok(())
-    }
 }
 
 pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize) -> TaskStream {
@@ -331,7 +319,12 @@ mod tests {
         TaskBuilder,
     };
     use futures::StreamExt;
-    use requests::{CreateComputeGraphRequest, DeleteComputeGraphRequest, SchedulerUpdateRequest};
+    use requests::{
+        CreateComputeGraphRequest,
+        DeleteComputeGraphRequest,
+        SchedulerUpdateRequest,
+        TaskPlacement,
+    };
     use tempfile::TempDir;
     use tokio;
 
@@ -475,12 +468,14 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: requests::RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
                     task_requests: vec![create_tasks_request],
+                    allocations: vec![TaskPlacement {
+                        task: task.clone(),
+                        executor: executor_id.clone(),
+                    }],
                 }),
                 state_changes_processed: vec![],
             })
             .await?;
-
-        indexify_state.update_task_assignment(&task, &executor_id, true)?;
 
         let res = indexify_state
             .reader()
@@ -522,6 +517,10 @@ mod tests {
                 invocation_id: task_1.invocation_id.clone(),
                 invocation_finished: false,
             }],
+            allocations: vec![TaskPlacement {
+                task: task_1.clone(),
+                executor: executor_id.clone(),
+            }],
         };
 
         indexify_state
@@ -531,7 +530,11 @@ mod tests {
             })
             .await?;
 
-        indexify_state.update_task_assignment(&task_1, &executor_id, true)?;
+        let res = indexify_state
+            .reader()
+            .get_tasks_by_executor(&executor_id, 10)?;
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[1].id, task_1.id);
 
         let res = stream.next().await.unwrap()?;
 

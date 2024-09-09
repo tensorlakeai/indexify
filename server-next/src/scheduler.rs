@@ -18,6 +18,7 @@ use state_store::{
     },
     IndexifyState,
 };
+use task_scheduler::TaskScheduler;
 use tokio::{self, sync::watch::Receiver};
 use tracing::{error, info};
 
@@ -31,11 +32,16 @@ struct TaskCreationResult {
 }
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
+    task_allocator: Arc<TaskScheduler>,
 }
 
 impl Scheduler {
     pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
-        Self { indexify_state }
+        let task_allocator = Arc::new(TaskScheduler::new(indexify_state.clone()));
+        Self {
+            indexify_state,
+            task_allocator,
+        }
     }
 
     async fn handle_invoke_compute_graph(
@@ -78,7 +84,7 @@ impl Scheduler {
 
     async fn handle_task_finished(
         &self,
-        task_finished_event: TaskFinishedEvent,
+        task_finished_event: &TaskFinishedEvent,
     ) -> Result<TaskCreationResult> {
         let task = self
             .indexify_state
@@ -176,21 +182,16 @@ impl Scheduler {
             .get_unprocessed_state_changes()?;
         let mut create_task_requests = vec![];
         let mut processed_state_changes = vec![];
-        for state_change in state_changes {
+        for state_change in &state_changes {
             processed_state_changes.push(state_change.id.clone());
-            let result = match state_change.change_type {
+            let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
-                    self.handle_invoke_compute_graph(invoke_compute_graph_event)
+                    self.handle_invoke_compute_graph(invoke_compute_graph_event.clone())
                         .await?,
                 ),
                 ChangeType::TaskFinished(task_finished_event) => {
                     Some(self.handle_task_finished(task_finished_event).await?)
                 }
-                ChangeType::TaskCreated => {
-                    todo!();
-                }
-                ChangeType::ExecutorAdded => None,
-                ChangeType::ExecutorRemoved => None,
                 _ => None,
             };
             if let Some(result) = result {
@@ -204,9 +205,25 @@ impl Scheduler {
                 create_task_requests.push(request);
             }
         }
+        let mut new_allocations = vec![];
+        for state_change in state_changes {
+            let allocations = match state_change.change_type {
+                ChangeType::TaskCreated => Some(self.task_allocator.schedule_unplaced_tasks()?),
+                ChangeType::ExecutorAdded => None,
+                ChangeType::ExecutorRemoved => {
+                    let executor_id = &state_change.object_id;
+                    Some(self.task_allocator.reschedule_tasks(executor_id)?)
+                }
+                _ => None,
+            };
+            if let Some(allocations) = allocations {
+                new_allocations.extend(allocations);
+            }
+        }
         let scheduler_update_request = StateMachineUpdateRequest {
             payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
                 task_requests: create_task_requests,
+                allocations: new_allocations,
             }),
             state_changes_processed: processed_state_changes,
         };

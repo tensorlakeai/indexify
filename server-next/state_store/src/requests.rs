@@ -65,9 +65,13 @@ pub struct CreateTasksRequest {
     // Invocation ID -> Finished
     pub invocation_finished: bool,
 }
-
+pub struct TaskPlacement {
+    pub task: Task,
+    pub executor: ExecutorId,
+}
 pub struct SchedulerUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
+    pub allocations: Vec<TaskPlacement>,
 }
 
 pub struct DeleteInvocationRequest {

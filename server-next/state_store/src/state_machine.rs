@@ -63,8 +63,8 @@ pub enum IndexifyObjectsColumns {
     StateChanges, //  StateChangeId -> StateChange
 
     UnprocessedStateChanges, //  StateChangeId -> Empty
-    TaskAllocations,         //  ExecutorId -> TaskId
-    UnallocatedTasks,        //  NS_TaskId -> Empty
+    TaskAllocations,         //  ExecutorId -> Task_Key
+    UnallocatedTasks,        //  Task_Key -> Empty
 }
 
 impl IndexifyObjectsColumns {
@@ -241,6 +241,12 @@ pub(crate) fn create_tasks(
             task.key(),
             &serialized_task,
         )?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+            task.key(),
+            &[],
+        )?;
+
         let key = format!(
             "{}_{}_{}",
             task.namespace, task.compute_graph_name, task.invocation_id
@@ -275,19 +281,22 @@ pub(crate) fn create_tasks(
     Ok(())
 }
 
-pub fn update_task_assignment(
-    db: &TransactionDB,
+pub fn allocate_tasks(
+    db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     task: &Task,
     executor_id: &ExecutorId,
-    should_add: bool,
 ) -> Result<()> {
-    let key = task.make_allocation_key(executor_id);
-    if should_add {
-        txn.put_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(db), key, &[])?;
-    } else {
-        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(db), key)?;
-    }
+    let serialized_task_key = JsonEncoder::encode(&task.key())?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+        task.make_allocation_key(executor_id),
+        serialized_task_key,
+    )?;
+    txn.delete_cf(
+        &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+        task.key(),
+    )?;
     Ok(())
 }
 
@@ -466,6 +475,23 @@ pub(crate) fn deregister_executor(
     txn: &Transaction<TransactionDB>,
     req: &DeregisterExecutorRequest,
 ) -> Result<()> {
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
+    let iterator_mode = IteratorMode::From(req.executor_id.as_bytes(), Direction::Forward);
+    let iter = txn.iterator_cf_opt(
+        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+        read_options,
+        iterator_mode,
+    );
+    for key in iter {
+        let key = key?;
+        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key.0)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+            &key.1,
+            &[],
+        )?;
+    }
     txn.delete_cf(
         &IndexifyObjectsColumns::Executors.cf_db(&db),
         req.executor_id.to_string(),

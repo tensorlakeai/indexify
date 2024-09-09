@@ -1,19 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, Node, Task, TaskId};
+use data_model::{ExecutorId, Node, Task};
 use rand::seq::SliceRandom;
-use state_store::IndexifyState;
-
-pub struct TaskPlacement {
-    pub task_id: TaskId,
-    pub executor: Option<ExecutorId>,
-}
-
-pub struct TaskPlacementRequest {
-    pub task_id: TaskId,
-    pub executor_id: ExecutorId,
-}
+use state_store::{requests::TaskPlacement, IndexifyState};
 
 pub struct TaskScheduler {
     indexify_state: Arc<IndexifyState>,
@@ -24,7 +14,7 @@ impl TaskScheduler {
         Self { indexify_state }
     }
 
-    pub fn schedule_unplaced_tasks(self) -> Result<Vec<TaskPlacement>> {
+    pub fn schedule_unplaced_tasks(&self) -> Result<Vec<TaskPlacement>> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
         self.schedule_tasks(tasks)
     }
@@ -51,10 +41,12 @@ impl TaskScheduler {
                 .ok_or(anyhow!("Compute fn not found"))?;
             let executor_ids = self.filter_executors(&compute_fn)?;
             let executor_id = executor_ids.choose(&mut rand::thread_rng());
-            task_allocations.push(TaskPlacement {
-                task_id: task.id,
-                executor: executor_id.cloned(),
-            });
+            if let Some(executor_id) = executor_id {
+                task_allocations.push(TaskPlacement {
+                    task,
+                    executor: executor_id.clone(),
+                });
+            }
         }
         Ok(task_allocations)
     }
