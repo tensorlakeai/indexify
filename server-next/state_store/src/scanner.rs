@@ -32,6 +32,30 @@ impl StateReader {
         Self { db }
     }
 
+    pub fn get_rows_from_cf_multi_key<V>(
+        &self,
+        keys: Vec<&[u8]>,
+        column: IndexifyObjectsColumns,
+    ) -> Result<Vec<V>>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = self
+            .db
+            .cf_handle(column.as_ref())
+            .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
+        let mut items = Vec::new();
+        for key in keys {
+            let value = self
+                .db
+                .get_cf(&cf_handle, key)?
+                .ok_or(anyhow::anyhow!("Key not found"))?;
+            let value = JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            items.push(value);
+        }
+        Ok(items)
+    }
+
     pub fn get_rows_from_cf_with_limits<V>(
         &self,
         key_prefix: &[u8],
@@ -349,27 +373,17 @@ impl StateReader {
         )
     }
 
-    pub fn get_task_outputs(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        compute_fn: &str,
-        task_id: &str,
-    ) -> Result<Vec<NodeOutput>> {
-        let key = NodeOutput::key_list_by_task(
-            namespace,
-            compute_graph,
-            invocation_id,
-            compute_fn,
-            task_id,
-        );
-        let (data_objects, _) = self.get_rows_from_cf_with_limits::<NodeOutput>(
+    pub fn get_task_outputs(&self, namespace: &str, task_id: &str) -> Result<Vec<NodeOutput>> {
+        let key = format!("{}_{}", namespace, task_id);
+        let (node_output_keys, _) = self.get_rows_from_cf_with_limits::<String>(
             key.as_bytes(),
             None,
-            IndexifyObjectsColumns::FnOutputs,
+            IndexifyObjectsColumns::TaskOutputs,
             None,
         )?;
+        let keys = node_output_keys.iter().map(|key| key.as_bytes()).collect();
+        let data_objects =
+            self.get_rows_from_cf_multi_key::<NodeOutput>(keys, IndexifyObjectsColumns::FnOutputs)?;
         Ok(data_objects)
     }
 
@@ -401,6 +415,41 @@ impl StateReader {
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("invocation ctx not found")),
+        }
+    }
+
+    pub fn invocation_payload(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> Result<InvocationPayload> {
+        let key = InvocationPayload::key_from(namespace, compute_graph, invocation_id);
+        let value = self.db.get_cf(
+            &IndexifyObjectsColumns::GraphInvocations.cf_db(&self.db),
+            &key,
+        )?;
+        match value {
+            Some(value) => Ok(JsonEncoder::decode(&value)?),
+            None => Err(anyhow!("invocation payload not found")),
+        }
+    }
+
+    pub fn fn_output_payload(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+        id: &str,
+    ) -> Result<NodeOutput> {
+        let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
+        let value = self
+            .db
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+        match value {
+            Some(value) => Ok(JsonEncoder::decode(&value)?),
+            None => Err(anyhow!("fn output not found")),
         }
     }
 }

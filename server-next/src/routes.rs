@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{MatchedPath, Multipart, Path, Request, State, Query},
+    extract::{MatchedPath, Multipart, Path, Query, Request, State},
     http::{Method, Response},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -33,8 +33,10 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
+mod download;
 mod internal_ingest;
 mod invoke;
+use download::{download_fn_output_payload, download_invocation_payload};
 use internal_ingest::{ingest_files_from_executor, ingest_objects_from_executor};
 use invoke::{invoke_with_file, invoke_with_object};
 
@@ -175,6 +177,14 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
             get(get_code).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/payload",
+            get(download_invocation_payload).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/:id",
+            get(download_fn_output_payload).with_state(route_state.clone()),
         )
         .route(
             "/internal/ingest_files",

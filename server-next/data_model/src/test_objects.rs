@@ -9,24 +9,17 @@ pub mod tests {
         Node::Compute,
         NodeOutput,
     };
-    use crate::{
-        DataPayload,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
-        TaskId,
-    };
+    use crate::{DataPayload, InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder};
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
 
-    pub fn mock_node_fn_output_fn_a(invocation_id: &str, task_id: &TaskId) -> NodeOutput {
+    pub fn mock_node_fn_output_fn_a(invocation_id: &str) -> NodeOutput {
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_fn_name("fn_a".to_string())
             .compute_graph_name("graph_A".to_string())
             .invocation_id(invocation_id.to_string())
-            .task_id(task_id.clone())
             .payload(crate::OutputPayload::Fn(DataPayload {
                 sha256_hash: "3433".to_string(),
                 path: "eere".to_string(),

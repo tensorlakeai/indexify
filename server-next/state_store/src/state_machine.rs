@@ -48,15 +48,17 @@ pub type SchemaId = String;
 
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum IndexifyObjectsColumns {
-    Executors,     //  ExecutorId -> Executor Metadata
-    Namespaces,    //  Namespaces
-    ComputeGraphs, //  Ns_ComputeGraphName -> ComputeGraph
+    StateMachineMetadata, //  StateMachineMetadata
+    Executors,            //  ExecutorId -> Executor Metadata
+    Namespaces,           //  Namespaces
+    ComputeGraphs,        //  Ns_ComputeGraphName -> ComputeGraph
 
     Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
+    TaskOutputs,      //  NS_TaskID -> NodeOutputID
 
     StateChanges, //  StateChangeId -> StateChange
 
@@ -304,10 +306,22 @@ pub fn mark_task_completed(
     let mut task = JsonEncoder::decode::<Task>(&task)?;
     for output in &req.node_outputs {
         let serialized_output = JsonEncoder::encode(&output)?;
+        // Create an output key
+        let output_key = output.key(&req.invocation_id);
         txn.put_cf(
             &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-            output.key(&output.invocation_id),
+            &output_key,
             serialized_output,
+        )?;
+
+        // Create a key to store the pointer to the node output to the task
+        // NS_TASK_ID_<OutputID> -> Output Key
+        let task_output_key = task.key_output(&output.id);
+        let node_output_id = JsonEncoder::encode(&output_key)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
+            task_output_key,
+            node_output_id,
         )?;
     }
     let graph_ctx_key = format!(
@@ -369,7 +383,6 @@ pub(crate) fn save_state_changes(
         )?;
 
         if state_change.processed_at.is_none() {
-            println!("Writing unprocessed state change: {}", state_change.id);
             txn.put_cf(
                 &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
                 &state_change.id.to_key(),

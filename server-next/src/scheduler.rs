@@ -132,9 +132,6 @@ impl Scheduler {
         // Get all the outputs of the compute fn
         let outputs = self.indexify_state.reader().get_task_outputs(
             &task_finished_event.namespace,
-            &task_finished_event.compute_graph,
-            &task_finished_event.invocation_id,
-            &task_finished_event.compute_fn,
             &task_finished_event.task_id.to_string(),
         )?;
         for output in &outputs {
