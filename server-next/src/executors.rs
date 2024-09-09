@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use data_model::ExecutorMetadata;
+use data_model::{ExecutorId, ExecutorMetadata};
 use state_store::{
     requests::{
         DeregisterExecutorRequest,
@@ -32,11 +32,11 @@ impl ExecutorManager {
             .await
     }
 
-    pub async fn deregister_executor(&self, executor_id: &str) -> Result<()> {
+    pub async fn deregister_executor(&self, executor_id: ExecutorId) -> Result<()> {
         self.indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                    executor_id: executor_id.to_string(),
+                    executor_id,
                 }),
                 state_changes_processed: vec![],
             })

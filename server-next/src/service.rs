@@ -21,7 +21,7 @@ impl Service {
 
     pub async fn start(&self) -> Result<()> {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let indexify_state = Arc::new(IndexifyState::new(self.config.state_store_path.parse()?)?);
+        let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?)?;
         let blob_storage = BlobStorage::new(self.config.blob_storage.clone())?;
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()));
         let route_state = RouteState {

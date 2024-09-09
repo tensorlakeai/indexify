@@ -476,7 +476,7 @@ pub(crate) fn deregister_executor(
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let iterator_mode = IteratorMode::From(req.executor_id.as_bytes(), Direction::Forward);
+    let iterator_mode = IteratorMode::From(req.executor_id.get().as_bytes(), Direction::Forward);
     let iter = txn.iterator_cf_opt(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         read_options,
