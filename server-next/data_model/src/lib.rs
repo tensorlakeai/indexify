@@ -85,6 +85,13 @@ impl Node {
             Node::Compute(compute) => &compute.name,
         }
     }
+
+    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
+        match self {
+            Node::Router(_) => true,
+            Node::Compute(compute) => compute.matches_executor(executor),
+        }
+    }
 }
 
 impl Node {
@@ -520,6 +527,7 @@ pub enum ChangeType {
     TombstoneComputeGraph,
     ExecutorAdded,
     ExecutorRemoved,
+    TaskCreated,
 }
 
 impl fmt::Display for ChangeType {
@@ -531,6 +539,7 @@ impl fmt::Display for ChangeType {
             ChangeType::TombstoneComputeGraph => write!(f, "TombstoneComputeGraph"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
+            ChangeType::TaskCreated => write!(f, "TaskCreated"),
         }
     }
 }

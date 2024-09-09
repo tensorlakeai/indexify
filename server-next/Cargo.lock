@@ -2263,6 +2263,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
+ "state_store",
 ]
 
 [[package]]

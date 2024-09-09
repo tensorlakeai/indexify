@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{
     ComputeGraph,
     ExecutorId,
+    ExecutorMetadata,
     GraphInvocationCtx,
     InvocationPayload,
     Namespace,
@@ -401,6 +402,16 @@ impl StateReader {
         Ok(res.items)
     }
 
+    pub fn get_all_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+        let (executors, _) = self.get_rows_from_cf_with_limits::<ExecutorMetadata>(
+            &[],
+            None,
+            IndexifyObjectsColumns::Executors,
+            None,
+        )?;
+        Ok(executors)
+    }
+
     pub fn invocation_ctx(
         &self,
         namespace: &str,
@@ -433,6 +444,16 @@ impl StateReader {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("invocation payload not found")),
         }
+    }
+
+    pub fn unallocated_tasks(&self) -> Result<Vec<Task>> {
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<Task>(
+            &[],
+            None,
+            IndexifyObjectsColumns::UnallocatedTasks,
+            None,
+        )?;
+        Ok(tasks)
     }
 
     pub fn fn_output_payload(

@@ -174,7 +174,6 @@ impl Scheduler {
             .indexify_state
             .reader()
             .get_unprocessed_state_changes()?;
-        println!("state changes {:?}", state_changes);
         let mut create_task_requests = vec![];
         let mut processed_state_changes = vec![];
         for state_change in state_changes {
@@ -187,6 +186,11 @@ impl Scheduler {
                 ChangeType::TaskFinished(task_finished_event) => {
                     Some(self.handle_task_finished(task_finished_event).await?)
                 }
+                ChangeType::TaskCreated => {
+                    todo!();
+                }
+                ChangeType::ExecutorAdded => None,
+                ChangeType::ExecutorRemoved => None,
                 _ => None,
             };
             if let Some(result) = result {
