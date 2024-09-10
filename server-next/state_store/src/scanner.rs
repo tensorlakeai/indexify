@@ -57,13 +57,13 @@ impl StateReader {
         Ok(items)
     }
 
-    pub fn get_keys_from_cf_with_limits(
+    pub fn get_raw_rows_from_cf_with_limits(
         &self,
         key_prefix: &[u8],
         restart_key: Option<&[u8]>,
         column: IndexifyObjectsColumns,
         limit: Option<usize>,
-    ) -> Result<(Vec<String>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
         let cf_handle = self
             .db
             .cf_handle(column.as_ref())
@@ -83,15 +83,13 @@ impl StateReader {
         let limit = limit.unwrap_or(usize::MAX);
         let mut restart_key = None;
         for kv in iter {
-            let (key, _) = kv?;
+            let (key, val) = kv?;
             if !key.starts_with(key_prefix) {
                 break;
             }
             if items.len() < limit {
                 items
-                    .push(String::from_utf8(key.to_vec()).map_err(|e| {
-                        anyhow::anyhow!("unable to convert bytes to string: {}", e)
-                    })?);
+                    .push((key.to_vec(), val.to_vec()));
             } else {
                 restart_key.replace(key.into());
                 break;
@@ -437,14 +435,18 @@ impl StateReader {
 
     pub fn get_tasks_by_executor(&self, executor: &ExecutorId, limit: usize) -> Result<Vec<Task>> {
         let prefix = format!("{}_", executor);
-        let task_keys = self.get_rows_from_cf_with_limits::<String>(
+        let (task_rows, _) = self.get_raw_rows_from_cf_with_limits(
             prefix.as_bytes(),
             None,
             IndexifyObjectsColumns::TaskAllocations,
             Some(limit),
         )?;
-        let keys: Vec<&[u8]> = task_keys.0.iter().map(|key| key.as_bytes()).collect();
-        let tasks = self.get_rows_from_cf_multi_key::<Task>(keys, IndexifyObjectsColumns::Tasks)?;
+        let mut task_keys= vec![];
+        for (_, value) in &task_rows {
+            let v: &[u8] = &value;
+            task_keys.push(v);
+        }
+        let tasks = self.get_rows_from_cf_multi_key::<Task>(task_keys, IndexifyObjectsColumns::Tasks)?;
         Ok(tasks)
     }
 
@@ -493,10 +495,14 @@ impl StateReader {
     }
 
     pub fn unallocated_tasks(&self) -> Result<Vec<Task>> {
-        let (tasks, _) = self
-            .get_keys_from_cf_with_limits(&[], None, IndexifyObjectsColumns::UnallocatedTasks, None)
+        let (unallocated_task_rows, _) = self
+            .get_raw_rows_from_cf_with_limits(&[], None, IndexifyObjectsColumns::UnallocatedTasks, None)
             .map_err(|e| anyhow!("unable to read unallocated tasks {}", e))?;
-        let keys = tasks.iter().map(|key| key.as_bytes()).collect();
+        let mut keys = vec![];
+        for (key, _) in &unallocated_task_rows{
+            let k: &[u8] = &key;
+            keys.push(k);
+        }
         let tasks = self.get_rows_from_cf_multi_key(keys, IndexifyObjectsColumns::Tasks)?;
         Ok(tasks)
     }

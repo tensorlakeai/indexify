@@ -287,11 +287,10 @@ pub fn allocate_tasks(
     task: &Task,
     executor_id: &ExecutorId,
 ) -> Result<()> {
-    let serialized_task_key = JsonEncoder::encode(&task.key())?;
     txn.put_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         task.make_allocation_key(executor_id),
-        serialized_task_key,
+        task.key(),
     )?;
     txn.delete_cf(
         &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
