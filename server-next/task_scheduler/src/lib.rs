@@ -17,12 +17,12 @@ impl TaskScheduler {
 
     pub fn schedule_unplaced_tasks(&self) -> Result<Vec<TaskPlacement>> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
-        info!("Scheduling {:?} tasks", tasks);
+        info!("allocating {:?} tasks", tasks);
         self.schedule_tasks(tasks)
     }
 
     pub fn reschedule_tasks(&self, executor_id: &str) -> Result<Vec<TaskPlacement>> {
-        info!("Rescheduling tasks for executor {:?}", executor_id);
+        info!("re-allocating tasks for executor {:?}", executor_id);
         let tasks = self
             .indexify_state
             .reader()

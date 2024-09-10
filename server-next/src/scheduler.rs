@@ -205,11 +205,12 @@ impl Scheduler {
                 create_task_requests.push(request);
             }
         }
-                let mut new_allocations = vec![];
+        let mut new_allocations = vec![];
         for state_change in state_changes {
             let allocations = match state_change.change_type {
-                ChangeType::TaskCreated => Some(self.task_allocator.schedule_unplaced_tasks()?),
-                ChangeType::ExecutorAdded => None,
+                ChangeType::TaskCreated | ChangeType::ExecutorAdded => {
+                    Some(self.task_allocator.schedule_unplaced_tasks()?)
+                }
                 ChangeType::ExecutorRemoved => {
                     let executor_id = &state_change.object_id;
                     Some(self.task_allocator.reschedule_tasks(executor_id)?)

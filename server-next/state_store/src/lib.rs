@@ -244,7 +244,7 @@ impl IndexifyState {
                     entry.num_registered += 1;
                 }
                 state_machine::register_executor(self.db.clone(), &txn, &request)?;
-                vec![]
+                self.register_executor(&request)
             }
             requests::RequestPayload::DeregisterExecutor(request) => {
                 let state_changes = self.deregister_executor_events(&request);
@@ -263,7 +263,7 @@ impl IndexifyState {
                     }
                 };
                 if removed {
-                    tracing::info!("Deregistering executor: {}", request.executor_id);
+                    tracing::info!("De-registering executor: {}", request.executor_id);
                     state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
                 }
                 state_changes
@@ -363,6 +363,21 @@ impl IndexifyState {
             .change_type(ChangeType::ExecutorRemoved)
             .created_at(get_epoch_time_in_ms())
             .object_id(request.executor_id.get().to_string())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()
+            .unwrap();
+        vec![state_change]
+    }
+
+    fn register_executor(&self, request: &requests::RegisterExecutorRequest) -> Vec<StateChange> {
+        let last_change_id = self
+            .last_state_change_id
+            .fetch_add(1, atomic::Ordering::Relaxed);
+        let state_change = StateChangeBuilder::default()
+            .change_type(ChangeType::ExecutorAdded)
+            .created_at(get_epoch_time_in_ms())
+            .object_id(request.executor.id.to_string())
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()

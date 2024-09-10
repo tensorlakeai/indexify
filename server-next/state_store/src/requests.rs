@@ -57,6 +57,7 @@ pub struct DeleteComputeGraphRequest {
     pub name: String,
 }
 
+#[derive(Debug)]
 pub struct CreateTasksRequest {
     pub namespace: String,
     pub compute_graph: String,
@@ -65,6 +66,8 @@ pub struct CreateTasksRequest {
     // Invocation ID -> Finished
     pub invocation_finished: bool,
 }
+
+#[derive(Debug)]
 pub struct TaskPlacement {
     pub task: Task,
     pub executor: ExecutorId,
