@@ -27,6 +27,10 @@ impl ExecutorId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]

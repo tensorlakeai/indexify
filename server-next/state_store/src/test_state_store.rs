@@ -35,7 +35,7 @@ pub mod tests {
     impl TestStateStore {
         pub async fn new() -> Result<Self> {
             let temp_dir = TempDir::new()?;
-            let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
+            let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
             let cg_request = CreateComputeGraphRequest {
                 namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: tests::mock_graph_a(),

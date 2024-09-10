@@ -11,6 +11,7 @@ use axum::{
     Router,
 };
 use blob_store::PutResult;
+use data_model::ExecutorId;
 use futures::StreamExt;
 use indexify_utils::GuardStreamExt;
 use nanoid::nanoid;
@@ -24,6 +25,7 @@ use state_store::{
         StateMachineUpdateRequest,
     },
     IndexifyState,
+    EXECUTOR_TIMEOUT,
 };
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -505,27 +507,23 @@ async fn notify_on_change(
 }
 
 async fn executor_tasks(
-    Path(executor_id): Path<String>,
+    Path(executor_id): Path<ExecutorId>,
     State(state): State<RouteState>,
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    const TASK_LIMIT: usize = 10;
     state
         .executor_manager
         .register_executor(&data_model::ExecutorMetadata {
-            id: data_model::ExecutorId::new(payload.id.clone()),
+            id: executor_id.clone(),
             runner_name: payload.runner_name.clone(),
             addr: payload.address.clone(),
             labels: payload.labels.clone(),
         })
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
-    let stream = state_store::task_stream(
-        state.indexify_state,
-        data_model::ExecutorId::new(executor_id.clone()),
-        10,
-    );
-    let executor_id_clone = executor_id.clone();
-    let executor_manager_clone = state.executor_manager.clone();
+    let stream = state_store::task_stream(state.indexify_state, executor_id.clone(), TASK_LIMIT);
+    let executor_manager = state.executor_manager.clone();
     let stream = stream
         .map(|item| match item {
             Ok(item) => {
@@ -540,13 +538,11 @@ async fn executor_tasks(
         .guard(|| {
             tokio::spawn(async move {
                 tracing::info!(
-                    "task strema closed. de-registering executor: {}",
-                    executor_id_clone
+                    "task stream closed. schedule de-registering executor: {}",
+                    executor_id
                 );
-                if let Err(err) = executor_manager_clone
-                    .deregister_executor(&executor_id.to_string())
-                    .await
-                {
+                tokio::time::sleep(EXECUTOR_TIMEOUT).await;
+                if let Err(err) = executor_manager.deregister_executor(executor_id).await {
                     tracing::error!("failed to deregister executor: {}", err);
                 }
             });

@@ -386,7 +386,6 @@ pub struct InvocationId {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
-    pub id: String,
     pub address: String,
     pub runner_name: String,
     pub labels: HashMap<String, serde_json::Value>,

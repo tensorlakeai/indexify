@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use service::Service;
 use tracing::error;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 mod config;
 mod executors;
@@ -22,8 +22,10 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
         .init();
 
     let cli = Cli::parse();

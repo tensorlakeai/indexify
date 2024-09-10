@@ -85,5 +85,5 @@ pub struct RegisterExecutorRequest {
 }
 
 pub struct DeregisterExecutorRequest {
-    pub executor_id: String,
+    pub executor_id: ExecutorId,
 }

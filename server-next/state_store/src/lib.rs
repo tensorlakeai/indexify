@@ -9,7 +9,7 @@ use std::{
         Arc,
         RwLock,
     },
-    time::SystemTime,
+    time::{Duration, SystemTime},
     vec,
 };
 
@@ -72,14 +72,18 @@ impl Ord for UnfinishedTask {
 }
 
 #[derive(Debug)]
-pub struct ExecutorUnfinishedTasks {
+pub struct ExecutorState {
     pub new_task_channel: broadcast::Sender<()>,
+    pub num_registered: u64,
 }
 
-impl ExecutorUnfinishedTasks {
+impl ExecutorState {
     pub fn new() -> Self {
         let (new_task_channel, _) = broadcast::channel(1);
-        Self { new_task_channel }
+        Self {
+            new_task_channel,
+            num_registered: 0,
+        }
     }
 
     pub fn added(&mut self) {
@@ -97,7 +101,7 @@ impl ExecutorUnfinishedTasks {
     }
 }
 
-impl Default for ExecutorUnfinishedTasks {
+impl Default for ExecutorState {
     fn default() -> Self {
         Self::new()
     }
@@ -105,16 +109,18 @@ impl Default for ExecutorUnfinishedTasks {
 
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<Task>>> + Send + Sync>>;
 
+pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
-    pub unfinished_tasks_by_executor: RwLock<HashMap<ExecutorId, ExecutorUnfinishedTasks>>,
+    pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub state_change_tx: Sender<StateChangeId>,
     pub state_change_rx: Receiver<StateChangeId>,
     pub last_state_change_id: Arc<AtomicU64>,
 }
 
 impl IndexifyState {
-    pub fn new(path: PathBuf) -> Result<Self> {
+    pub fn new(path: PathBuf) -> Result<Arc<Self>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         fs::create_dir_all(path.clone())?;
         let sm_column_families = IndexifyObjectsColumns::iter()
@@ -129,13 +135,40 @@ impl IndexifyState {
             sm_column_families,
         )
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
-        Ok(Self {
+        let s = Arc::new(Self {
             db: Arc::new(db),
             state_change_tx: tx,
             state_change_rx: rx,
             last_state_change_id: Arc::new(AtomicU64::new(0)),
-            unfinished_tasks_by_executor: RwLock::new(HashMap::new()),
-        })
+            executor_states: RwLock::new(HashMap::new()),
+        });
+
+        let executors = s.reader().get_all_executors()?;
+        for executor in executors.iter() {
+            s.executor_states
+                .write()
+                .unwrap()
+                .entry(executor.id.clone())
+                .or_default()
+                .num_registered += 1;
+        }
+        let cs = s.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(EXECUTOR_TIMEOUT).await;
+            for executor in executors {
+                let _ = cs
+                    .write(StateMachineUpdateRequest {
+                        payload: requests::RequestPayload::DeregisterExecutor(
+                            requests::DeregisterExecutorRequest {
+                                executor_id: executor.id,
+                            },
+                        ),
+                        state_changes_processed: vec![],
+                    })
+                    .await;
+            }
+        });
+        Ok(s)
     }
 
     pub fn get_state_change_watcher(&self) -> Receiver<StateChangeId> {
@@ -194,7 +227,7 @@ impl IndexifyState {
                         &allocation.task,
                         &allocation.executor,
                     )?;
-                    self.unfinished_tasks_by_executor
+                    self.executor_states
                         .write()
                         .unwrap()
                         .get_mut(&allocation.executor)
@@ -205,16 +238,34 @@ impl IndexifyState {
                 new_state_changes
             }
             requests::RequestPayload::RegisterExecutor(request) => {
+                {
+                    let mut states = self.executor_states.write().unwrap();
+                    let entry = states.entry(request.executor.id.clone()).or_default();
+                    entry.num_registered += 1;
+                }
                 state_machine::register_executor(self.db.clone(), &txn, &request)?;
                 vec![]
             }
             requests::RequestPayload::DeregisterExecutor(request) => {
                 let state_changes = self.deregister_executor_events(&request);
-                state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
-                self.unfinished_tasks_by_executor
-                    .write()
-                    .unwrap()
-                    .remove(&ExecutorId::new(request.executor_id.to_string()));
+                let removed = {
+                    let mut states = self.executor_states.write().unwrap();
+                    if let Some(s) = states.get_mut(&request.executor_id) {
+                        s.num_registered -= 1;
+                        if s.num_registered == 0 {
+                            states.remove(&request.executor_id);
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                };
+                if removed {
+                    tracing::info!("Deregistering executor: {}", request.executor_id);
+                    state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
+                }
                 state_changes
             }
         };
@@ -311,7 +362,7 @@ impl IndexifyState {
         let state_change = StateChangeBuilder::default()
             .change_type(ChangeType::ExecutorRemoved)
             .created_at(get_epoch_time_in_ms())
-            .object_id(request.executor_id.clone())
+            .object_id(request.executor_id.get().to_string())
             .id(StateChangeId::new(last_change_id))
             .processed_at(None)
             .build()
@@ -327,7 +378,7 @@ impl IndexifyState {
 pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize) -> TaskStream {
     let stream = async_stream::stream! {
         let mut rx = state
-        .unfinished_tasks_by_executor
+        .executor_states
         .write()
         .unwrap()
         .entry(executor.clone())
@@ -477,7 +528,7 @@ mod tests {
     #[tokio::test]
     async fn test_task_stream() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let indexify_state = Arc::new(IndexifyState::new(temp_dir.path().join("state"))?);
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
 
         let executor_id = ExecutorId::new("executor1".to_string());
         let task = TaskBuilder::default()
