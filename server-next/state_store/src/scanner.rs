@@ -47,14 +47,57 @@ impl StateReader {
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
         let mut items = Vec::new();
         for key in keys {
-            let value = self
-                .db
-                .get_cf(&cf_handle, key)?
-                .ok_or(anyhow::anyhow!("Key not found"))?;
+            let value = self.db.get_cf(&cf_handle, key)?.ok_or(anyhow::anyhow!(
+                "Key not found {}",
+                String::from_utf8(key.to_vec()).unwrap_or_default()
+            ))?;
             let value = JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             items.push(value);
         }
         Ok(items)
+    }
+
+    pub fn get_keys_from_cf_with_limits(
+        &self,
+        key_prefix: &[u8],
+        restart_key: Option<&[u8]>,
+        column: IndexifyObjectsColumns,
+        limit: Option<usize>,
+    ) -> Result<(Vec<String>, Option<Vec<u8>>)> {
+        let cf_handle = self
+            .db
+            .cf_handle(column.as_ref())
+            .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
+
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let iterator_mode = match restart_key {
+            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
+            None => IteratorMode::From(&key_prefix, Direction::Forward),
+        };
+        let iter = self
+            .db
+            .iterator_cf_opt(&cf_handle, read_options, iterator_mode);
+
+        let mut items = Vec::new();
+        let limit = limit.unwrap_or(usize::MAX);
+        let mut restart_key = None;
+        for kv in iter {
+            let (key, _) = kv?;
+            if !key.starts_with(key_prefix) {
+                break;
+            }
+            if items.len() < limit {
+                items
+                    .push(String::from_utf8(key.to_vec()).map_err(|e| {
+                        anyhow::anyhow!("unable to convert bytes to string: {}", e)
+                    })?);
+            } else {
+                restart_key.replace(key.into());
+                break;
+            }
+        }
+        Ok((items, restart_key))
     }
 
     pub fn get_rows_from_cf_with_limits<V>(
@@ -162,6 +205,10 @@ impl StateReader {
                 if !key.starts_with(key_prefix) {
                     break;
                 }
+                print!(
+                    "Task key {:?}",
+                    String::from_utf8(key_reference(&key).unwrap()).unwrap()
+                );
                 lookup_keys.push((&data_cf, key_reference(&key)?));
                 keys.push(key);
                 if lookup_keys.len() >= limit {
@@ -390,16 +437,15 @@ impl StateReader {
 
     pub fn get_tasks_by_executor(&self, executor: &ExecutorId, limit: usize) -> Result<Vec<Task>> {
         let prefix = format!("{}_", executor);
-        let res = self.filter_join_cf(
-            IndexifyObjectsColumns::TaskAllocations,
-            IndexifyObjectsColumns::Tasks,
-            |_| true,
+        let task_keys = self.get_rows_from_cf_with_limits::<String>(
             prefix.as_bytes(),
-            Task::key_from_executor_key,
             None,
+            IndexifyObjectsColumns::TaskAllocations,
             Some(limit),
         )?;
-        Ok(res.items)
+        let keys: Vec<&[u8]> = task_keys.0.iter().map(|key| key.as_bytes()).collect();
+        let tasks = self.get_rows_from_cf_multi_key::<Task>(keys, IndexifyObjectsColumns::Tasks)?;
+        Ok(tasks)
     }
 
     pub fn get_all_executors(&self) -> Result<Vec<ExecutorMetadata>> {
@@ -447,12 +493,9 @@ impl StateReader {
     }
 
     pub fn unallocated_tasks(&self) -> Result<Vec<Task>> {
-        let (tasks, _) = self.get_rows_from_cf_with_limits::<String>(
-            &[],
-            None,
-            IndexifyObjectsColumns::UnallocatedTasks,
-            None,
-        )?;
+        let (tasks, _) = self
+            .get_keys_from_cf_with_limits(&[], None, IndexifyObjectsColumns::UnallocatedTasks, None)
+            .map_err(|e| anyhow!("unable to read unallocated tasks {}", e))?;
         let keys = tasks.iter().map(|key| key.as_bytes()).collect();
         let tasks = self.get_rows_from_cf_multi_key(keys, IndexifyObjectsColumns::Tasks)?;
         Ok(tasks)

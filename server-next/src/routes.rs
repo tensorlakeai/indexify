@@ -196,7 +196,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/internal/executors/:id/tasks",
-            get(executor_tasks).with_state(route_state.clone()),
+            post(executor_tasks).with_state(route_state.clone()),
         )
         .layer(
             TraceLayer::new_for_http()

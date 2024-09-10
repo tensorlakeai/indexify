@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, Node, Task};
 use rand::seq::SliceRandom;
 use state_store::{requests::TaskPlacement, IndexifyState};
+use tracing::info;
 
 pub struct TaskScheduler {
     indexify_state: Arc<IndexifyState>,
@@ -16,10 +17,12 @@ impl TaskScheduler {
 
     pub fn schedule_unplaced_tasks(&self) -> Result<Vec<TaskPlacement>> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
+        info!("Scheduling {:?} tasks", tasks);
         self.schedule_tasks(tasks)
     }
 
     pub fn reschedule_tasks(&self, executor_id: &str) -> Result<Vec<TaskPlacement>> {
+        info!("Rescheduling tasks for executor {:?}", executor_id);
         let tasks = self
             .indexify_state
             .reader()
@@ -42,6 +45,7 @@ impl TaskScheduler {
             let executor_ids = self.filter_executors(&compute_fn)?;
             let executor_id = executor_ids.choose(&mut rand::thread_rng());
             if let Some(executor_id) = executor_id {
+                info!("Assigning task {:?} to executor {:?}", task.id, executor_id);
                 task_allocations.push(TaskPlacement {
                     task,
                     executor: executor_id.clone(),

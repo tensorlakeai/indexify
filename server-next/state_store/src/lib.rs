@@ -183,6 +183,7 @@ impl IndexifyState {
                 vec![]
             }
             requests::RequestPayload::SchedulerUpdate(request) => {
+                let new_state_changes = self.change_events_for_scheduler_update(&request);
                 for req in &request.task_requests {
                     state_machine::create_tasks(self.db.clone(), &txn, req)?;
                 }
@@ -201,19 +202,20 @@ impl IndexifyState {
                             tasks.added();
                         });
                 }
-                vec![]
+                new_state_changes
             }
             requests::RequestPayload::RegisterExecutor(request) => {
                 state_machine::register_executor(self.db.clone(), &txn, &request)?;
                 vec![]
             }
             requests::RequestPayload::DeregisterExecutor(request) => {
+                let state_changes = self.deregister_executor_events(&request);
                 state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
                 self.unfinished_tasks_by_executor
                     .write()
                     .unwrap()
                     .remove(&ExecutorId::new(request.executor_id.to_string()));
-                vec![]
+                state_changes
             }
         };
         if !new_state_changes.is_empty() {
@@ -273,6 +275,48 @@ impl IndexifyState {
             .processed_at(None)
             .build()?;
         Ok(vec![state_change])
+    }
+
+    fn change_events_for_scheduler_update(
+        &self,
+        req: &requests::SchedulerUpdateRequest,
+    ) -> Vec<StateChange> {
+        let mut state_changes = Vec::new();
+        for task_request in &req.task_requests {
+            let last_change_id = self
+                .last_state_change_id
+                .fetch_add(1, atomic::Ordering::Relaxed);
+            for task in &task_request.tasks {
+                let state_change = StateChangeBuilder::default()
+                    .change_type(ChangeType::TaskCreated)
+                    .created_at(get_epoch_time_in_ms())
+                    .object_id(task.id.to_string())
+                    .id(StateChangeId::new(last_change_id))
+                    .processed_at(None)
+                    .build()
+                    .unwrap();
+                state_changes.push(state_change);
+            }
+        }
+        state_changes
+    }
+
+    fn deregister_executor_events(
+        &self,
+        request: &requests::DeregisterExecutorRequest,
+    ) -> Vec<StateChange> {
+        let last_change_id = self
+            .last_state_change_id
+            .fetch_add(1, atomic::Ordering::Relaxed);
+        let state_change = StateChangeBuilder::default()
+            .change_type(ChangeType::ExecutorRemoved)
+            .created_at(get_epoch_time_in_ms())
+            .object_id(request.executor_id.clone())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()
+            .unwrap();
+        vec![state_change]
     }
 
     pub fn reader(&self) -> scanner::StateReader {

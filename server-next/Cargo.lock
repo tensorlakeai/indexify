@@ -2264,6 +2264,7 @@ dependencies = [
  "serde",
  "serde_json",
  "state_store",
+ "tracing",
 ]
 
 [[package]]

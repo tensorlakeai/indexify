@@ -10,4 +10,5 @@ rand.workspace = true
 serde_json.workspace = true
 data_model.workspace = true
 state_store.workspace = true
+tracing.workspace = true
 

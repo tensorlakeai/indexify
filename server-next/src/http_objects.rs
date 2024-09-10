@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode, TaskId};
+use data_model::ComputeGraphCode;
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -350,7 +350,7 @@ impl From<data_model::TaskOutcome> for TaskOutcome {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Task {
-    pub id: TaskId,
+    pub id: String,
     pub namespace: String,
     pub compute_fn_name: String,
     pub compute_graph_name: String,
@@ -362,7 +362,7 @@ pub struct Task {
 impl From<data_model::Task> for Task {
     fn from(task: data_model::Task) -> Self {
         Self {
-            id: task.id,
+            id: task.id.to_string(),
             namespace: task.namespace,
             compute_fn_name: task.compute_fn_name,
             compute_graph_name: task.compute_graph_name,
