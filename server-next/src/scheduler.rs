@@ -283,7 +283,9 @@ mod tests {
             .reader()
             .get_unprocessed_state_changes()
             .unwrap();
-        assert_eq!(unprocessed_state_changes.len(), 0);
+        println!("{:?}", unprocessed_state_changes);
+        // Processes the invoke cg event and creates a task created event
+        assert_eq!(unprocessed_state_changes.len(), 1);
         Ok(())
     }
 
@@ -329,7 +331,9 @@ mod tests {
             .reader()
             .get_unprocessed_state_changes()
             .unwrap();
-        assert_eq!(unprocessed_state_changes.len(), 0);
+
+        // has task crated state change in it.
+        assert_eq!(unprocessed_state_changes.len(), 1);
         Ok(())
     }
 }
