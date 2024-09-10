@@ -35,6 +35,8 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::executors;
+
 mod download;
 mod internal_ingest;
 mod invoke;
@@ -514,7 +516,7 @@ async fn executor_tasks(
     const TASK_LIMIT: usize = 10;
     state
         .executor_manager
-        .register_executor(&data_model::ExecutorMetadata {
+        .register_executor(data_model::ExecutorMetadata {
             id: executor_id.clone(),
             runner_name: payload.runner_name.clone(),
             addr: payload.address.clone(),
@@ -535,19 +537,7 @@ async fn executor_tasks(
                 Err(axum::Error::new(e))
             }
         })
-        .guard(|| {
-            tokio::spawn(async move {
-                tracing::info!(
-                    "task stream closed. schedule de-registering executor: {}",
-                    executor_id
-                );
-                tokio::time::sleep(EXECUTOR_TIMEOUT).await;
-                if let Err(err) = executor_manager.deregister_executor(executor_id).await {
-                    tracing::error!("failed to deregister executor: {}", err);
-                }
-            });
-            ()
-        });
+        .guard(|| executors::schedule_deregister(executor_manager, executor_id, EXECUTOR_TIMEOUT));
     Ok(axum::response::Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(1))
