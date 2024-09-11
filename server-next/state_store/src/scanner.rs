@@ -355,7 +355,7 @@ impl StateReader {
         cursor: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<InvocationPayload>, Option<Vec<u8>>)> {
-        let key = format!("{}_{}", namespace, compute_graph);
+        let key = format!("{}|{}|", namespace, compute_graph);
         self.get_rows_from_cf_with_limits::<InvocationPayload>(
             key.as_bytes(),
             cursor,
@@ -380,7 +380,7 @@ impl StateReader {
     }
 
     pub fn get_compute_graph(&self, namespace: &str, name: &str) -> Result<Option<ComputeGraph>> {
-        let key = format!("{}_{}", namespace, name);
+        let key = format!("{}|{}", namespace, name);
         let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
         Ok(compute_graph)
     }
@@ -394,7 +394,7 @@ impl StateReader {
         task_id: &str,
     ) -> Result<Option<Task>> {
         let key = format!(
-            "{}_{}_{}_{}_{}",
+            "{}|{}|{}|{}|{}",
             namespace, compute_graph, invocation_id, compute_fn, task_id
         );
         let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
@@ -409,7 +409,7 @@ impl StateReader {
         restart_key: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
-        let key = format!("{}_{}_{}_", namespace, compute_graph, invocation_id);
+        let key = format!("{}|{}|{}|", namespace, compute_graph, invocation_id);
         self.get_rows_from_cf_with_limits::<Task>(
             key.as_bytes(),
             restart_key,
@@ -419,7 +419,7 @@ impl StateReader {
     }
 
     pub fn get_task_outputs(&self, namespace: &str, task_id: &str) -> Result<Vec<NodeOutput>> {
-        let key = format!("{}_{}", namespace, task_id);
+        let key = format!("{}|{}", namespace, task_id);
         let (node_output_keys, _) = self.get_rows_from_cf_with_limits::<String>(
             key.as_bytes(),
             None,
@@ -433,21 +433,17 @@ impl StateReader {
     }
 
     pub fn get_tasks_by_executor(&self, executor: &ExecutorId, limit: usize) -> Result<Vec<Task>> {
-        let prefix = format!("{}_", executor);
-        let (task_rows, _) = self.get_raw_rows_from_cf_with_limits(
-            prefix.as_bytes(),
-            None,
+        let prefix = format!("{}|", executor);
+        let res = self.filter_join_cf(
             IndexifyObjectsColumns::TaskAllocations,
+            IndexifyObjectsColumns::Tasks,
+            |_| true,
+            prefix.as_bytes(),
+            Task::key_from_allocation_key,
+            None,
             Some(limit),
         )?;
-        let mut task_keys = vec![];
-        for (_, value) in &task_rows {
-            let v: &[u8] = &value;
-            task_keys.push(v);
-        }
-        let tasks =
-            self.get_rows_from_cf_multi_key::<Task>(task_keys, IndexifyObjectsColumns::Tasks)?;
-        Ok(tasks)
+        Ok(res.items)
     }
 
     pub fn get_all_executors(&self) -> Result<Vec<ExecutorMetadata>> {

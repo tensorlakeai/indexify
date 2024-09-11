@@ -9,7 +9,14 @@ pub mod tests {
         Node::Compute,
         NodeOutput,
     };
-    use crate::{DataPayload, InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder};
+    use crate::{
+        DataPayload,
+        ExecutorId,
+        ExecutorMetadata,
+        InvocationPayload,
+        InvocationPayloadBuilder,
+        NodeOutputBuilder,
+    };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
@@ -82,6 +89,19 @@ pub mod tests {
             create_at: 5,
             tomb_stoned: false,
             start_fn: Compute(fn_a),
+        }
+    }
+
+    pub fn mock_executor_id() -> ExecutorId {
+        ExecutorId::new(TEST_EXECUTOR_ID.to_string())
+    }
+
+    pub fn mock_executor() -> ExecutorMetadata {
+        ExecutorMetadata {
+            id: mock_executor_id(),
+            runner_name: "test_runner".to_string(),
+            addr: "".to_string(),
+            labels: Default::default(),
         }
     }
 }
