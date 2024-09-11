@@ -352,10 +352,10 @@ impl From<data_model::TaskOutcome> for TaskOutcome {
 pub struct Task {
     pub id: String,
     pub namespace: String,
-    pub compute_fn_name: String,
-    pub compute_graph_name: String,
+    pub compute_fn: String,
+    pub compute_graph: String,
     pub invocation_id: String,
-    pub input_data_id: String,
+    pub input_id: String,
     pub outcome: TaskOutcome,
 }
 
@@ -364,10 +364,10 @@ impl From<data_model::Task> for Task {
         Self {
             id: task.id.to_string(),
             namespace: task.namespace,
-            compute_fn_name: task.compute_fn_name,
-            compute_graph_name: task.compute_graph_name,
+            compute_fn: task.compute_fn_name,
+            compute_graph: task.compute_graph_name,
             invocation_id: task.invocation_id,
-            input_data_id: task.input_data_id,
+            input_id: task.input_data_id,
             outcome: task.outcome.into(),
         }
     }
