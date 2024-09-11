@@ -143,7 +143,7 @@ pub struct ComputeGraph {
 
 impl ComputeGraph {
     pub fn key(&self) -> String {
-        format!("{}|{}", self.namespace, self.name)
+        format!("{}_{}", self.namespace, self.name)
     }
 }
 
@@ -179,7 +179,7 @@ pub struct NodeOutput {
 impl NodeOutput {
     pub fn key(&self, invocation_id: &str) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
+            "{}_{}_{}_{}_{}",
             self.namespace, self.compute_graph_name, invocation_id, self.compute_fn_name, self.id
         )
     }
@@ -192,7 +192,7 @@ impl NodeOutput {
         id: &str,
     ) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
+            "{}_{}_{}_{}_{}",
             namespace, compute_graph, invocation_id, compute_fn, id
         )
     }
@@ -252,15 +252,15 @@ pub struct InvocationPayload {
 
 impl InvocationPayload {
     pub fn key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.compute_graph_name, self.id)
+        format!("{}_{}_{}", self.namespace, self.compute_graph_name, self.id)
     }
 
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
-        format!("{}|{}|{}", ns, cg, id)
+        format!("{}_{}_{}", ns, cg, id)
     }
 
     pub fn invocation_context_key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.compute_graph_name, self.id)
+        format!("{}_{}_{}", self.namespace, self.compute_graph_name, self.id)
     }
 }
 
@@ -304,13 +304,13 @@ pub struct GraphInvocationCtx {
 impl GraphInvocationCtx {
     pub fn key(&self) -> String {
         format!(
-            "{}|{}|{}",
+            "{}_{}_{}",
             self.namespace, self.compute_graph_name, self.invocation_id
         )
     }
 
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
-        format!("{}|{}|{}", ns, cg, id)
+        format!("{}_{}_{}", ns, cg, id)
     }
 }
 
@@ -368,7 +368,7 @@ impl Task {
     pub fn key(&self) -> String {
         // <namespace>_<compute_graph_name>_<invocation_id>_<fn_name>_<task_id>
         format!(
-            "{}|{}|{}|{}|{}",
+            "{}_{}_{}_{}_{}",
             self.namespace,
             self.compute_graph_name,
             self.invocation_id,
@@ -378,27 +378,27 @@ impl Task {
     }
 
     pub fn key_output(&self, output_id: &str) -> String {
-        format!("{}|{}|{}", self.namespace, self.id, output_id)
+        format!("{}_{}_{}", self.namespace, self.id, output_id)
     }
 
-    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> Vec<u8> {
+    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
         let duration = self.creation_time.duration_since(UNIX_EPOCH).unwrap();
         let secs = duration.as_secs() as u128;
         let nsecs = duration.subsec_nanos() as u128;
         let nsecs = secs * 1_000_000_000 + nsecs;
-        format!("{}|{}|{}", executor_id, nsecs, self.key(),).into()
+        format!("{}_{}_{}", executor_id, nsecs, self.key(),)
     }
 
-    pub fn key_from_allocation_key(allocation_key: &[u8]) -> Result<Vec<u8>> {
-        let pos_1 = allocation_key
+    pub fn key_from_executor_key(executor_key: &[u8]) -> Result<Vec<u8>> {
+        let pos_1 = executor_key
             .iter()
-            .position(|&x| x == b'|')
+            .position(|&x| x == b'_')
             .ok_or(anyhow!("invalid executor key"))?;
-        let pos_2 = allocation_key[pos_1 + 1..]
+        let pos_2 = executor_key[pos_1 + 1..]
             .iter()
-            .position(|&x| x == b'|')
+            .position(|&x| x == b'_')
             .ok_or(anyhow!("invalid executor key"))?;
-        Ok(allocation_key[pos_1 + 1 + pos_2 + 1..].to_vec())
+        Ok(executor_key[pos_1 + 1 + pos_2 + 1..].to_vec())
     }
 }
 
