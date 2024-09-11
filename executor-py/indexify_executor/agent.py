@@ -18,26 +18,11 @@ from .task_store import CompletedTask, TaskStore
 
 
 class FunctionInput(BaseModel):
+    task_id: str
+    namespace: str
     compute_graph: str
     function: str
-    # Contains inputs of various tasks which want to invoke this function
-    # key -> task_id, value -> json encoded input
-    inputs: Dict[str, Json]
-
-
-class FunctionQueue(BaseModel):
-    # Number of tasks queued for this function
-    # in the function worker
-    tasks_queued: int = 0
-    queue: List[FunctionInput]
-
-    @classmethod
-    def new(cls, compute_graph: str, function: str) -> "FunctionQueue":
-        return FunctionQueue(
-            queue=[
-                FunctionInput(compute_graph=compute_graph, function=function, inputs={})
-            ]
-        )
+    input: Dict
 
 
 class ExtractorAgent:
@@ -111,33 +96,25 @@ class ExtractorAgent:
 
     async def task_launcher(self):
         async_tasks: List[asyncio.Task] = []
-        fn_queues: Dict[str, FunctionQueue] = {}
+        fn_queue: List[FunctionInput] = []
         async_tasks.append(
             asyncio.create_task(
                 self._task_store.get_runnable_tasks(), name="get_runnable_tasks"
             )
         )
         while True:
-            fn_queue: FunctionQueue
-            for _, fn_queue in fn_queues.items():
-                print(f"fn_queue: {fn_queue}")
-                if fn_queue.tasks_queued == 0 and len(fn_queue.queue[0].inputs) != 0:
-                    fn_input = fn_queue.queue.pop(0)
-                    print(
-                        f"running {fn_input.function} with {len(fn_input.inputs)} inputs from tasks"
+            fn: FunctionInput
+            for fn in fn_queue:
+                task: Task = self._task_store.get_task(fn.task_id)
+                async_tasks.append(
+                    ExtractTask(
+                        function_worker=self._function_worker,
+                        task=task,
+                        input=fn.input,
+                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}",
                     )
-                    for task_id, input in fn_input.inputs.items():
-                        task: Task = self._task_store.get_task(task_id)
-                        async_tasks.append(
-                            ExtractTask(
-                                function_worker=self._function_worker,
-                                task=task,
-                                input=input,
-                                code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}",
-                            )
-                        )
-                    fn_queue.tasks_queued += 1
-
+                )
+            fn_queue = []
             done, pending = await asyncio.wait(
                 async_tasks, return_when=asyncio.FIRST_COMPLETED
             )
@@ -185,30 +162,20 @@ class ExtractorAgent:
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
-                    # Process all completed downloads and accumulate them in batches
-                    # without creating extraction tasks right away.
                     function_input: Json
                     function_input = await async_task
                     task: Task = async_task.task
-                    fn_queue: FunctionQueue = fn_queues.setdefault(
-                        f"{task.namespace}/{task.compute_graph}/{task.compute_fn}",
-                        FunctionQueue.new(task.compute_graph, task.compute_fn),
-                    )
-                    if fn_queue.tasks_queued == self._max_queued_tasks:
-                        fn_queue.queue.append(
-                            FunctionInput(
-                                compute_graph=task.compute_graph,
-                                function=task.compute_fn,
-                            )
+                    fn_queue.append(
+                        FunctionInput(
+                            task_id=task.id,
+                            namespace=task.namespace,
+                            compute_graph=task.compute_graph,
+                            function=task.compute_fn,
+                            input=function_input,
                         )
-                    fn_input = fn_queue.queue[-1]
-                    fn_input.inputs[task.id] = function_input
+                    )
                 elif async_task.get_name() == "run_function":
                     async_task: ExtractTask
-                    fn_queue: FunctionQueue = fn_queues[
-                        f"{async_task.task.namespace}/{async_task.task.compute_graph}/{async_task.task.compute_fn}"
-                    ]
-                    fn_queue.tasks_queued -= 1
                     try:
                         outputs = await async_task
                         print(f"completed task {async_task.task.id}")
