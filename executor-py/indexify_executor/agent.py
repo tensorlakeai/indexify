@@ -3,18 +3,20 @@ import json
 import ssl
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional, Union
-import httpx
-from httpx_sse import aconnect_sse
 
+import httpx
 import yaml
+from httpx_sse import aconnect_sse
+from indexify.functions_sdk.data_objects import BaseData
 from pydantic import BaseModel, Json
 
-from .task_store import CompletedTask, TaskStore
 from .api_objects import ExecutorMetadata, Task
-from .content_downloader import Downloader
-from .executor_tasks import DownloadInputTask, DownloadGraphTask, ExtractTask
-from indexify.functions_sdk.data_objects import BaseData
+from .downloader import Downloader
+from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
+from .task_store import CompletedTask, TaskStore
+
+
 class FunctionInput(BaseModel):
     compute_graph: str
     function: str
@@ -22,15 +24,21 @@ class FunctionInput(BaseModel):
     # key -> task_id, value -> json encoded input
     inputs: Dict[str, Json]
 
-class FunctionState(BaseModel):
+
+class FunctionQueue(BaseModel):
     # Number of tasks queued for this function
     # in the function worker
     tasks_queued: int = 0
-    new_inputs: List[FunctionInput]
+    queue: List[FunctionInput]
 
     @classmethod
-    def new(cls, compute_graph: str, function: str) -> "FunctionState":
-        return FunctionState(new_inputs=[FunctionInput(compute_graph=compute_graph, function=function, inputs={})])
+    def new(cls, compute_graph: str, function: str) -> "FunctionQueue":
+        return FunctionQueue(
+            queue=[
+                FunctionInput(compute_graph=compute_graph, function=function, inputs={})
+            ]
+        )
+
 
 class ExtractorAgent:
     def __init__(
@@ -40,7 +48,7 @@ class ExtractorAgent:
         function_worker: FunctionWorker,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
-        code_path: str = "~/.indexify/code/"
+        code_path: str = "~/.indexify/code/",
     ):
         self.num_workers = num_workers
         self._use_tls = False
@@ -78,7 +86,6 @@ class ExtractorAgent:
         self._downloader = Downloader(code_path=code_path, base_url=self._base_url)
         self._max_queued_tasks = 10
 
-
     async def task_completion_reporter(self):
         print("starting task completion reporter")
         # We should copy only the keys and not the values
@@ -87,38 +94,35 @@ class ExtractorAgent:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
                 print(
-                    f"reporting outcome of task {task_outcome.task_id}, outcome: {task_outcome.task_outcome}, outputs: {len(task_outcome.outputs)}"
+                    f"reporting outcome of task {task_outcome.task.id}, outcome: {task_outcome.task_outcome}, outputs: {len(task_outcome.outputs)}"
                 )
-                task: Task = self._task_store.get_task(task_outcome.task_id)
+                task: Task = self._task_store.get_task(task_outcome.task.id)
                 try:
-                    # Send task outcome to the server 
+                    # Send task outcome to the server
                     pass
                 except Exception as e:
                     # the connection was dropped in the middle of the reporting process, retry
                     print(
-                        f"failed to report task {task_outcome.task_id}, exception: {e}, retrying"
+                        f"failed to report task {task_outcome.task.id}, exception: {e}, retrying"
                     )
                     continue
 
-                self._task_store.mark_reported(task_id=task_outcome.task_id)
+                self._task_store.mark_reported(task_id=task_outcome.task.id)
 
     async def task_launcher(self):
         async_tasks: List[asyncio.Task] = []
-        function_states: Dict[str, FunctionState] = {}
+        fn_queues: Dict[str, FunctionQueue] = {}
         async_tasks.append(
             asyncio.create_task(
                 self._task_store.get_runnable_tasks(), name="get_runnable_tasks"
             )
         )
         while True:
-            state: FunctionState
-            for _, state in function_states.items():
-                print(f"state: {state}")
-                if (
-                    state.tasks_queued == 0
-                    and len(state.new_inputs[0].inputs) != 0
-                ):
-                    fn_input = state.new_inputs.pop(0)
+            fn_queue: FunctionQueue
+            for _, fn_queue in fn_queues.items():
+                print(f"fn_queue: {fn_queue}")
+                if fn_queue.tasks_queued == 0 and len(fn_queue.queue[0].inputs) != 0:
+                    fn_input = fn_queue.queue.pop(0)
                     print(
                         f"running {fn_input.function} with {len(fn_input.inputs)} inputs from tasks"
                     )
@@ -129,10 +133,10 @@ class ExtractorAgent:
                                 function_worker=self._function_worker,
                                 task=task,
                                 input=input,
-                                code_path=self._code_path,
+                                code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}",
                             )
                         )
-                    state.tasks_queued += 1
+                    fn_queue.tasks_queued += 1
 
             done, pending = await asyncio.wait(
                 async_tasks, return_when=asyncio.FIRST_COMPLETED
@@ -158,22 +162,24 @@ class ExtractorAgent:
                             f"failed to download content {async_task.exception()} for task {async_task.task_id}"
                         )
                         completed_task = CompletedTask(
-                            task_id=async_task.task_id,
+                            task=async_task.task,
                             outputs=[],
                             task_outcome="Failed",
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
                     async_tasks.append(
-                        DownloadInputTask(task=async_task.task, downloader=self._downloader)
+                        DownloadInputTask(
+                            task=async_task.task, downloader=self._downloader
+                        )
                     )
                 elif async_task.get_name() == "download_input":
                     if async_task.exception():
                         print(
-                            f"failed to download content {async_task.exception()} for task {async_task.task_id}"
+                            f"failed to download content {async_task.exception()} for task {async_task.task.id}"
                         )
                         completed_task = CompletedTask(
-                            task_id=async_task.task_id,
+                            task=async_task.task,
                             outputs=[],
                             task_outcome="Failed",
                         )
@@ -183,37 +189,44 @@ class ExtractorAgent:
                     # without creating extraction tasks right away.
                     function_input: Json
                     function_input = await async_task
-                    task: Task = self._task_store.get_task(async_task.task_id)
-                    state: FunctionState = function_states.setdefault(
-                        f"{task.namespace}/{task.compute_graph}/{task.compute_fn}", FunctionState.new(task.compute_graph, task.compute_fn)
+                    task: Task = async_task.task
+                    fn_queue: FunctionQueue = fn_queues.setdefault(
+                        f"{task.namespace}/{task.compute_graph}/{task.compute_fn}",
+                        FunctionQueue.new(task.compute_graph, task.compute_fn),
                     )
-                    if len(state.new_inputs[-1].inputs) == self._max_queued_tasks:
-                        state.new_inputs.append(FunctionInput(compute_graph=task.compute_graph, function=task.compute_fn))
-                    fn_input = state.new_inputs[-1]
+                    if fn_queue.tasks_queued == self._max_queued_tasks:
+                        fn_queue.queue.append(
+                            FunctionInput(
+                                compute_graph=task.compute_graph,
+                                function=task.compute_fn,
+                            )
+                        )
+                    fn_input = fn_queue.queue[-1]
                     fn_input.inputs[task.id] = function_input
                 elif async_task.get_name() == "run_function":
                     async_task: ExtractTask
-                    state: FunctionState = function_states[f"{async_task.namespace}/{async_task.compute_graph}/{async_task.compute_fn}"]
-                    state.tasks_queued -= 1
+                    fn_queue: FunctionQueue = fn_queues[
+                        f"{async_task.task.namespace}/{async_task.task.compute_graph}/{async_task.task.compute_fn}"
+                    ]
+                    fn_queue.tasks_queued -= 1
                     try:
                         outputs = await async_task
-                        print(f"completed task {async_task.task_id}")
+                        print(f"completed task {async_task.task.id}")
                         completed_task = CompletedTask(
-                            task_id=async_task.task_id,
+                            task=async_task.task,
                             task_outcome="Success",
                             outputs=outputs,
                         )
                         self._task_store.complete(outcome=completed_task)
                     except BrokenProcessPool:
-                        self._task_store.retriable_failure(async_task.task_id)
+                        self._task_store.retriable_failure(async_task.task.id)
                         continue
                     except Exception as e:
-                        print(f"failed to execute tasks {async_task.task_id} {e}")
+                        print(f"failed to execute tasks {async_task.task.id} {e}")
                         completed_task = CompletedTask(
-                            task_id=async_task.task_id,
+                            task=async_task.task,
                             task_outcome="Failed",
                             outputs=[],
-                            features=[],
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
@@ -241,12 +254,14 @@ class ExtractorAgent:
             print("attempting to register")
             try:
                 async with httpx.AsyncClient() as client:
-                    async with aconnect_sse(client, "POST", url, json=data, headers={"Content-Type": "application/json"}) as event_source: # type: ignore
+                    async with aconnect_sse(client, "POST", url, json=data, headers={"Content-Type": "application/json"}) as event_source:  # type: ignore
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
                             tasks = []
                             for task_dict in data:
-                                tasks.append(Task.model_validate(task_dict, strict=False))
+                                tasks.append(
+                                    Task.model_validate(task_dict, strict=False)
+                                )
                             self._task_store.add_tasks(tasks)
             except Exception as e:
                 print(f"failed to register: {e}")

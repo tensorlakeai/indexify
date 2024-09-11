@@ -6,14 +6,13 @@ import nanoid
 from .agent import ExtractorAgent
 from .function_worker import FunctionWorker
 
+
 def join(
     workers: int,
     server_addr: str = "localhost:8900",
     config_path: Optional[str] = None,
 ):
-    print(
-        f"receiving tasks from server addr: {server_addr}"
-    )
+    print(f"receiving tasks from server addr: {server_addr}")
     id = nanoid.generate()
     print(f"executor id: {id}")
 

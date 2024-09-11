@@ -1,13 +1,13 @@
+import os
 import unittest
 from typing import List, Mapping
 from unittest import IsolatedAsyncioTestCase
-from pydantic import BaseModel
-import os
 
 from indexify import Graph
 from indexify.functions_sdk.data_objects import BaseData, File
 from indexify.functions_sdk.indexify_functions import indexify_function
 from indexify_extractor_sdk.function_worker import FunctionWorker
+from pydantic import BaseModel
 
 
 @indexify_function()
@@ -57,13 +57,15 @@ class TestFunctionWorker(IsolatedAsyncioTestCase):
 
     async def test_run_graph(self):
         graph = create_graph_a()
-        code =graph.serialize()
+        code = graph.serialize()
         code_path = "~/.indexify/graphs/default/test.pickle"
         os.makedirs(os.path.dirname(code_path), exist_ok=True)
         with open(code_path, "wb") as f:
             f.write(code)
         worker = FunctionWorker()
-        out = await worker.async_submit("default", "test", "extractor_a", {"url": "https://example.com"}, code_path)
+        out = await worker.async_submit(
+            "default", "test", "extractor_a", {"url": "https://example.com"}, code_path
+        )
         self.assertEqual(out[0].payload.data, b"hello")
 
 

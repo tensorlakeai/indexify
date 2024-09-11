@@ -1,5 +1,7 @@
+from typing import Any, Dict
+
 from pydantic import BaseModel
-from typing import Dict, Any
+
 
 class Task(BaseModel):
     id: str
@@ -8,6 +10,7 @@ class Task(BaseModel):
     compute_fn: str
     invocation_id: str
     input_id: str
+
 
 class ExecutorMetadata(BaseModel):
     id: str

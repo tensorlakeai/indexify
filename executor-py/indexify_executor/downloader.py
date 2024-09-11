@@ -1,8 +1,10 @@
-import httpx
-
 import os
-from .api_objects import Task
+
+import httpx
 from pydantic import Json
+
+from .api_objects import Task
+
 
 class Downloader:
     def __init__(self, code_path: str, base_url: str):
@@ -15,9 +17,11 @@ class Downloader:
         )
         response.raise_for_status()
         path = os.path.join(self.code_path, namespace, name)
+        print(f"Downloading graph: {name} to path: {path}")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(response.content)
+        return path
 
     async def download_input(self, task: Task) -> Json:
         if task.invocation_id == task.input_id:
@@ -27,4 +31,3 @@ class Downloader:
         response = httpx.get(url)
         response.raise_for_status()
         return response.json()
-

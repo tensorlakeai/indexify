@@ -2,14 +2,15 @@ import asyncio
 import concurrent
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List
-from pydantic import Json
 
-from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 from indexify.functions_sdk.data_objects import BaseData
 from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
+from pydantic import Json
 
 graphs: Dict[str, Graph] = {}
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
+
 
 def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str):
     """Load an extractor to the memory: extractor_wrapper_map."""

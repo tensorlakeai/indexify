@@ -1,8 +1,11 @@
 import asyncio
-from .api_objects import Task
-from .content_downloader import Downloader
-from .function_worker import FunctionWorker
+
 from pydantic import Json
+
+from .api_objects import Task
+from .downloader import Downloader
+from .function_worker import FunctionWorker
+
 
 class DownloadGraphTask(asyncio.Task):
     def __init__(
@@ -20,6 +23,7 @@ class DownloadGraphTask(asyncio.Task):
         )
         self.task = task
 
+
 class DownloadInputTask(asyncio.Task):
     def __init__(
         self,
@@ -34,7 +38,8 @@ class DownloadInputTask(asyncio.Task):
             downloader.download_input(task),
             **kwargs,
         )
-        self.task_id = task.id
+        self.task = task
+
 
 class ExtractTask(asyncio.Task):
     def __init__(
@@ -58,8 +63,4 @@ class ExtractTask(asyncio.Task):
             ),
             **kwargs,
         )
-        self.task_id = task.id
-        self.compute_graph = task.compute_graph
-        self.compute_fn = task.compute_fn
-        self.namespace = task.namespace
-
+        self.task = task

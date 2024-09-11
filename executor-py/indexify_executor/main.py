@@ -13,6 +13,7 @@ typer_app = typer.Typer(
     pretty_exceptions_enable=False,
 )
 
+
 class Unbuffered(object):
     def __init__(self, stream):
         self.stream = stream
@@ -33,7 +34,8 @@ sys.stdout = Unbuffered(sys.stdout)
 
 
 def print_version():
-    print(f"indexify-extractor-sdk version {version.__version__}")
+    print(f"indexify-executor version {version.__version__}")
+
 
 @typer_app.command(help="Joins the extractors to the coordinator server")
 def start(
@@ -55,8 +57,3 @@ def start(
         server_addr=server_addr,
         config_path=config_path,
     )
-
-
-@typer_app.command(name="--version", help="Print the version of the SDK and the CLI")
-def _version():
-    print_version()

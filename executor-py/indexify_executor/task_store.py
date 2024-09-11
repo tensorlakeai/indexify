@@ -1,13 +1,14 @@
 import asyncio
 from typing import Dict, List
 
-from pydantic import BaseModel
-from .api_objects import Task
 from indexify.functions_sdk.data_objects import BaseData
+from pydantic import BaseModel
+
+from .api_objects import Task
 
 
 class CompletedTask(BaseModel):
-    task_id: str
+    task: Task
     task_outcome: str
     outputs: List[BaseData]
 
@@ -52,10 +53,10 @@ class TaskStore:
         return out
 
     def complete(self, outcome: CompletedTask):
-        self._retries.pop(outcome.task_id, None)
-        self._finished[outcome.task_id] = outcome
-        if outcome.task_id in self._running_tasks:
-            self._running_tasks.pop(outcome.task_id)
+        self._retries.pop(outcome.task.id, None)
+        self._finished[outcome.task.id] = outcome
+        if outcome.task.id in self._running_tasks:
+            self._running_tasks.pop(outcome.task.id)
         self._finished_task_event.set()
 
     def retriable_failure(self, task_id: str):
