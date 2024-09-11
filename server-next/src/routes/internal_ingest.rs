@@ -25,7 +25,9 @@ pub struct FnOutputBinary {
 
 #[derive(Serialize, Deserialize)]
 pub enum TaskOutput {
+    #[serde(rename = "router")]
     Router(RouterOutput),
+    #[serde(rename = "fn")]
     Fn(FnOutput),
 }
 
