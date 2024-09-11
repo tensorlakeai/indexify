@@ -5,7 +5,7 @@ use axum::{
     extract::{Multipart, State},
     Json,
 };
-use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId, TaskOutcome};
+use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId};
 use futures::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
@@ -29,6 +29,23 @@ pub enum TaskOutput {
     Router(RouterOutput),
     #[serde(rename = "fn")]
     Fn(FnOutput),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum TaskOutcome {
+    #[serde(rename = "success")]
+    Success,
+    #[serde(rename = "failure")]
+    Failure,
+}
+
+impl Into<data_model::TaskOutcome> for TaskOutcome {
+    fn into(self) -> data_model::TaskOutcome {
+        match self {
+            TaskOutcome::Success => data_model::TaskOutcome::Success,
+            TaskOutcome::Failure => data_model::TaskOutcome::Failure,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -142,13 +159,13 @@ pub async fn ingest_objects_from_executor(
         node_outputs.push(node_output);
     }
     let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
-        namespace: task_result.compute_graph.to_string(),
+        namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
         compute_fn: task_result.compute_fn.to_string(),
         invocation_id: task_result.invocation_id.to_string(),
         task_id: TaskId::new(task_result.task_id.to_string()),
         node_outputs,
-        task_outcome: task_result.outcome.clone(),
+        task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
     });
     state
