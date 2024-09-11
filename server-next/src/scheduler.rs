@@ -256,10 +256,16 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::test_objects::tests::{mock_invocation_payload, TEST_NAMESPACE};
+    use data_model::test_objects::tests::{
+        mock_executor,
+        mock_executor_id,
+        mock_invocation_payload,
+        TEST_NAMESPACE,
+    };
     use state_store::test_state_store::tests::TestStateStore;
 
     use super::*;
+    use crate::executors::ExecutorManager;
 
     #[tokio::test]
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
@@ -334,6 +340,111 @@ mod tests {
 
         // has task crated state change in it.
         assert_eq!(unprocessed_state_changes.len(), 1);
+        Ok(())
+    }
+
+    pub async fn schedule_all(indexify_state: &IndexifyState, scheduler: &Scheduler) -> Result<()> {
+        let time = std::time::Instant::now();
+        loop {
+            if time.elapsed().as_secs() > 10 {
+                return Err(anyhow!("timeout"));
+            }
+            let unprocessed_state_changes =
+                indexify_state.reader().get_unprocessed_state_changes()?;
+            if unprocessed_state_changes.is_empty() {
+                return Ok(());
+            }
+            scheduler.run_scheduler().await?;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_task_remove() -> Result<()> {
+        let state_store = TestStateStore::new().await?;
+        let indexify_state = state_store.indexify_state.clone();
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        ex.register_executor(mock_executor()).await?;
+
+        schedule_all(&indexify_state, &scheduler).await?;
+
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(
+                TEST_NAMESPACE,
+                "graph_A",
+                &state_store.invocation_payload_id,
+                None,
+                None,
+            )
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 1);
+
+        let executor_tasks = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(executor_tasks.len(), 1);
+
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(unallocated_tasks.len(), 0);
+
+        state_store
+            .finalize_task(&tasks[0].invocation_id, &tasks[0].id)
+            .await?;
+
+        let executor_tasks = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(executor_tasks.len(), 0);
+
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(unallocated_tasks.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_unassign() -> Result<()> {
+        let state_store = TestStateStore::new().await?;
+        let indexify_state = state_store.indexify_state.clone();
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        ex.register_executor(mock_executor()).await?;
+
+        schedule_all(&indexify_state, &scheduler).await?;
+
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(
+                TEST_NAMESPACE,
+                "graph_A",
+                &state_store.invocation_payload_id,
+                None,
+                None,
+            )
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 1);
+
+        let executor_tasks = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(executor_tasks.len(), 1);
+
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(unallocated_tasks.len(), 0);
+
+        ex.deregister_executor(mock_executor_id()).await?;
+
+        let executor_tasks = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(executor_tasks.len(), 0);
+
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(unallocated_tasks.len(), 1);
+
         Ok(())
     }
 }

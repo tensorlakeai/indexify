@@ -104,7 +104,7 @@ pub fn create_graph_input(
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
-    let compute_graph_key = format!("{}_{}", req.namespace, req.compute_graph_name);
+    let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let _ = txn
         .get_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -154,7 +154,7 @@ pub(crate) fn delete_input_data_object(
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
     let prefix = format!(
-        "{}_{}_{}",
+        "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
     );
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
@@ -194,14 +194,14 @@ pub fn delete_compute_graph(
 ) -> Result<()> {
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        format!("{}_{}", namespace, name),
+        format!("{}|{}", namespace, name),
     )?;
     // WHY IS THIS NOT WORKING
     // db.delete_range_cf(StateMachineColumns::DataObjectsTable.cf(&db),
-    // format!("{}_{}", namespace, name), format!("{}_{}", namespace, name))?;
+    // format!("{}|{}", namespace, name), format!("{}|{}", namespace, name))?;
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}_{}_{}", namespace, name, "");
+    let prefix = format!("{}|{}|{}", namespace, name, "");
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
@@ -215,7 +215,7 @@ pub fn delete_compute_graph(
 
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}_{}_{}", namespace, name, "");
+    let prefix = format!("{}|{}|{}", namespace, name, "");
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = db.iterator_cf_opt(
         &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
@@ -248,7 +248,7 @@ pub(crate) fn create_tasks(
         )?;
 
         let key = format!(
-            "{}_{}_{}",
+            "{}|{}|{}",
             task.namespace, task.compute_graph_name, task.invocation_id
         );
         let graph_ctx = txn.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?;
@@ -290,7 +290,7 @@ pub fn allocate_tasks(
     txn.put_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         task.make_allocation_key(executor_id),
-        task.key(),
+        &[],
     )?;
     txn.delete_cf(
         &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
@@ -305,7 +305,7 @@ pub fn mark_task_completed(
     req: &FinalizeTaskRequest,
 ) -> Result<()> {
     let task_key = format!(
-        "{}_{}_{}_{}_{}",
+        "{}|{}|{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
     );
     let task = txn
@@ -333,7 +333,7 @@ pub fn mark_task_completed(
         )?;
     }
     let graph_ctx_key = format!(
-        "{}_{}_{}",
+        "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
     );
     let graph_ctx = txn
@@ -476,18 +476,20 @@ pub(crate) fn deregister_executor(
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let iterator_mode = IteratorMode::From(req.executor_id.get().as_bytes(), Direction::Forward);
+    let prefix = format!("{}|", req.executor_id);
+    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = txn.iterator_cf_opt(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         read_options,
         iterator_mode,
     );
     for key in iter {
-        let key = key?;
-        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key.0)?;
+        let (key, _) = key?;
+        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key)?;
+        let task_key = Task::key_from_allocation_key(&key)?;
         txn.put_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            &key.1,
+            &task_key,
             &[],
         )?;
     }
