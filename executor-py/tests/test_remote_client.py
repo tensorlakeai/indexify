@@ -1,15 +1,12 @@
 import unittest
-
-from indexify.local_runner import LocalRunner
-from indexify.remote_client import RemoteClient
 from typing import List, Mapping
-
-from pydantic import BaseModel
 
 from indexify import Graph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import indexify_function
-
+from indexify.local_runner import LocalRunner
+from indexify.remote_client import RemoteClient
+from pydantic import BaseModel
 
 
 @indexify_function()

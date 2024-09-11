@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+from indexify.functions_sdk.data_objects import BaseData
 from pydantic import BaseModel, Json
 
 
@@ -24,11 +25,19 @@ class RouterOutput(BaseModel):
 
 
 class FnOutput(BaseModel):
-    router: Json 
+    payload: Json
+
 
 class TaskOutput(BaseModel):
-    router: Optional[RouterOutput]
-    fn: Optional[FnOutput]
+    router: Optional[RouterOutput] = None
+    fn: Optional[FnOutput] = None
+
+    @classmethod
+    def to_api_object(cls, base_data: Optional[BaseData] = None):
+        if base_data is None:
+            return None
+        output = TaskOutput(fn=FnOutput(payload=base_data.model_dump_json()))
+        return output
 
 
 class TaskResult(BaseModel):
@@ -39,3 +48,4 @@ class TaskResult(BaseModel):
     compute_fn: str
     invocation_id: str
     executor_id: str
+    task_id: str

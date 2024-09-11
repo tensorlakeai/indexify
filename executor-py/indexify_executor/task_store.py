@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from indexify.functions_sdk.data_objects import BaseData
 from pydantic import BaseModel
@@ -9,7 +9,7 @@ from .api_objects import Task
 
 class CompletedTask(BaseModel):
     task: Task
-    task_outcome: str
+    task_outcome: Literal["success", "failure"]
     outputs: List[BaseData]
 
 
@@ -68,7 +68,7 @@ class TaskStore:
             self._retries.pop(task_id)
             self.complete(
                 outcome=CompletedTask(
-                    task_id=task_id, task_outcome="Failed", new_content=[], features=[]
+                    task_id=task_id, task_outcome="failed", outputs=[]
                 )
             )
         else:

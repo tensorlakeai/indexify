@@ -18,7 +18,7 @@ def join(
 
     function_worker = FunctionWorker(workers=workers)
 
-    server = ExtractorAgent(
+    agent = ExtractorAgent(
         id,
         num_workers=workers,
         function_worker=function_worker,
@@ -27,6 +27,6 @@ def join(
     )
 
     try:
-        asyncio.get_event_loop().run_until_complete(server.run())
+        asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError as ex:
         print("exiting gracefully", ex)

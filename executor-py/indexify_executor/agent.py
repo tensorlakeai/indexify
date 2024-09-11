@@ -15,6 +15,7 @@ from .downloader import Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
 from .task_store import CompletedTask, TaskStore
+from .task_reporter import TaskReporter
 
 
 class FunctionInput(BaseModel):
@@ -70,6 +71,7 @@ class ExtractorAgent:
         self._code_path = code_path
         self._downloader = Downloader(code_path=code_path, base_url=self._base_url)
         self._max_queued_tasks = 10
+        self._task_reporter = TaskReporter(base_url=self._base_url, executor_id=self._executor_id)
 
     async def task_completion_reporter(self):
         print("starting task completion reporter")
@@ -84,13 +86,14 @@ class ExtractorAgent:
                 task: Task = self._task_store.get_task(task_outcome.task.id)
                 try:
                     # Send task outcome to the server
-                    pass
+                    self._task_reporter.report_task_outcome(task_outcome.outputs, task_outcome.task, task_outcome.task_outcome)
                 except Exception as e:
                     # the connection was dropped in the middle of the reporting process, retry
                     print(
                         f"failed to report task {task_outcome.task.id}, exception: {e}, retrying"
                     )
-                    continue
+                    asyncio.sleep(5)
+                    #continue
 
                 self._task_store.mark_reported(task_id=task_outcome.task.id)
 
@@ -141,7 +144,7 @@ class ExtractorAgent:
                         completed_task = CompletedTask(
                             task=async_task.task,
                             outputs=[],
-                            task_outcome="Failed",
+                            task_outcome="failure",
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
@@ -158,7 +161,7 @@ class ExtractorAgent:
                         completed_task = CompletedTask(
                             task=async_task.task,
                             outputs=[],
-                            task_outcome="Failed",
+                            task_outcome="failure",
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
@@ -181,7 +184,7 @@ class ExtractorAgent:
                         print(f"completed task {async_task.task.id}")
                         completed_task = CompletedTask(
                             task=async_task.task,
-                            task_outcome="Success",
+                            task_outcome="success",
                             outputs=outputs,
                         )
                         self._task_store.complete(outcome=completed_task)
@@ -192,7 +195,7 @@ class ExtractorAgent:
                         print(f"failed to execute tasks {async_task.task.id} {e}")
                         completed_task = CompletedTask(
                             task=async_task.task,
-                            task_outcome="Failed",
+                            task_outcome="failure",
                             outputs=[],
                         )
                         self._task_store.complete(outcome=completed_task)
