@@ -202,10 +202,6 @@ impl StateReader {
                 if !key.starts_with(key_prefix) {
                     break;
                 }
-                print!(
-                    "Task key {:?}",
-                    String::from_utf8(key_reference(&key).unwrap()).unwrap()
-                );
                 lookup_keys.push((&data_cf, key_reference(&key)?));
                 keys.push(key);
                 if lookup_keys.len() >= limit {

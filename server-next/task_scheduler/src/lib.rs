@@ -21,15 +21,6 @@ impl TaskScheduler {
         self.schedule_tasks(tasks)
     }
 
-    pub fn reschedule_tasks(&self, executor_id: &str) -> Result<Vec<TaskPlacement>> {
-        info!("re-allocating tasks for executor {:?}", executor_id);
-        let tasks = self
-            .indexify_state
-            .reader()
-            .get_tasks_by_executor(&ExecutorId::new(executor_id.to_string()), 100)?;
-        self.schedule_tasks(tasks)
-    }
-
     pub fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<Vec<TaskPlacement>> {
         let mut task_allocations = Vec::new();
         for task in tasks {

@@ -208,13 +208,9 @@ impl Scheduler {
         let mut new_allocations = vec![];
         for state_change in state_changes {
             let allocations = match state_change.change_type {
-                ChangeType::TaskCreated | ChangeType::ExecutorAdded => {
-                    Some(self.task_allocator.schedule_unplaced_tasks()?)
-                }
-                ChangeType::ExecutorRemoved => {
-                    let executor_id = &state_change.object_id;
-                    Some(self.task_allocator.reschedule_tasks(executor_id)?)
-                }
+                ChangeType::TaskCreated |
+                ChangeType::ExecutorAdded |
+                ChangeType::ExecutorRemoved => Some(self.task_allocator.schedule_unplaced_tasks()?),
                 _ => None,
             };
             if let Some(allocations) = allocations {
@@ -256,16 +252,21 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use data_model::test_objects::tests::{
-        mock_executor,
-        mock_executor_id,
-        mock_invocation_payload,
-        TEST_NAMESPACE,
+    use std::time::Duration;
+
+    use data_model::{
+        test_objects::tests::{
+            mock_executor,
+            mock_executor_id,
+            mock_invocation_payload,
+            TEST_NAMESPACE,
+        },
+        ExecutorId,
     };
     use state_store::test_state_store::tests::TestStateStore;
 
     use super::*;
-    use crate::executors::ExecutorManager;
+    use crate::executors::{self, ExecutorManager};
 
     #[tokio::test]
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
@@ -444,6 +445,70 @@ mod tests {
 
         let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
         assert_eq!(unallocated_tasks.len(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_add_executor() -> Result<()> {
+        let state_store = TestStateStore::new().await?;
+        let indexify_state = state_store.indexify_state.clone();
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+
+        schedule_all(&indexify_state, &scheduler).await?;
+
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(
+                TEST_NAMESPACE,
+                "graph_A",
+                &state_store.invocation_payload_id,
+                None,
+                None,
+            )
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 1);
+
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(unallocated_tasks.len(), 1);
+
+        ex.register_executor(mock_executor()).await?;
+
+        schedule_all(&indexify_state, &scheduler).await?;
+
+        let executor_tasks = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(executor_tasks.len(), 1);
+
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(unallocated_tasks.len(), 0);
+
+        executors::schedule_deregister(ex.clone(), mock_executor_id(), Duration::from_secs(1));
+
+        let mut executor = mock_executor();
+        executor.id = ExecutorId::new("2".to_string());
+        ex.register_executor(executor.clone()).await?;
+
+        let time = std::time::Instant::now();
+        loop {
+            schedule_all(&indexify_state, &scheduler).await?;
+
+            let executor_tasks = indexify_state
+                .reader()
+                .get_tasks_by_executor(&executor.id, 10)?;
+            if executor_tasks.len() == 1 {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
+
+            if time.elapsed().as_secs() > 10 {
+                return Err(anyhow!("timeout"));
+            }
+        }
 
         Ok(())
     }
