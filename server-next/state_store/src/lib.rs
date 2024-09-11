@@ -263,6 +263,7 @@ impl IndexifyState {
                     }
                 };
                 if removed {
+                    println!("Deregistering executor: {}", request.executor_id);
                     tracing::info!("De-registering executor: {}", request.executor_id);
                     state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
                 }
