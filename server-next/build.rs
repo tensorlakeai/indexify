@@ -1,14 +1,15 @@
 use std::error::Error;
 
-use vergen::EmitBuilder;
+use vergen::{BuildBuilder, Emitter, SysinfoBuilder};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    EmitBuilder::builder()
-        .all_build()
-        .all_cargo()
-        .all_git()
-        .all_rustc()
-        .all_sysinfo()
+    let build = BuildBuilder::all_build()?;
+    let si = SysinfoBuilder::all_sysinfo()?;
+
+    Emitter::default()
+        .add_instructions(&build)?
+        .add_instructions(&si)?
         .emit()?;
+
     Ok(())
 }
