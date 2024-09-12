@@ -355,7 +355,7 @@ pub struct Task {
     pub compute_fn: String,
     pub compute_graph: String,
     pub invocation_id: String,
-    pub input_id: String,
+    pub input_key: String,
     pub outcome: TaskOutcome,
 }
 
@@ -367,7 +367,7 @@ impl From<data_model::Task> for Task {
             compute_fn: task.compute_fn_name,
             compute_graph: task.compute_graph_name,
             invocation_id: task.invocation_id,
-            input_id: task.input_data_id,
+            input_key: task.input_key,
             outcome: task.outcome.into(),
         }
     }

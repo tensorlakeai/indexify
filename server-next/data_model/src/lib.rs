@@ -103,8 +103,8 @@ impl Node {
         &self,
         namespace: &str,
         compute_graph_name: &str,
-        input_id: &str,
         invocation_id: &str,
+        input_key: &str,
     ) -> Result<Task> {
         let name = match self {
             Node::Router(router) => router.name.clone(),
@@ -115,7 +115,7 @@ impl Node {
             .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
             .invocation_id(invocation_id.to_string())
-            .input_data_id(input_id.to_string())
+            .input_key(input_key.to_string())
             .build()?;
         Ok(task)
     }
@@ -354,7 +354,7 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
-    pub input_data_id: String,
+    pub input_key: String,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
@@ -406,8 +406,8 @@ impl Display for Task {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, content_id: {}, outcome: {:?})",
-            self.id, self.compute_fn_name, self.compute_graph_name, self.input_data_id, self.outcome
+            "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input_key: {}, outcome: {:?})",
+            self.id, self.compute_fn_name, self.compute_graph_name, self.input_key, self.outcome
         )
     }
 }
@@ -426,8 +426,8 @@ impl TaskBuilder {
             .compute_fn_name
             .clone()
             .ok_or(anyhow!("compute fn name is not present"))?;
-        let input_data_id = self
-            .input_data_id
+        let input_key = self
+            .input_key
             .clone()
             .ok_or(anyhow!("input data object id is not present"))?;
         let invocation_id = self
@@ -437,7 +437,7 @@ impl TaskBuilder {
         let mut hasher = DefaultHasher::new();
         cg_name.hash(&mut hasher);
         compute_fn_name.hash(&mut hasher);
-        input_data_id.hash(&mut hasher);
+        input_key.hash(&mut hasher);
         invocation_id.hash(&mut hasher);
         namespace.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
@@ -445,7 +445,7 @@ impl TaskBuilder {
             id: TaskId(id),
             compute_graph_name: cg_name,
             compute_fn_name,
-            input_data_id,
+            input_key,
             invocation_id,
             namespace,
             outcome: TaskOutcome::Unknown,

@@ -189,6 +189,7 @@ fn write_router_output(
         .namespace(task_result.namespace.to_string())
         .compute_graph_name(task_result.compute_graph.to_string())
         .compute_fn_name(task_result.compute_fn.to_string())
+        .invocation_id(task_result.invocation_id.to_string())
         .payload(OutputPayload::Router(data_model::RouterOutput {
             edges: output.edges.clone(),
         }))
@@ -228,6 +229,7 @@ async fn write_fn_output(
     let node_output = NodeOutputBuilder::default()
         .namespace(task_result.namespace.to_string())
         .compute_graph_name(task_result.compute_graph.to_string())
+        .invocation_id(task_result.invocation_id.to_string())
         .compute_fn_name(task_result.compute_fn.to_string())
         .payload(OutputPayload::Fn(data_payload))
         .build()

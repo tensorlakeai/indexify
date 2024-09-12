@@ -40,7 +40,7 @@ use crate::executors;
 mod download;
 mod internal_ingest;
 mod invoke;
-use download::{download_fn_output_payload, download_invocation_payload};
+use download::{download_fn_output_by_key, download_fn_output_payload, download_invocation_payload};
 use internal_ingest::{ingest_files_from_executor, ingest_objects_from_executor};
 use invoke::{invoke_with_file, invoke_with_object};
 
@@ -201,6 +201,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/executors/:id/tasks",
             post(executor_tasks).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/fn_outputs/:input_key",
+            get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .layer(
             TraceLayer::new_for_http()

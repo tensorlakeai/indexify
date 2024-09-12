@@ -160,8 +160,8 @@ impl Scheduler {
                 let new_task = compute_fn.create_task(
                     &task.namespace,
                     &task.compute_graph_name,
-                    &output.id,
                     &task.invocation_id,
+                    &output.key(&task.invocation_id),
                 )?;
                 new_tasks.push(new_task);
             }
