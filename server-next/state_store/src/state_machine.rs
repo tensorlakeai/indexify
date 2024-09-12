@@ -132,21 +132,6 @@ pub fn create_graph_input(
     Ok(())
 }
 
-pub fn create_compute_fn_output(
-    db: &OptimisticTransactionDB,
-    txn: &Transaction<OptimisticTransactionDB>,
-    data_object: NodeOutput,
-    ingested_data_id: &str,
-) -> Result<()> {
-    let serialized_data_object = JsonEncoder::encode(&data_object)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::FnOutputs.cf(db),
-        data_object.key(ingested_data_id),
-        &serialized_data_object,
-    )?;
-    Ok(())
-}
-
 pub(crate) fn delete_input_data_object(
     db: Arc<TransactionDB>,
     req: &DeleteInvocationRequest,

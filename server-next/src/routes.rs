@@ -40,7 +40,11 @@ use crate::executors;
 mod download;
 mod internal_ingest;
 mod invoke;
-use download::{download_fn_output_by_key, download_fn_output_payload, download_invocation_payload};
+use download::{
+    download_fn_output_by_key,
+    download_fn_output_payload,
+    download_invocation_payload,
+};
 use internal_ingest::{ingest_files_from_executor, ingest_objects_from_executor};
 use invoke::{invoke_with_file, invoke_with_object};
 

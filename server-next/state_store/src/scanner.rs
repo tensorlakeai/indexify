@@ -521,6 +521,16 @@ impl StateReader {
             None => Err(anyhow!("fn output not found")),
         }
     }
+
+    pub fn fn_output_payload_by_key(&self, key: &str) -> Result<NodeOutput> {
+        let value = self
+            .db
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+        match value {
+            Some(value) => Ok(JsonEncoder::decode(&value)?),
+            None => Err(anyhow!("fn output not found")),
+        }
+    }
 }
 #[cfg(test)]
 mod tests {
