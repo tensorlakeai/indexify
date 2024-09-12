@@ -10,7 +10,7 @@ class Task(BaseModel):
     compute_graph: str
     compute_fn: str
     invocation_id: str
-    input_id: str
+    input_key: str
 
 
 class ExecutorMetadata(BaseModel):

@@ -139,7 +139,7 @@ class ExtractorAgent:
                 elif async_task.get_name() == "download_graph":
                     if async_task.exception():
                         print(
-                            f"failed to download content {async_task.exception()} for task {async_task.task_id}"
+                            f"failed to download graph {async_task.exception()} for task {async_task.task.id}"
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,
@@ -156,7 +156,7 @@ class ExtractorAgent:
                 elif async_task.get_name() == "download_input":
                     if async_task.exception():
                         print(
-                            f"failed to download content {async_task.exception()} for task {async_task.task.id}"
+                            f"failed to download input {async_task.exception()} for task {async_task.task.id}"
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,

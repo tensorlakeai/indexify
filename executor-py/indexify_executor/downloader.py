@@ -24,10 +24,15 @@ class Downloader:
         return path
 
     async def download_input(self, task: Task) -> Json:
-        if task.invocation_id == task.input_id:
+        input_id = task.input_key.split("|")[-1]
+        if task.invocation_id == input_id:
             url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/payload"
         else:
-            url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/{task.id}"
+            url = f"{self.base_url}/internal/fn_outputs/{task.input_key}"
         response = httpx.get(url)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            print(f"failed to download input {task.input_key} with error {response.text}")
+            raise
         return response.json()
