@@ -551,7 +551,7 @@ mod tests {
             .namespace("namespace".to_string())
             .compute_fn_name("fn".to_string())
             .compute_graph_name("graph".to_string())
-            .input_data_id("id_1".to_string())
+            .input_key("namespace|graph|ingested_id|fn|id_1".to_string())
             .invocation_id("ingested_id".to_string())
             .build()?;
 
@@ -604,7 +604,7 @@ mod tests {
             .namespace("namespace".to_string())
             .compute_fn_name("fn".to_string())
             .compute_graph_name("graph".to_string())
-            .input_data_id("id_2".to_string())
+            .input_key("namespace|graph|ingested_id|fn|id_2".to_string())
             .invocation_id("ingested_id".to_string())
             .build()?;
 

@@ -7,7 +7,6 @@ use data_model::{
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
     Namespace,
-    NodeOutput,
     StateChange,
     StateChangeId,
     Task,
