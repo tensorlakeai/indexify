@@ -15,13 +15,6 @@ use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
 #[derive(Serialize, Deserialize)]
-pub struct FnOutputBinary {
-    pub path: String,
-    pub size: u64,
-    pub sha256_hash: String,
-}
-
-#[derive(Serialize, Deserialize)]
 pub enum TaskOutput {
     #[serde(rename = "router")]
     Router(RouterOutput),
@@ -68,13 +61,6 @@ pub struct RouterOutput {
     pub edges: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ExecutorFileUploadResponse {
-    pub files: HashMap<String, FnOutputBinary>,
-}
-
-// node_outputs -> [Files] -> [PutResult]
-//
 
 #[allow(dead_code)]
 #[derive(ToSchema)]
