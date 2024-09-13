@@ -39,7 +39,7 @@ pub struct BlobStorageConfig {
     pub disk: Option<DiskStorageConfig>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PutResult {
     pub url: String,
     pub size_bytes: u64,

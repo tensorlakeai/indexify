@@ -1,12 +1,10 @@
 use std::{collections::HashMap, vec};
 
 use anyhow::{anyhow, Result};
-use axum::{
-    extract::{Multipart, State},
-    Json,
-};
+use axum::extract::{Multipart, State};
+use blob_store::PutResult;
 use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId};
-use futures::{stream, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::info;
@@ -50,7 +48,7 @@ impl Into<data_model::TaskOutcome> for TaskOutcome {
 
 #[derive(Serialize, Deserialize)]
 pub struct TaskResult {
-    outputs: Vec<TaskOutput>,
+    router_outputs: Vec<RouterOutput>,
     outcome: TaskOutcome,
     namespace: String,
     compute_graph: String,
@@ -74,6 +72,9 @@ pub struct RouterOutput {
 pub struct ExecutorFileUploadResponse {
     pub files: HashMap<String, FnOutputBinary>,
 }
+
+// node_outputs -> [Files] -> [PutResult]
+//
 
 #[allow(dead_code)]
 #[derive(ToSchema)]
@@ -99,12 +100,13 @@ pub struct InvokeWithFile {
 pub async fn ingest_files_from_executor(
     State(state): State<RouteState>,
     mut files: Multipart,
-) -> Result<Json<ExecutorFileUploadResponse>, IndexifyAPIError> {
-    let mut response = HashMap::new();
+) -> Result<(), IndexifyAPIError> {
+    let mut output_objects: Vec<PutResult> = vec![];
+    let mut task_result: Option<TaskResult> = None;
     while let Some(field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
-            if name == "file" {
-                let file_name = field
+            if name == "node_outputs" {
+                let _ = field
                     .file_name()
                     .as_ref()
                     .ok_or(IndexifyAPIError::bad_request("file name is required"))?
@@ -118,44 +120,50 @@ pub async fn ingest_files_from_executor(
                         e
                     ))
                 })?;
-                response.insert(
-                    file_name,
-                    FnOutputBinary {
-                        path: res.url,
-                        size: res.size_bytes,
-                        sha256_hash: res.sha256_hash,
-                    },
-                );
+                output_objects.push(res.clone());
+            } else if name == "task_result" {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                task_result.replace(serde_json::from_str::<TaskResult>(&text)?);
             }
         }
     }
-    Ok(Json(ExecutorFileUploadResponse { files: response }))
-}
-
-/// Upload JSON serialized object to a compute graph
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "invocation successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-    ),
-)]
-pub async fn ingest_objects_from_executor(
-    State(state): State<RouteState>,
-    Json(task_result): Json<TaskResult>,
-) -> Result<(), IndexifyAPIError> {
-    let mut node_outputs = vec![];
-    for output in &task_result.outputs {
-        let node_output = match output {
-            TaskOutput::Router(output) => write_router_output(output, &task_result)?,
-            TaskOutput::Fn(fn_output) => {
-                write_fn_output(state.clone(), fn_output, &task_result).await?
-            }
+    let task_result =
+        task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;
+    let mut node_outputs: Vec<NodeOutput> = vec![];
+    for put_result in output_objects {
+        let data_payload = data_model::DataPayload {
+            path: put_result.url,
+            size: put_result.size_bytes,
+            sha256_hash: put_result.sha256_hash,
         };
+        let node_output = NodeOutputBuilder::default()
+            .namespace(task_result.namespace.to_string())
+            .compute_graph_name(task_result.compute_graph.to_string())
+            .invocation_id(task_result.invocation_id.to_string())
+            .compute_fn_name(task_result.compute_fn.to_string())
+            .payload(OutputPayload::Fn(data_payload))
+            .build()
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            })?;
+        node_outputs.push(node_output);
+    }
+    for router_outputs in task_result.router_outputs {
+        let node_output = NodeOutputBuilder::default()
+            .namespace(task_result.namespace.to_string())
+            .compute_graph_name(task_result.compute_graph.to_string())
+            .invocation_id(task_result.invocation_id.to_string())
+            .compute_fn_name(task_result.compute_fn.to_string())
+            .payload(OutputPayload::Router(data_model::RouterOutput {
+                edges: router_outputs.edges.clone(),
+            }))
+            .build()
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+            })?;
         node_outputs.push(node_output);
     }
     let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
@@ -179,63 +187,4 @@ pub async fn ingest_objects_from_executor(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     Ok(())
-}
-
-fn write_router_output(
-    output: &RouterOutput,
-    task_result: &TaskResult,
-) -> Result<NodeOutput, IndexifyAPIError> {
-    let node_output = NodeOutputBuilder::default()
-        .namespace(task_result.namespace.to_string())
-        .compute_graph_name(task_result.compute_graph.to_string())
-        .compute_fn_name(task_result.compute_fn.to_string())
-        .invocation_id(task_result.invocation_id.to_string())
-        .payload(OutputPayload::Router(data_model::RouterOutput {
-            edges: output.edges.clone(),
-        }))
-        .build()
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
-
-    Ok(node_output)
-}
-
-async fn write_fn_output(
-    state: RouteState,
-    fn_output: &FnOutput,
-    task_result: &TaskResult,
-) -> Result<NodeOutput, IndexifyAPIError> {
-    let payload_key = Uuid::new_v4().to_string();
-    let payload_stream = stream::once(async move {
-        let payload_json = serde_json::to_string(&fn_output.payload)?
-            .as_bytes()
-            .to_vec()
-            .clone();
-        Ok(payload_json.into())
-    });
-    let put_result = state
-        .blob_storage
-        .put(&payload_key, Box::pin(payload_stream))
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
-    let data_payload = data_model::DataPayload {
-        path: put_result.url,
-        size: put_result.size_bytes,
-        sha256_hash: put_result.sha256_hash,
-    };
-    let node_output = NodeOutputBuilder::default()
-        .namespace(task_result.namespace.to_string())
-        .compute_graph_name(task_result.compute_graph.to_string())
-        .invocation_id(task_result.invocation_id.to_string())
-        .compute_fn_name(task_result.compute_fn.to_string())
-        .payload(OutputPayload::Fn(data_payload))
-        .build()
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
-
-    Ok(node_output)
 }
