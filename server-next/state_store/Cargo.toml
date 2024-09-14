@@ -18,3 +18,5 @@ tokio = { workspace = true }
 futures.workspace = true
 async-stream = "0.3.5"
 tempfile = { workspace = true }
+object_store.workspace = true
+blob_store = { version = "0.1.0", path = "../blob_store" }

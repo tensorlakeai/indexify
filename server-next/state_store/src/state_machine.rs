@@ -7,6 +7,8 @@ use data_model::{
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
     Namespace,
+    NodeOutput,
+    OutputPayload,
     StateChange,
     StateChangeId,
     Task,
@@ -14,6 +16,7 @@ use data_model::{
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use rocksdb::{
+    AsColumnFamilyRef,
     BoundColumnFamily,
     Direction,
     IteratorMode,
@@ -64,6 +67,8 @@ pub enum IndexifyObjectsColumns {
     UnprocessedStateChanges, //  StateChangeId -> Empty
     TaskAllocations,         //  ExecutorId -> Task_Key
     UnallocatedTasks,        //  Task_Key -> Empty
+
+    GcUrls, // List of URLs pending deletion
 }
 
 impl IndexifyObjectsColumns {
@@ -170,6 +175,25 @@ pub(crate) fn create_compute_graph(
     Ok(())
 }
 
+fn delete_cf_prefix(
+    txn: &Transaction<TransactionDB>,
+    cf: &impl AsColumnFamilyRef,
+    prefix: &[u8],
+) -> Result<()> {
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
+    let iterator_mode = IteratorMode::From(prefix, Direction::Forward);
+    let iter = txn.iterator_cf_opt(cf, read_options, iterator_mode);
+    for key in iter {
+        let (key, _) = key?;
+        if !key.starts_with(prefix) {
+            break;
+        }
+        txn.delete_cf(cf, &key)?;
+    }
+    Ok(())
+}
+
 pub fn delete_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
@@ -180,37 +204,76 @@ pub fn delete_compute_graph(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         format!("{}|{}", namespace, name),
     )?;
-    // WHY IS THIS NOT WORKING
-    // db.delete_range_cf(StateMachineColumns::DataObjectsTable.cf(&db),
-    // format!("{}|{}", namespace, name), format!("{}|{}", namespace, name))?;
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}|{}|{}", namespace, name, "");
-    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
-    let iter = db.iterator_cf_opt(
+    let prefix = format!("{}|{}|", namespace, name);
+    delete_cf_prefix(
+        txn,
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        read_options,
-        iterator_mode,
-    );
-    for key in iter {
-        let key = key?;
-        txn.delete_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(&db), &key.0)?;
+        prefix.as_bytes(),
+    )?;
+
+    delete_cf_prefix(
+        txn,
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    for iter in make_prefix_iterator(
+        txn,
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        prefix.as_bytes(),
+        &None,
+    ) {
+        let (key, value) = iter?;
+        let value = JsonEncoder::decode::<NodeOutput>(&value)?;
+        match &value.payload {
+            OutputPayload::Router(_) => {}
+            OutputPayload::Fn(payload) => {
+                println!("delete_compute_graph: {:?}", value.clone());
+                txn.put_cf(
+                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                    payload.path.as_bytes(),
+                    &[],
+                )?;
+            }
+        }
+        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
     }
 
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}|{}|{}", namespace, name, "");
-    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
-    let iter = db.iterator_cf_opt(
-        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-        read_options,
-        iterator_mode,
-    );
-    for key in iter {
-        let key = key?;
-        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key.0)?;
+    Ok(())
+}
+
+pub fn remove_gc_urls(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    urls: Vec<String>,
+) -> Result<()> {
+    for url in urls {
+        txn.delete_cf(&IndexifyObjectsColumns::GcUrls.cf_db(&db), &url)?;
     }
     Ok(())
+}
+
+pub fn make_prefix_iterator<'a>(
+    txn: &'a Transaction<TransactionDB>,
+    cf_handle: &impl AsColumnFamilyRef,
+    prefix: &'a [u8],
+    restart_key: &'a Option<Vec<u8>>,
+) -> impl Iterator<Item = Result<(Box<[u8]>, Box<[u8]>)>> + 'a {
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(4_194_304);
+    let iter = txn.iterator_cf_opt(
+        cf_handle,
+        read_options,
+        match restart_key {
+            Some(restart_key) => IteratorMode::From(&restart_key, Direction::Forward),
+            None => IteratorMode::From(prefix, Direction::Forward),
+        },
+    );
+    iter.map(|item| item.map_err(|e| anyhow!(e.to_string())))
+        .take_while(move |item| match item {
+            Ok((key, _)) => key.starts_with(prefix),
+            Err(_) => true,
+        })
 }
 
 pub(crate) fn create_tasks(

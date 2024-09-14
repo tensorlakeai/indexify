@@ -7,6 +7,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 mod config;
 mod executors;
+mod gc;
 mod http_objects;
 mod routes;
 mod scheduler;

@@ -8,7 +8,7 @@ use tokio::{self, signal, sync::watch};
 use tracing::info;
 
 use super::{routes::RouteState, scheduler::Scheduler};
-use crate::{config::ServerConfig, executors::ExecutorManager, routes::create_routes};
+use crate::{config::ServerConfig, executors::ExecutorManager, gc::Gc, routes::create_routes};
 
 pub struct Service {
     pub config: ServerConfig,
@@ -22,24 +22,32 @@ impl Service {
     pub async fn start(&self) -> Result<()> {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?)?;
-        let blob_storage = BlobStorage::new(self.config.blob_storage.clone())?;
+        let blob_storage = Arc::new(BlobStorage::new(self.config.blob_storage.clone())?);
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()));
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
-            blob_storage,
+            blob_storage: blob_storage.clone(),
             executor_manager,
         };
         let app = create_routes(route_state);
         let handle = Handle::new();
         let handle_sh = handle.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
+
+        let mut gc = Gc::new(indexify_state.clone(), blob_storage, shutdown_rx.clone());
+
+        let state_watcher_rx = indexify_state.get_state_change_watcher();
         tokio::spawn(async move {
             info!("starting scheduler");
-            let _ = scheduler
-                .start(shutdown_rx, indexify_state.get_state_change_watcher())
-                .await;
+            let _ = scheduler.start(shutdown_rx, state_watcher_rx).await;
             info!("scheduler shutdown");
         });
+        tokio::spawn(async move {
+            info!("starting garbage collector");
+            let _ = gc.start().await;
+            info!("garbage collector shutdown");
+        });
+
         tokio::spawn(async move {
             shutdown_signal(handle_sh, shutdown_tx).await;
             info!("received graceful shutdown signal. Telling tasks to shutdown");

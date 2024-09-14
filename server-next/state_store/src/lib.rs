@@ -117,6 +117,8 @@ pub struct IndexifyState {
     pub state_change_tx: Sender<StateChangeId>,
     pub state_change_rx: Receiver<StateChangeId>,
     pub last_state_change_id: Arc<AtomicU64>,
+    pub gc_channel_tx: tokio::sync::watch::Sender<()>,
+    pub gc_channel_rx: tokio::sync::watch::Receiver<()>,
 }
 
 impl IndexifyState {
@@ -135,12 +137,15 @@ impl IndexifyState {
             sm_column_families,
         )
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
+        let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let s = Arc::new(Self {
             db: Arc::new(db),
             state_change_tx: tx,
             state_change_rx: rx,
             last_state_change_id: Arc::new(AtomicU64::new(0)),
             executor_states: RwLock::new(HashMap::new()),
+            gc_channel_tx: gc_tx,
+            gc_channel_rx: gc_rx,
         });
 
         let executors = s.reader().get_all_executors()?;
@@ -173,6 +178,10 @@ impl IndexifyState {
 
     pub fn get_state_change_watcher(&self) -> Receiver<StateChangeId> {
         self.state_change_rx.clone()
+    }
+
+    pub fn get_gc_watcher(&self) -> Receiver<()> {
+        self.gc_channel_rx.clone()
     }
 
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
@@ -209,6 +218,7 @@ impl IndexifyState {
                     &request.namespace,
                     &request.name,
                 )?;
+                self.gc_channel_tx.send(()).unwrap();
                 vec![]
             }
             requests::RequestPayload::DeleteInvocation(request) => {
@@ -268,6 +278,10 @@ impl IndexifyState {
                     state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
                 }
                 state_changes
+            }
+            requests::RequestPayload::RemoveGcUrls(urls) => {
+                state_machine::remove_gc_urls(self.db.clone(), &txn, urls)?;
+                vec![]
             }
         };
         if !new_state_changes.is_empty() {
