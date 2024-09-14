@@ -92,8 +92,8 @@ class ExtractorAgent:
                     print(
                         f"failed to report task {task_outcome.task.id}, exception: {e}, retrying"
                     )
-                    asyncio.sleep(5)
-                    #continue
+                    await asyncio.sleep(5)
+                    continue
 
                 self._task_store.mark_reported(task_id=task_outcome.task.id)
 

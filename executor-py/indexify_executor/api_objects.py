@@ -41,7 +41,7 @@ class TaskOutput(BaseModel):
 
 
 class TaskResult(BaseModel):
-    outputs: List[TaskOutput]
+    router_outputs: List[RouterOutput]
     outcome: str
     namespace: str
     compute_graph: str
