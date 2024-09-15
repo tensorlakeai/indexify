@@ -1,12 +1,13 @@
-from typing import List
 import io
+from typing import List
 
 import httpx
-from indexify.functions_sdk.data_objects import BaseData
-from indexify.functions_sdk.cbor_serializer import CborSerializer
 import nanoid
+from indexify.functions_sdk.cbor_serializer import CborSerializer
+from indexify.functions_sdk.data_objects import BaseData
 
 from indexify_executor.api_objects import Task, TaskOutput, TaskResult
+
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
 class ForceMultipartDict(dict):
@@ -14,7 +15,8 @@ class ForceMultipartDict(dict):
         return True
 
 
-FORCE_MULTIPART = ForceMultipartDict()  
+FORCE_MULTIPART = ForceMultipartDict()
+
 
 class TaskReporter:
     def __init__(self, base_url: str, executor_id: str):
@@ -36,7 +38,7 @@ class TaskReporter:
             executor_id=self._executor_id,
             task_id=task.id,
         )
-        task_result_data= task_result.model_dump_json(exclude_none=True)
+        task_result_data = task_result.model_dump_json(exclude_none=True)
         kwargs = {"data": {"task_result": task_result_data}}
         if fn_outputs and len(fn_outputs) > 0:
             kwargs["files"] = fn_outputs
@@ -51,7 +53,7 @@ class TaskReporter:
             print(f"failed to report task outcome {e}")
             raise e
 
-        try: 
+        try:
             response.raise_for_status()
         except Exception as e:
             print(f"failed to report task outcome {response.text}")

@@ -11,11 +11,13 @@ class Downloader:
         self.base_url = base_url
 
     async def download_graph(self, namespace: str, name: str):
+        path = os.path.join(self.code_path, namespace, name)
+        if os.path.exists(path):
+            return path
         response = httpx.get(
             f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
         )
         response.raise_for_status()
-        path = os.path.join(self.code_path, namespace, name)
         print(f"Downloading graph: {name} to path: {path}")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
@@ -34,6 +36,8 @@ class Downloader:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            print(f"failed to download input {task.input_key} with error {response.text}")
+            print(
+                f"failed to download input {task.input_key} with error {response.text}"
+            )
             raise
         return response.content

@@ -1,14 +1,15 @@
 import asyncio
 import concurrent
+import pickle
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List
 
+import cloudpickle
 from indexify.functions_sdk.data_objects import BaseData
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 from pydantic import Json
-import pickle
-import cloudpickle
+
 pickle.loads = cloudpickle.Pickler
 
 graphs: Dict[str, Graph] = {}
