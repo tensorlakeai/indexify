@@ -4,6 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::{anyhow, Result};
 use futures::Stream;
 use pin_project::{pin_project, pinned_drop};
 
@@ -53,6 +54,18 @@ pub fn get_epoch_time_in_ms() -> u64 {
 
 pub fn default_creation_time() -> SystemTime {
     UNIX_EPOCH
+}
+
+pub fn json_to_cbor(value: serde_json::Value) -> Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(&value, &mut buf)
+        .map_err(|e| anyhow!("unable to convert to cbor {e}"))?;
+    Ok(buf)
+}
+
+pub fn text_to_cbor(text: &str) -> Result<Vec<u8>> {
+    let value: serde_json::Value = serde_json::from_str(text)?;
+    json_to_cbor(value)
 }
 
 /// A [`Stream`] wrapper that automatically runs a custom action when dropped.
@@ -128,5 +141,17 @@ where
         F: FnOnce(),
     {
         StreamGuard::new(self, on_drop)
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    #[test]
+    pub fn test_json_to_cbor() {
+        let json_str = r#"{"key": "value"}"#;
+        let result = super::text_to_cbor(json_str).unwrap();
+        assert!(!result.is_empty());
+        let data = ciborium::de::from_reader::<serde_json::Value, _>(&*result).unwrap();
+        assert_eq!(data["key"], "value");
     }
 }

@@ -61,7 +61,6 @@ pub struct RouterOutput {
     pub edges: Vec<String>,
 }
 
-
 #[allow(dead_code)]
 #[derive(ToSchema)]
 pub struct InvokeWithFile {

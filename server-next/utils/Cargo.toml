@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 futures = {workspace = true}
 pin-project = {workspace = true}
+serde_json = {workspace = true}
+ciborium = {workspace=true}
+anyhow = {workspace=true}
