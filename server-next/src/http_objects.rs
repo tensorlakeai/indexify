@@ -388,4 +388,12 @@ mod tests {
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
     }
+
+    #[test]
+    fn test_compute_graph_with_router_deserialization() {
+        let json = r#"{"name":"graph_a_router","description":"description of graph_a","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"router_x":{"dynamic_router":{"name":"router_x","description":"","source_fn":"router_x","target_fns":["extractor_y","extractor_z"]}},"extractor_y":{"compute_fn":{"name":"extractor_y","fn_name":"extractor_y","description":""}},"extractor_z":{"compute_fn":{"name":"extractor_z","fn_name":"extractor_z","description":""}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":""}}},"edges":{"extractor_a":["router_x"],"extractor_y":["extractor_c"],"extractor_z":["extractor_c"]}}"#;
+        let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
+        json_value["namespace"] = serde_json::Value::String("test".to_string());
+        let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
+    }
 }
