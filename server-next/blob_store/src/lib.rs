@@ -62,7 +62,7 @@ impl Default for BlobStorageConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PutResult {
     pub url: String,
     pub size_bytes: u64,

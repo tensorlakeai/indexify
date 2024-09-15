@@ -7,6 +7,9 @@ from indexify.functions_sdk.data_objects import BaseData
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 from pydantic import Json
+import pickle
+import cloudpickle
+pickle.loads = cloudpickle.Pickler
 
 graphs: Dict[str, Graph] = {}
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
@@ -36,7 +39,7 @@ class FunctionWorker:
         namespace: str,
         graph_name: str,
         fn_name: str,
-        input: Json,
+        input: bytes,
         code_path: str,
     ) -> List[BaseData]:
         try:
@@ -62,17 +65,14 @@ def _run_function(
     namespace: str,
     graph_name: str,
     fn_name: str,
-    input: Json,
+    input: bytes,
     code_path: str,
-) -> List[BaseData]:
+) -> List[bytes]:
+    print(f"running function: {fn_name} namespace: {namespace} graph: {graph_name}")
     key = f"{namespace}/{graph_name}/{fn_name}"
     if key not in function_wrapper_map:
         _load_function(namespace, graph_name, fn_name, code_path)
 
     graph: Graph = graphs[f"{namespace}/{graph_name}"]
-    input = graph.deserialize_input_from_json(fn_name, input)
-    print(input)
-
-    function_wrapper: IndexifyFunctionWrapper = function_wrapper_map[key]
-    results = function_wrapper.run(input)
+    results = graph.invoke_fn_ser(fn_name, input)
     return results

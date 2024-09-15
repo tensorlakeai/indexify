@@ -45,7 +45,7 @@ use download::{
     download_fn_output_payload,
     download_invocation_payload,
 };
-use internal_ingest::{ingest_files_from_executor, ingest_objects_from_executor};
+use internal_ingest::ingest_files_from_executor;
 use invoke::{invoke_with_file, invoke_with_object};
 
 use crate::{
@@ -197,10 +197,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/ingest_files",
             post(ingest_files_from_executor).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/ingest_objects",
-            post(ingest_objects_from_executor).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors/:id/tasks",

@@ -8,6 +8,7 @@ use axum::{
 use blob_store::PutResult;
 use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
+use indexify_utils::json_to_cbor;
 use state_store::requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::info;
 use utoipa::ToSchema;
@@ -142,8 +143,8 @@ pub async fn invoke_with_object(
 ) -> Result<Json<InvocationId>, IndexifyAPIError> {
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = stream::once(async move {
-        let payload_json = serde_json::to_string(&payload)?.as_bytes().to_vec().clone();
-        Ok(payload_json.into())
+        let payload_cbor = json_to_cbor(payload)?;
+        Ok(payload_cbor.into())
     });
     let put_result = state
         .blob_storage
