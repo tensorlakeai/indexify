@@ -290,6 +290,23 @@ impl StateReader {
         Ok(Some(result))
     }
 
+    pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<String>> {
+        let limit = limit.unwrap_or(usize::MAX);
+        let cf = IndexifyObjectsColumns::GcUrls.cf_db(&self.db);
+        let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
+        let mut urls = Vec::new();
+        for kv in iter {
+            if let Ok((key, _)) = kv {
+                let url = String::from_utf8(key.into_vec())?;
+                urls.push(url);
+                if urls.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(urls)
+    }
+
     pub fn get_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);

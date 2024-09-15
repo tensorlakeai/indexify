@@ -24,6 +24,7 @@ pub enum RequestPayload {
     SchedulerUpdate(SchedulerUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
+    RemoveGcUrls(Vec<String>),
 }
 
 pub struct FinalizeTaskRequest {
@@ -55,6 +56,11 @@ pub struct CreateComputeGraphRequest {
 pub struct DeleteComputeGraphRequest {
     pub namespace: String,
     pub name: String,
+}
+
+pub struct DeleteComputeGraphOutputRequest {
+    pub key: String,
+    pub restart_key: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]

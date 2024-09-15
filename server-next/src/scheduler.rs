@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -206,7 +206,7 @@ impl Scheduler {
             }
         }
         let mut new_allocations = vec![];
-        for state_change in state_changes {
+        for state_change in &state_changes {
             let allocations = match state_change.change_type {
                 ChangeType::TaskCreated |
                 ChangeType::ExecutorAdded |
@@ -217,6 +217,7 @@ impl Scheduler {
                 new_allocations.extend(allocations);
             }
         }
+
         let scheduler_update_request = StateMachineUpdateRequest {
             payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
                 task_requests: create_task_requests,

@@ -117,7 +117,7 @@ struct ApiDoc;
 #[derive(Clone)]
 pub struct RouteState {
     pub indexify_state: Arc<IndexifyState>,
-    pub blob_storage: blob_store::BlobStorage,
+    pub blob_storage: Arc<blob_store::BlobStorage>,
     pub executor_manager: Arc<ExecutorManager>,
 }
 

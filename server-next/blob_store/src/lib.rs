@@ -1,6 +1,6 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{env, fmt::Debug, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
@@ -37,6 +37,29 @@ pub struct DiskStorageConfig {
 pub struct BlobStorageConfig {
     pub s3: Option<S3Config>,
     pub disk: Option<DiskStorageConfig>,
+}
+
+impl BlobStorageConfig {
+    pub fn new_disk(path: &str) -> Self {
+        BlobStorageConfig {
+            s3: None,
+            disk: Some(DiskStorageConfig {
+                path: path.to_string(),
+            }),
+        }
+    }
+}
+
+impl Default for BlobStorageConfig {
+    fn default() -> Self {
+        let blob_store_path = env::current_dir().unwrap().join("indexify_storage/blobs");
+        BlobStorageConfig {
+            s3: None,
+            disk: Some(DiskStorageConfig {
+                path: blob_store_path.to_str().unwrap().to_string(),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +202,27 @@ impl BlobStorage {
 
         // If it's not S3, assume it's a file
         Arc::new(DiskFileReader::new(key))
+    }
+
+    pub async fn delete(&self, key: &str) -> Result<()> {
+        if let Some(s3) = &self.config.s3 {
+            let (bucket, key) = parse_s3_url(key)
+                .map_err(|err| anyhow::anyhow!("unable to parse s3 url: {}", err))?;
+            if bucket != s3.bucket {
+                return Err(anyhow!("invalid bucket {}", bucket));
+            }
+            let path = object_store::path::Path::from(key);
+            self.object_store.delete(&path).await?;
+            return Ok(());
+        } else {
+            let prefix = format!("file://{}/", self.config.disk.as_ref().unwrap().path);
+            if let Some(key) = key.strip_prefix(prefix.as_str()) {
+                let path = object_store::path::Path::from(key);
+                self.object_store.delete(&path).await?;
+                return Ok(());
+            }
+        }
+        Err(anyhow!("invalid key {}", key))
     }
 
     pub async fn read_bytes(&self, key: &str) -> Result<Bytes> {

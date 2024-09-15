@@ -1,7 +1,7 @@
 use std::{env, fmt::Debug, net::SocketAddr};
 
 use anyhow::Result;
-use blob_store::{BlobStorageConfig, DiskStorageConfig};
+use blob_store::BlobStorageConfig;
 use figment::{
     providers::{Format, Yaml},
     Figment,
@@ -18,16 +18,10 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         let state_store_path = env::current_dir().unwrap().join("indexify_storage/state");
-        let blob_store_path = env::current_dir().unwrap().join("indexify_storage/blobs");
         ServerConfig {
             state_store_path: state_store_path.to_str().unwrap().to_string(),
             listen_addr: "0.0.0.0:8900".to_string(),
-            blob_storage: BlobStorageConfig {
-                s3: None,
-                disk: Some(DiskStorageConfig {
-                    path: blob_store_path.to_str().unwrap().to_string(),
-                }),
-            },
+            blob_storage: Default::default(),
         }
     }
 }
