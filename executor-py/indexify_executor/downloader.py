@@ -1,7 +1,6 @@
 import os
 
 import httpx
-from pydantic import Json
 
 from .api_objects import Task
 
@@ -23,16 +22,18 @@ class Downloader:
             f.write(response.content)
         return path
 
-    async def download_input(self, task: Task) -> Json:
+    async def download_input(self, task: Task) -> bytes:
         input_id = task.input_key.split("|")[-1]
         if task.invocation_id == input_id:
             url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/payload"
         else:
             url = f"{self.base_url}/internal/fn_outputs/{task.input_key}"
+
+        print(f"downloading input from url {url}")
         response = httpx.get(url)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             print(f"failed to download input {task.input_key} with error {response.text}")
             raise
-        return response.json()
+        return response.content

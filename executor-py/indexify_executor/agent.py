@@ -23,7 +23,7 @@ class FunctionInput(BaseModel):
     namespace: str
     compute_graph: str
     function: str
-    input: Dict
+    input: bytes
 
 
 class ExtractorAgent:
@@ -165,8 +165,7 @@ class ExtractorAgent:
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
-                    function_input: Json
-                    function_input = await async_task
+                    function_input: bytes = await async_task
                     task: Task = async_task.task
                     fn_queue.append(
                         FunctionInput(

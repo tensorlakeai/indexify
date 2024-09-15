@@ -21,10 +21,10 @@ class TaskReporter:
         self._base_url = base_url
         self._executor_id = executor_id
 
-    def report_task_outcome(self, outputs: List[BaseData], task: Task, outcome: str):
+    def report_task_outcome(self, outputs: List[bytes], task: Task, outcome: str):
         fn_outputs = []
         for output in outputs:
-            fn_outputs.append(("node_outputs", (nanoid.generate(), io.BytesIO(CborSerializer.serialize(output)))))
+            fn_outputs.append(("node_outputs", (nanoid.generate(), io.BytesIO(output))))
 
         task_result = TaskResult(
             router_outputs=[],

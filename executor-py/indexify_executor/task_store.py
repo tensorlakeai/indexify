@@ -10,7 +10,7 @@ from .api_objects import Task
 class CompletedTask(BaseModel):
     task: Task
     task_outcome: Literal["success", "failure"]
-    outputs: List[BaseData]
+    outputs: List[bytes]
 
 
 class TaskStore:
