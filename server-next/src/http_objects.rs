@@ -365,6 +365,27 @@ pub struct Tasks {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FnOutput {
+    pub compute_fn: String,
+    pub id: String,
+}
+
+impl From<data_model::NodeOutput> for FnOutput {
+    fn from(output: data_model::NodeOutput) -> Self {
+        Self {
+            compute_fn: output.compute_fn_name,
+            id: output.id.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FnOutputs {
+    pub outputs: Vec<FnOutput>,
+    pub cursor: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvocationId {
     pub id: String,
 }
