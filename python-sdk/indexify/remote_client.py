@@ -37,7 +37,7 @@ class RemoteClient(IndexifyClient):
                 )
 
         self.namespace: str = namespace
-        self.extraction_graphs: List[ExtractionGraph] = []
+        self.compute_graphs: List[Graph] = []
         self.labels: dict = {}
         self._service_url = service_url
         self._timeout = kwargs.get("timeout")
