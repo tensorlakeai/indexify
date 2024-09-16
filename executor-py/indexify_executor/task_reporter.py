@@ -6,6 +6,7 @@ import nanoid
 from indexify.functions_sdk.data_objects import RouterOutput
 
 from indexify_executor.api_objects import Task, TaskResult, RouterOutput as ApiRouterOutput
+from rich import print
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -26,6 +27,7 @@ class TaskReporter:
         fn_outputs = []
         if not isinstance(outputs, RouterOutput):
             for output in outputs:
+                print(f"[bold]task-reporter[/bold] uploading output of size: {len(output)}")
                 fn_outputs.append(("node_outputs", (nanoid.generate(), io.BytesIO(output))))
         router_output = ApiRouterOutput(edges=router_output.edges) if router_output else None
         task_result = TaskResult(
