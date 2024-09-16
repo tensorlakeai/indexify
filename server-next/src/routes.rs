@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{MatchedPath, Multipart, Path, Query, Request, State},
+    extract::{DefaultBodyLimit, MatchedPath, Multipart, Path, Query, Request, State},
     http::{Method, Response},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -222,6 +222,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
                 .on_failure(()),
         )
         .layer(cors)
+        .layer(DefaultBodyLimit::max(usize::MAX))
 }
 
 async fn index() -> &'static str {
