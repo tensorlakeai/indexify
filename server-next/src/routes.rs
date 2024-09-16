@@ -84,7 +84,6 @@ use crate::{
             list_compute_graphs,
             get_compute_graph,
             delete_compute_graph,
-            get_outputs,
             list_tasks,
             list_outputs,
             delete_invocation,
@@ -175,10 +174,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invoke_object",
             post(invoke_with_object).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
-            get(get_outputs).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
@@ -494,24 +489,6 @@ async fn graph_invocations(
     }))
 }
 
-/// Get output of a compute graph invocation
-#[utoipa::path(
-    get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
-    tag = "retrieval",
-    responses(
-        (status = 200, description = "Get outputs of Graph for a given invocation id", body = InvocationResult),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-    ),
-)]
-#[axum::debug_handler]
-async fn get_outputs(
-    Path((_namespace, _compute_graph, _object_id)): Path<(String, String, String)>,
-    State(_state): State<RouteState>,
-) -> Result<Json<InvocationResult>, IndexifyAPIError> {
-    todo!()
-}
-
 async fn notify_on_change(
     Path((_namespace, _compute_graph)): Path<(String, String)>,
     State(_state): State<RouteState>,
@@ -587,7 +564,7 @@ async fn list_tasks(
     Ok(Json(Tasks { tasks, cursor }))
 }
 
-/// List tasks for a compute graph invocation
+/// Get outputs for a compute graph invocation
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",
