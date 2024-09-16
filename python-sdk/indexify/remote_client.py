@@ -4,15 +4,13 @@ from typing import Any, List, Optional
 import httpx
 import yaml
 
-from indexify.base_client import BaseClient
-from indexify.error import Error
-from indexify.exceptions import ApiException
-from indexify.extraction_policy import ExtractionGraph
+from indexify.base_client import IndexifyClient
+from indexify.error import Error, ApiException
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 
 
-class RemoteClient(BaseClient):
+class RemoteClient(IndexifyClient):
     def __init__(
         self,
         service_url: str = DEFAULT_SERVICE_URL,
@@ -131,7 +129,7 @@ class RemoteClient(BaseClient):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def register_graph(self, graph: Graph) -> ExtractionGraph:
+    def register_graph(self, graph: Graph):
         graph_metadata = graph.definition()
         serialized_code = graph.serialize()
         response = self._post(

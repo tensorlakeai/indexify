@@ -1,11 +1,15 @@
 import io
-
+import asyncio
 import docker
 import typer
 from rich import print
 
 from indexify import Graph
 from indexify.functions_sdk.image import Image
+from typing import Annotated, Optional
+import nanoid
+from indexify.executor.function_worker import FunctionWorker
+from indexify.executor.agent import ExtractorAgent
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -37,6 +41,38 @@ def build_image(workflow_file_path: str, func_name: str = None):
             _create_image_for_func(obj, func_name)
     else:
         _create_image_for_func(obj, func_name)
+
+
+@app.command(help="Joins the extractors to the coordinator server")
+def executor(
+    server_addr: str = "localhost:8900",
+    workers: Annotated[
+        int, typer.Option(help="number of worker processes for extraction")
+    ] = 1,
+    config_path: Optional[str] = typer.Option(
+        None, help="Path to the TLS configuration file"
+    ),
+):
+    print("workers ", workers)
+    print("config path provided ", config_path)
+    print(f"receiving tasks from server addr: {server_addr}")
+    id = nanoid.generate()
+    print(f"executor id: {id}")
+
+    function_worker = FunctionWorker(workers=workers)
+
+    agent = ExtractorAgent(
+        id,
+        num_workers=workers,
+        function_worker=function_worker,
+        server_addr=server_addr,
+        config_path=config_path,
+    )
+
+    try:
+        asyncio.get_event_loop().run_until_complete(agent.run())
+    except asyncio.CancelledError as ex:
+        print("exiting gracefully", ex)
 
 
 def _create_image_for_func(g, func_name):

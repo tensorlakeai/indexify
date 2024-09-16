@@ -7,7 +7,7 @@ from nanoid import generate
 from pydantic import BaseModel, Json
 from rich import print
 
-from indexify.base_client import BaseClient
+from indexify.base_client import IndexifyClient 
 from indexify.functions_sdk.data_objects import BaseData, File, RouterOutput
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
@@ -19,7 +19,7 @@ class ContentTree(BaseModel):
     outputs: Dict[str, List[BaseData]]
 
 
-class LocalRunner(BaseClient):
+class LocalRunner(IndexifyClient):
     def __init__(self, cache_dir: str = "./indexify_local_runner_cache"):
         self._cache_dir = cache_dir
         self._graphs: Dict[str, Graph] = {}
