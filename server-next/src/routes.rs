@@ -58,6 +58,7 @@ use crate::{
         DataObject,
         DynamicRouter,
         ExecutorMetadata,
+        FnOutputs,
         GraphInvocations,
         IndexifyAPIError,
         InvocationResult,
@@ -85,6 +86,7 @@ use crate::{
             delete_compute_graph,
             get_outputs,
             list_tasks,
+            list_outputs,
             delete_invocation,
         ),
         components(
@@ -157,6 +159,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/tasks",
             get(list_tasks).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/outputs",
+            get(list_outputs).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
@@ -579,6 +585,37 @@ async fn list_tasks(
         .map_err(IndexifyAPIError::internal_error)?;
     let tasks = tasks.into_iter().map(Into::into).collect();
     Ok(Json(Tasks { tasks, cursor }))
+}
+
+/// List tasks for a compute graph invocation
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List outputs for a given invocation id", body = Tasks),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+#[axum::debug_handler]
+async fn list_outputs(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Query(params): Query<ListParams>,
+    State(state): State<RouteState>,
+) -> Result<Json<FnOutputs>, IndexifyAPIError> {
+    let (outputs, cursor) = state
+        .indexify_state
+        .reader()
+        .list_outputs_by_compute_graph(
+            &namespace,
+            &compute_graph,
+            &invocation_id,
+            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.limit,
+        )
+        .map_err(IndexifyAPIError::internal_error)?;
+    let outputs = outputs.into_iter().map(Into::into).collect();
+    Ok(Json(FnOutputs { outputs, cursor }))
 }
 
 /// Delete a specific invocation  

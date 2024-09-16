@@ -398,6 +398,23 @@ impl StateReader {
         Ok(compute_graph)
     }
 
+    pub fn list_outputs_by_compute_graph(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        restart_key: Option<&[u8]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<NodeOutput>, Option<Vec<u8>>)> {
+        let key = format!("{}|{}|{}|", namespace, compute_graph, invocation_id);
+        self.get_rows_from_cf_with_limits::<NodeOutput>(
+            key.as_bytes(),
+            restart_key,
+            IndexifyObjectsColumns::FnOutputs,
+            limit,
+        )
+    }
+
     pub fn get_task(
         &self,
         namespace: &str,
