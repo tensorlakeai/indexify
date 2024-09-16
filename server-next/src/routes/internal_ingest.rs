@@ -22,7 +22,7 @@ pub enum TaskOutput {
     Fn(FnOutput),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TaskOutcome {
     #[serde(rename = "success")]
     Success,
@@ -39,9 +39,9 @@ impl Into<data_model::TaskOutcome> for TaskOutcome {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TaskResult {
-    router_outputs: Vec<RouterOutput>,
+    router_output: Option<RouterOutput>,
     outcome: TaskOutcome,
     namespace: String,
     compute_graph: String,
@@ -56,7 +56,7 @@ pub struct FnOutput {
     pub payload: serde_json::Value,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RouterOutput {
     pub edges: Vec<String>,
 }
@@ -136,14 +136,14 @@ pub async fn ingest_files_from_executor(
             })?;
         node_outputs.push(node_output);
     }
-    for router_outputs in task_result.router_outputs {
+    if let Some(router_output) = task_result.router_output {
         let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
             .compute_graph_name(task_result.compute_graph.to_string())
             .invocation_id(task_result.invocation_id.to_string())
             .compute_fn_name(task_result.compute_fn.to_string())
             .payload(OutputPayload::Router(data_model::RouterOutput {
-                edges: router_outputs.edges.clone(),
+                edges: router_output.edges.clone(),
             }))
             .build()
             .map_err(|e| {

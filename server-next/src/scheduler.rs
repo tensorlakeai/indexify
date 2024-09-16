@@ -110,7 +110,51 @@ impl Scheduler {
                 task_finished_event.namespace,
                 task_finished_event.compute_graph
             ))?;
-        // Find the edges
+
+        // Get the output of the task
+        // If this was a router task, we 1. use the edges of the router to create
+        // subsequent tasks
+        // 2. We use the input to the router as the input of the new tasks
+
+        let mut new_tasks = vec![];
+        let outputs = self.indexify_state.reader().get_task_outputs(
+            &task_finished_event.namespace,
+            &task_finished_event.task_id.to_string(),
+        )?;
+        let mut router_edges = vec![];
+        for output in &outputs {
+            if let OutputPayload::Router(router_output) = &output.payload {
+                for edge in &router_output.edges {
+                    router_edges.push(edge);
+                }
+            }
+        }
+        if !router_edges.is_empty() {
+            for edge in router_edges {
+                let compute_fn = compute_graph.nodes.get(edge);
+                if compute_fn.is_none() {
+                    error!("compute fn not found: {:?}", edge);
+                    continue;
+                }
+                let compute_fn = compute_fn.unwrap();
+                let new_task = compute_fn.create_task(
+                    &task.namespace,
+                    &task.compute_graph_name,
+                    &task.invocation_id,
+                    &task.input_key,
+                )?;
+                new_tasks.push(new_task);
+            }
+            return Ok(TaskCreationResult {
+                namespace: task_finished_event.namespace.clone(),
+                compute_graph: task_finished_event.compute_graph.clone(),
+                invocation_id: task_finished_event.invocation_id.clone(),
+                tasks: new_tasks,
+                invocation_finished: false,
+            });
+        }
+
+        // Find the edges of the function
         let edges = compute_graph.edges.get(&task_finished_event.compute_fn);
         if edges.is_none() {
             let invocation_ctx = self.indexify_state.reader().invocation_ctx(
@@ -133,23 +177,8 @@ impl Scheduler {
             }
         }
 
-        let mut out_edges = Vec::from_iter(edges.iter().cloned().flatten());
-
-        // Get all the outputs of the compute fn
-        let outputs = self.indexify_state.reader().get_task_outputs(
-            &task_finished_event.namespace,
-            &task_finished_event.task_id.to_string(),
-        )?;
-        for output in &outputs {
-            if let OutputPayload::Router(router_output) = &output.payload {
-                for edge in &router_output.edges {
-                    out_edges.push(edge);
-                }
-            }
-        }
-
-        let mut new_tasks = vec![];
-        for edge in out_edges {
+        let edges = edges.unwrap();
+        for edge in edges {
             for output in &outputs {
                 let compute_fn = compute_graph.nodes.get(edge);
                 if compute_fn.is_none() {
@@ -260,6 +289,7 @@ mod tests {
             mock_executor,
             mock_executor_id,
             mock_invocation_payload,
+            mock_invocation_payload_graph_b,
             TEST_NAMESPACE,
         },
         ExecutorId,
@@ -274,16 +304,11 @@ mod tests {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
+        let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(
-                TEST_NAMESPACE,
-                "graph_A",
-                &state_store.invocation_payload_id,
-                None,
-                None,
-            )
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
@@ -291,7 +316,6 @@ mod tests {
             .reader()
             .get_unprocessed_state_changes()
             .unwrap();
-        println!("{:?}", unprocessed_state_changes);
         // Processes the invoke cg event and creates a task created event
         assert_eq!(unprocessed_state_changes.len(), 1);
         Ok(())
@@ -302,16 +326,11 @@ mod tests {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
+        let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(
-                TEST_NAMESPACE,
-                "graph_A",
-                &state_store.invocation_payload_id,
-                None,
-                None,
-            )
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
@@ -325,13 +344,7 @@ mod tests {
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(
-                TEST_NAMESPACE,
-                "graph_A",
-                &state_store.invocation_payload_id,
-                None,
-                None,
-            )
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 3);
@@ -366,19 +379,14 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let invocation_id = state_store.with_simple_graph().await;
         ex.register_executor(mock_executor()).await?;
 
         schedule_all(&indexify_state, &scheduler).await?;
 
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(
-                TEST_NAMESPACE,
-                "graph_A",
-                &state_store.invocation_payload_id,
-                None,
-                None,
-            )
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
@@ -412,19 +420,14 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let invocation_id = state_store.with_simple_graph().await;
         ex.register_executor(mock_executor()).await?;
 
         schedule_all(&indexify_state, &scheduler).await?;
 
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(
-                TEST_NAMESPACE,
-                "graph_A",
-                &state_store.invocation_payload_id,
-                None,
-                None,
-            )
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
@@ -455,19 +458,14 @@ mod tests {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
+        let invocation_id = state_store.with_simple_graph().await;
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
 
         schedule_all(&indexify_state, &scheduler).await?;
 
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(
-                TEST_NAMESPACE,
-                "graph_A",
-                &state_store.invocation_payload_id,
-                None,
-                None,
-            )
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
@@ -512,5 +510,55 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_tasks_for_router_tasks() {
+        let state_store = TestStateStore::new().await.unwrap();
+        let indexify_state = state_store.indexify_state.clone();
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let invocation_id = state_store.with_router_graph().await;
+        scheduler.run_scheduler().await.unwrap();
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 1);
+        let task_id = &tasks[0].id;
+
+        // Finish the task and check if new tasks are created
+        state_store
+            .finalize_task_graph_b(&mock_invocation_payload_graph_b().id, task_id)
+            .await
+            .unwrap();
+        scheduler.run_scheduler().await.unwrap();
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 2);
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .get_unprocessed_state_changes()
+            .unwrap();
+        // has task crated state change in it.
+        assert_eq!(unprocessed_state_changes.len(), 1);
+
+        // Now finish the router task and we should have 3 tasks
+        // The last one would be for the edge which the router picks
+        let task_id = &tasks[1].id;
+        state_store
+            .finalize_router_x(&mock_invocation_payload_graph_b().id, task_id)
+            .await
+            .unwrap();
+        scheduler.run_scheduler().await.unwrap();
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 3);
     }
 }
