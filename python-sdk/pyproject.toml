@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "indexify"
+version = "0.0.44"
+description = "Python Client for Indexify"
+authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
+license = "Apache 2.0"
+readme = "README.md"
+homepage = "https://github.com/tensorlakeai/indexify"
+repository = "https://github.com/tensorlakeai/indexify"
+
+[tool.poetry.scripts]
+indexify-cli = "indexify.cli:app"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+httpx = { version = "^0", extras = ["http2"] }
+pyyaml = "^6"
+pydantic = "^2.8"
+cloudpickle = "^3"
+rich = "^13"
+nanoid = "^2.0.0"
+docker = "^7.1.0"
+
+[tool.poetry.dev-dependencies]
+black = "^22.3.0"
+pylint = "^2.4.0"
+pytest = "^7.1.1"
+pytest-cov = "^4.0.0"
+pytest-runner = "^6.0.0"
+pytest-watch = "^4.2.0"
+
+[build-system]
+requires = ["poetry>=1.2"]
+build-backend = "poetry.core.masonry.api"

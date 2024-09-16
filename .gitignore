@@ -30,6 +30,5 @@ rag/**/*
 *.mp3
 sqlite*
 *.trace
-indexify
 venv
 charts/*.tgz

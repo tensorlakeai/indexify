@@ -1,0 +1,62 @@
+version: "3"
+networks:
+  server:
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+services:
+  indexify:
+    image: tensorlake/indexify
+    entrypoint: [ "/indexify/docker_compose_start.sh" ]
+    ports:
+      - 8900:8900
+      - 8950:8950
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres/indexify
+      - INDEXIFY_DB_URL=postgres://postgres:postgres@postgres/indexify
+      - INDEXIFY_COORDINATOR_ADDR=localhost:8950
+    depends_on:
+      - postgres
+    networks:
+      server:
+        ipv4_address: 172.21.0.2
+    volumes:
+      - data:/tmp/indexify-blob-storage
+  postgres:
+    image: ankane/pgvector
+    restart: always
+    ports:
+      - 5432
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=indexify
+    networks:
+      server:
+        ipv4_address: 172.21.0.5
+  embedding-extractor:
+    image: tensorlake/minilm-l6
+    command: ["join-server", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    networks:
+      server:
+        ipv4_address: 172.21.0.9
+    volumes:
+      - data:/tmp/indexify-blob-storage
+  wikiepdia-extractor:
+    image: tensorlake/wikipedia
+    command: ["join-server", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    networks:
+      server:
+        ipv4_address: 172.21.0.10
+    volumes:
+      - data:/tmp/indexify-blob-storage
+  chunk-extractor:
+    image: tensorlake/chunk-extractor
+    command: ["join-server", "--coordinator-addr", "172.21.0.2:8950", "--ingestion-addr", "172.21.0.2:8900"]
+    networks:
+      server:
+        ipv4_address: 172.21.0.11
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
+volumes:
+  data:

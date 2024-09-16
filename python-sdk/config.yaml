@@ -1,0 +1,5 @@
+use_tls: false
+tls_config:
+  cert_path: ".dev-tls/client.crt"
+  key_path: ".dev-tls/client.key"
+  ca_bundle_path: ".dev-tls/ca.crt"
