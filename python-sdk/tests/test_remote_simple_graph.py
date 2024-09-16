@@ -58,7 +58,7 @@ class TestRemoteClient(unittest.TestCase):
         # Register graph
         client = RemoteClient(namespace="default")
         graph = create_graph_a()
-        client.register_graph(graph)
+        client.register_compute_graph(graph)
 
         # Get graph Defintion
         compute_graph = client.graph("graph_a")

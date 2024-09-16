@@ -9,10 +9,9 @@ from indexify.functions_sdk.graph import Graph
 class IndexifyClient(ABC):
 
     ### Operational APIs
-    @abstractmethod
-    def register_extraction_graph(self, graph: Graph):
+    def register_compute_graph(self, graph: Graph):
         """
-        Register an extraction graph.
+        Register a compute graph.
         graph: Graph: The graph to be registered
         """
         pass
