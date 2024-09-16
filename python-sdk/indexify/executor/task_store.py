@@ -5,6 +5,7 @@ from indexify.functions_sdk.data_objects import RouterOutput
 from pydantic import BaseModel
 
 from .api_objects import Task
+from rich import print
 
 
 class CompletedTask(BaseModel):
@@ -34,7 +35,7 @@ class TaskStore:
                 or (task.id in self._finished)
             ):
                 continue
-            print(f"added task {task.id} to queue")
+            print(f"[bold] task store: [/bold] added task {task.id} to queue")
             self._tasks[task.id] = task
             self._new_task_event.set()
 

@@ -16,7 +16,7 @@ from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
-
+from rich import print
 
 class FunctionInput(BaseModel):
     task_id: str
@@ -31,10 +31,10 @@ class ExtractorAgent:
         self,
         executor_id: str,
         num_workers,
+        code_path: str,
         function_worker: FunctionWorker,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
-        code_path: str = "~/.indexify/code/",
     ):
         self.num_workers = num_workers
         self._use_tls = False
@@ -76,14 +76,14 @@ class ExtractorAgent:
         )
 
     async def task_completion_reporter(self):
-        print("starting task completion reporter")
+        print("[bold] agent: [/bold] starting task completion reporter")
         # We should copy only the keys and not the values
         url = f"{self._protocol}://{self._server_addr}/write_content"
         while True:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
                 print(
-                    f"reporting outcome of task {task_outcome.task.id}, outcome: {task_outcome.task_outcome}, outputs: {len(task_outcome.outputs)}"
+                    f"[bold] agent: [/bold] reporting outcome of task {task_outcome.task.id}, outcome: {task_outcome.task_outcome}, outputs: {len(task_outcome.outputs)}"
                 )
                 task: Task = self._task_store.get_task(task_outcome.task.id)
                 try:
@@ -97,7 +97,7 @@ class ExtractorAgent:
                 except Exception as e:
                     # the connection was dropped in the middle of the reporting process, retry
                     print(
-                        f"failed to report task {task_outcome.task.id}, exception: {e}, retrying"
+                        f"[bold red] agent: [/bold] failed to report task {task_outcome.task.id}, exception: {e}, retrying"
                     )
                     await asyncio.sleep(5)
                     continue
@@ -221,17 +221,17 @@ class ExtractorAgent:
         while self._should_run:
             self._protocol = "http"
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
-            print(url)
             data = ExecutorMetadata(
                 id=self._executor_id,
                 address="",
                 runner_name="extractor",
                 labels={},
             ).model_dump()
-            print(f"attempting to register executor: {data}")
+            print(f"[bold] agent: [/bold] attempting to register executor: {data}")
             try:
                 async with httpx.AsyncClient() as client:
                     async with aconnect_sse(client, "POST", url, json=data, headers={"Content-Type": "application/json"}) as event_source:  # type: ignore
+                        print(f"[bold] agent: [/bold] registered executor")
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
                             tasks = []
@@ -241,12 +241,12 @@ class ExtractorAgent:
                                 )
                             self._task_store.add_tasks(tasks)
             except Exception as e:
-                print(f"failed to register: {e}")
+                print(f"[bold red] agent: [/bold] failed to register: {e}")
                 await asyncio.sleep(5)
                 continue
 
     async def _shutdown(self, loop):
-        print("shutting down agent ...")
+        print("[bold] agent: [/bold] shutting down agent ...")
         self._should_run = False
         for task in asyncio.all_tasks(loop):
             task.cancel()

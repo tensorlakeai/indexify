@@ -1,6 +1,7 @@
 import os
 import httpx
 from .api_objects import Task
+from rich import print
 
 
 class Downloader:
@@ -12,11 +13,17 @@ class Downloader:
         path = os.path.join(self.code_path, namespace, name)
         if os.path.exists(path):
             return path
+        print(f"[bold] downloader: [/bold] downloading graph: {name} to path: {path}")
         response = httpx.get(
             f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
         )
-        response.raise_for_status()
-        print(f"Downloading graph: {name} to path: {path}")
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            print(
+                f"[bold red] downloader: [/bold] failed to download graph {name} with error {response.text}"
+            )
+            raise
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(response.content)
@@ -29,13 +36,13 @@ class Downloader:
         else:
             url = f"{self.base_url}/internal/fn_outputs/{task.input_key}"
 
-        print(f"downloading input from url {url}")
+        print(f"[bold] downloader: [/bold] downloading input from url {url}")
         response = httpx.get(url)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             print(
-                f"failed to download input {task.input_key} with error {response.text}"
+                f"[bold red] downloader: [/bold] failed to download input {task.input_key} with error {response.text}"
             )
             raise
         return response.content

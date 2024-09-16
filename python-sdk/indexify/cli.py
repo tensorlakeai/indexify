@@ -10,6 +10,7 @@ from typing import Annotated, Optional
 import nanoid
 from indexify.executor.function_worker import FunctionWorker
 from indexify.executor.agent import ExtractorAgent
+from rich import print
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
@@ -52,14 +53,17 @@ def executor(
     config_path: Optional[str] = typer.Option(
         None, help="Path to the TLS configuration file"
     ),
+    executor_cache: Optional[str] = typer.Option(
+        "~/.indexify/executor_cache", help="Path to the executor cache directory"
+    ),
 ):
-    print("workers ", workers)
-    print("config path provided ", config_path)
-    print(f"receiving tasks from server addr: {server_addr}")
     id = nanoid.generate()
-    print(f"executor id: {id}")
+    print(f"[bold] agent: [/bold] number of workers {workers}, config path: {config_path}, server addr: {server_addr}, executor id: {id}, executor cache: {executor_cache}")
 
     function_worker = FunctionWorker(workers=workers)
+    from pathlib import Path
+    executor_cache = Path(executor_cache).expanduser().absolute()
+    Path(executor_cache).mkdir(parents=True, exist_ok=True)
 
     agent = ExtractorAgent(
         id,
@@ -67,12 +71,13 @@ def executor(
         function_worker=function_worker,
         server_addr=server_addr,
         config_path=config_path,
+        code_path=executor_cache,
     )
 
     try:
         asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError as ex:
-        print("exiting gracefully", ex)
+        print("[bold] agent: [/bold] exiting gracefully", ex)
 
 
 def _create_image_for_func(g, func_name):

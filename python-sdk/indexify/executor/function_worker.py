@@ -9,7 +9,7 @@ from indexify.functions_sdk.data_objects import BaseData, RouterOutput
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 from pydantic import Json
-
+from rich import print
 pickle.loads = cloudpickle.Pickler
 
 graphs: Dict[str, Graph] = {}
@@ -69,7 +69,7 @@ def _run_function(
     input: bytes,
     code_path: str,
 ) -> Union[List[bytes], RouterOutput]:
-    print(f"running function: {fn_name} namespace: {namespace} graph: {graph_name}")
+    print(f"[bold] function worker: [/bold] running function: {fn_name} namespace: {namespace} graph: {graph_name}")
     key = f"{namespace}/{graph_name}/{fn_name}"
     if key not in function_wrapper_map:
         _load_function(namespace, graph_name, fn_name, code_path)
