@@ -470,15 +470,8 @@ async fn graph_invocations(
         .map_err(IndexifyAPIError::internal_error)?;
     let mut invocations = vec![];
     for data_object in data_objects {
-        let payload = state
-            .blob_storage
-            .read_bytes(&data_object.payload.path)
-            .await
-            .map_err(IndexifyAPIError::internal_error)?;
-        let payload = serde_json::from_slice(&payload)?;
         invocations.push(DataObject {
             id: data_object.id,
-            payload,
             payload_size: data_object.payload.size,
             payload_sha_256: data_object.payload.sha256_hash,
         });

@@ -18,7 +18,7 @@ members = [
 
 [workspace.dependencies]
 serde = { version = "1.0.210", features = ["derive"] }
-anyhow = "1.0.88"
+anyhow = "1.0.89"
 serde_json = "1.0.128"
 # https://github.com/rust-rocksdb/rust-rocksdb/issues/881
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "87b6b2df89c1fafcfb53129f8c3304d636a94f2e", features=["multi-threaded-cf"]}
@@ -82,6 +82,7 @@ uuid = { version = "1.10.0", features = ["v4"] }
 indexify_utils = {workspace=true}
 tower-http = { workspace = true }
 bytes.workspace = true
+ciborium.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -89,7 +90,7 @@ tempfile = { workspace = true }
 
 [build-dependencies]
 # All features enabled
-vergen = { version = "9.0.0", features = [
+vergen = { version = "9.0.1", features = [
     "build",
     "cargo",
     "rustc",

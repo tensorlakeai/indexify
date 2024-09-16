@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use axum::{
+    body::Body,
     extract::{Multipart, Path, State},
     Json,
 };
 use blob_store::PutResult;
 use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
-use indexify_utils::json_to_cbor;
 use state_store::requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::info;
 use utoipa::ToSchema;
@@ -139,13 +139,12 @@ pub async fn invoke_with_file(
 pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
-    Json(payload): Json<serde_json::Value>,
+    body: Body,
 ) -> Result<Json<InvocationId>, IndexifyAPIError> {
     let payload_key = Uuid::new_v4().to_string();
-    let payload_stream = stream::once(async move {
-        let payload_cbor = json_to_cbor(payload)?;
-        Ok(payload_cbor.into())
-    });
+    let payload_stream = body
+        .into_data_stream()
+        .map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     let put_result = state
         .blob_storage
         .put(&payload_key, Box::pin(payload_stream))

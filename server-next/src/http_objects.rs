@@ -266,7 +266,6 @@ pub struct ComputeGraphsList {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DataObject {
     pub id: String,
-    pub payload: serde_json::Value,
     pub payload_size: u64,
     pub payload_sha_256: String,
 }
