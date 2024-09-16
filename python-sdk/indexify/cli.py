@@ -11,7 +11,7 @@ import nanoid
 from indexify.executor.function_worker import FunctionWorker
 from indexify.executor.agent import ExtractorAgent
 
-app = typer.Typer(pretty_exceptions_enable=False)
+app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
 
 @app.command()
