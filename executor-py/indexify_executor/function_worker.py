@@ -2,10 +2,10 @@ import asyncio
 import concurrent
 import pickle
 from concurrent.futures.process import BrokenProcessPool
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import cloudpickle
-from indexify.functions_sdk.data_objects import BaseData
+from indexify.functions_sdk.data_objects import BaseData, RouterOutput
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 from pydantic import Json
@@ -68,12 +68,13 @@ def _run_function(
     fn_name: str,
     input: bytes,
     code_path: str,
-) -> List[bytes]:
+) -> Union[List[bytes], RouterOutput]:
     print(f"running function: {fn_name} namespace: {namespace} graph: {graph_name}")
     key = f"{namespace}/{graph_name}/{fn_name}"
     if key not in function_wrapper_map:
         _load_function(namespace, graph_name, fn_name, code_path)
 
     graph: Graph = graphs[f"{namespace}/{graph_name}"]
-    results = graph.invoke_fn_ser(fn_name, input)
-    return results
+    if fn_name in graph.routers:
+        return graph.invoke_router(fn_name, input)
+    return graph.invoke_fn_ser(fn_name, input)

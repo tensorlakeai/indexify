@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Union
 import httpx
 import yaml
 from httpx_sse import aconnect_sse
-from indexify.functions_sdk.data_objects import BaseData
+from indexify.functions_sdk.data_objects import BaseData, RouterOutput
 from pydantic import BaseModel, Json
 
 from .api_objects import ExecutorMetadata, Task
@@ -90,6 +90,7 @@ class ExtractorAgent:
                     # Send task outcome to the server
                     self._task_reporter.report_task_outcome(
                         task_outcome.outputs,
+                        task_outcome.router_output,
                         task_outcome.task,
                         task_outcome.task_outcome,
                     )
@@ -186,11 +187,13 @@ class ExtractorAgent:
                     async_task: ExtractTask
                     try:
                         outputs = await async_task
-                        print(f"completed task {async_task.task.id}")
+                        router_output = outputs if isinstance(outputs, RouterOutput) else None
+                        fn_outputs = outputs if not isinstance(outputs, RouterOutput) else []
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="success",
-                            outputs=outputs,
+                            outputs=fn_outputs,
+                            router_output=router_output,
                         )
                         self._task_store.complete(outcome=completed_task)
                     except BrokenProcessPool:
@@ -225,8 +228,7 @@ class ExtractorAgent:
                 runner_name="extractor",
                 labels={},
             ).model_dump()
-            print(data)
-            print("attempting to register")
+            print(f"attempting to register executor: {data}")
             try:
                 async with httpx.AsyncClient() as client:
                     async with aconnect_sse(client, "POST", url, json=data, headers={"Content-Type": "application/json"}) as event_source:  # type: ignore

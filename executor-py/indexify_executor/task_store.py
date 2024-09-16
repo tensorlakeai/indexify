@@ -1,7 +1,7 @@
 import asyncio
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
-from indexify.functions_sdk.data_objects import BaseData
+from indexify.functions_sdk.data_objects import RouterOutput
 from pydantic import BaseModel
 
 from .api_objects import Task
@@ -11,6 +11,7 @@ class CompletedTask(BaseModel):
     task: Task
     task_outcome: Literal["success", "failure"]
     outputs: List[bytes]
+    router_output: Optional[RouterOutput] = None
 
 
 class TaskStore:

@@ -1,12 +1,11 @@
 import io
-from typing import List
+from typing import List, Optional, Union
 
 import httpx
 import nanoid
-from indexify.functions_sdk.cbor_serializer import CborSerializer
-from indexify.functions_sdk.data_objects import BaseData
+from indexify.functions_sdk.data_objects import RouterOutput
 
-from indexify_executor.api_objects import Task, TaskOutput, TaskResult
+from indexify_executor.api_objects import Task, TaskResult, RouterOutput as ApiRouterOutput
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -23,13 +22,14 @@ class TaskReporter:
         self._base_url = base_url
         self._executor_id = executor_id
 
-    def report_task_outcome(self, outputs: List[bytes], task: Task, outcome: str):
+    def report_task_outcome(self, outputs: Union[List[bytes], RouterOutput], router_output: Optional[RouterOutput], task: Task, outcome: str):
         fn_outputs = []
-        for output in outputs:
-            fn_outputs.append(("node_outputs", (nanoid.generate(), io.BytesIO(output))))
-
+        if not isinstance(outputs, RouterOutput):
+            for output in outputs:
+                fn_outputs.append(("node_outputs", (nanoid.generate(), io.BytesIO(output))))
+        router_output = ApiRouterOutput(edges=router_output.edges) if router_output else None
         task_result = TaskResult(
-            router_outputs=[],
+            router_output=router_output,
             outcome=outcome,
             namespace=task.namespace,
             compute_graph=task.compute_graph,
