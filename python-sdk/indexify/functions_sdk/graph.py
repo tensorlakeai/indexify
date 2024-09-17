@@ -1,6 +1,8 @@
 import inspect
 from collections import defaultdict
 from inspect import signature
+from operator import index
+import re
 from typing import (
     Annotated,
     Any,
@@ -106,8 +108,33 @@ class Graph:
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]
     ) -> "Graph":
+        # Validation
+        if not (
+            indexify_fn.__name__ == "IndexifyFn" or
+            indexify_fn.__name__ == "IndexifyRo"
+        ):
+            raise Exception(
+                f"Unable to add node of type `{indexify_fn.__name__}`. "
+                f"Required, `IndexifyFunction` or `IndexifyRouter`"
+            )
+
+        signature = inspect.signature(indexify_fn.run)
+
+        for param in signature.parameters.values():
+            if param.annotation == inspect.Parameter.empty:
+                raise Exception(
+                    f"Input param {param.name} in {indexify_fn.name} has empty"
+                    f" type annotation"
+                )
+
+        if signature.return_annotation == inspect.Signature.empty:
+            raise Exception(
+                f"Function {indexify_fn.name} has empty return type annotation"
+            )
+
+        # main
         if indexify_fn.name in self.nodes:
-            return
+            return self
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -115,6 +142,38 @@ class Graph:
     def route(
         self, from_node: Type[IndexifyRouter], to_nodes: List[Type[IndexifyFunction]]
     ) -> "Graph":
+        # Validation
+        print(from_node)
+        signature = inspect.signature(from_node.run)
+
+        if signature.return_annotation == inspect.Signature.empty:
+            raise Exception(
+                f"Function {from_node.name} has empty return type annotation"
+            )
+
+        # We lose the exact type string when the object is created
+        source = inspect.getsource(from_node.run)
+        pattern = r'Union\[((?:\w+(?:,\s*)?)+)\]'
+        match = re.search(pattern, source)
+        src_route_nodes = None
+        if match:
+            # nodes = re.findall(r'\w+', match.group(1))
+            src_route_nodes = [node.strip() for node in match.group(1).split(',')]
+        else:
+            raise Exception(
+                f"Invalid router for {from_node.name}, cannot find output nodes"
+            )
+
+        to_node_names = [i.name for i in to_nodes]
+
+        for src_node in src_route_nodes:
+            if src_node not in to_node_names:
+                raise Exception(
+                    f"Unable to find {src_node} in to_nodes "
+                    f"{to_node_names}"
+                )
+
+        # main
         print(
             f"Adding router {from_node.name} to nodes {[node.name for node in to_nodes]}"
         )

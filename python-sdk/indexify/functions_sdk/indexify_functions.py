@@ -19,6 +19,8 @@ from .data_objects import BaseData, RouterOutput
 from .image import Image
 
 
+import inspect
+
 class EmbeddingIndexes(BaseModel):
     dim: int
     distance: Optional[str] = "cosine"
@@ -119,6 +121,7 @@ def indexify_function(
                 setattr(IndexifyFn, key, value)
 
         IndexifyFn.image = image
+        IndexifyFn.indexify_type = "indexify-function"
 
         return IndexifyFn
 
