@@ -20,6 +20,7 @@ from .image import Image
 
 
 base_idexify_image = Image() \
+    .image_name("base-image") \
     .base_image("python:3.9-slim") \
     .run("pip install indexify")
 

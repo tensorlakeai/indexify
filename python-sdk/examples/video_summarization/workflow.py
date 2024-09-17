@@ -20,7 +20,6 @@ class YoutubeURL(BaseModel):
 
 
 base_image = "python:3.9-slim"
-image_name = "func1-image-1"
 
 yt_downloader_image = Image() \
     .image_name("yt-image-1") \
