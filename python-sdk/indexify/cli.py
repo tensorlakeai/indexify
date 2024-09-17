@@ -17,7 +17,7 @@ app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
 @app.command()
 def build_image(workflow_file_path: str, func_name: str = None):
-    globals_dict = {"__name__": "__main__"}
+    globals_dict = {}
 
     try:
         exec(open(workflow_file_path).read(), globals_dict)
@@ -26,11 +26,16 @@ def build_image(workflow_file_path: str, func_name: str = None):
             f"could not find workflow file to execute at: " f"`{workflow_file_path}`"
         )
 
+    # move to a case where they just specify the list of funcs as a list
+
+    print('----')
+    print(globals_dict.items())
+    print('----')
+
     graph = None
     for name, obj in globals_dict.items():
-        if type(obj) is Graph:
-            print(f"Found graph: `{obj.name}`")
-            graph = obj
+        if name == 'create_graph':
+            graph = obj()
             break
 
     if graph is None:
@@ -38,10 +43,10 @@ def build_image(workflow_file_path: str, func_name: str = None):
 
     if func_name is None:
         print(f"Creating containers for all functions.")
-        for func_name in obj.nodes:
-            _create_image_for_func(obj, func_name)
+        for func_name in graph.nodes:
+            _create_image_for_func(graph, func_name)
     else:
-        _create_image_for_func(obj, func_name)
+        _create_image_for_func(graph, func_name)
 
 
 @app.command(help="Joins the extractors to the coordinator server")
@@ -99,15 +104,16 @@ def _build_image(image: Image, func_name: str = None):
         exit(-1)
 
     docker_file_str_template = """
-        FROM {base_image}
+FROM {base_image}
 
-        WORKDIR /app
-
+WORKDIR /app
         """
 
     docker_file_str = docker_file_str_template.format(base_image=image._base_image)
 
-    docker_file_str += "\n".join(image._run_strs)
+    run_strs = ["RUN " + i for i in image._run_strs]
+
+    docker_file_str += "\n".join(run_strs)
 
     print("[bold]creating image using Dockerfile contents,[/bold]")
     print(f"[magenta]{docker_file_str}[/magenta]\n\n")
