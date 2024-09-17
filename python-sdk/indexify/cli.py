@@ -87,13 +87,13 @@ def _build_image(image: Image, func_name: str = None):
         print(f"unable to connect with docker: {e}")
         exit(-1)
 
-    docker_file_str_template = """
+    docker_file_str_template = \
+"""
 FROM {base_image}
 
 WORKDIR /app
 
-RUN pip install indexify
-        """
+"""
 
     docker_file_str = docker_file_str_template.format(base_image=image._base_image)
 

@@ -19,12 +19,6 @@ from .data_objects import BaseData, RouterOutput
 from .image import Image
 
 
-base_idexify_image = Image() \
-    .image_name("base-image") \
-    .base_image("python:3.9-slim") \
-    .run("pip install indexify")
-
-
 class EmbeddingIndexes(BaseModel):
     dim: int
     distance: Optional[str] = "cosine"
@@ -57,7 +51,7 @@ class IndexifyFunction(ABC):
 class IndexifyRouter(ABC):
     name: str = ""
     description: str = ""
-    image: Image = base_idexify_image
+    image: Image = None
     placement_constraints: List[PlacementConstraints] = []
 
     @abstractmethod
@@ -68,7 +62,7 @@ class IndexifyRouter(ABC):
 def indexify_router(
     name: Optional[str] = None,
     description: Optional[str] = "",
-    image: Image = base_idexify_image,
+    image: Image = None,
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -101,7 +95,7 @@ def indexify_router(
 def indexify_function(
     name: Optional[str] = None,
     description: Optional[str] = "",
-    image: Image = base_idexify_image,
+    image: Image = None,
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
