@@ -19,7 +19,12 @@ class YoutubeURL(BaseModel):
     resolution: str = Field("480p", description="Resolution of the video")
 
 
-yt_downloader_image = Image().run("pip install pytubefix")
+base_image = "python:3.9-slim"
+
+yt_downloader_image = Image() \
+    .image_name("yt-image-1") \
+    .base_image(base_image) \
+    .run("pip install pytubefix")
 
 
 @indexify_function(image=yt_downloader_image)
@@ -36,7 +41,13 @@ def download_youtube_video(url: YoutubeURL) -> List[File]:
     return [File(data=content, mime_type="video/mp4")]
 
 
-@indexify_function()
+audio_image = Image() \
+    .image_name("audio-image-1") \
+    .base_image(base_image) \
+    .run("pip install pydub")
+
+
+@indexify_function(image=audio_image)
 def extract_audio_from_video(file: File) -> File:
     """
     Extract the audio from the video.
@@ -66,7 +77,13 @@ class Transcription(BaseModel):
     classification: Optional[SpeechClassification] = None
 
 
-@indexify_function()
+transcribe_image = Image() \
+    .image_name("transcribe-image-1") \
+    .base_image(base_image) \
+    .run("pip install faster_whisper")
+
+
+@indexify_function(image=transcribe_image)
 def transcribe_audio(file: File) -> Transcription:
     """
     Transcribe audio and diarize speakers.
@@ -83,7 +100,16 @@ def transcribe_audio(file: File) -> Transcription:
     return Transcription(segments=audio_segments)
 
 
-@indexify_function()
+llama_cpp_image = Image() \
+    .image_name("classify-image-1") \
+    .base_image(base_image) \
+    .run("apt-get update && apt-get install -y build-essential") \
+    .run("pip install llama-cpp-python") \
+    .run("apt-get purge -y build-essential && "
+         "apt-get autoremove -y && rm -rf /var/lib/apt/lists/*")
+
+
+@indexify_function(image=llama_cpp_image)
 def classify_meeting_intent(speech: Transcription) -> Transcription:
     """
     Classify the intent of the audio.
@@ -140,7 +166,7 @@ class Summary(BaseModel):
     summary: str
 
 
-@indexify_function()
+@indexify_function(image=llama_cpp_image)
 def summarize_job_interview(speech: Transcription) -> Summary:
     """
     Summarize the job interview.
@@ -172,7 +198,7 @@ def summarize_job_interview(speech: Transcription) -> Summary:
     return Summary(summary=response)
 
 
-@indexify_function()
+@indexify_function(image=llama_cpp_image)
 def summarize_sales_call(speech: Transcription) -> Summary:
     """
     Summarize the sales call.

@@ -6,7 +6,7 @@ from rich import print
 
 from indexify import Graph
 from indexify.functions_sdk.image import Image
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 import nanoid
 from indexify.executor.function_worker import FunctionWorker
 from indexify.executor.agent import ExtractorAgent
@@ -15,33 +15,26 @@ from rich import print
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
 
-@app.command()
-def build_image(workflow_file_path: str, func_name: str = None):
-    globals_dict = {"__name__": "__main__"}
+@app.command(help="Build image for function names")
+def build_image(workflow_file_path: str, func_names: List[str]):
+    globals_dict = {}
 
     try:
         exec(open(workflow_file_path).read(), globals_dict)
     except FileNotFoundError as e:
         raise Exception(
-            f"could not find workflow file to execute at: " f"`{workflow_file_path}`"
+            f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
         )
 
+    found_funcs = []
     graph = None
     for name, obj in globals_dict.items():
-        if type(obj) is Graph:
-            print(f"Found graph: `{obj.name}`")
-            graph = obj
-            break
+        for func_name in func_names:
+            if name == func_name:
+                found_funcs.append(name)
+                _create_image_for_func(func_name=func_name, func_obj=obj)
 
-    if graph is None:
-        raise Exception(f"could not find a graph object in file `{workflow_file_path}`")
-
-    if func_name is None:
-        print(f"Creating containers for all functions.")
-        for func_name in obj.nodes:
-            _create_image_for_func(obj, func_name)
-    else:
-        _create_image_for_func(obj, func_name)
+    print(f"Processed functions {found_funcs}")
 
 
 @app.command(help="Joins the extractors to the coordinator server")
@@ -80,14 +73,10 @@ def executor(
         print("[bold] agent: [/bold] exiting gracefully", ex)
 
 
-def _create_image_for_func(g, func_name):
+def _create_image_for_func(func_name, func_obj):
     print(f"creating container for `{func_name}`.")
 
-    if func_name not in g.nodes.keys():
-        raise Exception(f"could not find `{func_name}` in graph {g.name}")
-
-    node = g.nodes[func_name]
-    _build_image(image=node.image, func_name=func_name)
+    _build_image(image=func_obj.image, func_name=func_name)
 
 
 def _build_image(image: Image, func_name: str = None):
@@ -98,16 +87,19 @@ def _build_image(image: Image, func_name: str = None):
         print(f"unable to connect with docker: {e}")
         exit(-1)
 
-    docker_file_str_template = """
-        FROM {base_image}
+    docker_file_str_template = \
+"""
+FROM {base_image}
 
-        WORKDIR /app
+WORKDIR /app
 
-        """
+"""
 
     docker_file_str = docker_file_str_template.format(base_image=image._base_image)
 
-    docker_file_str += "\n".join(image._run_strs)
+    run_strs = ["RUN " + i for i in image._run_strs]
+
+    docker_file_str += "\n".join(run_strs)
 
     print("[bold]creating image using Dockerfile contents,[/bold]")
     print(f"[magenta]{docker_file_str}[/magenta]\n\n")
@@ -115,6 +107,6 @@ def _build_image(image: Image, func_name: str = None):
     client = docker.from_env()
     client.images.build(
         fileobj=io.BytesIO(docker_file_str.encode()),
-        tag=image._tag,
+        tag=f"{image._image_name}:{image._tag}",
         rm=True,
     )
