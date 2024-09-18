@@ -31,7 +31,7 @@ class LocalClient(IndexifyClient):
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper(self._cache_dir)
 
-    def register_extraction_graph(self, graph: Graph):
+    def register_compute_graph(self, graph: Graph):
         self._graphs[graph.name] = graph
 
     def run_from_serialized_code(self, code: bytes, **kwargs):
@@ -103,9 +103,6 @@ class LocalClient(IndexifyClient):
     ) -> Optional[RouterOutput]:
         return g.invoke_router(node_name, input)
 
-    def register_graph(self, graph: Graph):
-        self._graphs[graph.name] = graph
-
     def graphs(self) -> str:
         return list(self._graphs.keys())
 
@@ -150,7 +147,7 @@ class LocalClient(IndexifyClient):
         results = []
         fn_model = self._graphs[graph].get_function(extractor_name).get_output_model()
         for result in self._results[ingested_object_id][extractor_name]:
-            output_dict = cbor2.loads(result)
-            payload = fn_model.model_validate(output_dict["payload"])
+            payload_dict = cbor2.loads(result.payload)
+            payload = fn_model.model_validate(payload_dict)
             results.append(payload)
         return results

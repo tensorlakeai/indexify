@@ -5,13 +5,13 @@ import httpx
 from pydantic import BaseModel
 
 from indexify.extractors.pdf_parser import Page, PageFragmentType, PDFParser
-from indexify.functions_sdk.data_objects import BaseData, File
+from indexify.functions_sdk.data_objects import File, IndexifyData
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunction,
     indexify_function,
 )
-from indexify.local_runner import LocalRunner
+from indexify.local_client import LocalClient
 
 
 @indexify_function()
@@ -38,7 +38,7 @@ def parse_pdf(file: File) -> Document:
     return Document(pages=pages)
 
 
-class TextChunk(BaseData):
+class TextChunk(IndexifyData):
     chunk: str
     metadata: dict = {}
     page_number: Optional[int] = None
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
     g.add_edge(ImageEmbeddingExtractor, LanceDBWriter)
 
-    local_runner = LocalRunner()
+    local_runner = LocalClient()
     local_runner.run_from_serialized_code(
         code=g.serialize(),
         url="https://raft.github.io/raft.pdf",

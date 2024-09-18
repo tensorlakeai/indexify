@@ -11,7 +11,7 @@ from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
-from indexify.local_runner import LocalRunner
+from indexify import create_client
 
 
 class YoutubeURL(BaseModel):
@@ -37,7 +37,9 @@ def download_youtube_video(url: YoutubeURL) -> List[File]:
     yt = YouTube(url.url)
     # content = yt.streams.filter(res=url.resolution).first().download()
     # This doesn't always work as YT might not have the resolution specified
+    print("Downloading video...")
     content = yt.streams.first().download()
+    print("Video downloaded")
     return [File(data=content, mime_type="video/mp4")]
 
 
@@ -260,13 +262,13 @@ def create_graph():
 
 if __name__ == "__main__":
     g = create_graph()
-    runner = LocalRunner()
-    runner.register_extraction_graph(g)
-    content_id = runner.invoke_graph_with_object(
+    client = create_client(local=True)
+    client.register_compute_graph(g)
+    content_id = client.invoke_graph_with_object(
         g.name, url=YoutubeURL(url="https://www.youtube.com/watch?v=gjHv4pM8WEQ")
     )
     print(f"[bold] Retrieving transcription for {content_id} [/bold]")
-    outputs = runner.graph_outputs(
+    outputs = client.graph_outputs(
         g.name, ingested_object_id=content_id, extractor_name=transcribe_audio.name
     )
     transcription = outputs[0]
@@ -275,7 +277,7 @@ if __name__ == "__main__":
             f"[bold] {round(segment.start_ts, 2)} - {round(segment.end_ts, 2)} [/bold]: {segment.text}"
         )
 
-    transcription_with_classification = runner.graph_outputs(
+    transcription_with_classification = client.graph_outputs(
         g.name,
         ingested_object_id=content_id,
         extractor_name=classify_meeting_intent.name,
@@ -293,7 +295,7 @@ if __name__ == "__main__":
 
     print(f"[bold] Summarization of transcription [/bold]")
     if classification.classification == "job-interview":
-        summary = runner.graph_outputs(
+        summary = client.graph_outputs(
             g.name,
             ingested_object_id=content_id,
             extractor_name=summarize_job_interview.name,
@@ -304,7 +306,7 @@ if __name__ == "__main__":
         "marketing-call",
         "product-call",
     ]:
-        summary = runner.graph_outputs(
+        summary = client.graph_outputs(
             g.name,
             ingested_object_id=content_id,
             extractor_name=summarize_sales_call.name,

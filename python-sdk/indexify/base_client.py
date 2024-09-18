@@ -9,6 +9,7 @@ from indexify.functions_sdk.graph import Graph
 class IndexifyClient(ABC):
 
     ### Operational APIs
+    @abstractmethod
     def register_compute_graph(self, graph: Graph):
         """
         Register a compute graph.
