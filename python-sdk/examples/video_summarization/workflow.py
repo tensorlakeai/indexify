@@ -4,6 +4,7 @@ from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 from rich import print
 
+from indexify import create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.image import Image
@@ -11,7 +12,6 @@ from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
-from indexify import create_client
 
 
 class YoutubeURL(BaseModel):
@@ -21,10 +21,9 @@ class YoutubeURL(BaseModel):
 
 base_image = "python:3.9-slim"
 
-yt_downloader_image = Image() \
-    .image_name("yt-image-1") \
-    .base_image(base_image) \
-    .run("pip install pytubefix")
+yt_downloader_image = (
+    Image().image_name("yt-image-1").base_image(base_image).run("pip install pytubefix")
+)
 
 
 @indexify_function(image=yt_downloader_image)
@@ -43,10 +42,9 @@ def download_youtube_video(url: YoutubeURL) -> List[File]:
     return [File(data=content, mime_type="video/mp4")]
 
 
-audio_image = Image() \
-    .image_name("audio-image-1") \
-    .base_image(base_image) \
-    .run("pip install pydub")
+audio_image = (
+    Image().image_name("audio-image-1").base_image(base_image).run("pip install pydub")
+)
 
 
 @indexify_function(image=audio_image)
@@ -79,10 +77,12 @@ class Transcription(BaseModel):
     classification: Optional[SpeechClassification] = None
 
 
-transcribe_image = Image() \
-    .image_name("transcribe-image-1") \
-    .base_image(base_image) \
+transcribe_image = (
+    Image()
+    .image_name("transcribe-image-1")
+    .base_image(base_image)
     .run("pip install faster_whisper")
+)
 
 
 @indexify_function(image=transcribe_image)
@@ -102,13 +102,17 @@ def transcribe_audio(file: File) -> Transcription:
     return Transcription(segments=audio_segments)
 
 
-llama_cpp_image = Image() \
-    .image_name("classify-image-1") \
-    .base_image(base_image) \
-    .run("apt-get update && apt-get install -y build-essential") \
-    .run("pip install llama-cpp-python") \
-    .run("apt-get purge -y build-essential && "
-         "apt-get autoremove -y && rm -rf /var/lib/apt/lists/*")
+llama_cpp_image = (
+    Image()
+    .image_name("classify-image-1")
+    .base_image(base_image)
+    .run("apt-get update && apt-get install -y build-essential")
+    .run("pip install llama-cpp-python")
+    .run(
+        "apt-get purge -y build-essential && "
+        "apt-get autoremove -y && rm -rf /var/lib/apt/lists/*"
+    )
+)
 
 
 @indexify_function(image=llama_cpp_image)
@@ -264,12 +268,13 @@ if __name__ == "__main__":
     g = create_graph()
     client = create_client(local=True)
     client.register_compute_graph(g)
-    content_id = client.invoke_graph_with_object(
+    invocation_id= client.invoke_graph_with_object(
         g.name, url=YoutubeURL(url="https://www.youtube.com/watch?v=gjHv4pM8WEQ")
     )
-    print(f"[bold] Retrieving transcription for {content_id} [/bold]")
+    invocation_id = "4bd41e4e8a694c66"
+    print(f"[bold] Retrieving transcription for {invocation_id} [/bold]")
     outputs = client.graph_outputs(
-        g.name, ingested_object_id=content_id, extractor_name=transcribe_audio.name
+        g.name, invocation_id=invocation_id, fn_name=transcribe_audio.name
     )
     transcription = outputs[0]
     for segment in transcription.segments:
@@ -279,8 +284,8 @@ if __name__ == "__main__":
 
     transcription_with_classification = client.graph_outputs(
         g.name,
-        ingested_object_id=content_id,
-        extractor_name=classify_meeting_intent.name,
+        invocation_id=invocation_id,
+        fn_name=classify_meeting_intent.name,
     )
 
     if len(transcription_with_classification) == 0:
@@ -297,8 +302,8 @@ if __name__ == "__main__":
     if classification.classification == "job-interview":
         summary = client.graph_outputs(
             g.name,
-            ingested_object_id=content_id,
-            extractor_name=summarize_job_interview.name,
+            invocation_id=invocation_id,
+            fn_name=summarize_job_interview.name,
         )
         print(summary[0].summary)
     elif classification.classification in [
@@ -308,7 +313,7 @@ if __name__ == "__main__":
     ]:
         summary = client.graph_outputs(
             g.name,
-            ingested_object_id=content_id,
-            extractor_name=summarize_sales_call.name,
+            invcoation_id=invocation_id,
+            fn_name=summarize_sales_call.name,
         )
         print(summary[0].summary)
