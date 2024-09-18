@@ -119,7 +119,6 @@ def indexify_function(
                 setattr(IndexifyFn, key, value)
 
         IndexifyFn.image = image
-        IndexifyFn.indexify_type = "indexify-function"
 
         return IndexifyFn
 
