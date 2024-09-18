@@ -19,8 +19,6 @@ from .data_objects import BaseData, RouterOutput
 from .image import Image
 
 
-import inspect
-
 class EmbeddingIndexes(BaseModel):
     dim: int
     distance: Optional[str] = "cosine"

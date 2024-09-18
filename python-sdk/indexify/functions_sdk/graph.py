@@ -142,8 +142,8 @@ class Graph:
     def route(
         self, from_node: Type[IndexifyRouter], to_nodes: List[Type[IndexifyFunction]]
     ) -> "Graph":
+
         # Validation
-        print(from_node)
         signature = inspect.signature(from_node.run)
 
         if signature.return_annotation == inspect.Signature.empty:
@@ -153,12 +153,18 @@ class Graph:
 
         # We lose the exact type string when the object is created
         source = inspect.getsource(from_node.run)
-        pattern = r'Union\[((?:\w+(?:,\s*)?)+)\]'
-        match = re.search(pattern, source)
+
+        union_pattern = r'Union\[((?:\w+(?:,\s*)?)+)\]'
+        union_match = re.search(union_pattern, source)
+
         src_route_nodes = None
-        if match:
+        if union_match:
             # nodes = re.findall(r'\w+', match.group(1))
-            src_route_nodes = [node.strip() for node in match.group(1).split(',')]
+            src_route_nodes = [node.strip() for node in union_match.group(1).split(',')]
+            if len(src_route_nodes) <= 1:
+                raise Exception(
+                    f"Invalid router for {from_node.name}, lte 1 route."
+                )
         else:
             raise Exception(
                 f"Invalid router for {from_node.name}, cannot find output nodes"
