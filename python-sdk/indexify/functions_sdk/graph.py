@@ -1,6 +1,8 @@
 import inspect
 from collections import defaultdict
 from inspect import signature
+from operator import index
+import re
 from typing import (
     Annotated,
     Any,
@@ -22,6 +24,10 @@ from typing_extensions import get_args, get_origin
 
 from .cbor_serializer import CborSerializer
 from .data_objects import BaseData, RouterOutput
+from .graph_validation import (
+    validate_node,
+    validate_route,
+)
 from .indexify_functions import (
     IndexifyFunction,
     IndexifyFunctionWrapper,
@@ -106,8 +112,11 @@ class Graph:
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]
     ) -> "Graph":
+
+        validate_node(indexify_fn=indexify_fn)
+
         if indexify_fn.name in self.nodes:
-            return
+            return self
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -115,6 +124,9 @@ class Graph:
     def route(
         self, from_node: Type[IndexifyRouter], to_nodes: List[Type[IndexifyFunction]]
     ) -> "Graph":
+
+        validate_route(from_node=from_node, to_nodes=to_nodes)
+
         print(
             f"Adding router {from_node.name} to nodes {[node.name for node in to_nodes]}"
         )
