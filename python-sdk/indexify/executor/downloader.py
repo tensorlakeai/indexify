@@ -1,7 +1,12 @@
 import os
+
 import httpx
-from .api_objects import Task
 from rich import print
+
+from indexify.functions_sdk.cbor_serializer import CborSerializer
+from indexify.functions_sdk.data_objects import IndexifyData
+
+from .api_objects import Task
 
 
 class Downloader:
@@ -29,7 +34,7 @@ class Downloader:
             f.write(response.content)
         return path
 
-    async def download_input(self, task: Task) -> bytes:
+    async def download_input(self, task: Task) -> IndexifyData:
         input_id = task.input_key.split("|")[-1]
         if task.invocation_id == input_id:
             url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/payload"
@@ -45,4 +50,6 @@ class Downloader:
                 f"[bold red] downloader: [/bold] failed to download input {task.input_key} with error {response.text}"
             )
             raise
-        return response.content
+        if task.invocation_id == input_id:
+            return IndexifyData(payload=response.content, id=input_id)
+        return CborSerializer.deserialize(response.content)

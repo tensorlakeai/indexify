@@ -1,7 +1,7 @@
 import unittest
 from typing import List, Optional, Union
 
-from indexify.functions_sdk.data_objects import BaseData, RouterOutput
+from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunctionWrapper,
     indexify_function,
@@ -19,7 +19,7 @@ class TestFunctionWrapper(unittest.TestCase):
             return "hello"
 
         extractor_wrapper = IndexifyFunctionWrapper(extractor_a)
-        result = extractor_wrapper.run(BaseData(payload={"url": "foo"}))
+        result = extractor_wrapper.run(IndexifyData(payload={"url": "foo"}))
         self.assertEqual(result[0].payload, "hello")
 
     def test_get_output_model(self):
@@ -63,7 +63,7 @@ class TestFunctionWrapper(unittest.TestCase):
             return [func_a]
 
         router_wrapper = IndexifyFunctionWrapper(router_fn)
-        result = router_wrapper.run(BaseData(payload={"url": "foo"}))
+        result = router_wrapper.run(IndexifyData(payload={"url": "foo"}))
         self.assertTrue(isinstance(result, RouterOutput))
         self.assertEqual(result.edges, ["func_a"])
 

@@ -1,16 +1,15 @@
-import io
 import asyncio
+import io
+from typing import Annotated, Optional, List
+
 import docker
+import nanoid
 import typer
 from rich import print
 
-from indexify import Graph
-from indexify.functions_sdk.image import Image
-from typing import Annotated, List, Optional
-import nanoid
-from indexify.executor.function_worker import FunctionWorker
 from indexify.executor.agent import ExtractorAgent
-from rich import print
+from indexify.executor.function_worker import FunctionWorker
+from indexify.functions_sdk.image import Image
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
@@ -51,10 +50,13 @@ def executor(
     ),
 ):
     id = nanoid.generate()
-    print(f"[bold] agent: [/bold] number of workers {workers}, config path: {config_path}, server addr: {server_addr}, executor id: {id}, executor cache: {executor_cache}")
+    print(
+        f"[bold] agent: [/bold] number of workers {workers}, config path: {config_path}, server addr: {server_addr}, executor id: {id}, executor cache: {executor_cache}"
+    )
 
     function_worker = FunctionWorker(workers=workers)
     from pathlib import Path
+
     executor_cache = Path(executor_cache).expanduser().absolute()
     Path(executor_cache).mkdir(parents=True, exist_ok=True)
 

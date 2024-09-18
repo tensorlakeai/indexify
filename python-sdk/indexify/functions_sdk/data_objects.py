@@ -7,9 +7,10 @@ class RouterOutput(BaseModel):
     edges: List[str]
 
 
-class BaseData(BaseModel):
-    content_id: Optional[str] = None
-    payload: Optional[Any] = None
+class IndexifyData(BaseModel):
+    id: Optional[str] = None
+    payload: bytes
+    payload_encoding: str = "cbor"
 
 
 class File(BaseModel):

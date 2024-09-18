@@ -7,8 +7,13 @@ from nanoid import generate
 from pydantic import BaseModel, Json
 from rich import print
 
-from indexify.base_client import IndexifyClient 
-from indexify.functions_sdk.data_objects import BaseData, File, RouterOutput
+from indexify.base_client import IndexifyClient
+from indexify.functions_sdk.cbor_serializer import CborSerializer
+from indexify.functions_sdk.data_objects import (
+    File,
+    IndexifyData,
+    RouterOutput,
+)
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
 
@@ -16,14 +21,14 @@ from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
 # Holds the outputs of a
 class ContentTree(BaseModel):
     id: str
-    outputs: Dict[str, List[BaseData]]
+    outputs: Dict[str, List[IndexifyData]]
 
 
-class LocalRunner(IndexifyClient):
+class LocalClient(IndexifyClient):
     def __init__(self, cache_dir: str = "./indexify_local_runner_cache"):
         self._cache_dir = cache_dir
         self._graphs: Dict[str, Graph] = {}
-        self._results: Dict[str, Dict[str, List[BaseData]]] = {}
+        self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper(self._cache_dir)
 
     def register_extraction_graph(self, graph: Graph):
@@ -34,13 +39,12 @@ class LocalRunner(IndexifyClient):
         self.run(g, **kwargs)
 
     def run(self, g: Graph, **kwargs):
-        input = cbor2.dumps(kwargs)
+        input = IndexifyData(id=generate(), payload=cbor2.dumps(kwargs))
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
-        content_id = generate()
-        self._results[content_id] = outputs
+        self._results[input.id] = outputs
         self._run(g, input, outputs)
-        return content_id
+        return input.id
 
     def _run(
         self,
@@ -50,21 +54,26 @@ class LocalRunner(IndexifyClient):
     ):
         queue = deque([(g._start_node.name, initial_input)])
         while queue:
-            node_name, input_bytes = queue.popleft()
+            node_name, input = queue.popleft()
+            input_bytes = cbor2.dumps(input.model_dump())
             cached_output_bytes: Optional[List[bytes]] = self._cache.get(
                 g.name, node_name, input_bytes
             )
             if cached_output_bytes is not None:
                 for cached_output in cached_output_bytes:
-                    outputs[node_name].append(cached_output)
+                    outputs[node_name].append(CborSerializer.deserialize(cached_output))
             else:
-                function_results: List[bytes] = g.invoke_fn_ser(node_name, input_bytes)
+                function_results: List[IndexifyData] = g.invoke_fn_ser(node_name, input)
                 outputs[node_name].extend(function_results)
+                function_results_bytes: List[bytes] = [
+                    CborSerializer.serialize(function_result)
+                    for function_result in function_results
+                ]
                 self._cache.set(
                     g.name,
                     node_name,
                     input_bytes,
-                    function_results,
+                    function_results_bytes,
                 )
 
             function_outputs = outputs[node_name]
@@ -89,7 +98,9 @@ class LocalRunner(IndexifyClient):
                 for output in function_outputs:
                     queue.append((out_edge, output))
 
-    def _route(self, g: Graph, node_name: str, input: bytes) -> Optional[RouterOutput]:
+    def _route(
+        self, g: Graph, node_name: str, input: IndexifyData
+    ) -> Optional[RouterOutput]:
         return g.invoke_router(node_name, input)
 
     def register_graph(self, graph: Graph):

@@ -15,7 +15,8 @@ from typing import (
 from pydantic import BaseModel
 from typing_extensions import get_type_hints
 
-from .data_objects import BaseData, RouterOutput
+from .cbor_serializer import CborSerializer
+from .data_objects import IndexifyData, RouterOutput
 from .image import Image
 
 
@@ -150,7 +151,7 @@ class IndexifyFunctionWrapper:
 
     def run(
         self, input: Union[Dict, Type[BaseModel]]
-    ) -> Union[List[BaseData], RouterOutput]:
+    ) -> Union[List[IndexifyData], RouterOutput]:
         if isinstance(input, dict):
             extracted_data = self.indexify_function.run(**input)
         else:
@@ -165,9 +166,9 @@ class IndexifyFunctionWrapper:
             return RouterOutput(edges=edges)
 
         if not isinstance(extracted_data, list):
-            return [BaseData(payload=extracted_data)]
+            return [IndexifyData(payload=CborSerializer.serialize(extracted_data))]
 
         outputs = []
         for data in extracted_data:
-            outputs.append(BaseData(payload=data))
+            outputs.append(IndexifyData(payload=CborSerializer.serialize(data)))
         return outputs

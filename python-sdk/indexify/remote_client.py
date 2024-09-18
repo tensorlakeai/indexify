@@ -1,14 +1,24 @@
 import os
-from typing import Any, List, Optional, Dict, Union
-from pydantic import Json
+from typing import Any, Dict, List, Optional, Union
 
+import cbor2
 import httpx
 import yaml
+from pydantic import BaseModel, Json
 
 from indexify.base_client import IndexifyClient
-from indexify.error import Error, ApiException
+from indexify.error import ApiException, Error
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
+
+
+class GraphOutputMetadata(BaseModel):
+    id: str
+    fn_name: str
+
+
+class GraphOutputs(BaseModel):
+    outputs: List[GraphOutputMetadata]
 
 
 class RemoteClient(IndexifyClient):
@@ -166,8 +176,26 @@ class RemoteClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         self._post("namespaces", json={"namespace": namespace})
 
-    def invoke_graph_with_object(self, graph: str, object: Any) -> str:
-        pass
+    def invoke_graph_with_object(self, graph: str, **kwargs) -> str:
+        json_object = {}
+        for key, value in kwargs.items():
+            if isinstance(value, BaseModel):
+                value = value.model_dump_json(exclude_none=True)
+            json_object[key] = value
+        cbor_object = cbor2.dumps(json_object)
+        response = self._post(
+            f"namespaces/{self.namespace}/compute_graphs/{graph}/invoke_object",
+            headers={"Content-Type": "application/cbor"},
+            data=cbor_object,
+        )
+        return response.json()["id"]
+
+    def download_output(self, output_id: str, block_until_done: bool = True) -> bytes:
+        response = self._get(
+            f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{ingested_object_id}outputs/{output_id}",
+        )
+        response.raise_for_status()
+        return response.content
 
     def graph_outputs(
         self,
@@ -185,7 +213,13 @@ class RemoteClient(IndexifyClient):
         block_until_done: bool = True: If True, the method will block until the extraction is done. If False, the method will return immediately.
         return: Union[Dict[str, List[Any]], List[Any]]: The extracted objects. If the extractor name is provided, the output is a list of extracted objects by the extractor. If the extractor name is not provided, the output is a dictionary with the extractor name as the key and the extracted objects as the value. If no objects are found, an empty list is returned.
         """
-        pass
+        response = self._get(
+            f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{ingested_object_id}outputs",
+        )
+        response.raise_for_status()
+        graph_outputs = GraphOutputs(**response.json())
+        for output in graph_outputs.outputs:
+            output = self.download_output(output.id, block_until_done)
 
     def invoke_graph_with_file(
         self, graph: str, path: str, metadata: Optional[Dict[str, Json]] = None
@@ -197,4 +231,3 @@ class RemoteClient(IndexifyClient):
         return: str: The ID of the ingested object
         """
         pass
-

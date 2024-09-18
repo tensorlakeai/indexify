@@ -1,7 +1,8 @@
 from typing import Any, Dict, List, Optional
 
-from indexify.functions_sdk.data_objects import BaseData
 from pydantic import BaseModel, Json
+
+from indexify.functions_sdk.data_objects import IndexifyData
 
 
 class Task(BaseModel):
@@ -26,6 +27,7 @@ class RouterOutput(BaseModel):
 
 class FnOutput(BaseModel):
     payload: Json
+
 
 class TaskResult(BaseModel):
     router_output: Optional[RouterOutput] = None

@@ -1,8 +1,5 @@
 import inspect
 from collections import defaultdict
-from inspect import signature
-from operator import index
-import re
 from typing import (
     Annotated,
     Any,
@@ -22,19 +19,20 @@ import cloudpickle
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
 
-from .cbor_serializer import CborSerializer
-from .data_objects import BaseData, RouterOutput
 from .graph_validation import (
     validate_node,
     validate_route,
 )
+from .data_objects import IndexifyData, RouterOutput
 from .indexify_functions import (
     IndexifyFunction,
     IndexifyFunctionWrapper,
     IndexifyRouter,
 )
 
-RouterFn = Annotated[Callable[[BaseData], Optional[List[IndexifyFunction]]], "RouterFn"]
+RouterFn = Annotated[
+    Callable[[IndexifyData], Optional[List[IndexifyFunction]]], "RouterFn"
+]
 GraphNode = Annotated[Union[IndexifyFunctionWrapper, RouterFn], "GraphNode"]
 
 
@@ -156,24 +154,22 @@ class Graph:
         self.add_edges(from_node, [to_node])
         return self
 
-    def invoke_fn_ser(self, name: str, serialized_input: bytes) -> List[bytes]:
+    def invoke_fn_ser(self, name: str, input: IndexifyData) -> List[IndexifyData]:
         fn_wrapper = self.get_function(name)
-        input = cbor2.loads(serialized_input)
-        input = self.deserialize_input_from_dict(name, input)
-        output: List[BaseData] = fn_wrapper.run(input.payload)
-        return CborSerializer.serialize(output)
+        payload = cbor2.loads(input.payload)
+        input = self.deserialize_input_from_dict(name, payload)
+        outputs: List[IndexifyData] = fn_wrapper.run(input)
+        return outputs
 
-    def invoke_router(
-        self, name: str, serialized_input: bytes
-    ) -> Optional[RouterOutput]:
+    def invoke_router(self, name: str, input: IndexifyData) -> Optional[RouterOutput]:
         fn_wrapper = self.get_function(name)
-        input = cbor2.loads(serialized_input)
-        input = self.deserialize_input_from_dict(name, input)
-        return fn_wrapper.run(input.payload)
+        input_payload = cbor2.loads(input.payload)
+        input = self.deserialize_input_from_dict(name, input_payload)
+        return fn_wrapper.run(input)
 
     def deserialize_input_from_dict(
-        self, compute_fn: str, json_data: Dict[str, Any]
-    ) -> BaseData:
+        self, compute_fn: str, payload: Dict[str, Any]
+    ) -> IndexifyData:
         compute_fn = self.nodes[compute_fn]
         if not compute_fn:
             raise ValueError(f"Compute function {compute_fn} not found in graph")
@@ -193,20 +189,11 @@ class Graph:
         arg_name, arg_type = next(iter(arg_types.items()))
         if arg_type is None:
             raise ValueError(f"Argument {arg_name} has no type annotation")
-        payload = json_data.get("payload")
-        if payload and is_pydantic_model_from_annotation(arg_type):
-            payload_model = arg_type.model_validate(payload)
-            json_data["payload"] = payload_model
-        elif is_pydantic_model_from_annotation(arg_type):
-            if len(json_data.keys()) == 1 and isinstance(
-                list(json_data.values())[0], dict
-            ):
-                json_data = list(json_data.values())[0]
-            json_data = {"payload": arg_type.model_validate(json_data)}
-        else:
-            data_copy = json_data.copy()
-            json_data["payload"] = data_copy
-        return BaseData(**json_data)
+        if is_pydantic_model_from_annotation(arg_type):
+            if len(payload.keys()) == 1 and isinstance(list(payload.values())[0], dict):
+                payload = list(payload.values())[0]
+            return arg_type.model_validate(payload)
+        return payload
 
     def add_edges(
         self,

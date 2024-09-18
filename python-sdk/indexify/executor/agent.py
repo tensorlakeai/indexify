@@ -7,8 +7,10 @@ from typing import Dict, List, Optional
 import httpx
 import yaml
 from httpx_sse import aconnect_sse
-from indexify.functions_sdk.data_objects import RouterOutput
 from pydantic import BaseModel, Json
+from rich import print
+
+from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 
 from .api_objects import ExecutorMetadata, Task
 from .downloader import Downloader
@@ -16,14 +18,14 @@ from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
-from rich import print
+
 
 class FunctionInput(BaseModel):
     task_id: str
     namespace: str
     compute_graph: str
     function: str
-    input: bytes
+    input: IndexifyData
 
 
 class ExtractorAgent:
@@ -97,7 +99,7 @@ class ExtractorAgent:
                 except Exception as e:
                     # the connection was dropped in the middle of the reporting process, retry
                     print(
-                        f"[bold red] agent: [/bold] failed to report task {task_outcome.task.id}, exception: {e}, retrying"
+                        f"[bold red] agent: [/bold red] failed to report task {task_outcome.task.id}, exception: {e}, retrying"
                     )
                     await asyncio.sleep(5)
                     continue
@@ -131,6 +133,9 @@ class ExtractorAgent:
             async_tasks: List[asyncio.Task] = list(pending)
             for async_task in done:
                 if async_task.get_name() == "get_runnable_tasks":
+                    if async_task.exception():
+                        print(f"failed to get runnable tasks {async_task.exception()}")
+                        continue
                     result: Dict[str, Task] = await async_task
                     task: Task
                     for _, task in result.items():
@@ -184,11 +189,24 @@ class ExtractorAgent:
                         )
                     )
                 elif async_task.get_name() == "run_function":
+                    if async_task.exception():
+                        print(f"failed to execute tasks {async_task.exception()}")
+                        completed_task = CompletedTask(
+                            task=async_task.task,
+                            task_outcome="failure",
+                            outputs=[],
+                        )
+                        self._task_store.complete(outcome=completed_task)
+                        continue
                     async_task: ExtractTask
                     try:
                         outputs = await async_task
-                        router_output = outputs if isinstance(outputs, RouterOutput) else None
-                        fn_outputs = outputs if not isinstance(outputs, RouterOutput) else []
+                        router_output = (
+                            outputs if isinstance(outputs, RouterOutput) else None
+                        )
+                        fn_outputs = (
+                            outputs if not isinstance(outputs, RouterOutput) else []
+                        )
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="success",

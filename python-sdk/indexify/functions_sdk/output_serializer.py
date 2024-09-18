@@ -6,9 +6,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, RootModel
 
-from .data_objects import BaseData
+from .data_objects import IndexifyData
 
-CachedOutput = RootModel[List[BaseData]]
+CachedOutput = RootModel[List[IndexifyData]]
 
 
 class OutputSerializer:
@@ -94,8 +94,8 @@ class OutputSerializer:
                 payload, model.model_fields["payload"].annotation
             )
             normalized_outputs.append(
-                BaseData(
-                    content_id=content_id,
+                IndexifyData(
+                    id=content_id,
                     md5_payload_checksum=md5_payload_checksum,
                     payload=deserialized_payload,
                 )

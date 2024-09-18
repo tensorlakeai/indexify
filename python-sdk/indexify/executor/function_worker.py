@@ -1,16 +1,14 @@
 import asyncio
 import concurrent
-import pickle
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Union
 
-import cloudpickle
-from indexify.functions_sdk.data_objects import BaseData, RouterOutput
-from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 from pydantic import Json
 from rich import print
-pickle.loads = cloudpickle.Pickler
+
+from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
 graphs: Dict[str, Graph] = {}
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
@@ -40,9 +38,9 @@ class FunctionWorker:
         namespace: str,
         graph_name: str,
         fn_name: str,
-        input: bytes,
+        input: IndexifyData,
         code_path: str,
-    ) -> List[BaseData]:
+    ) -> List[IndexifyData]:
         try:
             resp = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
@@ -66,10 +64,12 @@ def _run_function(
     namespace: str,
     graph_name: str,
     fn_name: str,
-    input: bytes,
+    input: IndexifyData,
     code_path: str,
-) -> Union[List[bytes], RouterOutput]:
-    print(f"[bold] function worker: [/bold] running function: {fn_name} namespace: {namespace} graph: {graph_name}")
+) -> Union[List[IndexifyData], RouterOutput]:
+    print(
+        f"[bold] function worker: [/bold] running function: {fn_name} namespace: {namespace} graph: {graph_name}"
+    )
     key = f"{namespace}/{graph_name}/{fn_name}"
     if key not in function_wrapper_map:
         _load_function(namespace, graph_name, fn_name, code_path)

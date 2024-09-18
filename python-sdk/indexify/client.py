@@ -1,9 +1,9 @@
 from typing import Optional
 
-from .settings import DEFAULT_SERVICE_URL
 from .base_client import IndexifyClient
-from .local_runner import LocalRunner
+from .local_client import LocalClient
 from .remote_client import RemoteClient
+from .settings import DEFAULT_SERVICE_URL
 
 
 def create_client(
@@ -14,6 +14,5 @@ def create_client(
     **kwargs,
 ) -> IndexifyClient:
     if local:
-        return LocalRunner()
+        return LocalClient()
     return RemoteClient(config_path=config_path, service_url=service_url, **kwargs)
- 

@@ -1,4 +1,4 @@
-from indexify.functions_sdk.data_objects import BaseData
+from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 from indexify.utils import Image
@@ -8,11 +8,11 @@ pip_str = "RUN pip install requests"
 image_name = "func1-image-1"
 
 
-class FilteredData(BaseData):
+class FilteredData(IndexifyData):
     output: str
 
 
-class GenerateData(BaseData):
+class GenerateData(IndexifyData):
     output: str
 
 

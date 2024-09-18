@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from indexify import Graph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import indexify_function
-from indexify.local_runner import LocalRunner
+from indexify.local_client import LocalClient
 from indexify.remote_client import RemoteClient
 
 
@@ -64,10 +64,13 @@ class TestRemoteClient(unittest.TestCase):
         compute_graph = client.graph("graph_a")
         self.assertEqual(compute_graph.name, "graph_a")
 
+        # Invoke Graph
+        client.invoke_graph_with_object(graph.name, url="https://example.com")
+
         # Load and run Graph Code
-        graph = client.load_graph("graph_a")
-        runner = LocalRunner()
-        runner.run(graph, url="https://example.com")
+        # graph = client.load_graph("graph_a")
+        # runner = LocalClient()
+        # runner.run(graph, url="https://example.com")
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ class Error(Exception):
 
     def __repr__(self):
         return f"Error(status={self.status!r}, message={self.message!r})"
-    
+
 
 class ApiException(Exception):
     def __init__(self, message: str) -> None:

@@ -1,12 +1,14 @@
 import io
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import httpx
 import nanoid
-from indexify.functions_sdk.data_objects import RouterOutput
-
-from indexify.executor.api_objects import Task, TaskResult, RouterOutput as ApiRouterOutput
 from rich import print
+
+from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
+from indexify.executor.api_objects import Task, TaskResult
+from indexify.functions_sdk.cbor_serializer import CborSerializer
+from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -23,13 +25,25 @@ class TaskReporter:
         self._base_url = base_url
         self._executor_id = executor_id
 
-    def report_task_outcome(self, outputs: Union[List[bytes], RouterOutput], router_output: Optional[RouterOutput], task: Task, outcome: str):
+    def report_task_outcome(
+        self,
+        outputs: List[IndexifyData],
+        router_output: Optional[RouterOutput],
+        task: Task,
+        outcome: str,
+    ):
         fn_outputs = []
-        if not isinstance(outputs, RouterOutput):
-            for output in outputs:
-                print(f"[bold]task-reporter[/bold] uploading output of size: {len(output)}")
-                fn_outputs.append(("node_outputs", (nanoid.generate(), io.BytesIO(output))))
-        router_output = ApiRouterOutput(edges=router_output.edges) if router_output else None
+        for output in outputs:
+            print(
+                f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)}"
+            )
+            output_bytes = CborSerializer.serialize(output)
+            fn_outputs.append(
+                ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
+            )
+        router_output = (
+            ApiRouterOutput(edges=router_output.edges) if router_output else None
+        )
         task_result = TaskResult(
             router_output=router_output,
             outcome=outcome,

@@ -9,7 +9,7 @@ from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
-from indexify.local_runner import LocalRunner
+from indexify.local_client import LocalClient
 from indexify.remote_client import RemoteClient
 
 
@@ -89,7 +89,7 @@ class TestRemoteClient(unittest.TestCase):
 
         # Load and run Graph Code
         graph = client.load_graph("graph_a_router")
-        runner = LocalRunner()
+        runner = LocalClient()
         runner.run(graph, url="https://example.com")
 
 

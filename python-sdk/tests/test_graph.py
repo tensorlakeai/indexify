@@ -9,7 +9,7 @@ from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
-from indexify.local_runner import LocalRunner
+from indexify.local_client import LocalClient
 
 
 class YoutubeURL(BaseModel):
@@ -93,29 +93,29 @@ class TestGraphA(unittest.TestCase):
         input_data = graph.deserialize_input_from_dict(
             extractor_a.name, {"url": "https://example.com"}
         )
-        self.assertEqual(input_data.payload, {"url": "https://example.com"})
+        self.assertEqual(input_data, {"url": "https://example.com"})
 
     def test_deserialize_input_from_json_with_pydantic_model(self):
         graph = create_graph_a()
         input_data = graph.deserialize_input_from_dict(
             extractor_b.name, {"data": b"hello", "sha_256": "123"}
         )
-        self.assertEqual(input_data.payload, File(data=bytes(b"hello"), sha_256="123"))
+        self.assertEqual(input_data, File(data=bytes(b"hello"), sha_256="123"))
 
-    def test_deserialize_input_from_base_data_dict(self):
-        input_data = {
-            "content_id": None,
-            "payload": {"data": b"hello", "metadata": None, "sha_256": None},
-            "md5_payload_checksum": "eed1576fae4da91d214e73bef8864506",
-        }
-        graph = create_graph_a()
-        input_data = graph.deserialize_input_from_dict(extractor_b.name, input_data)
-        self.assertEqual(input_data.payload, File(data=bytes(b"hello"), sha_256=None))
+    def test_deserialize_input_from_json_with_named_param_and_pydantic_model_value(
+        self,
+    ):
+        graph = create_graph_b()
+        input_data = graph.deserialize_input_from_dict(
+            extractor_a_with_pydantic_model_as_input.name,
+            {"url": {"url": "https://example.com"}},
+        )
+        self.assertEqual(input_data, YoutubeURL(url="https://example.com"))
 
     def test_run_graph(self):
         graph = create_graph_a()
 
-        runner = LocalRunner()
+        runner = LocalClient()
         runner.run(graph, url="https://example.com")
 
     def test_run_graph_with_pydantic_model_as_input(self):
@@ -127,7 +127,7 @@ class TestGraphA(unittest.TestCase):
         graph = graph.add_edge(extractor_a_with_pydantic_model_as_input, extractor_b)
         graph = graph.add_edge(extractor_b, extractor_c)
 
-        runner = LocalRunner()
+        runner = LocalClient()
         runner.register_extraction_graph(graph)
         runner.invoke_graph_with_object(
             graph.name, url=YoutubeURL(url="https://example.com")
@@ -136,7 +136,7 @@ class TestGraphA(unittest.TestCase):
     def test_run_graph_with_router(self):
         graph = create_graph_b()
 
-        runner = LocalRunner()
+        runner = LocalClient()
         runner.register_extraction_graph(graph)
         runner.invoke_graph_with_object(
             graph.name, url=YoutubeURL(url="https://example.com")
@@ -167,8 +167,8 @@ class TestGraphA(unittest.TestCase):
             "dynamic_router": {
                 "name": "router_x",
                 "description": "",
-                "source_node": "router_x",
-                "target_nodes": [
+                "source_fn": "router_x",
+                "target_fns": [
                     "extractor_b",
                     "extractor_d"
                 ]
@@ -196,6 +196,7 @@ class TestGraphA(unittest.TestCase):
     }
 }"""
         result = metadata.model_dump_json(indent=4, exclude_none=True)
+        self.maxDiff = None
         self.assertEqual(result, expected_graph_metadata)
 
     def test_get_graph_metadata(self):

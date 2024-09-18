@@ -1,24 +1,23 @@
-from typing import List, Optional, Type
+from typing import Any, List, Optional, Type
 
 import cbor2
 from pydantic import BaseModel
 
-from .data_objects import BaseData
+from .data_objects import IndexifyData
 
 
 class CborSerializer:
     @staticmethod
-    def serialize(data: List[BaseData]) -> List[bytes]:
-        return [cbor2.dumps(item.model_dump()) for item in data]
+    def serialize(data: Any) -> bytes:
+        if (
+            isinstance(data, type)
+            and issubclass(data, BaseModel)
+            or isinstance(data, BaseModel)
+        ):
+            return cbor2.dumps(data.model_dump())
+        return cbor2.dumps(data)
 
     @staticmethod
-    def deserialize(data: bytes, model: Type[BaseData]) -> BaseData:
+    def deserialize(data: bytes) -> IndexifyData:
         cached_output = cbor2.loads(data)
-
-        class BaseData(BaseModel):
-            content_id: Optional[str] = None
-            payload: model = None
-            md5_payload_checksum: Optional[str] = None
-
-        output = BaseData.model_validate(cached_output)
-        return output
+        return IndexifyData(**cached_output)
