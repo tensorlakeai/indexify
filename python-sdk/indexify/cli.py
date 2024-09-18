@@ -1,6 +1,6 @@
 import asyncio
 import io
-from typing import Annotated, Optional, List
+from typing import Annotated, List, Optional
 
 import docker
 import nanoid
@@ -53,7 +53,6 @@ def executor(
     print(
         f"[bold] agent: [/bold] number of workers {workers}, config path: {config_path}, server addr: {server_addr}, executor id: {id}, executor cache: {executor_cache}"
     )
-
     function_worker = FunctionWorker(workers=workers)
     from pathlib import Path
 
@@ -89,8 +88,7 @@ def _build_image(image: Image, func_name: str = None):
         print(f"unable to connect with docker: {e}")
         exit(-1)
 
-    docker_file_str_template = \
-"""
+    docker_file_str_template = """
 FROM {base_image}
 
 WORKDIR /app

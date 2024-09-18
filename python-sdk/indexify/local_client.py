@@ -132,21 +132,17 @@ class LocalClient(IndexifyClient):
     def graph_outputs(
         self,
         graph: str,
-        ingested_object_id: str,
-        extractor_name: str,
+        invocation_id: str,
+        fn_name: str,
         block_until_done: bool = True,
     ) -> Union[Dict[str, List[Any]], List[Any]]:
-        if ingested_object_id not in self._results:
-            raise ValueError(
-                f"No results found for ingested object {ingested_object_id}"
-            )
-        if extractor_name not in self._results[ingested_object_id]:
-            raise ValueError(
-                f"No results found for extractor {extractor_name} on ingested object {ingested_object_id}"
-            )
+        if invocation_id not in self._results:
+            raise ValueError(f"no results found for graph {graph}")
+        if fn_name not in self._results[invocation_id]:
+            raise ValueError(f"no results found for fn {fn_name} on graph {graph}")
         results = []
-        fn_model = self._graphs[graph].get_function(extractor_name).get_output_model()
-        for result in self._results[ingested_object_id][extractor_name]:
+        fn_model = self._graphs[graph].get_function(fn_name).get_output_model()
+        for result in self._results[invocation_id][fn_name]:
             payload_dict = cbor2.loads(result.payload)
             payload = fn_model.model_validate(payload_dict)
             results.append(payload)

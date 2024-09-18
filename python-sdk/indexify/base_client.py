@@ -69,8 +69,8 @@ class IndexifyClient(ABC):
     def graph_outputs(
         self,
         graph: str,
-        ingested_object_id: str,
-        extractor_name: Optional[str],
+        invocation_id: str,
+        fn_name: Optional[str],
         block_until_done: bool = True,
     ) -> Union[Dict[str, List[Any]], List[Any]]:
         """

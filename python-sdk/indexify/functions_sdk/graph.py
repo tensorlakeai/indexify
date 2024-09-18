@@ -19,11 +19,8 @@ import cloudpickle
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
 
-from .graph_validation import (
-    validate_node,
-    validate_route,
-)
 from .data_objects import IndexifyData, RouterOutput
+from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
     IndexifyFunction,
     IndexifyFunctionWrapper,
@@ -106,6 +103,11 @@ class Graph:
         if name not in self.nodes:
             raise ValueError(f"Function {name} not found in graph")
         return IndexifyFunctionWrapper(self.nodes[name])
+
+    def deserialize_fn_output(self, name: str, output: IndexifyData) -> Any:
+        output_model = self.get_function(name).get_output_model()
+        payload_dict = cbor2.loads(output.payload)
+        return output_model.model_validate(payload_dict)
 
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]

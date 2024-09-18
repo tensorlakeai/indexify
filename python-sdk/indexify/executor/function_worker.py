@@ -3,7 +3,6 @@ import concurrent
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Union
 
-from pydantic import Json
 from rich import print
 
 from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput

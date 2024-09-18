@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import cbor2
 import httpx
@@ -8,13 +8,14 @@ from pydantic import BaseModel, Json
 
 from indexify.base_client import IndexifyClient
 from indexify.error import ApiException, Error
+from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 
 
 class GraphOutputMetadata(BaseModel):
     id: str
-    fn_name: str
+    compute_fn: str
 
 
 class GraphOutputs(BaseModel):
@@ -52,6 +53,7 @@ class RemoteClient(IndexifyClient):
         self.labels: dict = {}
         self._service_url = service_url
         self._timeout = kwargs.get("timeout")
+        self._graphs: Dict[str, Graph] = {}
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
         try:
@@ -150,6 +152,7 @@ class RemoteClient(IndexifyClient):
         )
         print(response.content.decode("utf-8"))
         response.raise_for_status()
+        self._graphs[graph.name] = graph
 
     def graphs(self) -> List[str]:
         response = self._get(f"graphs")
@@ -190,20 +193,28 @@ class RemoteClient(IndexifyClient):
         )
         return response.json()["id"]
 
-    def download_output(self, output_id: str, block_until_done: bool = True) -> bytes:
+    def _download_output(
+        self,
+        namespace: str,
+        graph: str,
+        invocation_id: str,
+        fn_name: str,
+        output_id: str,
+    ) -> IndexifyData:
         response = self._get(
-            f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{ingested_object_id}outputs/{output_id}",
+            f"namespaces/{namespace}/compute_graphs/{graph}/invocations/{invocation_id}/fn/{fn_name}/{output_id}",
         )
         response.raise_for_status()
-        return response.content
+        data_dict = cbor2.loads(response.content)
+        return IndexifyData.model_validate(data_dict)
 
     def graph_outputs(
         self,
         graph: str,
-        ingested_object_id: str,
-        extractor_name: Optional[str],
+        invocation_id: str,
+        fn_name: Optional[str],
         block_until_done: bool = True,
-    ) -> Union[Dict[str, List[Any]], List[Any]]:
+    ) -> List[Any]:
         """
         Returns the extracted objects by a graph for an ingested object. If the extractor name is provided, only the objects extracted by that extractor are returned.
         If the extractor name is not provided, all the extracted objects are returned for the input object.
@@ -213,13 +224,24 @@ class RemoteClient(IndexifyClient):
         block_until_done: bool = True: If True, the method will block until the extraction is done. If False, the method will return immediately.
         return: Union[Dict[str, List[Any]], List[Any]]: The extracted objects. If the extractor name is provided, the output is a list of extracted objects by the extractor. If the extractor name is not provided, the output is a dictionary with the extractor name as the key and the extracted objects as the value. If no objects are found, an empty list is returned.
         """
+        if graph not in self._graphs:
+            self._graphs[graph] = self.load_graph(graph)
         response = self._get(
-            f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{ingested_object_id}outputs",
+            f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{invocation_id}/outputs",
         )
         response.raise_for_status()
         graph_outputs = GraphOutputs(**response.json())
+        outputs = []
         for output in graph_outputs.outputs:
-            output = self.download_output(output.id, block_until_done)
+            if output.compute_fn == fn_name:
+                indexify_data = self._download_output(
+                    self.namespace, graph, invocation_id, fn_name, output.id
+                )
+                output = self._graphs[graph].deserialize_fn_output(
+                    fn_name, indexify_data
+                )
+                outputs.append(output)
+        return outputs
 
     def invoke_graph_with_file(
         self, graph: str, path: str, metadata: Optional[Dict[str, Json]] = None

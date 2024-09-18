@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
-    indexify_router
+    indexify_router,
 )
 
 
@@ -18,7 +18,6 @@ class TestValidations(unittest.TestCase):
         @indexify_function()
         def node1(a: int, b: ComplexType) -> int:
             pass
-
 
         @indexify_function()
         def node2(b):
@@ -60,7 +59,6 @@ class TestValidations(unittest.TestCase):
 
         self.assertEqual(msg, str(cm.exception))
 
-
     def test_callables_are_in_added_nodes(self):
         class ComplexType(BaseModel):
             pass
@@ -80,8 +78,10 @@ class TestValidations(unittest.TestCase):
 
             g.add_edge(node1, node2)
 
-        msg = ("Unable to add node of type `node1`. Required, "
-               "`IndexifyFunction` or `IndexifyRouter`")
+        msg = (
+            "Unable to add node of type `node1`. Required, "
+            "`IndexifyFunction` or `IndexifyRouter`"
+        )
 
         self.assertEqual(msg, str(cm.exception))
 
@@ -117,11 +117,8 @@ class TestValidations(unittest.TestCase):
 
         msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
 
-
         self.assertEqual(msg, str(cm.exception))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-
-
