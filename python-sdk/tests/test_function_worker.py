@@ -1,14 +1,18 @@
+import tempfile
 import unittest
+from typing import List, Mapping, Union
+
+import cbor2
+from pydantic import BaseModel
 
 from indexify import Graph
 from indexify.executor.function_worker import FunctionWorker
-from indexify.functions_sdk.indexify_functions import indexify_function, indexify_router
-from indexify.functions_sdk.data_objects import File
-from pydantic import BaseModel
-from typing import List, Union, Mapping
-import tempfile
-from indexify.functions_sdk.data_objects import IndexifyData
-import cbor2
+from indexify.functions_sdk.data_objects import File, IndexifyData
+from indexify.functions_sdk.indexify_functions import (
+    indexify_function,
+    indexify_router,
+)
+
 
 @indexify_function()
 def extractor_a(url: str) -> File:

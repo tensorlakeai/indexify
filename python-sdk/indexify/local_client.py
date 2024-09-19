@@ -60,23 +60,28 @@ class LocalClient(IndexifyClient):
                 g.name, node_name, input_bytes
             )
             if cached_output_bytes is not None:
+                print(
+                    f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
+                )
+                function_outputs: List[IndexifyData] = []
                 for cached_output in cached_output_bytes:
-                    outputs[node_name].append(CborSerializer.deserialize(cached_output))
+                    output = CborSerializer.deserialize(cached_output)
+                    function_outputs.append(output)
+                    outputs[node_name].append(output)
             else:
-                function_results: List[IndexifyData] = g.invoke_fn_ser(node_name, input)
-                outputs[node_name].extend(function_results)
-                function_results_bytes: List[bytes] = [
-                    CborSerializer.serialize(function_result)
-                    for function_result in function_results
+                function_outputs: List[IndexifyData] = g.invoke_fn_ser(node_name, input)
+                print(f"ran {node_name}: num outputs: {len(function_outputs)}")
+                outputs[node_name].extend(function_outputs)
+                function_outputs_bytes: List[bytes] = [
+                    CborSerializer.serialize(function_output)
+                    for function_output in function_outputs
                 ]
                 self._cache.set(
                     g.name,
                     node_name,
                     input_bytes,
-                    function_results_bytes,
+                    function_outputs_bytes,
                 )
-
-            function_outputs = outputs[node_name]
 
             out_edges = g.edges.get(node_name, [])
             # Figure out if there are any routers for this node
@@ -92,9 +97,6 @@ class LocalClient(IndexifyClient):
                                 )
                                 out_edges.append(dynamic_edge)
             for out_edge in out_edges:
-                print(
-                    f"invoking {out_edge} with {len(function_outputs)} outputs from {node_name}"
-                )
                 for output in function_outputs:
                     queue.append((out_edge, output))
 
