@@ -30,7 +30,6 @@ class LocalClient(IndexifyClient):
         self._graphs: Dict[str, Graph] = {}
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper(self._cache_dir)
-        self._task_counters: Dict[str, int] = {}
 
     def register_compute_graph(self, graph: Graph):
         self._graphs[graph.name] = graph
@@ -44,7 +43,6 @@ class LocalClient(IndexifyClient):
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
         self._results[input.id] = outputs
-        self._task_counters[g._start_node.name] = 1
         self._run(g, input, outputs)
         return input.id
 
@@ -99,7 +97,6 @@ class LocalClient(IndexifyClient):
                                 out_edges.append(dynamic_edge)
             for out_edge in out_edges:
                 for output in function_outputs:
-                    self._task_counters[out_edge] += 1
                     queue.append((out_edge, output))
 
     def _route(
