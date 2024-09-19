@@ -84,7 +84,6 @@ class LocalClient(IndexifyClient):
                     input_bytes,
                     function_outputs_bytes,
                 )
-            self._task_counters[node_name] -= 1
             out_edges = g.edges.get(node_name, [])
             # Figure out if there are any routers for this node
             for i, edge in enumerate(out_edges):
@@ -117,7 +116,9 @@ class LocalClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         pass
 
-    def invoke_graph_with_object(self, graph: str, block_until_done: bool = False, **kwargs) -> str:
+    def invoke_graph_with_object(
+        self, graph: str, block_until_done: bool = False, **kwargs
+    ) -> str:
         graph = self._graphs[graph]
         for key, value in kwargs.items():
             if isinstance(value, BaseModel):
