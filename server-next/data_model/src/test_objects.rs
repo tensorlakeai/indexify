@@ -39,6 +39,7 @@ pub mod tests {
             .input_node_output_key(node_output_key.to_string())
             .invocation_id(inv_id.to_string())
             .reducer_output_id(None)
+            .graph_version(Default::default())
             .build()
             .unwrap()
     }
@@ -63,6 +64,15 @@ pub mod tests {
         graph: &str,
         reducer_fn: Option<String>,
     ) -> NodeOutput {
+        mock_node_fn_output(invocation_id, graph, "fn_a", reducer_fn)
+    }
+
+    pub fn mock_node_fn_output(
+        invocation_id: &str,
+        graph: &str,
+        compute_fn_name: &str,
+        reducer_fn: Option<String>,
+    ) -> NodeOutput {
         let mut path: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(7)
@@ -74,7 +84,8 @@ pub mod tests {
         }
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
-            .compute_fn_name("fn_a".to_string())
+            .graph_version(Default::default())
+            .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
             .payload(crate::OutputPayload::Fn(DataPayload {
@@ -89,6 +100,7 @@ pub mod tests {
     pub fn mock_node_router_output_x(invocation_id: &str, graph: &str) -> NodeOutput {
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
+            .graph_version(Default::default())
             .compute_fn_name("router_x".to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
@@ -137,6 +149,7 @@ pub mod tests {
                 ("fn_c".to_string(), Node::Compute(fn_c)),
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
             ]),
+            version: crate::GraphVersion(1),
             edges: HashMap::from([(
                 "fn_a".to_string(),
                 vec!["fn_b".to_string(), "fn_c".to_string()],
@@ -147,8 +160,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash123".to_string(),
             },
-            create_at: 5,
-            tomb_stoned: false,
+            created_at: 5,
             start_fn: Compute(fn_a),
         }
     }
@@ -172,6 +184,7 @@ pub mod tests {
                 ("router_x".to_string(), Node::Router(router_x)),
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
             ]),
+            version: crate::GraphVersion(1),
             edges: HashMap::from([("fn_a".to_string(), vec!["router_x".to_string()])]),
             description: "description graph_B".to_string(),
             code: ComputeGraphCode {
@@ -179,8 +192,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash123".to_string(),
             },
-            create_at: 5,
-            tomb_stoned: false,
+            created_at: 5,
             start_fn: Compute(fn_a),
         }
     }
@@ -207,8 +219,8 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash123".to_string(),
             },
-            create_at: 5,
-            tomb_stoned: false,
+            version: crate::GraphVersion(1),
+            created_at: 5,
             start_fn: Compute(fn_a),
         }
     }

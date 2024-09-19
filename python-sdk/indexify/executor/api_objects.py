@@ -13,6 +13,7 @@ class Task(BaseModel):
     invocation_id: str
     input_key: str
     reducer_output_id: Optional[str] = None
+    graph_version: int
 
 
 class ExecutorMetadata(BaseModel):

@@ -123,6 +123,7 @@ mod tests {
 
         let output = NodeOutput {
             id: "id".to_string(),
+            graph_version: Default::default(),
             namespace: TEST_NAMESPACE.to_string(),
             compute_fn_name: "fn_a".to_string(),
             compute_graph_name: "graph_A".to_string(),

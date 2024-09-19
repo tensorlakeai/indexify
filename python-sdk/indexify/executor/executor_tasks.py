@@ -19,7 +19,9 @@ class DownloadGraphTask(asyncio.Task):
         kwargs["name"] = "download_graph"
         kwargs["loop"] = asyncio.get_event_loop()
         super().__init__(
-            downloader.download_graph(task.namespace, task.compute_graph),
+            downloader.download_graph(
+                task.namespace, task.compute_graph, task.graph_version
+            ),
             **kwargs,
         )
         self.task = task

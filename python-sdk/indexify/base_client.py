@@ -66,6 +66,14 @@ class IndexifyClient(ABC):
         """
         pass
 
+    @abstractmethod
+    def rerun_graph(self, graph: str):
+        """
+        Rerun a graph.
+        graph: str: The name of the graph to rerun
+        """
+        pass
+
     ### Retrieval APIs
     @abstractmethod
     def graph_outputs(

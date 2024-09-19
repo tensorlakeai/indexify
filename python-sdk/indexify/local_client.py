@@ -132,6 +132,9 @@ class LocalClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         pass
 
+    def rerun_graph(self, graph: str):
+        return super().rerun_graph(graph)
+
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:

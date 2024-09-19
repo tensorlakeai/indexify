@@ -2,6 +2,7 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
+    GraphVersion,
     InvocationPayload,
     NodeOutput,
     ReduceTask,
@@ -18,6 +19,8 @@ pub struct StateMachineUpdateRequest {
 
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
+    RerunComputeGraph(RerunComputeGraphRequest),
+    RerunInvocation(RerunInvocationRequest),
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
@@ -27,6 +30,29 @@ pub enum RequestPayload {
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
+    UpdateSystemTask(UpdateSystemTaskRequest),
+    RemoveSystemTask(RemoveSystemTaskRequest),
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateSystemTaskRequest {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub restart_key: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoveSystemTaskRequest {
+    pub namespace: String,
+    pub compute_graph_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RerunInvocationRequest {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub graph_version: GraphVersion,
+    pub invocation_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +72,12 @@ pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub invocation_payload: InvocationPayload,
+}
+
+#[derive(Debug, Clone)]
+pub struct RerunComputeGraphRequest {
+    pub namespace: String,
+    pub compute_graph_name: String,
 }
 
 pub struct NamespaceRequest {
@@ -73,8 +105,6 @@ pub struct CreateTasksRequest {
     pub compute_graph: String,
     pub invocation_id: String,
     pub tasks: Vec<Task>,
-    // Invocation ID -> Finished
-    pub invocation_finished: bool,
 }
 
 #[derive(Debug)]
@@ -83,11 +113,12 @@ pub struct TaskPlacement {
     pub executor: ExecutorId,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ReductionTasks {
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
 }
+#[derive(Debug)]
 pub struct SchedulerUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
     pub allocations: Vec<TaskPlacement>,

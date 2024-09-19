@@ -13,6 +13,7 @@ mod routes;
 mod scheduler;
 mod server;
 mod service;
+mod system_tasks;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

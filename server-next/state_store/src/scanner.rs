@@ -11,6 +11,7 @@ use data_model::{
     NodeOutput,
     ReduceTask,
     StateChange,
+    SystemTask,
     Task,
     TaskAnalytics,
     TaskFinishedEvent,
@@ -293,6 +294,36 @@ impl StateReader {
         Ok(Some(result))
     }
 
+    pub fn get_pending_system_tasks(&self) -> Result<usize> {
+        let cf = IndexifyObjectsColumns::Stats.cf_db(&self.db);
+        let key = b"pending_system_tasks";
+        let value = self.db.get_cf(&cf, key)?;
+        match value {
+            Some(value) => {
+                let bytes: [u8; 8] = value
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+                let pending_tasks = usize::from_be_bytes(bytes);
+                Ok(pending_tasks)
+            }
+            None => Ok(0),
+        }
+    }
+
+    pub fn get_system_tasks(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<(Vec<SystemTask>, Option<Vec<u8>>)> {
+        let (tasks, restart_key) = self.get_rows_from_cf_with_limits::<SystemTask>(
+            &[],
+            None,
+            IndexifyObjectsColumns::SystemTasks,
+            limit,
+        )?;
+        Ok((tasks, restart_key))
+    }
+
     pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<String>> {
         let limit = limit.unwrap_or(usize::MAX);
         let cf = IndexifyObjectsColumns::GcUrls.cf_db(&self.db);
@@ -442,6 +473,21 @@ impl StateReader {
         );
         let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
         Ok(task)
+    }
+
+    pub fn list_tasks_by_namespace(
+        &self,
+        namespace: &str,
+        restart_key: Option<&[u8]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let key = format!("{}|", namespace);
+        self.get_rows_from_cf_with_limits::<Task>(
+            key.as_bytes(),
+            restart_key,
+            IndexifyObjectsColumns::Tasks,
+            limit,
+        )
     }
 
     pub fn list_tasks_by_compute_graph(
