@@ -198,9 +198,10 @@ pub async fn invoke_with_object(
                         yield Event::default().json_data(ev.clone());
 
                         if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {
-                        yield Event::default().json_data(InvocationId { id: id.clone() });
-                        return;
-                    }
+                            yield Event::default().json_data(InvocationId { id: id.clone() });
+                            drop(rx);
+                            return;
+                        }
                     }
                 }
             } else {

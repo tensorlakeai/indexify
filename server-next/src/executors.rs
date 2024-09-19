@@ -136,7 +136,7 @@ mod tests {
         let time = std::time::Instant::now();
         loop {
             let executors = indexify_state.reader().get_all_executors()?;
-            if executors.len() == 0 {
+            if executors.is_empty() {
                 break;
             }
             if time.elapsed().as_secs() > 10 {

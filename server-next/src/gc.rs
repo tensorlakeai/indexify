@@ -47,7 +47,7 @@ impl Gc {
             } else {
                 for url in urls.iter() {
                     tracing::debug!("Deleting url {:?}", url);
-                    if let Err(e) = storage.delete(&url).await {
+                    if let Err(e) = storage.delete(url).await {
                         tracing::error!("Error deleting url {:?}: {:?}", url, e);
                     }
                 }

@@ -407,7 +407,7 @@ async fn list_compute_graphs(
         .reader()
         .list_compute_graphs(
             &namespace,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -463,7 +463,7 @@ async fn graph_invocations(
         .list_invocations(
             &namespace,
             &compute_graph,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -519,7 +519,7 @@ async fn executor_tasks(
             labels: payload.labels.clone(),
         })
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone(), TASK_LIMIT);
     let executor_manager = state.executor_manager.clone();
     let stream = stream
@@ -564,7 +564,7 @@ async fn list_tasks(
             &namespace,
             &compute_graph,
             &invocation_id,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -595,7 +595,7 @@ async fn list_outputs(
             &namespace,
             &compute_graph,
             &invocation_id,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -623,7 +623,7 @@ async fn delete_invocation(
         compute_graph,
         invocation_id,
     });
-    let _ = state
+    state
         .indexify_state
         .write(StateMachineUpdateRequest {
             payload: request,
@@ -642,7 +642,7 @@ async fn get_code(
         .indexify_state
         .reader()
         .get_compute_graph(&namespace, &compute_graph)
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     if compute_graph.is_none() {
         return Err(IndexifyAPIError::not_found("Compute Graph not found"));
     }
@@ -651,7 +651,7 @@ async fn get_code(
     let code_stream = storage_reader
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")

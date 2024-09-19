@@ -30,9 +30,9 @@ pub enum TaskOutcome {
     Failure,
 }
 
-impl Into<data_model::TaskOutcome> for TaskOutcome {
-    fn into(self) -> data_model::TaskOutcome {
-        match self {
+impl From<TaskOutcome> for data_model::TaskOutcome {
+    fn from(val: TaskOutcome) -> Self {
+        match val {
             TaskOutcome::Success => data_model::TaskOutcome::Success,
             TaskOutcome::Failure => data_model::TaskOutcome::Failure,
         }

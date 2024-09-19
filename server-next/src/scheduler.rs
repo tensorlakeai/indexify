@@ -212,7 +212,7 @@ impl Scheduler {
         let mut create_task_requests = vec![];
         let mut processed_state_changes = vec![];
         for state_change in &state_changes {
-            processed_state_changes.push(state_change.id.clone());
+            processed_state_changes.push(state_change.id);
             let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
                     self.handle_invoke_compute_graph(invoke_compute_graph_event.clone())
