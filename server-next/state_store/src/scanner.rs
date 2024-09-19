@@ -585,8 +585,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_rows_from_cf_with_limits() {
         let temp_dir = TempDir::new().unwrap();
-        let indexify_state =
-            IndexifyState::new(PathBuf::from(temp_dir.path().join("state"))).unwrap();
+        let indexify_state = IndexifyState::new(PathBuf::from(temp_dir.path().join("state")))
+            .await
+            .unwrap();
         for i in 0..4 {
             let name = format!("test_{}", i);
             indexify_state

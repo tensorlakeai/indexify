@@ -378,7 +378,7 @@ mod tests {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let invocation_id = state_store.with_simple_graph().await;
         ex.register_executor(mock_executor()).await?;
 
@@ -419,7 +419,7 @@ mod tests {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let invocation_id = state_store.with_simple_graph().await;
         ex.register_executor(mock_executor()).await?;
 
@@ -459,7 +459,7 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(indexify_state.clone());
         let invocation_id = state_store.with_simple_graph().await;
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
 
         schedule_all(&indexify_state, &scheduler).await?;
 

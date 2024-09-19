@@ -39,7 +39,7 @@ utoipa = { version = "4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 object_store = {version= "0.11.0", features = ["aws"]}
 futures = "0.3.30"
-bytes = "1.7.1"
+bytes = "1.7.2"
 async-trait = "0.1.82"
 tokio-stream = "0.1.16"
 reqwest = { version = "0.12.7", default-features = false, features = [
@@ -57,6 +57,7 @@ pin-project = "1.1.5"
 ciborium = "0.2.2"
 
 [dependencies]
+async-stream = {workspace = true}
 data_model = { path = "data_model" }
 state_store = { path = "state_store" }
 task_scheduler = { path = "task_scheduler" }
@@ -71,7 +72,6 @@ axum ={workspace=true}
 tokio = {workspace=true}
 axum-server={workspace=true}
 futures = "0.3.30"
-tokio-stream = "0.1.15"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }

@@ -164,9 +164,9 @@ pub(crate) fn delete_input_data_object(
 
 pub(crate) fn create_compute_graph(
     db: Arc<TransactionDB>,
-    compute_graph: ComputeGraph,
+    compute_graph: &ComputeGraph,
 ) -> Result<()> {
-    let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
+    let serialized_compute_graph = JsonEncoder::encode(compute_graph)?;
     db.put_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),

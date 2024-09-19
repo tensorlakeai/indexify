@@ -27,6 +27,7 @@ pub enum RequestPayload {
     RemoveGcUrls(Vec<String>),
 }
 
+#[derive(Debug, Clone)]
 pub struct FinalizeTaskRequest {
     pub namespace: String,
     pub compute_graph: String,

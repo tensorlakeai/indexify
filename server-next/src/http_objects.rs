@@ -396,6 +396,11 @@ pub struct ExecutorMetadata {
     pub labels: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvocationQueryParams {
+    pub block_until_finish: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -403,7 +408,7 @@ mod tests {
         // Don't delete this. It makes it easier
         // to test the deserialization of the ComputeGraph struct
         // from the python side
-        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"edges":{"extractor_a":[{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":""}}],"extractor_b":[{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":""}}]}}"#;
+        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"extractor_b":{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":""}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":""}}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]}}"#;
         let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();

@@ -17,7 +17,6 @@ impl TaskScheduler {
 
     pub fn schedule_unplaced_tasks(&self) -> Result<Vec<TaskPlacement>> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
-        info!("allocating {:?} tasks", tasks);
         self.schedule_tasks(tasks)
     }
 

@@ -1,21 +1,25 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
     body::Body,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
+    response::{sse::Event, IntoResponse},
     Json,
 };
 use blob_store::PutResult;
 use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
-use state_store::requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest};
+use state_store::{
+    invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
+    requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+};
 use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::RouteState;
-use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId};
+use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId, InvocationQueryParams};
 
 #[allow(dead_code)]
 #[derive(ToSchema)]
@@ -41,6 +45,7 @@ pub struct InvokeWithFile {
 pub async fn invoke_with_file(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
+    Query(_params): Query<InvocationQueryParams>,
     mut files: Multipart,
 ) -> Result<Json<InvocationId>, IndexifyAPIError> {
     let mut metadata: Option<serde_json::Value> = None;
@@ -128,7 +133,7 @@ pub async fn invoke_with_file(
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
+    request_body(content_type = "application/cbor", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
         (status = 200, description = "invocation successful"),
@@ -138,9 +143,11 @@ pub async fn invoke_with_file(
 )]
 pub async fn invoke_with_object(
     Path((namespace, compute_graph)): Path<(String, String)>,
+    Query(params): Query<InvocationQueryParams>,
     State(state): State<RouteState>,
     body: Body,
-) -> Result<Json<InvocationId>, IndexifyAPIError> {
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let should_block = params.block_until_finish.unwrap_or(false);
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
         .into_data_stream()
@@ -166,6 +173,7 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let id = invocation_payload.id.clone();
+    let mut rx = state.indexify_state.task_event_stream();
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.clone(),
@@ -181,5 +189,32 @@ pub async fn invoke_with_object(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-    Ok(Json(InvocationId { id }))
+
+    let invocation_event_stream = async_stream::stream! {
+        loop {
+            if should_block {
+                if let Ok(ev)  =  rx.recv().await {
+                    if ev.invocation_id() == id {
+                        yield Event::default().json_data(ev.clone());
+
+                        if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {
+                        yield Event::default().json_data(InvocationId { id: id.clone() });
+                        return;
+                    }
+                    }
+                }
+            } else {
+                yield Event::default().json_data(InvocationId { id: id.clone() });
+                return;
+            }
+        }
+    };
+
+    Ok(
+        axum::response::Sse::new(invocation_event_stream).keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .text("keep-alive-text"),
+        ),
+    )
 }

@@ -90,7 +90,9 @@ mod tests {
     #[tokio::test]
     async fn test_gc() -> Result<()> {
         let temp_dir = tempfile::tempdir().unwrap();
-        let state = IndexifyState::new(temp_dir.path().join("state")).unwrap();
+        let state = IndexifyState::new(temp_dir.path().join("state"))
+            .await
+            .unwrap();
         let config =
             blob_store::BlobStorageConfig::new_disk(temp_dir.path().join("blob").to_str().unwrap());
         let storage = Arc::new(BlobStorage::new(config)?);

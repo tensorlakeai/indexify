@@ -36,7 +36,9 @@ pub mod tests {
     impl TestStateStore {
         pub async fn new() -> Result<Self> {
             let temp_dir = TempDir::new()?;
-            let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
+            let indexify_state = IndexifyState::new(temp_dir.path().join("state"))
+                .await
+                .unwrap();
             Ok(Self { indexify_state })
         }
 
