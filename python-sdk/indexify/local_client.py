@@ -30,6 +30,7 @@ class LocalClient(IndexifyClient):
         self._graphs: Dict[str, Graph] = {}
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper(self._cache_dir)
+        self._task_counters: Dict[str, int] = {}
 
     def register_compute_graph(self, graph: Graph):
         self._graphs[graph.name] = graph
@@ -43,6 +44,7 @@ class LocalClient(IndexifyClient):
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
         self._results[input.id] = outputs
+        self._task_counters[g._start_node.name] = 1
         self._run(g, input, outputs)
         return input.id
 
@@ -82,7 +84,7 @@ class LocalClient(IndexifyClient):
                     input_bytes,
                     function_outputs_bytes,
                 )
-
+            self._task_counters[node_name] -= 1
             out_edges = g.edges.get(node_name, [])
             # Figure out if there are any routers for this node
             for i, edge in enumerate(out_edges):
@@ -98,6 +100,7 @@ class LocalClient(IndexifyClient):
                                 out_edges.append(dynamic_edge)
             for out_edge in out_edges:
                 for output in function_outputs:
+                    self._task_counters[out_edge] += 1
                     queue.append((out_edge, output))
 
     def _route(
@@ -114,7 +117,7 @@ class LocalClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         pass
 
-    def invoke_graph_with_object(self, graph: str, **kwargs) -> str:
+    def invoke_graph_with_object(self, graph: str, block_until_done: bool = False, **kwargs) -> str:
         graph = self._graphs[graph]
         for key, value in kwargs.items():
             if isinstance(value, BaseModel):
@@ -136,7 +139,6 @@ class LocalClient(IndexifyClient):
         graph: str,
         invocation_id: str,
         fn_name: str,
-        block_until_done: bool = True,
     ) -> Union[Dict[str, List[Any]], List[Any]]:
         if invocation_id not in self._results:
             raise ValueError(f"no results found for graph {graph}")

@@ -268,13 +268,16 @@ if __name__ == "__main__":
     g = create_graph()
     client = create_client(local=True)
     client.register_compute_graph(g)
-    invocation_id= client.invoke_graph_with_object(
-        g.name, url=YoutubeURL(url="https://www.youtube.com/watch?v=gjHv4pM8WEQ")
+    invocation_id = client.invoke_graph_with_object(
+        g.name,
+        url=YoutubeURL(url="https://www.youtube.com/watch?v=gjHv4pM8WEQ"),
     )
-    invocation_id = "4bd41e4e8a694c66"
     print(f"[bold] Retrieving transcription for {invocation_id} [/bold]")
     outputs = client.graph_outputs(
-        g.name, invocation_id=invocation_id, fn_name=transcribe_audio.name
+        g.name,
+        invocation_id=invocation_id,
+        fn_name=transcribe_audio.name,
+        block_until_done=True,
     )
     transcription = outputs[0]
     for segment in transcription.segments:
