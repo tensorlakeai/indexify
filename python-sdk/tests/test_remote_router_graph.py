@@ -3,13 +3,12 @@ from typing import List, Mapping, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph
+from indexify import Graph, create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
-from indexify import create_client
 
 
 @indexify_function()

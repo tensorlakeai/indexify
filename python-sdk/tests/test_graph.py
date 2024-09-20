@@ -192,7 +192,8 @@ class TestGraphA(unittest.TestCase):
         "extractor_a_with_pydantic_model_as_input": [
             "router_x"
         ]
-    }
+    },
+    "accumulator_zero_values": {}
 }"""
         result = metadata.model_dump_json(indent=4, exclude_none=True)
         self.maxDiff = None
@@ -241,7 +242,8 @@ class TestGraphA(unittest.TestCase):
         "extractor_b": [
             "extractor_c"
         ]
-    }
+    },
+    "accumulator_zero_values": {}
 }"""
         result = metadata.model_dump_json(indent=4, exclude_none=True)
         self.assertEqual(result, expected_graph_metadata)

@@ -1,6 +1,10 @@
 import unittest
 from typing import List, Optional, Union
 
+import cbor2
+from pydantic import BaseModel
+
+from indexify.functions_sdk.cbor_serializer import CborSerializer
 from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunctionWrapper,
@@ -19,8 +23,8 @@ class TestFunctionWrapper(unittest.TestCase):
             return "hello"
 
         extractor_wrapper = IndexifyFunctionWrapper(extractor_a)
-        result = extractor_wrapper.run(IndexifyData(payload={"url": "foo"}))
-        self.assertEqual(result[0].payload, "hello")
+        result = extractor_wrapper.run_fn({"url": "foo"})
+        self.assertEqual(result[0], "hello")
 
     def test_get_output_model(self):
         @indexify_function()
@@ -63,9 +67,21 @@ class TestFunctionWrapper(unittest.TestCase):
             return [func_a]
 
         router_wrapper = IndexifyFunctionWrapper(router_fn)
-        result = router_wrapper.run(IndexifyData(payload={"url": "foo"}))
-        self.assertTrue(isinstance(result, RouterOutput))
-        self.assertEqual(result.edges, ["func_a"])
+        result = router_wrapper.run_router({"url": "foo"})
+        self.assertEqual(result, ["func_a"])
+
+    def test_accumulate(self):
+        class AccumulatedState(BaseModel):
+            x: int
+
+        @indexify_function(accumulate=AccumulatedState)
+        def accumulate_fn(acc: AccumulatedState, x: int) -> AccumulatedState:
+            acc.x += x
+            return acc
+
+        wrapper = IndexifyFunctionWrapper(accumulate_fn)
+        result = wrapper.run_fn(acc=AccumulatedState(x=12), input={"x": 1})
+        self.assertEqual(result[0].x, 13)
 
     # FIXME: Partial extractor is not working
     # def test_partial_extractor(self):
