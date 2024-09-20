@@ -15,7 +15,6 @@ from typing import (
 from pydantic import BaseModel
 from typing_extensions import get_type_hints
 
-from .cbor_serializer import CborSerializer
 from .data_objects import IndexifyData, RouterOutput
 from .image import Image
 
@@ -38,6 +37,7 @@ class IndexifyFunction(ABC):
     base_image: Optional[str] = None
     description: str = ""
     placement_constraints: List[PlacementConstraints] = []
+    accumulate: Optional[Type[Any]] = None
 
     @abstractmethod
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
@@ -97,6 +97,9 @@ def indexify_function(
     name: Optional[str] = None,
     description: Optional[str] = "",
     image: Image = None,
+    accumulate: Optional[Type[BaseModel]] = None,
+    min_batch_size: Optional[int] = None,
+    max_batch_size: Optional[int] = None,
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -120,6 +123,9 @@ def indexify_function(
                 setattr(IndexifyFn, key, value)
 
         IndexifyFn.image = image
+        IndexifyFn.accumulate = accumulate
+        IndexifyFn.min_batch_size = min_batch_size
+        IndexifyFn.max_batch_size = max_batch_size
 
         return IndexifyFn
 
@@ -149,26 +155,28 @@ class IndexifyFunctionWrapper:
                 )
         return return_type
 
-    def run(
-        self, input: Union[Dict, Type[BaseModel]]
-    ) -> Union[List[IndexifyData], RouterOutput]:
+    def run_router(self, input: Union[Dict, Type[BaseModel]]) -> List[str]:
+        kwargs = input if isinstance(input, dict) else {"input": input}
+        extracted_data = self.indexify_function.run(**kwargs)
+        if not isinstance(extracted_data, list) and extracted_data is not None:
+            return [extracted_data.name]
+        edges = []
+        for fn in extracted_data or []:
+            edges.append(fn.name)
+        return edges
+
+    def run_fn(
+        self, input: Union[Dict, Type[BaseModel]], acc: Type[Any] = None
+    ) -> List[IndexifyData]:
+        args = []
+        kwargs = {}
+        if acc is not None:
+            args.append(acc)
         if isinstance(input, dict):
-            extracted_data = self.indexify_function.run(**input)
+            kwargs = input
         else:
-            extracted_data = self.indexify_function.run(input)
+            args.append(input)
 
-        if isinstance(self.indexify_function, IndexifyRouter):
-            if not isinstance(extracted_data, list) and extracted_data is not None:
-                return RouterOutput(edges=[extracted_data.name])
-            edges = []
-            for fn in extracted_data or []:
-                edges.append(fn.name)
-            return RouterOutput(edges=edges)
+        extracted_data = self.indexify_function.run(*args, **kwargs)
 
-        if not isinstance(extracted_data, list):
-            return [IndexifyData(payload=CborSerializer.serialize(extracted_data))]
-
-        outputs = []
-        for data in extracted_data:
-            outputs.append(IndexifyData(payload=CborSerializer.serialize(data)))
-        return outputs
+        return extracted_data if isinstance(extracted_data, list) else [extracted_data]

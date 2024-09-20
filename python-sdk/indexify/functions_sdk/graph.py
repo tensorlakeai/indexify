@@ -19,6 +19,7 @@ import cloudpickle
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
 
+from .cbor_serializer import CborSerializer
 from .data_objects import IndexifyData, RouterOutput
 from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
@@ -84,6 +85,7 @@ class ComputeGraphMetadata(BaseModel):
     start_node: NodeMetadata
     nodes: Dict[str, NodeMetadata]
     edges: Dict[str, List[str]]
+    accumulator_zero_values: Dict[str, bytes] = {}
 
 
 class Graph:
@@ -95,6 +97,7 @@ class Graph:
         self.nodes: Dict[str, Union[IndexifyFunction, IndexifyRouter]] = {}
         self.routers: Dict[str, List[str]] = defaultdict(list)
         self.edges: Dict[str, List[str]] = defaultdict(list)
+        self.accumulator_zero_values: Dict[str, Any] = {}
 
         self._start_node: str = start_node
         self.add_node(start_node)
@@ -103,6 +106,9 @@ class Graph:
         if name not in self.nodes:
             raise ValueError(f"Function {name} not found in graph")
         return IndexifyFunctionWrapper(self.nodes[name])
+
+    def get_accumulators(self) -> Dict[str, Any]:
+        return self.accumulator_zero_values
 
     def deserialize_fn_output(self, name: str, output: IndexifyData) -> Any:
         output_model = self.get_function(name).get_output_model()
@@ -117,6 +123,11 @@ class Graph:
 
         if indexify_fn.name in self.nodes:
             return self
+
+        if issubclass(indexify_fn, IndexifyFunction) and indexify_fn.accumulate:
+            self.accumulator_zero_values[
+                indexify_fn.name
+            ] = indexify_fn.accumulate().model_dump()
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -156,18 +167,26 @@ class Graph:
         self.add_edges(from_node, [to_node])
         return self
 
-    def invoke_fn_ser(self, name: str, input: IndexifyData) -> List[IndexifyData]:
+    def invoke_fn_ser(
+        self, name: str, input: IndexifyData, acc: Optional[Any] = None
+    ) -> List[IndexifyData]:
         fn_wrapper = self.get_function(name)
         payload = cbor2.loads(input.payload)
         input = self.deserialize_input_from_dict(name, payload)
-        outputs: List[IndexifyData] = fn_wrapper.run(input)
-        return outputs
+        if acc is not None:
+            acc = fn_wrapper.indexify_function.accumulate.model_validate(
+                cbor2.loads(acc)
+            )
+        outputs: List[Any] = fn_wrapper.run_fn(input, acc=acc)
+        return [
+            IndexifyData(payload=CborSerializer.serialize(output)) for output in outputs
+        ]
 
     def invoke_router(self, name: str, input: IndexifyData) -> Optional[RouterOutput]:
         fn_wrapper = self.get_function(name)
         input_payload = cbor2.loads(input.payload)
         input = self.deserialize_input_from_dict(name, input_payload)
-        return fn_wrapper.run(input)
+        return RouterOutput(edges=fn_wrapper.run_router(input))
 
     def deserialize_input_from_dict(
         self, compute_fn: str, payload: Dict[str, Any]
@@ -176,12 +195,13 @@ class Graph:
         if not compute_fn:
             raise ValueError(f"Compute function {compute_fn} not found in graph")
         signature = inspect.signature(compute_fn.run)
-        arg_types = {
-            name: param.annotation
-            if param.annotation != inspect.Parameter.empty
-            else None
-            for name, param in signature.parameters.items()
-        }
+        arg_types = {}
+        for name, param in signature.parameters.items():
+            if (
+                param.annotation != inspect.Parameter.empty
+                and param.annotation != getattr(compute_fn, "accumulate", None)
+            ):
+                arg_types[name] = param.annotation
         if len(arg_types) > 1:
             raise ValueError(
                 f"Compute function {compute_fn} has multiple arguments, but only one is supported"

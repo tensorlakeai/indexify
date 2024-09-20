@@ -9,11 +9,11 @@ import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
 from rich import print
-from rich.panel import Panel
 from rich.console import Console
-from rich.theme import Theme
-from rich.text import Text
+from rich.panel import Panel
 from rich.style import Style
+from rich.text import Text
+from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 
@@ -24,14 +24,17 @@ from .function_worker import FunctionWorker
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
 
-custom_theme = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "error": "red",
-    "success": "green",
-})
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "success": "green",
+    }
+)
 
 console = Console(theme=custom_theme)
+
 
 class FunctionInput(BaseModel):
     task_id: str
@@ -39,6 +42,7 @@ class FunctionInput(BaseModel):
     compute_graph: str
     function: str
     input: IndexifyData
+
 
 class ExtractorAgent:
     def __init__(
@@ -57,7 +61,9 @@ class ExtractorAgent:
                 config = yaml.safe_load(f)
                 self._config = config
             if config.get("use_tls", False):
-                console.print("Running the extractor with TLS enabled", style="cyan bold")
+                console.print(
+                    "Running the extractor with TLS enabled", style="cyan bold"
+                )
                 self._use_tls = True
                 tls_config = config["tls_config"]
                 self._ssl_context = ssl.create_default_context(
@@ -96,13 +102,15 @@ class ExtractorAgent:
         while True:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
-                console.print(Panel(
-                    f"Reporting outcome of task {task_outcome.task.id}\n"
-                    f"Outcome: {task_outcome.task_outcome}\n"
-                    f"Outputs: {len(task_outcome.outputs)}",
-                    title="Task Completion",
-                    border_style="info"
-                ))
+                console.print(
+                    Panel(
+                        f"Reporting outcome of task {task_outcome.task.id}\n"
+                        f"Outcome: {task_outcome.task_outcome}\n"
+                        f"Outputs: {len(task_outcome.outputs)}",
+                        title="Task Completion",
+                        border_style="info",
+                    )
+                )
                 task: Task = self._task_store.get_task(task_outcome.task.id)
                 try:
                     # Send task outcome to the server
@@ -114,12 +122,14 @@ class ExtractorAgent:
                     )
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
-                    console.print(Panel(
-                        f"Failed to report task {task_outcome.task.id}\n"
-                        f"Exception: {e}\nRetrying...",
-                        title="Reporting Error",
-                        border_style="error"
-                    ))
+                    console.print(
+                        Panel(
+                            f"Failed to report task {task_outcome.task.id}\n"
+                            f"Exception: {e}\nRetrying...",
+                            title="Reporting Error",
+                            border_style="error",
+                        )
+                    )
                     await asyncio.sleep(5)
                     continue
 
@@ -154,8 +164,11 @@ class ExtractorAgent:
                 if async_task.get_name() == "get_runnable_tasks":
                     if async_task.exception():
                         console.print(
-                            Text("Task Launcher Error: ", style="red bold") +
-                            Text(f"Failed to get runnable tasks: {async_task.exception()}", style="red")
+                            Text("Task Launcher Error: ", style="red bold")
+                            + Text(
+                                f"Failed to get runnable tasks: {async_task.exception()}",
+                                style="red",
+                            )
                         )
                         continue
                     result: Dict[str, Task] = await async_task
@@ -173,8 +186,11 @@ class ExtractorAgent:
                 elif async_task.get_name() == "download_graph":
                     if async_task.exception():
                         console.print(
-                            Text(f"Failed to download graph for task {async_task.task.id}\n", style="red bold") +
-                            Text(f"Exception: {async_task.exception()}", style="red")
+                            Text(
+                                f"Failed to download graph for task {async_task.task.id}\n",
+                                style="red bold",
+                            )
+                            + Text(f"Exception: {async_task.exception()}", style="red")
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,
@@ -191,8 +207,11 @@ class ExtractorAgent:
                 elif async_task.get_name() == "download_input":
                     if async_task.exception():
                         console.print(
-                            Text(f"Failed to download input for task {async_task.task.id}\n", style="red bold") +
-                            Text(f"Exception: {async_task.exception()}", style="red")
+                            Text(
+                                f"Failed to download input for task {async_task.task.id}\n",
+                                style="red bold",
+                            )
+                            + Text(f"Exception: {async_task.exception()}", style="red")
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,
@@ -215,8 +234,11 @@ class ExtractorAgent:
                 elif async_task.get_name() == "run_function":
                     if async_task.exception():
                         console.print(
-                            Text("Execution Error: ", style="red bold") +
-                            Text(f"Failed to execute tasks: {async_task.exception()}", style="red")
+                            Text("Execution Error: ", style="red bold")
+                            + Text(
+                                f"Failed to execute tasks: {async_task.exception()}",
+                                style="red",
+                            )
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,
@@ -246,8 +268,11 @@ class ExtractorAgent:
                         continue
                     except Exception as e:
                         console.print(
-                            Text(f"Failed to execute task {async_task.task.id}\n", style="red bold") +
-                            Text(f"Exception: {e}", style="red")
+                            Text(
+                                f"Failed to execute task {async_task.task.id}\n",
+                                style="red bold",
+                            )
+                            + Text(f"Exception: {e}", style="red")
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,
@@ -269,10 +294,10 @@ class ExtractorAgent:
         while self._should_run:
             self._protocol = "http"
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
-            
+
             def to_sentence_case(snake_str):
-                words = snake_str.split('_')
-                return words[0].capitalize() + '' + ' '.join(words[1:])
+                words = snake_str.split("_")
+                return words[0].capitalize() + "" + " ".join(words[1:])
 
             data = ExecutorMetadata(
                 id=self._executor_id,
@@ -281,13 +306,29 @@ class ExtractorAgent:
                 labels={},
             ).model_dump()
 
-            panel_content = "\n".join([f"{to_sentence_case(key)}: {value}" for key, value in data.items()])
-            console.print(Panel(panel_content, title="Attempting to Register Executor", border_style="cyan"))
-            
+            panel_content = "\n".join(
+                [f"{to_sentence_case(key)}: {value}" for key, value in data.items()]
+            )
+            console.print(
+                Panel(
+                    panel_content,
+                    title="Attempting to Register Executor",
+                    border_style="cyan",
+                )
+            )
+
             try:
                 async with httpx.AsyncClient() as client:
-                    async with aconnect_sse(client, "POST", url, json=data, headers={"Content-Type": "application/json"}) as event_source:
-                        console.print(Text("Executor registered successfully", style="bold green"))
+                    async with aconnect_sse(
+                        client,
+                        "POST",
+                        url,
+                        json=data,
+                        headers={"Content-Type": "application/json"},
+                    ) as event_source:
+                        console.print(
+                            Text("Executor registered successfully", style="bold green")
+                        )
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
                             tasks = []
@@ -298,8 +339,8 @@ class ExtractorAgent:
                             self._task_store.add_tasks(tasks)
             except Exception as e:
                 console.print(
-                    Text("Registration Error: ", style="red bold") +
-                    Text(f"Failed to register: {e}", style="red")
+                    Text("Registration Error: ", style="red bold")
+                    + Text(f"Failed to register: {e}", style="red")
                 )
                 await asyncio.sleep(5)
                 continue

@@ -6,25 +6,28 @@ import docker
 import nanoid
 import typer
 from rich import print
-from rich.panel import Panel
 from rich.console import Console
-from rich.theme import Theme
+from rich.panel import Panel
 from rich.text import Text
+from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.image import Image
 
-custom_theme = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "error": "red",
-    "highlight": "magenta",
-})
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "highlight": "magenta",
+    }
+)
 
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
+
 
 @app.command(help="Build image for function names")
 def build_image(workflow_file_path: str, func_names: List[str]):
@@ -45,25 +48,37 @@ def build_image(workflow_file_path: str, func_names: List[str]):
                 found_funcs.append(name)
                 _create_image_for_func(func_name=func_name, func_obj=obj)
 
-    console.print(Text(f"Processed functions: ", style="cyan"), Text(f"{found_funcs}", style="green"))
+    console.print(
+        Text(f"Processed functions: ", style="cyan"),
+        Text(f"{found_funcs}", style="green"),
+    )
+
 
 @app.command(help="Joins the extractors to the coordinator server")
 def executor(
     server_addr: str = "localhost:8900",
-    workers: Annotated[int, typer.Option(help="number of worker processes for extraction")] = 1,
-    config_path: Optional[str] = typer.Option(None, help="Path to the TLS configuration file"),
-    executor_cache: Optional[str] = typer.Option("~/.indexify/executor_cache", help="Path to the executor cache directory"),
+    workers: Annotated[
+        int, typer.Option(help="number of worker processes for extraction")
+    ] = 1,
+    config_path: Optional[str] = typer.Option(
+        None, help="Path to the TLS configuration file"
+    ),
+    executor_cache: Optional[str] = typer.Option(
+        "~/.indexify/executor_cache", help="Path to the executor cache directory"
+    ),
 ):
     id = nanoid.generate()
-    console.print(Panel(
-        f"Number of workers: {workers}\n"
-        f"Config path: {config_path}\n"
-        f"Server address: {server_addr}\n"
-        f"Executor ID: {id}\n"
-        f"Executor cache: {executor_cache}",
-        title="Agent Configuration",
-        border_style="info"
-    ))
+    console.print(
+        Panel(
+            f"Number of workers: {workers}\n"
+            f"Config path: {config_path}\n"
+            f"Server address: {server_addr}\n"
+            f"Executor ID: {id}\n"
+            f"Executor cache: {executor_cache}",
+            title="Agent Configuration",
+            border_style="info",
+        )
+    )
 
     function_worker = FunctionWorker(workers=workers)
     from pathlib import Path
@@ -85,16 +100,24 @@ def executor(
     except asyncio.CancelledError as ex:
         console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
 
+
 def _create_image_for_func(func_name, func_obj):
-    console.print(Text("Creating container for ", style="cyan"), Text(f"`{func_name}`", style="cyan bold"))
+    console.print(
+        Text("Creating container for ", style="cyan"),
+        Text(f"`{func_name}`", style="cyan bold"),
+    )
     _build_image(image=func_obj.image, func_name=func_name)
+
 
 def _build_image(image: Image, func_name: str = None):
     try:
         client = docker.from_env()
         client.ping()
     except Exception as e:
-        console.print(Text("Unable to connect with docker: ", style="red bold"), Text(f"{e}", style="red"))
+        console.print(
+            Text("Unable to connect with docker: ", style="red bold"),
+            Text(f"{e}", style="red"),
+        )
         exit(-1)
 
     docker_file_str_template = """
