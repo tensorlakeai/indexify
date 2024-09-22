@@ -405,11 +405,7 @@ async fn list_compute_graphs(
     let (compute_graphs, cursor) = state
         .indexify_state
         .reader()
-        .list_compute_graphs(
-            &namespace,
-            params.cursor.as_deref(),
-            params.limit,
-        )
+        .list_compute_graphs(&namespace, params.cursor.as_deref(), params.limit)
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ComputeGraphsList {
         compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),

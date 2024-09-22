@@ -99,12 +99,16 @@ pub async fn ingest_files_from_executor(
                 let file_name = Uuid::new_v4().to_string();
                 info!("writing to blob store, file name = {:?}", file_name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-                let res = state.blob_storage.put(&file_name, stream).await.map_err(|e| {
-                    IndexifyAPIError::internal_error(anyhow!(
-                        "failed to write to blob store: {}",
-                        e
-                    ))
-                })?;
+                let res = state
+                    .blob_storage
+                    .put(&file_name, stream)
+                    .await
+                    .map_err(|e| {
+                        IndexifyAPIError::internal_error(anyhow!(
+                            "failed to write to blob store: {}",
+                            e
+                        ))
+                    })?;
                 output_objects.push(res.clone());
             } else if field_name == "task_result" {
                 let text = field
