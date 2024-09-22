@@ -109,6 +109,7 @@ pub mod tests {
                 node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_A")],
                 task_outcome: TaskOutcome::Success,
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                diagnostics: None,
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {
@@ -132,6 +133,7 @@ pub mod tests {
                 node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_B")],
                 task_outcome: TaskOutcome::Success,
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                diagnostics: None,
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {
@@ -151,6 +153,7 @@ pub mod tests {
                 node_outputs: vec![mock_node_router_output_x(&invocation_id, "graph_B")],
                 task_outcome: TaskOutcome::Success,
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                diagnostics: None,
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {

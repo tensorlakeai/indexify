@@ -6,6 +6,7 @@ use data_model::{
     NodeOutput,
     StateChangeId,
     Task,
+    TaskDiagnostics,
     TaskId,
 };
 
@@ -37,6 +38,7 @@ pub struct FinalizeTaskRequest {
     pub node_outputs: Vec<NodeOutput>,
     pub task_outcome: data_model::TaskOutcome,
     pub executor_id: ExecutorId,
+    pub diagnostics: Option<TaskDiagnostics>,
 }
 
 pub struct InvokeComputeGraphRequest {

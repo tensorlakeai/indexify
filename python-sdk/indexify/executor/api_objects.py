@@ -38,3 +38,4 @@ class TaskResult(BaseModel):
     invocation_id: str
     executor_id: str
     task_id: str
+    errors: Optional[str]

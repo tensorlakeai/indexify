@@ -414,6 +414,8 @@ pub fn mark_task_completed(
         &task.make_allocation_key(&req.executor_id),
     )?;
 
+    task.diagnostics = req.diagnostics.clone();
+
     task.outcome = req.task_outcome.clone();
     let task_bytes = JsonEncoder::encode(&task)?;
     txn.put_cf(

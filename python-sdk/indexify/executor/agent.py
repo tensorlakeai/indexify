@@ -1,6 +1,7 @@
 import asyncio
 import json
 import ssl
+import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
@@ -119,6 +120,7 @@ class ExtractorAgent:
                         task_outcome.router_output,
                         task_outcome.task,
                         task_outcome.task_outcome,
+                        errors=task_outcome.errors
                     )
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
@@ -155,10 +157,12 @@ class ExtractorAgent:
                         code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}",
                     )
                 )
+
             fn_queue = []
             done, pending = await asyncio.wait(
                 async_tasks, return_when=asyncio.FIRST_COMPLETED
             )
+
             async_tasks: List[asyncio.Task] = list(pending)
             for async_task in done:
                 if async_task.get_name() == "get_runnable_tasks":
@@ -244,6 +248,7 @@ class ExtractorAgent:
                             task=async_task.task,
                             task_outcome="failure",
                             outputs=[],
+                            errors=str(async_task.exception())
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue

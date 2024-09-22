@@ -31,6 +31,7 @@ class TaskReporter:
         router_output: Optional[RouterOutput],
         task: Task,
         outcome: str,
+        errors: Optional[str], # TODO exception_msg
     ):
         fn_outputs = []
         for output in outputs:
@@ -41,9 +42,19 @@ class TaskReporter:
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )
+
+        if errors:
+            print(
+                f"[bold]task-reporter[/bold] uploading error of size: {len(errors)}"
+            )
+            fn_outputs.append(
+                ("exception_msg", (nanoid.generate(), io.BytesIO(errors.encode())))
+            )
+
         router_output = (
             ApiRouterOutput(edges=router_output.edges) if router_output else None
         )
+
         task_result = TaskResult(
             router_output=router_output,
             outcome=outcome,
@@ -53,8 +64,10 @@ class TaskReporter:
             invocation_id=task.invocation_id,
             executor_id=self._executor_id,
             task_id=task.id,
+            errors=errors,
         )
         task_result_data = task_result.model_dump_json(exclude_none=True)
+
         kwargs = {"data": {"task_result": task_result_data}}
         if fn_outputs and len(fn_outputs) > 0:
             kwargs["files"] = fn_outputs
