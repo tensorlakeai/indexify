@@ -89,24 +89,24 @@ pub async fn ingest_files_from_executor(
     let mut output_objects: Vec<PutResult> = vec![];
     let mut task_result: Option<TaskResult> = None;
     while let Some(field) = files.next_field().await.unwrap() {
-        if let Some(name) = field.name() {
-            if name == "node_outputs" {
+        if let Some(field_name) = field.name() {
+            if field_name == "node_outputs" {
                 let _ = field
                     .file_name()
                     .as_ref()
                     .ok_or(IndexifyAPIError::bad_request("file name is required"))?
                     .to_string();
-                let name = Uuid::new_v4().to_string();
-                info!("writing to blob store, file name = {:?}", name);
+                let file_name = Uuid::new_v4().to_string();
+                info!("writing to blob store, file name = {:?}", file_name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-                let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
+                let res = state.blob_storage.put(&file_name, stream).await.map_err(|e| {
                     IndexifyAPIError::internal_error(anyhow!(
                         "failed to write to blob store: {}",
                         e
                     ))
                 })?;
                 output_objects.push(res.clone());
-            } else if name == "task_result" {
+            } else if field_name == "task_result" {
                 let text = field
                     .text()
                     .await
