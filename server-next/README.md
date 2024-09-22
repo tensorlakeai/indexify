@@ -23,16 +23,18 @@ pip install indexify
 
 ## Basic Usage 
 
-Before we jump into complex multi-stage workflows 
+Workflows are written as Python functions and laid out as Graphs. Functions in a Graph are automatically invoked when upstream functions finishes with their output.
 
-## Write a Workflow 
+API calls to workflows are automatically queued, failures are retried so you don't have to install any other tools like Kafka, SQS or databases and write code to manage state of your Graph API endpoints.
+
+#### Write a Workflow 
 ```python
 from pydantic import BaseModel
 
 class Sum(BaseModel):
     val: int
 
-@indexify_function()
+@indexify_function(retries=3)
 def generate_sequence(a: int) -> List[int]:
     return [i for i in range(a)]
 
@@ -40,7 +42,7 @@ def generate_sequence(a: int) -> List[int]:
 def sum_all_numbers(sum: Sum, val: int) -> Sum:
     return Sum(sum.val + val)
 
-@indexify_function()
+@indexify_function(placement_constraints="python_ver>3.8 and os=linux")
 def display(sum: Sum) -> str:
     return f"value of sequence: f{sum.val}"
 
@@ -48,7 +50,7 @@ from indexify import ComputeGraph
 g = ComputeGraph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
 ```
 
-## Invoke the Workflow 
+#### Invoke the Workflow 
 ```python
 from indexify import create_client 
 client = create_client(ephemeral=True)
@@ -59,11 +61,9 @@ print(result)
 
 This is it! You have built your first multi-stage workflow, and ran it locally! 
 
-## Create a Graph Endpoint HTTP API  
+#### Create a Graph Endpoint HTTP API  
 
 Indexify comes with a server for deploying Compute Graphs as an HTTP API so they can be called from other applications or systems.
-
-## Run Indexify Server 
 
 ```bash
 indexify-cli run-server
@@ -75,7 +75,17 @@ This starts the Indexify Server and an Executor -
 
 **Executor**: Runs the python functions which are part of your Graph.
 
-> You can run as many executors you want on a single machine or on many 100s of machines so that Indexify Server can run your graphs in parallel if you call the endpoints 1000s of times concurrently. 
+Change the code above to deploy the graph as an API on the server -
 
+```python
+client = create_client(ephemeral=True)
+```
 
+Everything else, remains the same in your application code that invokes the Graph to process data! 
+
+#### Distributed Execution by Design 
+
+**Parallel Execution** - You can run as many executors you want on a single machine or on many 100s of machines. This will enable Indexify Server to run your graphs in parallel if they are invoked 1000s of times concurrently. 
+
+**Placement Constraints** - You can make functions on the graph be executed on different classes of machines.
 
