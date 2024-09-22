@@ -3,7 +3,7 @@
 #### Stateful Compute Engine for building and deploying LLM Workflows and Applications
 
 
-Indexify is a compute engine for building multi-stage workflows and applications and deploy them as Live API endpoints. The workflows can be run on multiple machines, making them very useful for AI/LLM workloads which often require running some models in functions along with some application logic or data fetching logic which can be run on CPUs.
+Indexify is a compute engine for building multi-stage workflows and applications and deploy them as Live API endpoints. The workflows can be distributed on multiple machines, making them very useful for AI/LLM workloads which often require models on GPUs along with some application or data fetching logic which can be run on CPUs.
 
 Workflows can be laid out as Graphs, enabling many interesting use-cases -
 
