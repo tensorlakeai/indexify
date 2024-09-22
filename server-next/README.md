@@ -4,7 +4,7 @@
 
 Indexify is a stateful compute engine that empowers you to build and deploy multi-stage LLM workflows and applications as live API endpoints—using Python. 
 
-Spend your time writing agents and business logic, and let Indexify provide a distributed compute framework that - 
+One you build workflows with Indexify functions, it will handle aspects of deployment and operating your workflows by - 
 
 * **Parallel Execution**: Automatically distributes workflows across many machines. Manages intermediate results, handles retries, queues API calls and executes workflows reliably.
 
