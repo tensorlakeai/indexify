@@ -22,6 +22,15 @@ pub mod tests {
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
 
+    fn test_compute_fn(name: &str) -> ComputeFn {
+        ComputeFn {
+            name: name.to_string(),
+            description: format!("description {}", name),
+            fn_name: name.to_string(),
+            ..Default::default()
+        }
+    }
+
     pub fn mock_node_fn_output_fn_a(invocation_id: &str, graph: &str) -> NodeOutput {
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
@@ -77,24 +86,9 @@ pub mod tests {
     }
 
     pub fn mock_graph_a() -> ComputeGraph {
-        let fn_a = ComputeFn {
-            name: "fn_a".to_string(),
-            description: "description fn_a".to_string(),
-            fn_name: "fn_a".to_string(),
-            placement_constraints: Default::default(),
-        };
-        let fn_b = ComputeFn {
-            name: "fn_b".to_string(),
-            description: "description fn_b".to_string(),
-            fn_name: "fn_b".to_string(),
-            placement_constraints: Default::default(),
-        };
-        let fn_c = ComputeFn {
-            name: "fn_c".to_string(),
-            description: "description fn_c".to_string(),
-            fn_name: "fn_c".to_string(),
-            placement_constraints: Default::default(),
-        };
+        let fn_a = test_compute_fn("fn_a");
+        let fn_b = test_compute_fn("fn_b");
+        let fn_c = test_compute_fn("fn_c");
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_A".to_string(),
@@ -120,30 +114,15 @@ pub mod tests {
     }
 
     pub fn mock_graph_b() -> ComputeGraph {
-        let fn_a = ComputeFn {
-            name: "fn_a".to_string(),
-            description: "description fn_a".to_string(),
-            fn_name: "fn_a".to_string(),
-            placement_constraints: Default::default(),
-        };
+        let fn_a = test_compute_fn("fn_a");
         let router_x = DynamicEdgeRouter {
             name: "router_x".to_string(),
             description: "description router_x".to_string(),
             source_fn: "fn_a".to_string(),
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
         };
-        let fn_b = ComputeFn {
-            name: "fn_b".to_string(),
-            description: "description fn_b".to_string(),
-            fn_name: "fn_b".to_string(),
-            placement_constraints: Default::default(),
-        };
-        let fn_c = ComputeFn {
-            name: "fn_c".to_string(),
-            description: "description fn_c".to_string(),
-            fn_name: "fn_c".to_string(),
-            placement_constraints: Default::default(),
-        };
+        let fn_b = test_compute_fn("fn_b");
+        let fn_c = test_compute_fn("fn_c");
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_B".to_string(),

@@ -108,7 +108,6 @@ pub async fn ingest_files_from_executor(
                     .as_ref()
                     .ok_or(IndexifyAPIError::bad_request("file name is required"))?
                     .to_string();
-
                 let name = Uuid::new_v4().to_string();
                 info!("writing to blob store, file name = {:?}", name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));

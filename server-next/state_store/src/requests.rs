@@ -4,6 +4,7 @@ use data_model::{
     ExecutorMetadata,
     InvocationPayload,
     NodeOutput,
+    ReduceTask,
     StateChangeId,
     Task,
     TaskDiagnostics,
@@ -81,9 +82,16 @@ pub struct TaskPlacement {
     pub task: Task,
     pub executor: ExecutorId,
 }
+
+#[derive(Default)]
+pub struct ReductionTasks {
+    pub new_reduction_tasks: Vec<ReduceTask>,
+    pub processed_reduction_tasks: Vec<String>,
+}
 pub struct SchedulerUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
     pub allocations: Vec<TaskPlacement>,
+    pub reduction_tasks: ReductionTasks,
 }
 
 pub struct DeleteInvocationRequest {

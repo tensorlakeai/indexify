@@ -88,6 +88,7 @@ pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
     pub description: String,
+    pub reducer: bool,
 }
 
 impl From<&ComputeFn> for data_model::ComputeFn {
@@ -97,6 +98,7 @@ impl From<&ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: Default::default(),
+            reducer: val.reducer,
         }
     }
 }
@@ -108,6 +110,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: Default::default(),
+            reducer: val.reducer,
         }
     }
 }
@@ -118,6 +121,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             name: c.name,
             fn_name: c.fn_name,
             description: c.description,
+            reducer: c.reducer,
         }
     }
 }

@@ -9,6 +9,7 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
+    ReduceTask,
     StateChange,
     Task,
 };
@@ -564,6 +565,22 @@ impl StateReader {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("fn output not found")),
         }
+    }
+
+    pub fn next_reduction_task(
+        &self,
+        ns: &str,
+        cg: &str,
+        inv_id: &str,
+    ) -> Result<Option<ReduceTask>> {
+        let key = format!("{}|{}|{}|", ns, cg, inv_id);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
+            key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::ReductionTasks,
+            Some(1),
+        )?;
+        Ok(tasks.into_iter().next())
     }
 }
 #[cfg(test)]

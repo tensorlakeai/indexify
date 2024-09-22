@@ -1,10 +1,20 @@
 use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use data_model::{ChangeType, InvokeComputeGraphEvent, OutputPayload, StateChangeId, Task, TaskFinishedEvent, TaskOutcome};
+use data_model::{
+    ChangeType,
+    InvokeComputeGraphEvent,
+    Node,
+    OutputPayload,
+    ReduceTask,
+    StateChangeId,
+    Task,
+    TaskFinishedEvent,
+};
 use state_store::{
     requests::{
         CreateTasksRequest,
+        ReductionTasks,
         RequestPayload,
         SchedulerUpdateRequest,
         StateMachineUpdateRequest,
@@ -20,6 +30,8 @@ struct TaskCreationResult {
     namespace: String,
     compute_graph: String,
     tasks: Vec<Task>,
+    new_reduction_tasks: Vec<ReduceTask>,
+    processed_reduction_tasks: Vec<String>,
     invocation_finished: bool,
     invocation_id: String,
 }
@@ -55,6 +67,8 @@ impl Scheduler {
                 namespace: event.namespace.clone(),
                 invocation_id: event.invocation_id.clone(),
                 compute_graph: event.compute_graph.clone(),
+                new_reduction_tasks: vec![],
+                processed_reduction_tasks: vec![],
                 invocation_finished: false,
             });
         }
@@ -71,6 +85,8 @@ impl Scheduler {
             compute_graph: event.compute_graph.clone(),
             invocation_id: event.invocation_id.clone(),
             tasks: vec![task],
+            new_reduction_tasks: vec![],
+            processed_reduction_tasks: vec![],
             invocation_finished: false,
         })
     }
@@ -136,6 +152,7 @@ impl Scheduler {
         // 2. We use the input to the router as the input of the new tasks
 
         let mut new_tasks = vec![];
+        let mut new_reduction_tasks = vec![];
         let outputs = self.indexify_state.reader().get_task_outputs(
             &task_finished_event.namespace,
             &task_finished_event.task_id.to_string(),
@@ -170,8 +187,45 @@ impl Scheduler {
                 compute_graph: task_finished_event.compute_graph.clone(),
                 invocation_id: task_finished_event.invocation_id.clone(),
                 tasks: new_tasks,
+                new_reduction_tasks: vec![],
+                processed_reduction_tasks: vec![],
                 invocation_finished: false,
             });
+        }
+
+        if let Some(compute_node) = compute_graph.nodes.get(&task.compute_fn_name) {
+            if let Node::Compute(compute_fn) = compute_node {
+                if compute_fn.reducer {
+                    let reduction_task = self
+                        .indexify_state
+                        .reader()
+                        .next_reduction_task(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &task.invocation_id,
+                        )
+                        .map_err(|e| anyhow!("error getting next reduction task: {:?}", e))?;
+                    if let Some(reduction_task) = reduction_task {
+                        // Create a new task for the queued reduction_task
+                        let new_task = compute_node.create_task(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &task.invocation_id,
+                            &task.input_key,
+                        )?;
+
+                        return Ok(TaskCreationResult {
+                            namespace: task_finished_event.namespace.clone(),
+                            compute_graph: task_finished_event.compute_graph.clone(),
+                            invocation_id: task_finished_event.invocation_id.clone(),
+                            tasks: vec![new_task],
+                            new_reduction_tasks: vec![],
+                            processed_reduction_tasks: vec![reduction_task.key()],
+                            invocation_finished: false,
+                        });
+                    }
+                }
+            }
         }
 
         // Find the edges of the function
@@ -193,13 +247,48 @@ impl Scheduler {
         let edges = edges.unwrap();
         for edge in edges {
             for output in &outputs {
-                let compute_fn = compute_graph.nodes.get(edge);
-                if compute_fn.is_none() {
-                    error!("compute fn not found: {:?}", edge);
+                let compute_node = compute_graph.nodes.get(edge);
+                if compute_node.is_none() {
+                    error!("compute node not found: {:?}", edge);
                     continue;
                 }
-                let compute_fn = compute_fn.unwrap();
-                let new_task = compute_fn.create_task(
+                let compute_node = compute_node.unwrap();
+                match compute_node {
+                    Node::Compute(compute_fn) => {
+                        if compute_fn.reducer {
+                            let reduction_task = self
+                                .indexify_state
+                                .reader()
+                                .next_reduction_task(
+                                    &task.namespace,
+                                    &task.compute_graph_name,
+                                    &task.invocation_id,
+                                )
+                                .map_err(|e| {
+                                    anyhow!("error getting next reduction task: {:?}", e)
+                                })?;
+                            if reduction_task.is_none() {
+                                let new_task = compute_node.create_task(
+                                    &task.namespace,
+                                    &task.compute_graph_name,
+                                    &task.invocation_id,
+                                    &output.key(&task.invocation_id),
+                                )?;
+                                new_tasks.push(new_task);
+                            }
+                        } else {
+                            let new_task = compute_fn.reduction_task(
+                                &task.namespace,
+                                &task.compute_graph_name,
+                                &task.invocation_id,
+                                &output.key(&task.invocation_id),
+                            );
+                            new_reduction_tasks.push(new_task);
+                        }
+                    }
+                    _ => {}
+                }
+                let new_task = compute_node.create_task(
                     &task.namespace,
                     &task.compute_graph_name,
                     &task.invocation_id,
@@ -213,6 +302,8 @@ impl Scheduler {
             compute_graph: task_finished_event.compute_graph.clone(),
             invocation_id: task_finished_event.invocation_id.clone(),
             tasks: new_tasks,
+            new_reduction_tasks,
+            processed_reduction_tasks: vec![],
             invocation_finished: false,
         })
     }
@@ -224,8 +315,10 @@ impl Scheduler {
             .get_unprocessed_state_changes()?;
         let mut create_task_requests = vec![];
         let mut processed_state_changes = vec![];
+        let mut new_reduction_tasks = vec![];
+        let mut processed_reduction_tasks = vec![];
         for state_change in &state_changes {
-            processed_state_changes.push(state_change.id);
+            processed_state_changes.push(state_change.id.clone());
             let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
                     self.handle_invoke_compute_graph(invoke_compute_graph_event.clone())
@@ -245,6 +338,8 @@ impl Scheduler {
                     tasks: result.tasks,
                 };
                 create_task_requests.push(request);
+                new_reduction_tasks.extend(result.new_reduction_tasks);
+                processed_reduction_tasks.extend(result.processed_reduction_tasks);
             }
         }
         let mut new_allocations = vec![];
@@ -264,6 +359,10 @@ impl Scheduler {
             payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
                 task_requests: create_task_requests,
                 allocations: new_allocations,
+                reduction_tasks: ReductionTasks {
+                    new_reduction_tasks,
+                    processed_reduction_tasks,
+                },
             }),
             state_changes_processed: processed_state_changes,
         };

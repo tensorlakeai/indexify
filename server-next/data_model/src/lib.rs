@@ -62,17 +62,28 @@ pub struct DynamicEdgeRouter {
     pub target_functions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ComputeFn {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
+    pub reducer: bool,
 }
 
 impl ComputeFn {
     pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
         self.placement_constraints.matches(&executor.labels)
+    }
+
+    pub fn reduction_task(&self, ns: &str, cg: &str, inv_id: &str, task_id: &str) -> ReduceTask {
+        ReduceTask {
+            namespace: ns.to_string(),
+            compute_graph_name: cg.to_string(),
+            invocation_id: inv_id.to_string(),
+            compute_fn_name: self.name.clone(),
+            task_id: task_id.to_string(),
+        }
     }
 }
 
@@ -182,6 +193,7 @@ pub struct NodeOutput {
     pub invocation_id: String,
     pub payload: OutputPayload,
     pub errors: Option<DataPayload>,
+    pub reduced_state: bool,
 }
 
 impl NodeOutput {
@@ -225,6 +237,7 @@ impl NodeOutputBuilder {
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
+        let reduced_state = self.reduced_state.clone().unwrap_or(false);
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
@@ -248,6 +261,7 @@ impl NodeOutputBuilder {
             compute_fn_name: fn_name,
             payload,
             errors,
+            reduced_state,
         })
     }
 }
@@ -347,6 +361,30 @@ impl GraphInvocationCtxBuilder {
             outstanding_tasks: 0,
             fn_task_analytics: HashMap::new(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReduceTask {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub invocation_id: String,
+    pub compute_fn_name: String,
+
+    // The task for which we are need to create the reduce task
+    pub task_id: String,
+}
+
+impl ReduceTask {
+    pub fn key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            self.namespace,
+            self.compute_graph_name,
+            self.invocation_id,
+            self.compute_fn_name,
+            self.task_id
+        )
     }
 }
 

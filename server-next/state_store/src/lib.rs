@@ -189,6 +189,11 @@ impl IndexifyState {
                 for req in &request.task_requests {
                     state_machine::create_tasks(self.db.clone(), &txn, req)?;
                 }
+                state_machine::processed_reduction_tasks(
+                    self.db.clone(),
+                    &txn,
+                    &request.reduction_tasks,
+                )?;
                 for allocation in &request.allocations {
                     state_machine::allocate_tasks(
                         self.db.clone(),
@@ -469,6 +474,7 @@ mod tests {
     use requests::{
         CreateComputeGraphRequest,
         DeleteComputeGraphRequest,
+        ReductionTasks,
         SchedulerUpdateRequest,
         TaskPlacement,
     };
@@ -619,6 +625,7 @@ mod tests {
                         task: task.clone(),
                         executor: executor_id.clone(),
                     }],
+                    reduction_tasks: ReductionTasks::default(),
                 }),
                 state_changes_processed: vec![],
             })
@@ -668,6 +675,7 @@ mod tests {
                 task: task_1.clone(),
                 executor: executor_id.clone(),
             }],
+            reduction_tasks: ReductionTasks::default(),
         };
 
         indexify_state
