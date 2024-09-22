@@ -181,7 +181,7 @@ pub struct NodeOutput {
     pub compute_fn_name: String,
     pub invocation_id: String,
     pub payload: OutputPayload,
-    pub errors: Option<DataPayload>, // make this into DataPayload object instead of string
+    pub errors: Option<DataPayload>,
 }
 
 impl NodeOutput {

@@ -43,11 +43,11 @@ if __name__ == "__main__":
     client = create_client()
     client.register_compute_graph(g)
     invocation_id = client.invoke_graph_with_object(
-        g.name, url="https://www.youtube.com/watch?v=gjHv4pM8WEQ"
+        g.name, block_until_done=True, url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
     )
 
-    invocation_id = "4bd41e4e8a694c66"
-    print(f"[bold] Retrieving transcription for {invocation_id} [/bold]")
-    outputs = client.graph_outputs(
-        g.name, invocation_id=invocation_id, fn_name=extractor_c.name
-    )
+    # invocation_id = "4bd41e4e8a694c66"
+    # print(f"[bold] Retrieving transcription for {invocation_id} [/bold]")
+    # outputs = client.graph_outputs(
+    #     g.name, invocation_id=invocation_id, fn_name=extractor_c.name
+    # )

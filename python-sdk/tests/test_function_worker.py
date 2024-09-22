@@ -51,8 +51,6 @@ def extractor_c(file_chunk: FileChunk) -> SomeMetadata:
 
 @indexify_function()
 def extractor_exception(a: int) -> int:
-    print('--- here')
-    print(alksjld)
     raise Exception("this extractor throws an exception.")
 
 
@@ -64,11 +62,6 @@ def create_graph_a():
 
 
 def create_graph_exception():
-    # graph = Graph(name="test-exception", description="test", start_node=extractor_a)
-    # graph = graph.add_edge(extractor_a, extractor_b)
-    # graph = graph.add_edge(extractor_b, extractor_exception)
-    # return graph
-
     graph = Graph(name="test-exception", description="test", start_node=extractor_a)
     graph = graph.add_edge(extractor_a, extractor_exception)
     graph = graph.add_edge(extractor_exception, extractor_b)

@@ -56,14 +56,7 @@ class FunctionWorker:
             self._executor.shutdown(wait=True, cancel_futures=True)
             raise mp
         except Exception as e:
-            # TODO maybe create a new exception class
             raise Exception(traceback.format_exc())
-            # print('\n---- in fucntion_worker\n')
-            # print(e)
-            # print(traceback.format_exc())
-            # print('----')
-            # traceback.print_stack()
-            # print('\n---- in fucntion_worker\n')
 
         return resp
 
@@ -89,7 +82,6 @@ def _run_function(
     if fn_name in graph.routers:
         return graph.invoke_router(fn_name, input)
 
-    output = None
     output = graph.invoke_fn_ser(fn_name, input)
 
     return output

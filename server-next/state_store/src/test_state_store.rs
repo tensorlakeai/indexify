@@ -99,7 +99,7 @@ pub mod tests {
             invocation_payload.id
         }
 
-        pub async fn finalize_task(&self, invocation_id: &str, task_id: &TaskId) -> Result<()> {
+        pub async fn finalize_task(&self, invocation_id: &str, task_id: &TaskId, task_outcome: TaskOutcome) -> Result<()> {
             let request = FinalizeTaskRequest {
                 namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: "graph_A".to_string(),
@@ -107,10 +107,11 @@ pub mod tests {
                 invocation_id: invocation_id.to_string(),
                 task_id: task_id.clone(),
                 node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_A")],
-                task_outcome: TaskOutcome::Success,
+                task_outcome,
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                 diagnostics: None,
             };
+
             self.indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),

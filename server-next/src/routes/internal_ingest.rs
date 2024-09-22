@@ -19,7 +19,7 @@ use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::{executor_tasks, RouteState};
+use super::{RouteState};
 use crate::http_objects::IndexifyAPIError;
 
 #[derive(Serialize, Deserialize)]

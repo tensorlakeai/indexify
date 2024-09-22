@@ -103,10 +103,12 @@ class ExtractorAgent:
         while True:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
+                outcome = task_outcome.task_outcome
+                style_outcome = f"[bold red] {outcome} [/]" if "fail" in outcome else f"[bold green] {outcome} [/]"
                 console.print(
                     Panel(
                         f"Reporting outcome of task {task_outcome.task.id}\n"
-                        f"Outcome: {task_outcome.task_outcome}\n"
+                        f"Outcome: {style_outcome}\n"
                         f"Outputs: {len(task_outcome.outputs)}",
                         title="Task Completion",
                         border_style="info",
@@ -237,13 +239,6 @@ class ExtractorAgent:
                     )
                 elif async_task.get_name() == "run_function":
                     if async_task.exception():
-                        console.print(
-                            Text("Execution Error: ", style="red bold")
-                            + Text(
-                                f"Failed to execute tasks: {async_task.exception()}",
-                                style="red",
-                            )
-                        )
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="failure",
