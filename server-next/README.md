@@ -10,6 +10,8 @@ Indexify gives you the following features out of the box,
 
 * **Dynamic Dataflow**: Indexify supports dynamic dataflow branching and cycles between ***Functions*** of a ***Graph***.
 
+* **Observability**: UI for visualization and debugging complex dynamic Graphs.
+
 * **Parallel Execution**: Automatically distributes workflows across many machines, using a control-plane -- data-plane architecture.
 
 * **Placement Constraints**: Graphs can span across GPU instances and cost-effective CPU machines. Functions can be constrainted to specific instance types if required. 
