@@ -1,16 +1,25 @@
 # Indexify 
 
-#### Stateful Compute Engine for building and deploying LLM Workflows and Applications
+## Stateful Compute Engine for building Agentic Applications and Data-Intensive Workflows
 
-Indexify is a stateful compute engine that empowers you to build and deploy multi-stage LLM workflows and applications as live API endpoints—using Python. 
+Indexify offers a low-cost abstraction for building workflows that models Agentic state machines or compute-intensive Data pipelines. The workflows are deployed as live API endpoints. Application and Business logic are expressed as ***Functions*** while Dataflow across them are defined as ***Graphs***.
 
-One you build workflows with Indexify functions, it will handle aspects of deployment and operating your workflows by - 
+### Key Features
 
-* **Parallel Execution**: Automatically distributes workflows across many machines. Manages intermediate results, handles retries, queues API calls and executes workflows reliably.
+Indexify gives you the following features out of the box,
 
-* **Span workflows across heterogenous machines:** Run large model-invoking functions on GPUs while executing application logic or data fetching on cost-effective CPUs. Indexify automatically batches parallel workflow invocations, maximizing the utilization of GPU resources.
+* **Dynamic Dataflow**: Indexify supports dynamic dataflow branching and cycles between ***Functions*** of a ***Graph***.
 
-Workflows are structured as Graphs, enabling many interesting use-cases -
+* **Parallel Execution**: Automatically distributes workflows across many machines, using a control-plane -- data-plane architecture.
+
+* **Placement Constraints**: Graphs can span across GPU instances and cost-effective CPU machines. Functions can be constrainted to specific instance types if required. 
+
+* **Request Queuing and Batching**: Automatically batch parallel workflow invocations and maximize GPU utilization.
+
+* **Output Checkpoints**: Automatically checkpoint intermediate outputs to quickly resume failed Graph stages.
+
+### Use-cases
+Workflows structured as Graphs enable many interesting use-cases -
 
 - **Document Processing and Indexing Pipelines**
 
@@ -30,7 +39,7 @@ pip install indexify
 
 Workflows are written as Python functions and laid out as Graphs. Functions in a Graph are automatically invoked when upstream functions finishes with their output.
 
-API calls to workflows are automatically queued, failures are retried so you don't have to spend your time designing for reliability. There is no need to use any RPC libraries, Kafka or other databases to store internal state and communicate between functions across process/machine boundaries.
+API calls to workflows are automatically queued, failures are retried so you don't have to spend your time designing for reliability. There is no need to use RPC libraries, Kafka or other databases to store internal state and communicate between functions across process/machine boundaries.
 
 #### Write a Workflow 
 ```python
