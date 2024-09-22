@@ -2,7 +2,7 @@
 
 ## Stateful Compute Engine for building Agentic Applications and Data-Intensive Workflows
 
-Indexify offers a low-cost abstraction for building workflows that models Agentic state machines and Data pipelines. The workflows are deployed as live API endpoints. Application and Business logic are expressed as ***Functions*** while Dataflow across them are defined as ***Graphs***.
+Indexify offers a low-cost abstraction for building data-intensive workflows with Agentic state machines. The workflows are deployed as live API endpoints for easy integration with existing systems. Application and Business logic are expressed as ***Functions*** while Dataflow across them are defined as ***Graphs***.
 
 ### Key Features
 
