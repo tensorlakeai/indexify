@@ -79,5 +79,11 @@ class TestReduce(unittest.TestCase):
         self.assertEqual(result[0], 22)
 
 
+    def test_metadata(self):
+        graph = create_graph()
+        metadata = graph.definition()
+        metadata_json = graph.model_dump(exclude_none=True)
+        print(metadata_json)
+
 if __name__ == "__main__":
     unittest.main()

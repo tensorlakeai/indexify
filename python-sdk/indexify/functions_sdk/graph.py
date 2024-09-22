@@ -65,6 +65,7 @@ class FunctionMetadata(BaseModel):
     name: str
     fn_name: str
     description: str
+    reducer: bool = False
 
 
 class RouterMetadata(BaseModel):
@@ -234,6 +235,7 @@ class Graph:
             name=self._start_node.name,
             fn_name=self._start_node.fn_name,
             description=self._start_node.description,
+            reducer=self._start_node.accumulate is not None,
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -253,6 +255,7 @@ class Graph:
                         name=node_name,
                         fn_name=node.fn_name,
                         description=node.description,
+                        reducer=node.accumulate is not None,
                     )
                 )
         return ComputeGraphMetadata(
