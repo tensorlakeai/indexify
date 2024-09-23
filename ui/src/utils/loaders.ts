@@ -84,34 +84,12 @@ export async function NamespacesPageLoader() {
   return { namespaces }
 }
 
-// export async function IndexesPageLoader({ params }: LoaderFunctionArgs) {
-//   if (!params.namespace) return redirect('/')
-//   const client = await createClient(params.namespace)
-//   const indexes = await client.indexes()
-//   return {
-//     indexes,
-//     namespace: params.namespace,
-//   }
-// }
+export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {
+  if (!params.namespace) return redirect('/')
+  const client = await createClient(params.namespace)
 
-// export async function IndividualContentPageLoader({
-//   params,
-// }: LoaderFunctionArgs) {
-//   const { namespace, extractorName, contentId } = params
-//   if (!namespace || !contentId) return redirect('/')
-
-//   const client = await createClient(namespace)
-//   const [computeGraphs, contentMetadata] = await Promise.all([
-//     client.computeGraphs(),
-//     client.getContentMetadata(contentId)
-//   ])
-
-//   return {
-//     client,
-//     namespace,
-//     contentId,
-//     contentMetadata,
-//     extractorName,
-//     computeGraphs
-//   }
-// }
+  return {
+    client,
+    namespace: params.namespace,
+  }
+}
