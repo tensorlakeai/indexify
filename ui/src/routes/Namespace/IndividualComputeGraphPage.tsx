@@ -8,23 +8,28 @@ import {
 import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom';
-import { ComputeGraph, IndexifyClient } from 'getindexify';
+import { ComputeGraph, DataObject } from 'getindexify';
 import ComputeGraphTable from './ComputeGraphTable';
 import CopyText from '../../components/CopyText';
+import InvocationsTable from '../../components/InvocationsTable';
+import { useState } from 'react';
 
 const IndividualComputeGraphPage = () => {
   const { 
+    invocationsList,
     computeGraph,
-    client,
     namespace
    } =
     useLoaderData() as {
+      invocationsList: DataObject[],
       computeGraph: ComputeGraph
-      client: IndexifyClient
       namespace: string
     }
+  const [invocations, setInvocations] = useState<DataObject[]>(invocationsList);
+  const handleDelete = (updatedList: DataObject[]) => {
+    setInvocations(updatedList);
+  };
 
-    console.log('computeGraph', computeGraph)
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs
@@ -32,7 +37,7 @@ const IndividualComputeGraphPage = () => {
         separator={<NavigateNextIcon fontSize="small" />}
       >
         <Typography color="text.primary">{namespace}</Typography>
-        <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
+        <Link color="inherit" to={`/${namespace}/compute-graphs`}>
           <Typography color="text.primary">Compute Graphs</Typography>
         </Link>
         <Typography color="text.primary">{computeGraph.name}</Typography>
@@ -49,12 +54,7 @@ const IndividualComputeGraphPage = () => {
           </div>
           <ComputeGraphTable namespace={namespace} graphData={computeGraph} />
         </Box>
-        {/* <ExtendedContentTable
-            client={client}
-            extractionGraph={extractionGraph}
-            graphName={extractorName}
-            namespace={namespace}
-        /> */}
+        <InvocationsTable invocationsList={invocations} namespace={namespace} computeGraph={computeGraph.name} onDelete={handleDelete} />
       </Box>
     </Stack>
   );
