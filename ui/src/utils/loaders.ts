@@ -86,10 +86,13 @@ export async function NamespacesPageLoader() {
 
 export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
+  const { namespace } = params
+  const computeGraph = params['compute-graph']
+  const invocationId = params['invocation-id']
 
   return {
-    client,
-    namespace: params.namespace,
+    invocationId,
+    computeGraph,
+    namespace: namespace,
   }
 }
