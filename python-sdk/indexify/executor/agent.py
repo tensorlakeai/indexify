@@ -122,7 +122,7 @@ class ExtractorAgent:
                         task_outcome.router_output,
                         task_outcome.task,
                         task_outcome.task_outcome,
-                        errors=task_outcome.errors
+                        task_outcome.errors
                     )
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry

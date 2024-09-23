@@ -8,11 +8,7 @@ from pydantic import BaseModel
 from indexify import Graph
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import File, IndexifyData
-from indexify.functions_sdk.indexify_functions import (
-    indexify_function,
-    indexify_router,
-)
-
+from indexify.functions_sdk.indexify_functions import indexify_function
 
 
 @indexify_function()
@@ -114,25 +110,20 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
             temp_file.flush()
             temp_file_path = temp_file.name
 
-            output = await self.function_worker.async_submit(
-                namespace="test",
-                graph_name="test",
-                fn_name="extractor_exception",
-                input=IndexifyData(
-                    id="123",
-                    payload=cbor2.dumps(10)
-                ),
-                code_path=temp_file_path,
-            )
-
-            self.assertEqual(len(output), 2)
-
-            self.assertEqual(output[0].payload_encoding, 'cbor')
-
-            expected_json = {'data': b'hello', 'start': 5, 'end': 5}
-            actual_json = cbor2.loads(output[1].payload)
-
-            self.assertEqual(expected_json, actual_json)
+            try:
+                await self.function_worker.async_submit(
+                    namespace="test",
+                    graph_name="test",
+                    fn_name="extractor_exception",
+                    input=IndexifyData(
+                        id="123",
+                        payload=cbor2.dumps(10)
+                    ),
+                    code_path=temp_file_path,
+                )
+                self.fail("Should throw exception.")
+            except Exception as e:
+                self.assertTrue("_RemoteTraceback" in str(e))
 
 
 if __name__ == "__main__":

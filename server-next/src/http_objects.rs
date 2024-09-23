@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode};
+use data_model::ComputeGraphCode;
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

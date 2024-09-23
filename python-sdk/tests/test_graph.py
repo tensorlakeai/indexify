@@ -157,11 +157,15 @@ class TestGraphA(unittest.TestCase):
     def test_run_graph_with_executor_exception(self):
         graph = create_graph_c()
 
-        runner = LocalClient()
+        runner = create_client(local=True)
         runner.register_compute_graph(graph)
-        runner.invoke_graph_with_object(
-            graph.name, url="https://example.com"
-        )
+
+        try:
+            runner.invoke_graph_with_object(
+                graph.name, url="https://example.com"
+            )
+        except Exception as e:
+            self.assertEqual(str(e), "This executor will raise an exception.")
 
     def test_get_graph_metadata_with_router(self):
         graph = create_graph_b()

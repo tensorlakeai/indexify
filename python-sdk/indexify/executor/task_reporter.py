@@ -31,7 +31,7 @@ class TaskReporter:
         router_output: Optional[RouterOutput],
         task: Task,
         outcome: str,
-        errors: Optional[str], # TODO exception_msg
+        exception_msg: Optional[str],
     ):
         fn_outputs = []
         for output in outputs:
@@ -43,12 +43,12 @@ class TaskReporter:
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )
 
-        if errors:
+        if exception_msg:
             print(
-                f"[bold]task-reporter[/bold] uploading error of size: {len(errors)}"
+                f"[bold]task-reporter[/bold] uploading error of size: {len(exception_msg)}"
             )
             fn_outputs.append(
-                ("exception_msg", (nanoid.generate(), io.BytesIO(errors.encode())))
+                ("exception_msg", (nanoid.generate(), io.BytesIO(exception_msg.encode())))
             )
 
         router_output = (
@@ -64,7 +64,6 @@ class TaskReporter:
             invocation_id=task.invocation_id,
             executor_id=self._executor_id,
             task_id=task.id,
-            errors=errors,
         )
         task_result_data = task_result.model_dump_json(exclude_none=True)
 

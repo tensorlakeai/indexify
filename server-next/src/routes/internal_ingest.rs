@@ -19,7 +19,7 @@ use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::{RouteState};
+use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
 #[derive(Serialize, Deserialize)]
@@ -57,7 +57,6 @@ pub struct TaskResult {
     task_id: String,
     invocation_id: String,
     executor_id: String,
-    errors: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
