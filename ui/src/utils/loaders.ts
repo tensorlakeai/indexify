@@ -45,47 +45,39 @@ export async function ComputeGraphsPageLoader({
 export async function IndividualComputeGraphPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, computeGraph } = params
-  const computeGraphName = computeGraph
+  const { namespace } = params
+  const computeGraph = params['compute-graph']
   if (!namespace) return redirect('/')
-  
-  const client = await createClient(params.namespace)
   
   const computeGraphs = (await axios.get<ComputeGraphsList>('http://localhost:8900/namespaces/default/compute_graphs')).data;
 
-  const localComputeGraph = computeGraphs.compute_graphs.find((graph: ComputeGraph) => graph.name === computeGraphName);
+  const localComputeGraph = computeGraphs.compute_graphs.find((graph: ComputeGraph) => graph.name === computeGraph);
+  
+  const invocationsList = (await axios.get(`http://localhost:8900/namespaces/default/compute_graphs/${computeGraph}/invocations`)).data.invocations;
   if (!computeGraph) {
     throw new Error(`Extraction graph ${localComputeGraph} not found`);
   }
 
   return {
+    invocationsList,
     computeGraph: localComputeGraph,
-    client,
     namespace: params.namespace,
   }
 }
 
-// export async function ExtractionPolicyPageLoader({
-//   params,
-// }: LoaderFunctionArgs) {
-//   const { namespace, policyName, extraction_graph } = params
-//   if (!namespace || !policyName) return redirect('/')
+export async function InvocationsPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  const { namespace } = params
+  const computeGraph = params['compute-graph']
+  if (!namespace) return redirect('/')
 
-//   const client = await createClient(namespace)
-//   const [computeGraphs] = await Promise.all([
-//     client.computeGraphs()
-//   ])
+  const client = await createClient(namespace)
 
-//   const computeGraph = computeGraphs.find(
-//     (graph) => graph.name === extraction_graph
-//   )
-//   const policy = computeGraphs
-//     .flatMap((graph) => graph.extraction_policies)
-//     .find(
-//       (policy) => policy.name === policyName && policy.graph_name === extraction_graph
-//     )
-//   return { policy, namespace, computeGraph, client }
-// }
+  const invocationsList = await client.getGraphInvocations(computeGraph ? computeGraph : '')
+
+  return { namespace, computeGraph, invocationsList }
+}
 
 export async function NamespacesPageLoader() {
   const namespaces = await IndexifyClient.namespaces()

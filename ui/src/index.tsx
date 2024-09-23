@@ -12,29 +12,14 @@ import {
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
 import {
-  // ExtractionPolicyPageLoader,
-  // SearchIndexPageLoader,
-  // IndividualContentPageLoader,
-  // ExtractorsPageLoader,
   ComputeGraphsPageLoader,
   IndividualComputeGraphPageLoader,
   NamespacesPageLoader,
-  // IndexesPageLoader,
-  // SqlTablesPageLoader,
-  // IndividualExtractionGraphPageLoader,
-  // StateChangesPageLoader
 } from "./utils/loaders";
 import {
-  // ExtractionPolicyPage,
-  // SearchIndexPage,
-  // IndividualContentPage,
-  // ExtractorsPage,
   ComputeGraphsPage,
   NamespacesPage,
-  IndividualComputeGraphPage
-  // IndexesPage,
-  // SqlTablesPage,
-  // StateChangesPage
+  IndividualComputeGraphPage,
 } from "./routes/Namespace";
 
 function RedirectToComputeGraphs() {
@@ -64,18 +49,6 @@ const router = createBrowserRouter(
           path: "/:namespace",
           element: <RedirectToComputeGraphs />
         },
-        // {
-        //   path: "/:namespace/indexes/:indexName",
-        //   element: <SearchIndexPage />,
-        //   loader: SearchIndexPageLoader,
-        //   errorElement: <ErrorPage />
-        // },
-        // {
-        //   path: "/:namespace/extraction-graphs/:extractorName/content/:contentId",
-        //   element: <IndividualContentPage />,
-        //   loader: IndividualContentPageLoader,
-        //   errorElement: <ErrorPage />
-        // },
         {
           path: "/namespaces",
           element: <NamespacesPage />,
@@ -94,12 +67,6 @@ const router = createBrowserRouter(
           loader: IndividualComputeGraphPageLoader,
           errorElement: <ErrorPage />
         },
-        // {
-        //   path: "/:namespace/extraction-graphs/:extraction_graph/extraction-policies/:policyName",
-        //   element: <ExtractionPolicyPage />,
-        //   loader: ExtractionPolicyPageLoader,
-        //   errorElement: <ErrorPage />
-        // },
       ]
     }
   ],
