@@ -95,7 +95,28 @@ def func_b(..) -> SomeValue:
 
 Here, `func_b` will be invoked in parallel with every output of `func_a`. There is no need to use Ray, Spark or Dask for parallelization when an upstream function produces a sequence of values.
 
-**Use Cases:** - Generating Embedding from every single chunk of a workflow.
+**Use Cases:** Generating Embedding from every single chunk of a workflow.
+
+#### Dynamic Routing 
+You can add functions in the graph which don't produce new data but simply move them to one or more nodes in the Graph. This enables dynamic branching in a graph by executing some business logic on the input. 
+
+```python
+def func_a(..) -> SomeVal:
+ pass
+
+def do_X(val: SomeVal) -> SomeOtherVal:
+  pass
+
+def do_Y(val: SomeVal) -> SomeOtherVal1:
+  pass
+
+def route_between_X_Y(val: SomeVal) -> List[do_X, do_Y]:
+  # Write your routing logic here and
+  # pick either or all of the possible paths
+  return [do_X]
+```
+
+**Example Use Cases:** Running classification tasks on the outputs of an upstream function, and processing it's output differently.
 
 #### Reducing/Accumulating from Sequences
 
