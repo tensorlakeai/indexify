@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { ExtractionGraph, IndexifyClient } from 'getindexify'
-import { Alert, Card, CardContent, Grid, IconButton, Typography, CircularProgress } from '@mui/material'
+import { useState, useEffect } from 'react';
+import { ComputeGraph, ComputeGraphsList, IndexifyClient } from 'getindexify'
+import { Alert, Card, CardContent, Grid, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import CopyText from './CopyText'
 import { Cpu, InfoCircle } from 'iconsax-react'
@@ -8,55 +8,35 @@ import { Link } from 'react-router-dom'
 import DeleteIcon from '@mui/icons-material/Delete';
 import TruncatedText from './TruncatedText'
 
-const ExtractionGraphs = ({
+const ComputeGraphs = ({
   client,
-  namespace,
+  computeGraphs,
+  namespace
 }: {
   client: IndexifyClient
+  computeGraphs: ComputeGraphsList
   namespace: string
 }) => {
-  const [extractionGraphs, setExtractionGraphs] = useState<ExtractionGraph[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [localComputeGraphs, setLocalComputeGraphs] = useState<ComputeGraphsList>(computeGraphs);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchExtractionGraphs = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const graphs = await client.getExtractionGraphs();
-      setExtractionGraphs(graphs);
-    } catch (err) {
-      setError('Failed to fetch extraction graphs. Please try again.');
-      console.error("Error fetching extraction graphs:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchExtractionGraphs();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace]);
+    setLocalComputeGraphs(computeGraphs);
+  }, [computeGraphs, namespace]);
 
-  const handleDeleteExtractionGraph = async (extractionGraphName: string) => {
+  const handleDeleteComputeGraph = async (computeGraphName: string) => {
     try {
-      await client.deleteExtractionGraph(namespace, extractionGraphName);
-      await fetchExtractionGraphs();
+      await client.deleteComputeGraph(computeGraphName);
+      setLocalComputeGraphs(prevGraphs => ({
+        compute_graphs: prevGraphs.compute_graphs?.filter(graph => graph.name !== computeGraphName) || []
+      }));
     } catch (error) {
-      console.error("Error deleting content:", error);
-      setError('Failed to delete extraction graph. Please try again.');
+      console.error("Error deleting compute graph:", error);
+      setError('Failed to delete compute graph. Please try again.');
     }
   };
 
   const renderContent = () => {
-    if (isLoading) {
-      return (
-        <Box display="flex" justifyContent="center" alignItems="center" height="200px">
-          <CircularProgress />
-        </Box>
-      );
-    }
-
     if (error) {
       return (
         <Box mt={2} mb={2}>
@@ -67,7 +47,7 @@ const ExtractionGraphs = ({
       );
     }
 
-    if (extractionGraphs.length === 0) {
+    if (!localComputeGraphs.compute_graphs || localComputeGraphs.compute_graphs.length === 0) {
       return (
         <Box mt={2} mb={2}>
           <Alert variant="outlined" severity="info">
@@ -76,6 +56,8 @@ const ExtractionGraphs = ({
         </Box>
       );
     }
+
+    const sortedGraphs = [...localComputeGraphs.compute_graphs].sort((a, b) => a.name.localeCompare(b.name));
 
     return (
       <Box
@@ -87,17 +69,17 @@ const ExtractionGraphs = ({
         mt={2}
       >
         <Grid container spacing={1}>
-          {extractionGraphs.sort((a, b) => a.name.localeCompare(b.name)).map((graph)  => (
+          {sortedGraphs.map((graph: ComputeGraph)  => (
             <Grid item xs={12} sm={6} md={4} key={graph.name} mb={2}>
               <Card sx={{ minWidth: 275, height: '100%', boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
                 <CardContent>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Link to={`/${namespace}/extraction-graphs/${graph.name}`}>
+                    <Link to={`/${namespace}/compute-graphs/${graph.name}`}>
                       <TruncatedText text={graph.name} maxLength={20} />
                     </Link>
                     <Box display="flex" flexDirection="row">
                       <CopyText text={graph.name} />
-                      <IconButton onClick={() => handleDeleteExtractionGraph(graph.name)} aria-label="delete extraction graph">
+                      <IconButton onClick={() => handleDeleteComputeGraph(graph.name)} aria-label="delete compute graph">
                         <DeleteIcon color="error" />
                       </IconButton>
                     </Box>
@@ -106,7 +88,7 @@ const ExtractionGraphs = ({
                     Namespace: {graph.namespace}
                   </Typography>
                   <Typography variant="subtitle2" color="text.secondary">
-                    Number of Extractors: {graph.extraction_policies.length}
+                    Number of Nodes: {Object.keys(graph.nodes || {}).length}
                   </Typography>
                 </CardContent>
               </Card>
@@ -129,9 +111,9 @@ const ExtractionGraphs = ({
           <Cpu size="25" className="heading-icons" variant="Outline" />
         </div>
         <Typography variant="h4">
-          Extraction Graphs
+          Compute Graphs
           <IconButton
-            href="https://docs.getindexify.ai/concepts/#extraction-graphs"
+            href="https://docs.getindexify.ai/concepts/#compute-graphs"
             target="_blank"
           >
             <InfoCircle size="20" variant="Outline" />
@@ -143,4 +125,4 @@ const ExtractionGraphs = ({
   );
 };
 
-export default ExtractionGraphs;
+export default ComputeGraphs;

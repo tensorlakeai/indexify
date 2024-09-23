@@ -4,35 +4,27 @@ import {
   Typography,
   Stack,
 } from '@mui/material';
-import ExtendedContentTable from '../../components/ExtendedContentTable';
+// import ExtendedContentTable from '../../components/ExtendedContentTable';
 import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom';
-import { ExtractionGraph, Extractor, IndexifyClient } from 'getindexify';
-import { mapExtractionPoliciesToRows } from '../../utils/helpers';
-import ExtractorGraphTable from './ExtractorGraphTable';
+import { ComputeGraph, IndexifyClient } from 'getindexify';
+import ComputeGraphTable from './ComputeGraphTable';
 import CopyText from '../../components/CopyText';
 
-const IndividualExtractionGraphPage = () => {
+const IndividualComputeGraphPage = () => {
   const { 
-    extractors,
-    extractionGraph,
+    computeGraph,
     client,
-    namespace,
-    extractorName
+    namespace
    } =
     useLoaderData() as {
-      extractors: Extractor[],
-      extractionGraph: ExtractionGraph
+      computeGraph: ComputeGraph
       client: IndexifyClient
       namespace: string
-      extractorName: string
     }
 
-  const extractionGraphString = structuredClone(extractionGraph);
-  const extractorString = structuredClone(extractors);  
-  const mappedRows = mapExtractionPoliciesToRows(extractionGraphString, extractorString, extractorName);
-
+    console.log('computeGraph', computeGraph)
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs
@@ -41,9 +33,9 @@ const IndividualExtractionGraphPage = () => {
       >
         <Typography color="text.primary">{namespace}</Typography>
         <Link color="inherit" to={`/${namespace}/extraction-graphs`}>
-          <Typography color="text.primary">Extraction Graphs</Typography>
+          <Typography color="text.primary">Compute Graphs</Typography>
         </Link>
-        <Typography color="text.primary">{extractorName}</Typography>
+        <Typography color="text.primary">{computeGraph.name}</Typography>
       </Breadcrumbs>
       <Box sx={{ p: 0 }}>
         <Box sx={{ mb: 3 }}>
@@ -52,20 +44,20 @@ const IndividualExtractionGraphPage = () => {
               <TableDocument size="25" className="heading-icons" variant="Outline"/>
             </div>
             <Typography variant="h4" display={'flex'} flexDirection={'row'}>
-              {extractorName} <CopyText text={extractorName} />
+              {computeGraph.name} <CopyText text={computeGraph.name} />
             </Typography>
           </div>
-          <ExtractorGraphTable rows={mappedRows} namespace={namespace} extractionPolicyName={extractorName} graphName={extractorName} client={client} />
+          <ComputeGraphTable namespace={namespace} graphData={computeGraph} />
         </Box>
-        <ExtendedContentTable
+        {/* <ExtendedContentTable
             client={client}
             extractionGraph={extractionGraph}
             graphName={extractorName}
             namespace={namespace}
-          />
+        /> */}
       </Box>
     </Stack>
   );
 };
 
-export default IndividualExtractionGraphPage;
+export default IndividualComputeGraphPage;

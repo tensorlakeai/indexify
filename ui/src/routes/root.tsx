@@ -1,4 +1,3 @@
-import React from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import Box from '@mui/material/Box';
@@ -24,8 +23,7 @@ import {
   ListItemText,
 } from '@mui/material';
 import { Link } from 'react-router-dom';
-import HistoryIcon from '@mui/icons-material/History';
-import { Cpu, Data, Grid7, MobileProgramming } from 'iconsax-react';
+import { Cpu, TableDocument } from 'iconsax-react';
 import VersionDisplay from '../components/VersionDisplay';
 
 const indexifyServiceURL = getIndexifyServiceURL();
@@ -35,11 +33,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
     await IndexifyClient.namespaces({
       serviceUrl: indexifyServiceURL,
     })
-  ).map((repo) => repo.name);
+  ).map((repo: any) => repo.name);
 
   if (!params.namespace || !namespaces.includes(params.namespace)) {
     if (params.namespace !== 'default') {
-      return redirect(`/${namespaces[0] ?? 'default'}/extraction-graphs`);
+      return redirect(`/${namespaces[0] ?? 'default'}/compute-graphs`);
     }
   }
   return { namespaces, namespace: params.namespace };
@@ -116,49 +114,22 @@ export default function Dashboard() {
             >
               <List sx={{ flexGrow: 1 }}>
                 <ListItemButton
-                  to={`/${namespace}/extractors`}
+                  to={`/namespaces`}
                   component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/extractors`)}
-                  className={location.pathname.startsWith(`/${namespace}/extractors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+                  selected={location.pathname.startsWith(`/namespaces`)}
+                  className={location.pathname.startsWith(`/namespaces`) ? "selected-navbar-items navbar-items" : "navbar-items"}
                 >
-                  <Data size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Extractors'} />
+                  <TableDocument size="20" className="drawer-logo" variant="Outline" />
+                  <ListItemText primary={'Namespaces'} />
                 </ListItemButton>
                 <ListItemButton
-                  to={`/${namespace}/extraction-graphs`}
+                  to={`/${namespace}/compute-graphs`}
                   component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/extraction-graphs`)}
-                  className={location.pathname.startsWith(`/${namespace}/extraction-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+                  selected={location.pathname.startsWith(`/${namespace}/compute-graphs`)}
+                  className={location.pathname.startsWith(`/${namespace}/compute-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
                 >
                   <Cpu size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Extraction Graphs'} />
-                </ListItemButton>
-                <ListItemButton
-                  to={`/${namespace}/indexes`}
-                  component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/indexes`)}
-                  className={location.pathname.startsWith(`/${namespace}/indexes`) ? "selected-navbar-items navbar-items" : "navbar-items"}
-                >
-                  <MobileProgramming size="20" className="drawer-logo" variant="Outline"/>
-                  <ListItemText primary={'Indexes'} />
-                </ListItemButton>
-                <ListItemButton
-                  to={`/${namespace}/sql-tables`}
-                  component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/sql-tables`)}
-                  className={location.pathname.startsWith(`/${namespace}/sql-tables`) ? "selected-navbar-items navbar-items" : "navbar-items"}
-                >
-                  <Grid7 size="20" className="drawer-logo" variant="Outline"/>
-                  <ListItemText primary={'SQL Tables'} />
-                </ListItemButton>
-                <ListItemButton
-                  to={`/${namespace}/state-changes`}
-                  component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/state-changes`)}
-                  className={location.pathname.startsWith(`/${namespace}/state-changes`) ? "selected-navbar-items navbar-items" : "navbar-items"}
-                >
-                  <HistoryIcon className="drawer-logo" />
-                  <ListItemText primary={'System Events'} />
+                  <ListItemText primary={'Compute Graphs'} />
                 </ListItemButton>
               </List>
               <Box sx={{ mt: 'auto', pb: 1 }}>
