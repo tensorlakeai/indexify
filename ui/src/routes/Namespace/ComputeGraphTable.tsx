@@ -1,5 +1,5 @@
 import React from 'react';
-import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Box, Chip, Stack, Tooltip, Link } from '@mui/material';
+import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Box, Chip } from '@mui/material';
 import CopyText from '../../components/CopyText';
 import { ComputeGraph } from 'getindexify';
 
@@ -15,41 +15,6 @@ interface RowData {
   description: string;
   dependencies: string[];
 }
-
-interface StatusChipProps {
-  label: string;
-  value: number;
-  color: string;
-}
-
-interface StatusChipsProps {
-  pending: number;
-  failed: number;
-  completed: number;
-  href: string;
-}
-
-const StatusChip: React.FC<StatusChipProps> = ({ label, value, color }) => (
-  <Tooltip title={`${label}: ${value}`} arrow>
-    <Chip 
-      label={value} 
-      sx={{ 
-        backgroundColor: color,
-        '&:hover': { backgroundColor: color },
-      }} 
-    />
-  </Tooltip>
-);
-
-const StatusChips: React.FC<StatusChipsProps> = ({ pending, failed, completed, href }) => (
-  <Link href={href} underline="none" onClick={(e: React.MouseEvent<HTMLAnchorElement>) => e.stopPropagation()}>
-    <Stack direction="row" spacing={1} sx={{ cursor: 'pointer' }}>
-      <StatusChip label="Pending" value={pending} color="#E5EFFB" />
-      <StatusChip label="Failed" value={failed} color="#FBE5E5" />
-      <StatusChip label="Completed" value={completed} color="#E5FBE6" />
-    </Stack>
-  </Link>
-);
 
 const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namespace }) => {
   const rows: RowData[] = Object.entries(graphData.nodes).map(([nodeName, node]) => {
@@ -79,14 +44,13 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
           <TableRow sx={{ mt: 2}}>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Name</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Type</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Edges</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Function Name</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Description</TableCell>
-            <TableCell sx={{ fontSize: 14, pt: 1}}>Dependencies</TableCell>
-            <TableCell sx={{ fontSize: 14, pt: 1}}>Status</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((row) => (
+          {rows.sort((a, b) => a.name.localeCompare(b.name)).map((row) => (
             <TableRow key={row.name}>
               <TableCell sx={{ pt: 2}}>
                 <Box sx={{ display: 'flex', alignItems: 'left', flexDirection: 'column' }}>
@@ -100,21 +64,13 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
                 </Box>
               </TableCell>
               <TableCell sx={{ pt: 2}}>{row.type}</TableCell>
-              <TableCell sx={{ pt: 2}}>{row.fn_name}</TableCell>
-              <TableCell sx={{ pt: 2}}>{row.description}</TableCell>
               <TableCell sx={{ pt: 2}}>
                 {row.dependencies.map((dep, index) => (
                   <Chip key={index} label={dep} size="small" sx={{ mr: 0.5 }} />
                 ))}
               </TableCell>
-              <TableCell sx={{ pt: 2}}>
-                <StatusChips
-                  pending={0}
-                  failed={0}
-                  completed={0}
-                  href={`${namespace}/compute-graphs/${graphData.name}/nodes/${row.name}`}
-                />
-              </TableCell>
+              <TableCell sx={{ pt: 2}}>{row.fn_name}</TableCell>
+              <TableCell sx={{ pt: 2}}>{row.description}</TableCell>
             </TableRow>
           ))}
         </TableBody>
