@@ -160,6 +160,13 @@ pub struct DataPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskDiagnostics {
+    pub exception: Option<DataPayload>,
+    pub stdout: Option<DataPayload>,
+    pub stderr: Option<DataPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputPayload {
     Router(RouterOutput),
     Fn(DataPayload),
@@ -174,6 +181,7 @@ pub struct NodeOutput {
     pub compute_fn_name: String,
     pub invocation_id: String,
     pub payload: OutputPayload,
+    pub errors: Option<DataPayload>,
 }
 
 impl NodeOutput {
@@ -229,6 +237,8 @@ impl NodeOutputBuilder {
                 data.path.hash(&mut hasher);
             }
         }
+        let errors = self.errors.clone().flatten();
+
         let id = format!("{:x}", hasher.finish());
         Ok(NodeOutput {
             id,
@@ -237,6 +247,7 @@ impl NodeOutputBuilder {
             invocation_id,
             compute_fn_name: fn_name,
             payload,
+            errors,
         })
     }
 }
@@ -358,6 +369,7 @@ pub struct Task {
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
+    pub diagnostics: Option<TaskDiagnostics>,
 }
 
 impl Task {
@@ -450,6 +462,7 @@ impl TaskBuilder {
             namespace,
             outcome: TaskOutcome::Unknown,
             creation_time: SystemTime::now(),
+            diagnostics: None,
         };
         Ok(task)
     }

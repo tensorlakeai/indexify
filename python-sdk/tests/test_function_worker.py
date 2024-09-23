@@ -8,10 +8,7 @@ from pydantic import BaseModel
 from indexify import Graph
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import File, IndexifyData
-from indexify.functions_sdk.indexify_functions import (
-    indexify_function,
-    indexify_router,
-)
+from indexify.functions_sdk.indexify_functions import indexify_function
 
 
 @indexify_function()
@@ -39,15 +36,6 @@ def extractor_b(file: File) -> List[FileChunk]:
     ]
 
 
-class SomeOtherFileTransform(BaseModel):
-    data: bytes
-
-
-@indexify_function()
-def extractor_d(file: File) -> SomeOtherFileTransform:
-    return SomeOtherFileTransform(data=file.data)
-
-
 class SomeMetadata(BaseModel):
     metadata: Mapping[str, str]
 
@@ -57,9 +45,9 @@ def extractor_c(file_chunk: FileChunk) -> SomeMetadata:
     return SomeMetadata(metadata={"a": "b", "c": "d"})
 
 
-@indexify_router()
-def router_x(input: File) -> List[Union[extractor_b, extractor_d]]:
-    return [extractor_d]
+@indexify_function()
+def extractor_exception(a: int) -> int:
+    raise Exception("this extractor throws an exception.")
 
 
 def create_graph_a():
@@ -69,16 +57,28 @@ def create_graph_a():
     return graph
 
 
+def create_graph_exception():
+    graph = Graph(name="test-exception", description="test", start_node=extractor_a)
+    graph = graph.add_edge(extractor_a, extractor_exception)
+    graph = graph.add_edge(extractor_exception, extractor_b)
+    return graph
+
+
 class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
-    async def test_function_worker(self):
-        g = create_graph_a()
+
+    def setUp(self):
+        self.g = create_graph_a()
+        self.function_worker = FunctionWorker()
+
+    async def test_function_worker_happy_path(self):
         with tempfile.NamedTemporaryFile(delete=True) as temp_file:
-            code_bytes = g.serialize()
+            code_bytes = self.g.serialize()
+
             temp_file.write(code_bytes)
             temp_file.flush()
             temp_file_path = temp_file.name
-            function_worker = FunctionWorker()
-            await function_worker.async_submit(
+
+            output = await self.function_worker.async_submit(
                 namespace="test",
                 graph_name="test",
                 fn_name="extractor_b",
@@ -90,6 +90,40 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
                 ),
                 code_path=temp_file_path,
             )
+
+            self.assertEqual(len(output), 2)
+
+            self.assertEqual(output[0].payload_encoding, 'cbor')
+
+            expected_json = {'data': b'hello', 'start': 5, 'end': 5}
+            actual_json = cbor2.loads(output[1].payload)
+
+            self.assertEqual(expected_json, actual_json)
+
+    async def test_function_worker_extractor_raises_error(self):
+        g = create_graph_exception()
+
+        with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+            code_bytes = g.serialize()
+
+            temp_file.write(code_bytes)
+            temp_file.flush()
+            temp_file_path = temp_file.name
+
+            try:
+                await self.function_worker.async_submit(
+                    namespace="test",
+                    graph_name="test",
+                    fn_name="extractor_exception",
+                    input=IndexifyData(
+                        id="123",
+                        payload=cbor2.dumps(10)
+                    ),
+                    code_path=temp_file_path,
+                )
+                self.fail("Should throw exception.")
+            except Exception as e:
+                self.assertTrue("_RemoteTraceback" in str(e))
 
 
 if __name__ == "__main__":

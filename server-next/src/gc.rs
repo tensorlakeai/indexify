@@ -132,6 +132,7 @@ mod tests {
                 size: res.size_bytes,
                 sha256_hash: res.sha256_hash,
             }),
+            errors: None,
         };
         let key = output.key(&output.invocation_id);
         let serialized_output = JsonEncoder::encode(&output)?;

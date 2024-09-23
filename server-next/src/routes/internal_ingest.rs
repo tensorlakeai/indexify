@@ -3,7 +3,15 @@ use std::{collections::HashMap, vec};
 use anyhow::{anyhow, Result};
 use axum::extract::{Multipart, State};
 use blob_store::PutResult;
-use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId};
+use data_model::{
+    DataPayload,
+    ExecutorId,
+    NodeOutput,
+    NodeOutputBuilder,
+    OutputPayload,
+    TaskDiagnostics,
+    TaskId,
+};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
@@ -87,21 +95,26 @@ pub async fn ingest_files_from_executor(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut output_objects: Vec<PutResult> = vec![];
+    let mut exception_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
+
+    // Write data object to blob store.
     while let Some(field) = files.next_field().await.unwrap() {
-        if let Some(field_name) = field.name() {
-            if field_name == "node_outputs" {
+        if let Some(name) = field.name() {
+            let ingestion_type = name.to_string();
+            if ingestion_type.clone() == "node_outputs" || ingestion_type.clone() == "exception_msg" {
                 let _ = field
                     .file_name()
                     .as_ref()
                     .ok_or(IndexifyAPIError::bad_request("file name is required"))?
                     .to_string();
-                let file_name = Uuid::new_v4().to_string();
-                info!("writing to blob store, file name = {:?}", file_name);
+
+                let name = Uuid::new_v4().to_string();
+                info!("writing to blob store, file name = {:?}", name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
                 let res = state
                     .blob_storage
-                    .put(&file_name, stream)
+                    .put(&name, stream)
                     .await
                     .map_err(|e| {
                         IndexifyAPIError::internal_error(anyhow!(
@@ -109,8 +122,13 @@ pub async fn ingest_files_from_executor(
                             e
                         ))
                     })?;
-                output_objects.push(res.clone());
-            } else if field_name == "task_result" {
+
+                if ingestion_type == "node_outputs" {
+                    output_objects.push(res.clone());
+                } else {
+                    exception_msg = Some(res);
+                }
+            } else if name == "task_result" {
                 let text = field
                     .text()
                     .await
@@ -119,9 +137,12 @@ pub async fn ingest_files_from_executor(
             }
         }
     }
+
+    // Save metadata in rocksdb for the objects in the blob store.
     let task_result =
         task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;
     let mut node_outputs: Vec<NodeOutput> = vec![];
+
     for put_result in output_objects {
         let data_payload = data_model::DataPayload {
             path: put_result.url,
@@ -140,6 +161,21 @@ pub async fn ingest_files_from_executor(
             })?;
         node_outputs.push(node_output);
     }
+
+    let task_diagnostic = exception_msg.map(|exception_msg| {
+        let exception_payload = DataPayload {
+            path: exception_msg.url,
+            size: exception_msg.size_bytes,
+            sha256_hash: exception_msg.sha256_hash,
+        };
+
+        TaskDiagnostics {
+            exception: Some(exception_payload),
+            stdout: None,
+            stderr: None,
+        }
+    });
+
     if let Some(router_output) = task_result.router_output {
         let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
@@ -155,6 +191,7 @@ pub async fn ingest_files_from_executor(
             })?;
         node_outputs.push(node_output);
     }
+
     let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
         namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
@@ -164,7 +201,9 @@ pub async fn ingest_files_from_executor(
         node_outputs,
         task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
+        diagnostics: task_diagnostic,
     });
+
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
