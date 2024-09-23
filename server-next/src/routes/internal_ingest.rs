@@ -102,7 +102,8 @@ pub async fn ingest_files_from_executor(
     while let Some(field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
             let ingestion_type = name.to_string();
-            if ingestion_type.clone() == "node_outputs" || ingestion_type.clone() == "exception_msg" {
+            if ingestion_type.clone() == "node_outputs" || ingestion_type.clone() == "exception_msg"
+            {
                 let _ = field
                     .file_name()
                     .as_ref()
@@ -111,16 +112,12 @@ pub async fn ingest_files_from_executor(
                 let name = Uuid::new_v4().to_string();
                 info!("writing to blob store, file name = {:?}", name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-                let res = state
-                    .blob_storage
-                    .put(&name, stream)
-                    .await
-                    .map_err(|e| {
-                        IndexifyAPIError::internal_error(anyhow!(
-                            "failed to write to blob store: {}",
-                            e
-                        ))
-                    })?;
+                let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
+                    IndexifyAPIError::internal_error(anyhow!(
+                        "failed to write to blob store: {}",
+                        e
+                    ))
+                })?;
 
                 if ingestion_type == "node_outputs" {
                     output_objects.push(res.clone());

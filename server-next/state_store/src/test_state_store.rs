@@ -14,6 +14,7 @@ pub mod tests {
         },
         ExecutorId,
         NodeOutput,
+        Task,
         TaskId,
         TaskOutcome,
     };
@@ -131,24 +132,21 @@ pub mod tests {
 
         pub async fn finalize_task(
             &self,
-            invocation_id: &str,
-            graph_name: &str,
-            compute_fn: &str,
-            task_id: &TaskId,
+            task: &Task,
             num_outputs: usize,
             task_outcome: TaskOutcome,
             reducer: bool,
         ) -> Result<()> {
             let compute_fn_for_reducer = if reducer {
-                Some(compute_fn.to_string())
+                Some(task.compute_fn_name.to_string())
             } else {
                 None
             };
             let node_outputs: Vec<NodeOutput> = (0..num_outputs)
                 .map(|_| {
                     mock_node_fn_output_fn_a(
-                        &invocation_id,
-                        graph_name,
+                        &task.invocation_id,
+                        &task.compute_graph_name,
                         compute_fn_for_reducer.clone(),
                     )
                 })
@@ -156,10 +154,10 @@ pub mod tests {
                 .collect();
             let request = FinalizeTaskRequest {
                 namespace: TEST_NAMESPACE.to_string(),
-                compute_graph: graph_name.to_string(),
-                compute_fn: compute_fn.to_string(),
-                invocation_id: invocation_id.to_string(),
-                task_id: task_id.clone(),
+                compute_graph: task.compute_graph_name.to_string(),
+                compute_fn: task.compute_fn_name.to_string(),
+                invocation_id: task.invocation_id.to_string(),
+                task_id: task.id.clone(),
                 task_outcome,
                 node_outputs,
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),

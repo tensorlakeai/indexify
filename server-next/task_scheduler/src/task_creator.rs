@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraph, InvokeComputeGraphEvent, Node, OutputPayload, Task};
+use data_model::{ComputeGraph, InvokeComputeGraphEvent, Node, OutputPayload, Task, TaskOutcome};
 use state_store::IndexifyState;
 use tracing::{error, info};
 
@@ -53,6 +53,33 @@ pub async fn handle_task_finished(
     task: Task,
     compute_graph: ComputeGraph,
 ) -> Result<TaskCreationResult> {
+    let invocation_ctx = indexify_state.reader().invocation_ctx(
+        &task.namespace,
+        &task.compute_graph_name,
+        &task.invocation_id,
+    )?;
+
+    if task.outcome == TaskOutcome::Failure {
+        let mut invocation_finished = false;
+        if invocation_ctx.outstanding_tasks == 0 {
+            invocation_finished = true;
+        }
+
+        info!(
+            "Task failed, graph invocation: {:?} {}",
+            task.compute_graph_name, invocation_finished
+        );
+
+        return Ok(TaskCreationResult {
+            namespace: task.namespace.clone(),
+            compute_graph: task.compute_graph_name.clone(),
+            invocation_id: task.invocation_id.clone(),
+            tasks: vec![],
+            invocation_finished,
+            new_reduction_tasks: vec![],
+            processed_reduction_tasks: vec![],
+        });
+    }
     let mut new_tasks = vec![];
     let mut new_reduction_tasks = vec![];
     let outputs = indexify_state
@@ -127,12 +154,7 @@ pub async fn handle_task_finished(
 
     // Find the edges of the function
     let edges = compute_graph.edges.get(&task.compute_fn_name);
-    if edges.is_none() {
-        let invocation_ctx = indexify_state.reader().invocation_ctx(
-            &task.namespace,
-            &task.compute_graph_name,
-            &task.invocation_id,
-        )?;
+    if edges.is_none() && invocation_ctx.outstanding_tasks == 0 {
         if invocation_ctx.outstanding_tasks == 0 {
             info!("compute graph completed: {:?}", task.compute_graph_name);
             return Ok(TaskCreationResult {

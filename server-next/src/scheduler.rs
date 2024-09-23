@@ -1,16 +1,7 @@
 use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use data_model::{
-    ChangeType,
-    InvokeComputeGraphEvent,
-    Node,
-    OutputPayload,
-    ReduceTask,
-    StateChangeId,
-    Task,
-    TaskFinishedEvent,
-};
+use data_model::{ChangeType, StateChangeId};
 use state_store::{
     requests::{
         CreateTasksRequest,
@@ -21,20 +12,13 @@ use state_store::{
     },
     IndexifyState,
 };
-use task_scheduler::TaskScheduler;
+use task_scheduler::{
+    task_creator::{handle_invoke_compute_graph, handle_task_finished},
+    TaskScheduler,
+};
 use tokio::{self, sync::watch::Receiver};
 use tracing::{error, info};
 
-#[derive(Debug)]
-struct TaskCreationResult {
-    namespace: String,
-    compute_graph: String,
-    tasks: Vec<Task>,
-    new_reduction_tasks: Vec<ReduceTask>,
-    processed_reduction_tasks: Vec<String>,
-    invocation_finished: bool,
-    invocation_id: String,
-}
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
     task_allocator: Arc<TaskScheduler>,
@@ -62,11 +46,27 @@ impl Scheduler {
             processed_state_changes.push(state_change.id.clone());
             let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
-                    self.handle_invoke_compute_graph(invoke_compute_graph_event.clone())
-                        .await?,
+                    handle_invoke_compute_graph(
+                        self.indexify_state.clone(),
+                        invoke_compute_graph_event.clone(),
+                    )
+                    .await?,
                 ),
                 ChangeType::TaskFinished(task_finished_event) => {
-                    Some(self.handle_task_finished(task_finished_event).await?)
+                    let task = self
+                        .indexify_state
+                        .reader()
+                        .get_task_from_finished_event(&task_finished_event)?
+                        .ok_or(anyhow!("task not found {}", task_finished_event.task_id))?;
+                    let compute_graph = self
+                        .indexify_state
+                        .reader()
+                        .get_compute_graph(&task.namespace, &task.compute_graph_name)?
+                        .ok_or(anyhow!("compute graph not found"))?;
+                    Some(
+                        handle_task_finished(self.indexify_state.clone(), task, compute_graph)
+                            .await?,
+                    )
                 }
                 _ => None,
             };
@@ -141,11 +141,11 @@ mod tests {
         test_objects::tests::{
             mock_executor,
             mock_executor_id,
-            mock_invocation_payload,
             mock_invocation_payload_graph_b,
             TEST_NAMESPACE,
         },
         ExecutorId,
+        TaskOutcome,
     };
     use state_store::test_state_store::tests::TestStateStore;
 
@@ -187,11 +187,10 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
-        let task_id = &tasks[0].id;
-
+        let task = &tasks[0];
         // Finish the task and check if new tasks are created
         state_store
-            .finalize_task(&mock_invocation_payload().id, task_id, TaskOutcome::Success)
+            .finalize_task(task, 1, TaskOutcome::Success, false)
             .await
             .unwrap();
         scheduler.run_scheduler().await?;
@@ -224,11 +223,11 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
-        let task_id = &tasks[0].id;
+        let task = &tasks[0];
 
         // Finish the task and check if new tasks are created
         state_store
-            .finalize_task(&mock_invocation_payload().id, task_id, TaskOutcome::Failure)
+            .finalize_task(task, 1, TaskOutcome::Failure, false)
             .await
             .unwrap();
         scheduler.run_scheduler().await?;
@@ -241,8 +240,14 @@ mod tests {
 
         let task = &tasks[0];
 
-        let invocation_ctx = indexify_state.reader()
-            .invocation_ctx(&task.namespace, &task.compute_graph_name, &task.invocation_id).unwrap();
+        let invocation_ctx = indexify_state
+            .reader()
+            .invocation_ctx(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.invocation_id,
+            )
+            .unwrap();
 
         assert!(invocation_ctx.completed);
 
@@ -290,8 +295,9 @@ mod tests {
         let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
         assert_eq!(unallocated_tasks.len(), 0);
 
+        let task = tasks.first().unwrap();
         state_store
-            .finalize_task(&tasks[0].invocation_id, &tasks[0].id, TaskOutcome::Success)
+            .finalize_task(&task, 1, TaskOutcome::Success, false)
             .await?;
 
         let executor_tasks = indexify_state
