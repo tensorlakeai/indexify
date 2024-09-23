@@ -1,6 +1,8 @@
 pub mod tests {
     use std::collections::HashMap;
 
+    use rand::{distributions::Alphanumeric, Rng};
+
     use super::super::{
         ComputeFn,
         ComputeGraph,
@@ -31,7 +33,26 @@ pub mod tests {
         }
     }
 
-    pub fn mock_node_fn_output_fn_a(invocation_id: &str, graph: &str) -> NodeOutput {
+    fn reducer_fn(name: &str, reduce: bool) -> ComputeFn {
+        let mut compute_fn = test_compute_fn(name);
+        compute_fn.reducer = reduce;
+        compute_fn
+    }
+
+    pub fn mock_node_fn_output_fn_a(
+        invocation_id: &str,
+        graph: &str,
+        reducer_fn: Option<String>,
+    ) -> NodeOutput {
+        let mut path: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect();
+        if let Some(reducer_fn) = reducer_fn {
+            // Simulating overriding the existing output for accumulators
+            path = format!("{}-{}-{}", invocation_id, graph, reducer_fn);
+        }
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_fn_name("fn_a".to_string())
@@ -39,7 +60,7 @@ pub mod tests {
             .invocation_id(invocation_id.to_string())
             .payload(crate::OutputPayload::Fn(DataPayload {
                 sha256_hash: "3433".to_string(),
-                path: "eere".to_string(),
+                path,
                 size: 12,
             }))
             .build()
@@ -134,6 +155,34 @@ pub mod tests {
             ]),
             edges: HashMap::from([("fn_a".to_string(), vec!["router_x".to_string()])]),
             description: "description graph_B".to_string(),
+            code: ComputeGraphCode {
+                path: "cg_path".to_string(),
+                size: 23,
+                sha256_hash: "hash123".to_string(),
+            },
+            create_at: 5,
+            tomb_stoned: false,
+            start_fn: Compute(fn_a),
+        }
+    }
+
+    pub fn mock_graph_with_reducer() -> ComputeGraph {
+        let fn_a = test_compute_fn("fn_a");
+        let fn_b = reducer_fn("fn_b", true);
+        let fn_c = test_compute_fn("fn_c");
+        ComputeGraph {
+            namespace: TEST_NAMESPACE.to_string(),
+            name: "graph_R".to_string(),
+            nodes: HashMap::from([
+                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                ("fn_b".to_string(), Node::Compute(fn_b)),
+                ("fn_c".to_string(), Node::Compute(fn_c)),
+            ]),
+            edges: HashMap::from([
+                ("fn_a".to_string(), vec!["fn_b".to_string()]),
+                ("fn_b".to_string(), vec!["fn_c".to_string()]),
+            ]),
+            description: "description graph_R".to_string(),
             code: ComputeGraphCode {
                 path: "cg_path".to_string(),
                 size: 23,

@@ -635,6 +635,7 @@ dependencies = [
  "anyhow",
  "derive_builder",
  "indexify_utils",
+ "rand",
  "serde",
  "serde_json",
 ]

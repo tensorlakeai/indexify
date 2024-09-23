@@ -12,6 +12,7 @@ use data_model::{
     ReduceTask,
     StateChange,
     Task,
+    TaskFinishedEvent,
 };
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -416,6 +417,16 @@ impl StateReader {
         )
     }
 
+    pub fn get_task_from_finished_event(&self, req: &TaskFinishedEvent) -> Result<Option<Task>> {
+        return self.get_task(
+            &req.namespace,
+            &req.compute_graph,
+            &req.invocation_id,
+            &req.compute_fn,
+            &req.task_id.to_string(),
+        );
+    }
+
     pub fn get_task(
         &self,
         namespace: &str,
@@ -565,6 +576,17 @@ impl StateReader {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("fn output not found")),
         }
+    }
+
+    pub fn all_reduction_tasks(&self, ns: &str, cg: &str, inv_id: &str) -> Result<Vec<ReduceTask>> {
+        let key = format!("{}|{}|{}|", ns, cg, inv_id);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
+            key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::ReductionTasks,
+            None,
+        )?;
+        Ok(tasks)
     }
 
     pub fn next_reduction_task(

@@ -75,16 +75,6 @@ impl ComputeFn {
     pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
         self.placement_constraints.matches(&executor.labels)
     }
-
-    pub fn reduction_task(&self, ns: &str, cg: &str, inv_id: &str, task_id: &str) -> ReduceTask {
-        ReduceTask {
-            namespace: ns.to_string(),
-            compute_graph_name: cg.to_string(),
-            invocation_id: inv_id.to_string(),
-            compute_fn_name: self.name.clone(),
-            task_id: task_id.to_string(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -105,6 +95,13 @@ impl Node {
         match self {
             Node::Router(_) => true,
             Node::Compute(compute) => compute.matches_executor(executor),
+        }
+    }
+
+    pub fn reducer(&self) -> bool {
+        match self {
+            Node::Router(_) => false,
+            Node::Compute(compute) => compute.reducer,
         }
     }
 }
@@ -129,6 +126,28 @@ impl Node {
             .input_key(input_key.to_string())
             .build()?;
         Ok(task)
+    }
+
+    pub fn reducer_task(
+        &self,
+        namespace: &str,
+        compute_graph_name: &str,
+        invocation_id: &str,
+        task_id: &str,
+        task_output_key: &str,
+    ) -> ReduceTask {
+        let name = match self {
+            Node::Router(router) => router.name.clone(),
+            Node::Compute(compute) => compute.name.clone(),
+        };
+        ReduceTask {
+            namespace: namespace.to_string(),
+            compute_graph_name: compute_graph_name.to_string(),
+            invocation_id: invocation_id.to_string(),
+            compute_fn_name: name,
+            task_id: task_id.to_string(),
+            task_output_key: task_output_key.to_string(),
+        }
     }
 }
 
@@ -373,6 +392,7 @@ pub struct ReduceTask {
 
     // The task for which we are need to create the reduce task
     pub task_id: String,
+    pub task_output_key: String,
 }
 
 impl ReduceTask {
