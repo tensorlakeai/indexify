@@ -1,3 +1,4 @@
+import copy
 from collections import defaultdict
 from queue import deque
 from typing import Any, Dict, List, Optional, Type, Union
@@ -15,7 +16,9 @@ from indexify.functions_sdk.data_objects import (
     RouterOutput,
 )
 from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
+from indexify.functions_sdk.indexify_functions import IndexifyRouter
+from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper, \
+    IdentityCacheFunctionWrapper
 
 
 # Holds the outputs of a
@@ -24,13 +27,22 @@ class ContentTree(BaseModel):
     outputs: Dict[str, List[IndexifyData]]
 
 
+def identity_cache(*args, **kwargs):
+    return None
+
 class LocalClient(IndexifyClient):
-    def __init__(self, cache_dir: str = "./indexify_local_runner_cache"):
+    def __init__(self, local_cache: bool, cache_dir: str = "./indexify_local_runner_cache"):
         self._cache_dir = cache_dir
         self._graphs: Dict[str, Graph] = {}
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
-        self._cache = CacheAwareFunctionWrapper(self._cache_dir)
         self._accumulators: Dict[str, Dict[str, IndexifyData]] = {}
+
+        if local_cache:
+            self._cache = CacheAwareFunctionWrapper(self._cache_dir)
+        else:
+            self._cache = IdentityCacheFunctionWrapper(self._cache_dir)
+
+        self.visited = set()
 
     def register_compute_graph(self, graph: Graph):
         self._graphs[graph.name] = graph
@@ -48,6 +60,7 @@ class LocalClient(IndexifyClient):
         }
         self._results[input.id] = outputs
         self._run(g, input, outputs)
+
         return input.id
 
     def _run(
@@ -56,16 +69,24 @@ class LocalClient(IndexifyClient):
         initial_input: bytes,
         outputs: Dict[str, List[bytes]],
     ):
-        queue = deque([(g._start_node.name, initial_input)])
+        lineage = 0
+
+        queue = deque([(g._start_node.name, initial_input, lineage)])
         while queue:
-            node_name, input = queue.popleft()
+            node_name, input, lineage = queue.popleft()
+
+            print(type(g.nodes[node_name]))
+            if type(g.nodes[node_name]) is IndexifyRouter:
+                lineage += 1
+
             input_bytes = cbor2.dumps(input.model_dump())
+            # TODO fix the cache
             cached_output_bytes: Optional[List[bytes]] = self._cache.get(
                 g.name, node_name, input_bytes
             )
             if cached_output_bytes is not None:
                 print(
-                    f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
+                    f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit), lineage: {lineage}"
                 )
                 function_outputs: List[IndexifyData] = []
                 for cached_output in cached_output_bytes:
@@ -76,7 +97,7 @@ class LocalClient(IndexifyClient):
                 function_outputs: List[IndexifyData] = g.invoke_fn_ser(
                     node_name, input, self._accumulators.get(node_name, None)
                 )
-                print(f"ran {node_name}: num outputs: {len(function_outputs)}")
+                print(f"ran {node_name}: num outputs: {len(function_outputs)}, lineage: {lineage}")
                 if self._accumulators.get(node_name, None) is not None:
                     self._accumulators[node_name] = function_outputs[-1].payload
                     outputs[node_name] = []
@@ -97,7 +118,7 @@ class LocalClient(IndexifyClient):
                 )
                 continue
 
-            out_edges = g.edges.get(node_name, [])
+            out_edges = copy.deepcopy(g.edges.get(node_name, []))
             # Figure out if there are any routers for this node
             for i, edge in enumerate(out_edges):
                 if edge in g.routers:
@@ -112,7 +133,7 @@ class LocalClient(IndexifyClient):
                                 out_edges.append(dynamic_edge)
             for out_edge in out_edges:
                 for output in function_outputs:
-                    queue.append((out_edge, output))
+                    queue.append((out_edge, output, lineage))
 
     def _route(
         self, g: Graph, node_name: str, input: IndexifyData

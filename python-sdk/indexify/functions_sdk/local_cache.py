@@ -44,3 +44,18 @@ class CacheAwareFunctionWrapper:
             file_path = os.path.join(dir_path, f"{i}.cbor")
             with open(file_path, "wb") as f:
                 f.write(output_item)
+
+
+class IdentityCacheFunctionWrapper:
+    def __init__(self, cache_dir: str):
+        pass
+
+    def get(
+        self, graph: str, node_name: str, input: bytes
+    ) -> Optional[List[bytes]]:
+        return None
+
+    def set(
+        self, graph: str, node_name: str, input: bytes, output: List[bytes],
+    ):
+        return None

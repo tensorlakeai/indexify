@@ -1,10 +1,11 @@
 import unittest
-from typing import List
+from typing import List, Union
 
 from pydantic import BaseModel, Field
 
 from indexify import Graph, create_client
-from indexify.functions_sdk.indexify_functions import indexify_function
+from indexify.functions_sdk.indexify_functions import indexify_function, \
+    indexify_router
 
 
 class Jokes(BaseModel):
@@ -67,6 +68,38 @@ def create_graph():
     return graph
 
 
+@indexify_function()
+def fn1(i: int) -> int:
+    return i+1
+
+@indexify_function()
+def fn2(i: int) -> int:
+    return i+1
+
+@indexify_function()
+def end(i: int) -> int:
+    return i
+
+@indexify_router()
+def loop_router(input: int) -> List[Union[end, fn1, fn2]]:
+    if input > 20:
+        return [end]
+    if 10 <= input <= 20:
+        return [fn2]
+    else:
+        return [fn1]
+
+def create_graph_loop():
+    graph = Graph(name="loop", description="test", start_node=fn1)
+    graph.add_edge(fn1, fn2)
+    graph.add_edge(fn2, loop_router)
+    graph.route(loop_router, [fn1, fn2, end])
+
+    graph.add_node(end)
+
+    return graph
+
+
 class TestReduce(unittest.TestCase):
     def test_reduce(self):
         graph = create_graph()
@@ -77,6 +110,24 @@ class TestReduce(unittest.TestCase):
             graph.name, invocation_id, fn_name=store_result.name
         )
         self.assertEqual(result[0], 22)
+
+    def test_reduce_loop(self):
+        graph = create_graph_loop()
+        client = create_client(local=True)
+        client.register_compute_graph(graph)
+        invocation_id = client.invoke_graph_with_object(graph.name, i=3)
+        result = client.graph_outputs(
+            graph.name, invocation_id, fn_name=fn1.name
+        )
+
+        result2 = client.graph_outputs(
+            graph.name, invocation_id, fn_name=fn2.name
+        )
+
+        self.assertEqual(len(result), 4)
+        self.assertEqual(len(result2), 14)
+        self.assertEqual(result[-1], 10)
+        self.assertEqual(result2[-1], 21)
 
 
 if __name__ == "__main__":
