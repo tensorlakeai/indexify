@@ -269,7 +269,6 @@ impl IndexifyState {
             }
             requests::RequestPayload::SchedulerUpdate(sched_update) => {
                 for task_request in &sched_update.task_requests {
-                    println!("task_request invocation finished? {}", task_request.invocation_finished);
                     if task_request.invocation_finished {
                         if let Err(err) =
                             self.task_event_tx
