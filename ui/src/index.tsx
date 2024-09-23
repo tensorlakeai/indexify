@@ -14,12 +14,14 @@ import { ErrorPage } from "./error-page";
 import {
   ComputeGraphsPageLoader,
   IndividualComputeGraphPageLoader,
+  IndividualInvocationPageLoader,
   NamespacesPageLoader,
 } from "./utils/loaders";
 import {
   ComputeGraphsPage,
   NamespacesPage,
   IndividualComputeGraphPage,
+  IndividualInvocationPage
 } from "./routes/Namespace";
 
 function RedirectToComputeGraphs() {
@@ -65,6 +67,12 @@ const router = createBrowserRouter(
           path: "/:namespace/compute-graphs/:compute-graph",
           element: <IndividualComputeGraphPage />,
           loader: IndividualComputeGraphPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/compute-graphs/:compute-graph/invocations/:invocation-id",
+          element: <IndividualInvocationPage />,
+          loader: IndividualInvocationPageLoader,
           errorElement: <ErrorPage />
         },
       ]

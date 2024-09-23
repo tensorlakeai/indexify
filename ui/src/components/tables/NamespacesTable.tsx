@@ -3,6 +3,7 @@ import { Box, Stack } from '@mui/system';
 import { Namespace } from 'getindexify';
 import { TableDocument, InfoCircle } from 'iconsax-react';
 import { formatTimestamp } from '../../utils/helpers';
+
 const NamespacesTable = ({ namespaces }: { namespaces: Namespace[] }) => {
   const renderContent = () => {
     if (namespaces.length === 0) {
