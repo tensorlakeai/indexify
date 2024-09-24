@@ -48,7 +48,7 @@ const IndividualInvocationPage = () => {
               Invocation - {invocationId} <CopyText text={invocationId} />
             </Typography>
           </div>
-          {/* <InvocationOutputTable invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} /> */}
+          <InvocationOutputTable invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
         </Box>
         <InvocationTasksTable invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
       </Box>
