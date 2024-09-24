@@ -26,7 +26,7 @@ def extractor_b(file: File) -> str:
     """
     print("`extractor_b` is writing to stdout", file=sys.stdout)
     print("`extractor_b` is writing to stderr", file=sys.stderr)
-    raise Exception("this exception was raised from extractor_b")
+    return 'this is a return from extractor_b'
 
 
 @indexify_function()
@@ -39,7 +39,7 @@ def extractor_c(s: str) -> str:
 
 if __name__ == "__main__":
     g = Graph(
-        "test-graph-has-an-exception-for-stdout-stderr",
+        "test-graph-for-stdout-stderr",
         start_node=extractor_a,
     )
 

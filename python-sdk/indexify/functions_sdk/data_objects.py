@@ -13,6 +13,13 @@ class IndexifyData(BaseModel):
     payload_encoding: str = "cbor"
 
 
+class FunctionWorkerOutput(BaseModel):
+    indexify_data: List[IndexifyData]
+    exception: Optional[str]
+    stdout: Optional[str]
+    stderr: Optional[str]
+
+
 class File(BaseModel):
     data: bytes
     metadata: Optional[Dict[str, Json]] = None

@@ -1,18 +1,46 @@
 import asyncio
-import concurrent
-import sys
 import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Union
 
 from rich import print
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput, \
+    FunctionWorkerOutput
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
 graphs: Dict[str, Graph] = {}
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
+
+import concurrent.futures
+import io
+from contextlib import redirect_stdout, redirect_stderr
+
+
+class LoggingProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.submit_count = 0
+
+    @staticmethod
+    def wrapped_fn(fn, *args, **kwargs):
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+
+        result, exception = [], None
+        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+            try:
+                result = fn(*args, **kwargs)
+            except Exception:
+                exception = traceback.format_exc()
+
+        return result, exception, stdout_capture.getvalue(), stderr_capture.getvalue()
+
+    def submit(self, fn, *args, **kwargs):
+        fn_future = super().submit(LoggingProcessPoolExecutor.wrapped_fn, fn, *args, **kwargs)
+
+        return fn_future
 
 
 def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str):
@@ -30,8 +58,12 @@ def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str
 
 class FunctionWorker:
     def __init__(self, workers: int = 1) -> None:
-        self._executor: concurrent.futures.ProcessPoolExecutor = (
-            concurrent.futures.ProcessPoolExecutor(max_workers=workers)
+        # self._executor: concurrent.futures.ProcessPoolExecutor = (
+        #     concurrent.futures.ProcessPoolExecutor(max_workers=workers)
+        # )
+
+        self._executor: LoggingProcessPoolExecutor = (
+            LoggingProcessPoolExecutor(max_workers=workers)
         )
 
     async def async_submit(
@@ -41,9 +73,9 @@ class FunctionWorker:
         fn_name: str,
         input: IndexifyData,
         code_path: str,
-    ) -> List[IndexifyData]:
+    ) -> FunctionWorkerOutput:
         try:
-            resp = await asyncio.get_running_loop().run_in_executor(
+            result, exception, stdout, stderr = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 _run_function,
                 namespace,
@@ -55,10 +87,13 @@ class FunctionWorker:
         except BrokenProcessPool as mp:
             self._executor.shutdown(wait=True, cancel_futures=True)
             raise mp
-        except Exception as e:
-            raise Exception(traceback.format_exc())
 
-        return resp
+        return FunctionWorkerOutput(
+            indexify_data=result,
+            exception=exception,
+            stdout=stdout,
+            stderr=stderr
+        )
 
     def shutdown(self):
         self._executor.shutdown(wait=True, cancel_futures=True)

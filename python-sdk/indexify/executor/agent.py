@@ -16,7 +16,8 @@ from rich.style import Style
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput, \
+    FunctionWorkerOutput
 
 from .api_objects import ExecutorMetadata, Task
 from .downloader import Downloader
@@ -114,15 +115,18 @@ class ExtractorAgent:
                         border_style="info",
                     )
                 )
-                task: Task = self._task_store.get_task(task_outcome.task.id)
+
                 try:
+                    print(f'task_outcome: {task_outcome}')
                     # Send task outcome to the server
                     self._task_reporter.report_task_outcome(
                         task_outcome.outputs,
                         task_outcome.router_output,
                         task_outcome.task,
                         task_outcome.task_outcome,
-                        task_outcome.errors
+                        task_outcome.errors,
+                        task_outcome.stdout,
+                        task_outcome.stderr,
                     )
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
@@ -249,18 +253,40 @@ class ExtractorAgent:
                         continue
                     async_task: ExtractTask
                     try:
-                        outputs = await async_task
+                        outputs: FunctionWorkerOutput = await async_task
                         router_output = (
                             outputs if isinstance(outputs, RouterOutput) else None
                         )
-                        fn_outputs = (
-                            outputs if not isinstance(outputs, RouterOutput) else []
+
+                        errors = (
+                            outputs.exception if not isinstance(outputs, RouterOutput) else []
                         )
+
+                        fn_stdout = (
+                            outputs.stdout if not isinstance(outputs, RouterOutput) else []
+                        )
+
+                        fn_stderr = (
+                            outputs.stderr if not isinstance(outputs, RouterOutput) else []
+                        )
+
+                        if errors:
+                            task_outcome = "failure"
+                            fn_outputs = []
+                        else:
+                            task_outcome = "success"
+                            fn_outputs = (
+                                outputs.indexify_data if not isinstance(outputs, RouterOutput) else []
+                            )
+
                         completed_task = CompletedTask(
                             task=async_task.task,
-                            task_outcome="success",
+                            task_outcome=task_outcome,
                             outputs=fn_outputs,
                             router_output=router_output,
+                            errors=errors,
+                            stdout=fn_stdout,
+                            stderr=fn_stderr,
                         )
                         self._task_store.complete(outcome=completed_task)
                     except BrokenProcessPool:
@@ -274,6 +300,7 @@ class ExtractorAgent:
                             )
                             + Text(f"Exception: {e}", style="red")
                         )
+                        print('----here {}', type(async_task.task))
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="failure",
