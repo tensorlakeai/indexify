@@ -511,13 +511,7 @@ impl TaskBuilder {
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
         let reducer_output_id = self.reducer_output_id.clone().flatten();
-        let mut hasher = DefaultHasher::new();
-        cg_name.hash(&mut hasher);
-        compute_fn_name.hash(&mut hasher);
-        input_key.hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        namespace.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
+        let id = uuid::Uuid::new_v4().to_string();
         let task = Task {
             id: TaskId(id),
             compute_graph_name: cg_name,

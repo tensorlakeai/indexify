@@ -106,11 +106,12 @@ pub async fn ingest_files_from_executor(
                     IndexifyAPIError::bad_request("task_result is required before node_outputs")
                 })?;
                 let file_name = format!(
-                    "{}.{}.{}.{}.{}",
+                    "{}.{}.{}.{}.{}.{}",
                     task_result.namespace,
                     task_result.compute_graph,
                     task_result.compute_fn,
                     task_result.invocation_id,
+                    task_result.task_id,
                     node_output_sequence
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
