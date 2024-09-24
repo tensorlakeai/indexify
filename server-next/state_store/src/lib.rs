@@ -264,6 +264,9 @@ impl IndexifyState {
     }
 
     async fn handle_invocation_state_changes(&self, update_request: &StateMachineUpdateRequest) {
+        if self.task_event_tx.receiver_count() == 0 {
+            return;
+        }
         match &update_request.payload {
             requests::RequestPayload::FinalizeTask(task_finished_event) => {
                 let ev =
@@ -593,8 +596,9 @@ mod tests {
             .namespace("namespace".to_string())
             .compute_fn_name("fn".to_string())
             .compute_graph_name("graph".to_string())
-            .input_key("namespace|graph|ingested_id|fn|id_1".to_string())
+            .input_node_output_key("namespace|graph|ingested_id|fn|id_1".to_string())
             .invocation_id("ingested_id".to_string())
+            .reducer_output_id(None)
             .build()?;
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
@@ -647,8 +651,9 @@ mod tests {
             .namespace("namespace".to_string())
             .compute_fn_name("fn".to_string())
             .compute_graph_name("graph".to_string())
-            .input_key("namespace|graph|ingested_id|fn|id_2".to_string())
+            .input_node_output_key("namespace|graph|ingested_id|fn|id_2".to_string())
             .invocation_id("ingested_id".to_string())
+            .reducer_output_id(None)
             .build()?;
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()

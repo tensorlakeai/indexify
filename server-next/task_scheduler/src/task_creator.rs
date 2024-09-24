@@ -36,6 +36,7 @@ pub async fn handle_invoke_compute_graph(
         &event.compute_graph,
         &event.invocation_id,
         &event.invocation_id,
+        None,
     )?;
     Ok(TaskCreationResult {
         namespace: event.namespace.clone(),
@@ -103,7 +104,8 @@ pub async fn handle_task_finished(
                 &task.namespace,
                 &task.compute_graph_name,
                 &task.invocation_id,
-                &task.input_key,
+                &task.input_node_output_key,
+                None,
             )?;
             new_tasks.push(new_task);
         }
@@ -127,15 +129,18 @@ pub async fn handle_task_finished(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
+                        &compute_fn.name,
                     )
                     .map_err(|e| anyhow!("error getting next reduction task: {:?}", e))?;
                 if let Some(reduction_task) = reduction_task {
                     // Create a new task for the queued reduction_task
+                    let output = outputs.first().unwrap();
                     let new_task = compute_node.create_task(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
                         &reduction_task.task_output_key,
+                        Some(output.id.clone()),
                     )?;
 
                     return Ok(TaskCreationResult {
@@ -192,6 +197,7 @@ pub async fn handle_task_finished(
                 &task.compute_graph_name,
                 &task.invocation_id,
                 &output.key(&task.invocation_id),
+                None,
             )?;
             new_tasks.push(new_task);
         }

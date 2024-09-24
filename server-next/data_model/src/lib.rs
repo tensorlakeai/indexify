@@ -113,6 +113,7 @@ impl Node {
         compute_graph_name: &str,
         invocation_id: &str,
         input_key: &str,
+        reducer_output_id: Option<String>,
     ) -> Result<Task> {
         let name = match self {
             Node::Router(router) => router.name.clone(),
@@ -123,8 +124,8 @@ impl Node {
             .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
             .invocation_id(invocation_id.to_string())
-            .input_key(input_key.to_string())
-            .reducer(self.reducer())
+            .input_node_output_key(input_key.to_string())
+            .reducer_output_id(reducer_output_id)
             .build()?;
         Ok(task)
     }
@@ -218,9 +219,12 @@ pub struct NodeOutput {
 
 impl NodeOutput {
     pub fn key(&self, invocation_id: &str) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.namespace, self.compute_graph_name, invocation_id, self.compute_fn_name, self.id
+        NodeOutput::key_from(
+            &self.namespace,
+            &self.compute_graph_name,
+            invocation_id,
+            &self.compute_fn_name,
+            &self.id,
         )
     }
 
@@ -266,7 +270,6 @@ impl NodeOutputBuilder {
         match &payload {
             OutputPayload::Router(router) => router.edges.hash(&mut hasher),
             OutputPayload::Fn(data) => {
-                data.sha256_hash.hash(&mut hasher);
                 data.path.hash(&mut hasher);
             }
         }
@@ -399,12 +402,13 @@ pub struct ReduceTask {
 impl ReduceTask {
     pub fn key(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}",
             self.namespace,
             self.compute_graph_name,
             self.invocation_id,
             self.compute_fn_name,
-            self.task_id
+            self.task_id,
+            self.task_output_key,
         )
     }
 }
@@ -424,12 +428,12 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
-    pub input_key: String,
+    pub input_node_output_key: String,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
     pub diagnostics: Option<TaskDiagnostics>,
-    pub reducer: bool,
+    pub reducer_output_id: Option<String>,
 }
 
 impl Task {
@@ -479,7 +483,7 @@ impl Display for Task {
         write!(
             f,
             "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input_key: {}, outcome: {:?})",
-            self.id, self.compute_fn_name, self.compute_graph_name, self.input_key, self.outcome
+            self.id, self.compute_fn_name, self.compute_graph_name, self.input_node_output_key, self.outcome
         )
     }
 }
@@ -499,14 +503,14 @@ impl TaskBuilder {
             .clone()
             .ok_or(anyhow!("compute fn name is not present"))?;
         let input_key = self
-            .input_key
+            .input_node_output_key
             .clone()
             .ok_or(anyhow!("input data object id is not present"))?;
         let invocation_id = self
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
-        let reducer = self.reducer.unwrap_or(false);
+        let reducer_output_id = self.reducer_output_id.clone().flatten();
         let mut hasher = DefaultHasher::new();
         cg_name.hash(&mut hasher);
         compute_fn_name.hash(&mut hasher);
@@ -518,13 +522,13 @@ impl TaskBuilder {
             id: TaskId(id),
             compute_graph_name: cg_name,
             compute_fn_name,
-            input_key,
+            input_node_output_key: input_key,
             invocation_id,
             namespace,
             outcome: TaskOutcome::Unknown,
             creation_time: SystemTime::now(),
             diagnostics: None,
-            reducer,
+            reducer_output_id,
         };
         Ok(task)
     }

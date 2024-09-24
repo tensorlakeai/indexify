@@ -595,8 +595,9 @@ impl StateReader {
         ns: &str,
         cg: &str,
         inv_id: &str,
+        c_fn: &str,
     ) -> Result<Option<ReduceTask>> {
-        let key = format!("{}|{}|{}|", ns, cg, inv_id);
+        let key = format!("{}|{}|{}|{}", ns, cg, inv_id, c_fn);
         let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
             key.as_bytes(),
             None,
