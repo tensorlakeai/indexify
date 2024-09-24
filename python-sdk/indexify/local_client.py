@@ -44,7 +44,8 @@ class LocalClient(IndexifyClient):
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
         self._accumulators = {
-            k: CborSerializer.serialize(v) for k, v in g.get_accumulators().items()
+            k: IndexifyData(payload=CborSerializer.serialize(v))
+            for k, v in g.get_accumulators().items()
         }
         self._results[input.id] = outputs
         self._run(g, input, outputs)
@@ -78,7 +79,7 @@ class LocalClient(IndexifyClient):
                 )
                 print(f"ran {node_name}: num outputs: {len(function_outputs)}")
                 if self._accumulators.get(node_name, None) is not None:
-                    self._accumulators[node_name] = function_outputs[-1].payload
+                    self._accumulators[node_name] = function_outputs[-1].model_copy()
                     outputs[node_name] = []
                 outputs[node_name].extend(function_outputs)
                 function_outputs_bytes: List[bytes] = [

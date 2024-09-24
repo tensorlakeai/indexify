@@ -114,7 +114,9 @@ class Graph:
     def deserialize_fn_output(self, name: str, output: IndexifyData) -> Any:
         output_model = self.get_function(name).get_output_model()
         payload_dict = cbor2.loads(output.payload)
-        return output_model.model_validate(payload_dict)
+        if issubclass(output_model, BaseModel):
+            return output_model.model_validate(payload_dict)
+        return payload_dict
 
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]
@@ -176,7 +178,11 @@ class Graph:
         input = self.deserialize_input_from_dict(name, payload)
         if acc is not None:
             acc = fn_wrapper.indexify_function.accumulate.model_validate(
-                cbor2.loads(acc)
+                cbor2.loads(acc.payload)
+            )
+        if acc is None and fn_wrapper.indexify_function.accumulate is not None:
+            acc = fn_wrapper.indexify_function.accumulate.model_validate(
+                self.accumulator_zero_values[name]
             )
         outputs: List[Any] = fn_wrapper.run_fn(input, acc=acc)
         return [

@@ -12,6 +12,7 @@ class Task(BaseModel):
     compute_fn: str
     invocation_id: str
     input_key: str
+    reducer_output_id: Optional[str] = None
 
 
 class ExecutorMetadata(BaseModel):

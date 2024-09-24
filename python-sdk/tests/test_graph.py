@@ -3,7 +3,7 @@ from typing import List, Mapping, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph, create_client, LocalClient
+from indexify import Graph, LocalClient, create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
@@ -161,9 +161,7 @@ class TestGraphA(unittest.TestCase):
         runner.register_compute_graph(graph)
 
         try:
-            runner.invoke_graph_with_object(
-                graph.name, url="https://example.com"
-            )
+            runner.invoke_graph_with_object(graph.name, url="https://example.com")
         except Exception as e:
             self.assertEqual(str(e), "This executor will raise an exception.")
 
