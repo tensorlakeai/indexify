@@ -88,6 +88,7 @@ pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
     pub description: String,
+    pub reducer: bool,
 }
 
 impl From<&ComputeFn> for data_model::ComputeFn {
@@ -97,6 +98,7 @@ impl From<&ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: Default::default(),
+            reducer: val.reducer,
         }
     }
 }
@@ -108,6 +110,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             fn_name: val.fn_name.clone(),
             description: val.description.clone(),
             placement_constraints: Default::default(),
+            reducer: val.reducer,
         }
     }
 }
@@ -118,6 +121,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             name: c.name,
             fn_name: c.fn_name,
             description: c.description,
+            reducer: c.reducer,
         }
     }
 }
@@ -341,6 +345,7 @@ pub struct Task {
     pub invocation_id: String,
     pub input_key: String,
     pub outcome: TaskOutcome,
+    pub reducer_output_id: Option<String>,
 }
 
 impl From<data_model::Task> for Task {
@@ -351,8 +356,9 @@ impl From<data_model::Task> for Task {
             compute_fn: task.compute_fn_name,
             compute_graph: task.compute_graph_name,
             invocation_id: task.invocation_id,
-            input_key: task.input_key,
+            input_key: task.input_node_output_key,
             outcome: task.outcome.into(),
+            reducer_output_id: task.reducer_output_id,
         }
     }
 }
@@ -396,6 +402,11 @@ pub struct ExecutorMetadata {
     pub labels: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvocationQueryParams {
+    pub block_until_finish: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -403,7 +414,7 @@ mod tests {
         // Don't delete this. It makes it easier
         // to test the deserialization of the ComputeGraph struct
         // from the python side
-        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"edges":{"extractor_a":[{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":""}}],"extractor_b":[{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":""}}]}}"#;
+        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"extractor_b":{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":"", "reducer": false}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false}}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]}}"#;
         let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
@@ -411,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_compute_graph_with_router_deserialization() {
-        let json = r#"{"name":"graph_a_router","description":"description of graph_a","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a"}},"router_x":{"dynamic_router":{"name":"router_x","description":"","source_fn":"router_x","target_fns":["extractor_y","extractor_z"]}},"extractor_y":{"compute_fn":{"name":"extractor_y","fn_name":"extractor_y","description":""}},"extractor_z":{"compute_fn":{"name":"extractor_z","fn_name":"extractor_z","description":""}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":""}}},"edges":{"extractor_a":["router_x"],"extractor_y":["extractor_c"],"extractor_z":["extractor_c"]}}"#;
+        let json = r#"{"name":"graph_a_router","description":"description of graph_a","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"router_x":{"dynamic_router":{"name":"router_x","description":"","source_fn":"router_x","target_fns":["extractor_y","extractor_z"], "reducer": false}},"extractor_y":{"compute_fn":{"name":"extractor_y","fn_name":"extractor_y","description":"", "reducer": false}},"extractor_z":{"compute_fn":{"name":"extractor_z","fn_name":"extractor_z","description":"", "reducer": false}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false}}},"edges":{"extractor_a":["router_x"],"extractor_y":["extractor_c"],"extractor_z":["extractor_c"]}}"#;
         let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();

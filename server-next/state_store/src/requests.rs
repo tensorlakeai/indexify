@@ -4,8 +4,10 @@ use data_model::{
     ExecutorMetadata,
     InvocationPayload,
     NodeOutput,
+    ReduceTask,
     StateChangeId,
     Task,
+    TaskDiagnostics,
     TaskId,
 };
 
@@ -27,6 +29,7 @@ pub enum RequestPayload {
     RemoveGcUrls(Vec<String>),
 }
 
+#[derive(Debug, Clone)]
 pub struct FinalizeTaskRequest {
     pub namespace: String,
     pub compute_graph: String,
@@ -36,6 +39,7 @@ pub struct FinalizeTaskRequest {
     pub node_outputs: Vec<NodeOutput>,
     pub task_outcome: data_model::TaskOutcome,
     pub executor_id: ExecutorId,
+    pub diagnostics: Option<TaskDiagnostics>,
 }
 
 pub struct InvokeComputeGraphRequest {
@@ -78,9 +82,16 @@ pub struct TaskPlacement {
     pub task: Task,
     pub executor: ExecutorId,
 }
+
+#[derive(Default)]
+pub struct ReductionTasks {
+    pub new_reduction_tasks: Vec<ReduceTask>,
+    pub processed_reduction_tasks: Vec<String>,
+}
 pub struct SchedulerUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
     pub allocations: Vec<TaskPlacement>,
+    pub reduction_tasks: ReductionTasks,
 }
 
 pub struct DeleteInvocationRequest {

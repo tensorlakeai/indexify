@@ -1,12 +1,29 @@
 import os
-
+from typing import Optional
 import httpx
-from rich import print
+from pydantic import BaseModel
+from rich.console import Console
+from rich.panel import Panel
+from rich.theme import Theme
 
 from indexify.functions_sdk.cbor_serializer import CborSerializer
 from indexify.functions_sdk.data_objects import IndexifyData
 
 from .api_objects import Task
+
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+    }
+)
+
+console = Console(theme=custom_theme)
+
+class DownloadedInputs(BaseModel):
+    input: IndexifyData
+    init_value: Optional[IndexifyData] = None
 
 
 class Downloader:
@@ -18,17 +35,30 @@ class Downloader:
         path = os.path.join(self.code_path, namespace, name)
         if os.path.exists(path):
             return path
-        print(f"[bold] downloader: [/bold] downloading graph: {name} to path: {path}")
+
+        console.print(
+            Panel(
+                f"Downloading graph: {name}\nPath: {path}",
+                title="Downloader",
+                border_style="cyan",
+            )
+        )
+
         response = httpx.get(
             f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
         )
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            print(
-                f"[bold red] downloader: [/bold] failed to download graph {name} with error {response.text}"
+            console.print(
+                Panel(
+                    f"Failed to download graph: {name}\nError: {response.text}",
+                    title="Downloader Error",
+                    border_style="error",
+                )
             )
             raise
+
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(response.content)
@@ -41,15 +71,48 @@ class Downloader:
         else:
             url = f"{self.base_url}/internal/fn_outputs/{task.input_key}"
 
-        print(f"[bold] downloader: [/bold] downloading input from url {url}")
+        reducer_url = None
+        if task.reducer_output_id:
+            reducer_url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/{task.reducer_output_id}"
+
+        console.print(
+            Panel(
+                f"Downloading input\nURL: {url} \n Reducer Input URL: {reducer_url}",
+                title="Downloader",
+                border_style="cyan",
+            )
+        )
+
         response = httpx.get(url)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            print(
-                f"[bold red] downloader: [/bold] failed to download input {task.input_key} with error {response.text}"
+            console.print(
+                Panel(
+                    f"Failed to download input: {task.input_key}\nError: {response.text}",
+                    title="Downloader Error",
+                    border_style="error",
+                )
             )
             raise
+
         if task.invocation_id == input_id:
-            return IndexifyData(payload=response.content, id=input_id)
-        return CborSerializer.deserialize(response.content)
+            return DownloadedInputs(input=IndexifyData(payload=response.content, id=input_id))
+
+        init_value = None
+        if reducer_url:
+            init_value = httpx.get(reducer_url)
+            try:
+                init_value.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                console.print(
+                    Panel(
+                        f"Failed to download reducer output: {task.reducer_output_id}\nError: {init_value.text}",
+                        title="Downloader Error",
+                        border_style="error",
+                    )
+                )
+                raise
+            init_value = CborSerializer.deserialize(init_value.content)
+
+        return DownloadedInputs(input=CborSerializer.deserialize(response.content), init_value=init_value)

@@ -1,15 +1,22 @@
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use axum::extract::{Multipart, State};
-use blob_store::PutResult;
-use data_model::{ExecutorId, NodeOutput, NodeOutputBuilder, OutputPayload, TaskId};
+use axum::extract::{multipart::Field, Multipart, State};
+use blob_store::{BlobStorage, PutResult};
+use data_model::{
+    DataPayload,
+    ExecutorId,
+    NodeOutput,
+    NodeOutputBuilder,
+    OutputPayload,
+    TaskDiagnostics,
+    TaskId,
+};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::info;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
@@ -30,9 +37,9 @@ pub enum TaskOutcome {
     Failure,
 }
 
-impl Into<data_model::TaskOutcome> for TaskOutcome {
-    fn into(self) -> data_model::TaskOutcome {
-        match self {
+impl From<TaskOutcome> for data_model::TaskOutcome {
+    fn from(val: TaskOutcome) -> Self {
+        match val {
             TaskOutcome::Success => data_model::TaskOutcome::Success,
             TaskOutcome::Failure => data_model::TaskOutcome::Failure,
         }
@@ -87,25 +94,42 @@ pub async fn ingest_files_from_executor(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut output_objects: Vec<PutResult> = vec![];
+    let mut exception_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
-    while let Some(field) = files.next_field().await.unwrap() {
+
+    // Write data object to blob store.
+    let mut node_output_sequence: usize = 0;
+    while let Some(mut field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
             if name == "node_outputs" {
-                let _ = field
-                    .file_name()
-                    .as_ref()
-                    .ok_or(IndexifyAPIError::bad_request("file name is required"))?
-                    .to_string();
-                let name = Uuid::new_v4().to_string();
-                info!("writing to blob store, file name = {:?}", name);
-                let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-                let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
-                    IndexifyAPIError::internal_error(anyhow!(
-                        "failed to write to blob store: {}",
-                        e
-                    ))
+                let task_result = task_result.as_ref().ok_or_else(|| {
+                    IndexifyAPIError::bad_request("task_result is required before node_outputs")
                 })?;
+                let file_name = format!(
+                    "{}.{}.{}.{}.{}",
+                    task_result.namespace,
+                    task_result.compute_graph,
+                    task_result.compute_fn,
+                    task_result.invocation_id,
+                    node_output_sequence
+                );
+                let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
+                node_output_sequence += 1;
                 output_objects.push(res.clone());
+            } else if name == "exception_msg" {
+                let task_result = task_result.as_ref().ok_or_else(|| {
+                    IndexifyAPIError::bad_request("task_result is required before node_outputs")
+                })?;
+                let file_name = format!(
+                    "{}.{}.{}.{}.{}",
+                    task_result.namespace,
+                    task_result.compute_graph,
+                    task_result.compute_fn,
+                    task_result.invocation_id,
+                    "exception_msg"
+                );
+                let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
+                exception_msg = Some(res);
             } else if name == "task_result" {
                 let text = field
                     .text()
@@ -115,9 +139,12 @@ pub async fn ingest_files_from_executor(
             }
         }
     }
+
+    // Save metadata in rocksdb for the objects in the blob store.
     let task_result =
         task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;
     let mut node_outputs: Vec<NodeOutput> = vec![];
+
     for put_result in output_objects {
         let data_payload = data_model::DataPayload {
             path: put_result.url,
@@ -136,6 +163,21 @@ pub async fn ingest_files_from_executor(
             })?;
         node_outputs.push(node_output);
     }
+
+    let task_diagnostic = exception_msg.map(|exception_msg| {
+        let exception_payload = DataPayload {
+            path: exception_msg.url,
+            size: exception_msg.size_bytes,
+            sha256_hash: exception_msg.sha256_hash,
+        };
+
+        TaskDiagnostics {
+            exception: Some(exception_payload),
+            stdout: None,
+            stderr: None,
+        }
+    });
+
     if let Some(router_output) = task_result.router_output {
         let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
@@ -151,6 +193,7 @@ pub async fn ingest_files_from_executor(
             })?;
         node_outputs.push(node_output);
     }
+
     let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
         namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
@@ -160,7 +203,9 @@ pub async fn ingest_files_from_executor(
         node_outputs,
         task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
+        diagnostics: task_diagnostic,
     });
+
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
@@ -172,4 +217,21 @@ pub async fn ingest_files_from_executor(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     Ok(())
+}
+
+async fn write_to_disk<'a>(
+    blob_storage: Arc<BlobStorage>,
+    field: &'a mut Field<'a>,
+    file_name: &str,
+) -> Result<PutResult, IndexifyAPIError> {
+    let _ = field
+        .file_name()
+        .as_ref()
+        .ok_or(IndexifyAPIError::bad_request("file name is required"))?
+        .to_string();
+    info!("writing to blob store, file name = {:?}", file_name);
+    let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+    blob_storage.put(&file_name, stream).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
+    })
 }

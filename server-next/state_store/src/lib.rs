@@ -1,5 +1,4 @@
 use std::{
-    cmp::Ordering,
     collections::HashMap,
     fs,
     path::PathBuf,
@@ -7,9 +6,7 @@ use std::{
     sync::{
         atomic::{self, AtomicU64},
         Arc,
-        RwLock,
     },
-    time::{Duration, SystemTime},
     vec,
 };
 
@@ -23,10 +20,10 @@ use data_model::{
     StateChangeId,
     Task,
     TaskFinishedEvent,
-    TaskId,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
+use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use requests::StateMachineUpdateRequest;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::IndexifyObjectsColumns;
@@ -34,42 +31,15 @@ use strum::IntoEnumIterator;
 use tokio::sync::{
     broadcast,
     watch::{Receiver, Sender},
+    RwLock,
 };
 
+pub mod invocation_events;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
 pub mod test_state_store;
-
-#[derive(Debug, Clone)]
-pub struct UnfinishedTask {
-    pub id: TaskId,
-    pub creation_time: SystemTime,
-}
-
-impl PartialEq for UnfinishedTask {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for UnfinishedTask {}
-
-impl PartialOrd for UnfinishedTask {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Sort unfinished tasks by creation time so we can process them in order
-impl Ord for UnfinishedTask {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.creation_time
-            .cmp(&other.creation_time)
-            .then_with(|| self.id.cmp(&other.id))
-    }
-}
 
 #[derive(Debug)]
 pub struct ExecutorState {
@@ -108,8 +78,10 @@ impl Default for ExecutorState {
 }
 
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<Task>>> + Send + Sync>>;
+pub type StateChangeStream =
+    Pin<Box<dyn Stream<Item = Result<InvocationStateChangeEvent>> + Send + Sync>>;
 
-pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(5);
+pub struct InvocationChangeSubscriber {}
 
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
@@ -119,10 +91,11 @@ pub struct IndexifyState {
     pub last_state_change_id: Arc<AtomicU64>,
     pub gc_channel_tx: tokio::sync::watch::Sender<()>,
     pub gc_channel_rx: tokio::sync::watch::Receiver<()>,
+    pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
 }
 
 impl IndexifyState {
-    pub fn new(path: PathBuf) -> Result<Arc<Self>> {
+    pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         fs::create_dir_all(path.clone())?;
         let sm_column_families = IndexifyObjectsColumns::iter()
@@ -138,6 +111,7 @@ impl IndexifyState {
         )
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
+        let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let s = Arc::new(Self {
             db: Arc::new(db),
             state_change_tx: tx,
@@ -146,33 +120,18 @@ impl IndexifyState {
             executor_states: RwLock::new(HashMap::new()),
             gc_channel_tx: gc_tx,
             gc_channel_rx: gc_rx,
+            task_event_tx,
         });
 
         let executors = s.reader().get_all_executors()?;
         for executor in executors.iter() {
             s.executor_states
                 .write()
-                .unwrap()
+                .await
                 .entry(executor.id.clone())
                 .or_default()
                 .num_registered += 1;
         }
-        let cs = s.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(EXECUTOR_TIMEOUT).await;
-            for executor in executors {
-                let _ = cs
-                    .write(StateMachineUpdateRequest {
-                        payload: requests::RequestPayload::DeregisterExecutor(
-                            requests::DeregisterExecutorRequest {
-                                executor_id: executor.id,
-                            },
-                        ),
-                        state_changes_processed: vec![],
-                    })
-                    .await;
-            }
-        });
         Ok(s)
     }
 
@@ -186,7 +145,7 @@ impl IndexifyState {
 
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
         let txn = self.db.transaction();
-        let new_state_changes = match request.payload {
+        let new_state_changes = match &request.payload {
             requests::RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
                 let state_changes = self
                     .invoke_compute_graph(&invoke_compute_graph_request)
@@ -208,7 +167,7 @@ impl IndexifyState {
                 vec![]
             }
             requests::RequestPayload::CreateComputeGraph(req) => {
-                state_machine::create_compute_graph(self.db.clone(), req.compute_graph)?;
+                state_machine::create_compute_graph(self.db.clone(), &req.compute_graph)?;
                 vec![]
             }
             requests::RequestPayload::DeleteComputeGraph(request) => {
@@ -230,6 +189,11 @@ impl IndexifyState {
                 for req in &request.task_requests {
                     state_machine::create_tasks(self.db.clone(), &txn, req)?;
                 }
+                state_machine::processed_reduction_tasks(
+                    self.db.clone(),
+                    &txn,
+                    &request.reduction_tasks,
+                )?;
                 for allocation in &request.allocations {
                     state_machine::allocate_tasks(
                         self.db.clone(),
@@ -239,7 +203,7 @@ impl IndexifyState {
                     )?;
                     self.executor_states
                         .write()
-                        .unwrap()
+                        .await
                         .get_mut(&allocation.executor)
                         .map(|tasks| {
                             tasks.added();
@@ -249,7 +213,7 @@ impl IndexifyState {
             }
             requests::RequestPayload::RegisterExecutor(request) => {
                 {
-                    let mut states = self.executor_states.write().unwrap();
+                    let mut states = self.executor_states.write().await;
                     let entry = states.entry(request.executor.id.clone()).or_default();
                     entry.num_registered += 1;
                 }
@@ -259,7 +223,7 @@ impl IndexifyState {
             requests::RequestPayload::DeregisterExecutor(request) => {
                 let state_changes = self.deregister_executor_events(&request);
                 let removed = {
-                    let mut states = self.executor_states.write().unwrap();
+                    let mut states = self.executor_states.write().await;
                     if let Some(s) = states.get_mut(&request.executor_id) {
                         s.num_registered -= 1;
                         if s.num_registered == 0 {
@@ -273,14 +237,13 @@ impl IndexifyState {
                     }
                 };
                 if removed {
-                    println!("Deregistering executor: {}", request.executor_id);
-                    tracing::info!("De-registering executor: {}", request.executor_id);
+                    tracing::info!("de-registering executor: {}", request.executor_id);
                     state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
                 }
                 state_changes
             }
             requests::RequestPayload::RemoveGcUrls(urls) => {
-                state_machine::remove_gc_urls(self.db.clone(), &txn, urls)?;
+                state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
                 vec![]
             }
         };
@@ -290,13 +253,76 @@ impl IndexifyState {
         state_machine::mark_state_changes_processed(
             self.db.clone(),
             &txn,
-            &request.state_changes_processed,
+            &request.state_changes_processed.clone(),
         )?;
         txn.commit()?;
+        self.handle_invocation_state_changes(&request).await;
         for state_change in new_state_changes {
             self.state_change_tx.send(state_change.id).unwrap();
         }
         Ok(())
+    }
+
+    async fn handle_invocation_state_changes(&self, update_request: &StateMachineUpdateRequest) {
+        if self.task_event_tx.receiver_count() == 0 {
+            return;
+        }
+        match &update_request.payload {
+            requests::RequestPayload::FinalizeTask(task_finished_event) => {
+                let ev =
+                    InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
+                if let Err(err) = self.task_event_tx.send(ev) {
+                    tracing::error!("failed to send invocation state change: {:?}", err);
+                }
+            }
+            requests::RequestPayload::SchedulerUpdate(sched_update) => {
+                for task_request in &sched_update.task_requests {
+                    if task_request.invocation_finished {
+                        if let Err(err) =
+                            self.task_event_tx
+                                .send(InvocationStateChangeEvent::InvocationFinished(
+                                    InvocationFinishedEvent {
+                                        id: task_request.invocation_id.clone(),
+                                    },
+                                ))
+                        {
+                            tracing::error!("failed to send invocation state change: {:?}", err);
+                        }
+                        continue;
+                    }
+                    for task in task_request.tasks.iter() {
+                        if let Err(err) =
+                            self.task_event_tx
+                                .send(InvocationStateChangeEvent::TaskCreated(
+                                    invocation_events::TaskCreated {
+                                        invocation_id: task.invocation_id.clone(),
+                                        fn_name: task.compute_fn_name.clone(),
+                                        task_id: task.id.to_string(),
+                                    },
+                                ))
+                        {
+                            tracing::error!("failed to send invocation state change: {:?}", err);
+                        }
+                    }
+                }
+                for task_allocated in &sched_update.allocations {
+                    if let Err(err) =
+                        self.task_event_tx
+                            .send(InvocationStateChangeEvent::TaskAssigned(
+                                invocation_events::TaskAssigned {
+                                    invocation_id: task_allocated.task.invocation_id.clone(),
+                                    fn_name: task_allocated.task.compute_fn_name.clone(),
+                                    task_id: task_allocated.task.id.to_string(),
+                                    executor_id: task_allocated.executor.get().to_string(),
+                                },
+                            ))
+                    {
+                        tracing::error!("failed to send invocation state change: {:?}", err);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     async fn finalize_task(
@@ -403,6 +429,10 @@ impl IndexifyState {
     pub fn reader(&self) -> scanner::StateReader {
         scanner::StateReader::new(self.db.clone())
     }
+
+    pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {
+        self.task_event_tx.subscribe()
+    }
 }
 
 pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize) -> TaskStream {
@@ -410,7 +440,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
         let mut rx = state
         .executor_states
         .write()
-        .unwrap()
+        .await
         .entry(executor.clone())
         .or_default()
         .subscribe();
@@ -447,6 +477,7 @@ mod tests {
     use requests::{
         CreateComputeGraphRequest,
         DeleteComputeGraphRequest,
+        ReductionTasks,
         SchedulerUpdateRequest,
         TaskPlacement,
     };
@@ -462,7 +493,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_list_namespaces() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         // Create namespaces
         indexify_state
@@ -502,7 +533,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_read_and_delete_compute_graph() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         // Create a compute graph
         let compute_graph = mock_graph_a();
@@ -558,15 +589,16 @@ mod tests {
     #[tokio::test]
     async fn test_task_stream() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         let executor_id = ExecutorId::new("executor1".to_string());
         let task = TaskBuilder::default()
             .namespace("namespace".to_string())
             .compute_fn_name("fn".to_string())
             .compute_graph_name("graph".to_string())
-            .input_key("namespace|graph|ingested_id|fn|id_1".to_string())
+            .input_node_output_key("namespace|graph|ingested_id|fn|id_1".to_string())
             .invocation_id("ingested_id".to_string())
+            .reducer_output_id(None)
             .build()?;
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
@@ -597,6 +629,7 @@ mod tests {
                         task: task.clone(),
                         executor: executor_id.clone(),
                     }],
+                    reduction_tasks: ReductionTasks::default(),
                 }),
                 state_changes_processed: vec![],
             })
@@ -618,8 +651,9 @@ mod tests {
             .namespace("namespace".to_string())
             .compute_fn_name("fn".to_string())
             .compute_graph_name("graph".to_string())
-            .input_key("namespace|graph|ingested_id|fn|id_2".to_string())
+            .input_node_output_key("namespace|graph|ingested_id|fn|id_2".to_string())
             .invocation_id("ingested_id".to_string())
+            .reducer_output_id(None)
             .build()?;
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
@@ -646,6 +680,7 @@ mod tests {
                 task: task_1.clone(),
                 executor: executor_id.clone(),
             }],
+            reduction_tasks: ReductionTasks::default(),
         };
 
         indexify_state

@@ -26,7 +26,7 @@ pub async fn download_invocation_payload(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")
@@ -54,7 +54,14 @@ pub async fn download_fn_output_payload(
                 "failed to download invocation payload: {}",
                 e
             ))
-        })?;
+        })?
+        .ok_or(IndexifyAPIError::not_found(
+            format!(
+                "fn output not found: {}/{}/{}/{}/{}",
+                namespace, compute_graph, invocation_id, fn_name, id
+            )
+            .as_str(),
+        ))?;
     let payload = match output.payload {
         data_model::OutputPayload::Fn(payload) => payload,
         _ => {
@@ -68,7 +75,7 @@ pub async fn download_fn_output_payload(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")
@@ -104,7 +111,7 @@ pub async fn download_fn_output_by_key(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")

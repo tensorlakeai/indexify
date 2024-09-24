@@ -36,6 +36,7 @@ use crate::requests::{
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
+    ReductionTasks,
     RegisterExecutorRequest,
 };
 
@@ -57,6 +58,7 @@ pub enum IndexifyObjectsColumns {
 
     Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
+    ReductionTasks,     //  Ns_CG_Fn_TaskId -> ReduceTask
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
@@ -164,9 +166,9 @@ pub(crate) fn delete_input_data_object(
 
 pub(crate) fn create_compute_graph(
     db: Arc<TransactionDB>,
-    compute_graph: ComputeGraph,
+    compute_graph: &ComputeGraph,
 ) -> Result<()> {
-    let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
+    let serialized_compute_graph = JsonEncoder::encode(compute_graph)?;
     db.put_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
@@ -274,6 +276,22 @@ pub fn make_prefix_iterator<'a>(
             Ok((key, _)) => key.starts_with(prefix),
             Err(_) => true,
         })
+}
+
+pub(crate) fn processed_reduction_tasks(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    task: &ReductionTasks,
+) -> Result<()> {
+    let cf = &IndexifyObjectsColumns::ReductionTasks.cf_db(&db);
+    for task in &task.new_reduction_tasks {
+        let serialized_task = JsonEncoder::encode(&task)?;
+        txn.put_cf(cf, task.key(), &serialized_task)?;
+    }
+    for key in &task.processed_reduction_tasks {
+        txn.delete_cf(cf, key)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn create_tasks(
@@ -413,6 +431,8 @@ pub fn mark_task_completed(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         &task.make_allocation_key(&req.executor_id),
     )?;
+
+    task.diagnostics = req.diagnostics.clone();
 
     task.outcome = req.task_outcome.clone();
     let task_bytes = JsonEncoder::encode(&task)?;

@@ -1,13 +1,16 @@
+import json
 import os
 from typing import Any, Dict, List, Optional
 
 import cbor2
 import httpx
 import yaml
+from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
+from rich import print
 
 from indexify.base_client import IndexifyClient
-from indexify.error import ApiException, Error
+from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
@@ -69,9 +72,9 @@ class RemoteClient(IndexifyClient):
             message = (
                 f"Make sure the server is running and accesible at {self._service_url}"
             )
-            error = Error(status="ConnectionError", message=message)
-            print(error)
-            raise error
+            ex = ApiException(status="ConnectionError", message=message)
+            print(ex)
+            raise ex
         return response
 
     @classmethod
@@ -179,19 +182,31 @@ class RemoteClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         self._post("namespaces", json={"namespace": namespace})
 
-    def invoke_graph_with_object(self, graph: str, **kwargs) -> str:
+    def invoke_graph_with_object(
+        self, graph: str, block_until_done: bool = False, **kwargs
+    ) -> str:
         json_object = {}
         for key, value in kwargs.items():
             if isinstance(value, BaseModel):
                 value = value.model_dump_json(exclude_none=True)
             json_object[key] = value
         cbor_object = cbor2.dumps(json_object)
-        response = self._post(
-            f"namespaces/{self.namespace}/compute_graphs/{graph}/invoke_object",
-            headers={"Content-Type": "application/cbor"},
-            data=cbor_object,
-        )
-        return response.json()["id"]
+        params = {"block_until_finish": block_until_done}
+        with httpx.Client() as client:
+            with connect_sse(
+                client,
+                "POST",
+                f"{self.service_url}/namespaces/{self.namespace}/compute_graphs/{graph}/invoke_object",
+                headers={"Content-Type": "application/cbor"},
+                data=cbor_object,
+                params=params,
+            ) as event_source:
+                for sse in event_source.iter_sse():
+                    obj = json.loads(sse.data)
+                    print(f"[bold red]Server Event[/bold red]: {obj}")
+                    if "id" in obj:
+                        return obj["id"]
+        raise Exception("invocation ID not returned")
 
     def _download_output(
         self,
@@ -213,13 +228,12 @@ class RemoteClient(IndexifyClient):
         graph: str,
         invocation_id: str,
         fn_name: Optional[str],
-        block_until_done: bool = True,
     ) -> List[Any]:
         """
         Returns the extracted objects by a graph for an ingested object. If the extractor name is provided, only the objects extracted by that extractor are returned.
         If the extractor name is not provided, all the extracted objects are returned for the input object.
         graph: str: The name of the graph
-        ingested_object_id: str: The ID of the ingested object
+        invocation_id: str: The ID of the ingested object
         extractor_name: Optional[str]: The name of the extractor whose output is to be returned if provided
         block_until_done: bool = True: If True, the method will block until the extraction is done. If False, the method will return immediately.
         return: Union[Dict[str, List[Any]], List[Any]]: The extracted objects. If the extractor name is provided, the output is a list of extracted objects by the extractor. If the extractor name is not provided, the output is a dictionary with the extractor name as the key and the extracted objects as the value. If no objects are found, an empty list is returned.

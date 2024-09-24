@@ -1,7 +1,8 @@
 import asyncio
 import concurrent
+import traceback
 from concurrent.futures.process import BrokenProcessPool
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional
 
 from rich import print
 
@@ -39,6 +40,7 @@ class FunctionWorker:
         fn_name: str,
         input: IndexifyData,
         code_path: str,
+        init_value: Optional[IndexifyData] = None,
     ) -> List[IndexifyData]:
         try:
             resp = await asyncio.get_running_loop().run_in_executor(
@@ -49,10 +51,14 @@ class FunctionWorker:
                 fn_name,
                 input,
                 code_path,
+                init_value,
             )
         except BrokenProcessPool as mp:
             self._executor.shutdown(wait=True, cancel_futures=True)
             raise mp
+        except Exception as e:
+            raise Exception(traceback.format_exc())
+
         return resp
 
     def shutdown(self):
@@ -65,6 +71,7 @@ def _run_function(
     fn_name: str,
     input: IndexifyData,
     code_path: str,
+    init_value: Optional[IndexifyData] = None,
 ) -> Union[List[IndexifyData], RouterOutput]:
     print(
         f"[bold] function worker: [/bold] running function: {fn_name} namespace: {namespace} graph: {graph_name}"
@@ -76,4 +83,7 @@ def _run_function(
     graph: Graph = graphs[f"{namespace}/{graph_name}"]
     if fn_name in graph.routers:
         return graph.invoke_router(fn_name, input)
-    return graph.invoke_fn_ser(fn_name, input)
+
+    output = graph.invoke_fn_ser(fn_name, input, init_value)
+
+    return output

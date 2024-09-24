@@ -6,10 +6,25 @@ import docker
 import nanoid
 import typer
 from rich import print
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.image import Image
+
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "highlight": "magenta",
+    }
+)
+
+console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
@@ -33,7 +48,10 @@ def build_image(workflow_file_path: str, func_names: List[str]):
                 found_funcs.append(name)
                 _create_image_for_func(func_name=func_name, func_obj=obj)
 
-    print(f"Processed functions {found_funcs}")
+    console.print(
+        Text(f"Processed functions: ", style="cyan"),
+        Text(f"{found_funcs}", style="green"),
+    )
 
 
 @app.command(help="Joins the extractors to the coordinator server")
@@ -50,9 +68,18 @@ def executor(
     ),
 ):
     id = nanoid.generate()
-    print(
-        f"[bold] agent: [/bold] number of workers {workers}, config path: {config_path}, server addr: {server_addr}, executor id: {id}, executor cache: {executor_cache}"
+    console.print(
+        Panel(
+            f"Number of workers: {workers}\n"
+            f"Config path: {config_path}\n"
+            f"Server address: {server_addr}\n"
+            f"Executor ID: {id}\n"
+            f"Executor cache: {executor_cache}",
+            title="Agent Configuration",
+            border_style="info",
+        )
     )
+
     function_worker = FunctionWorker(workers=workers)
     from pathlib import Path
 
@@ -71,12 +98,14 @@ def executor(
     try:
         asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError as ex:
-        print("[bold] agent: [/bold] exiting gracefully", ex)
+        console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
 
 
 def _create_image_for_func(func_name, func_obj):
-    print(f"creating container for `{func_name}`.")
-
+    console.print(
+        Text("Creating container for ", style="cyan"),
+        Text(f"`{func_name}`", style="cyan bold"),
+    )
     _build_image(image=func_obj.image, func_name=func_name)
 
 
@@ -85,7 +114,10 @@ def _build_image(image: Image, func_name: str = None):
         client = docker.from_env()
         client.ping()
     except Exception as e:
-        print(f"unable to connect with docker: {e}")
+        console.print(
+            Text("Unable to connect with docker: ", style="red bold"),
+            Text(f"{e}", style="red"),
+        )
         exit(-1)
 
     docker_file_str_template = """
@@ -101,8 +133,8 @@ WORKDIR /app
 
     docker_file_str += "\n".join(run_strs)
 
-    print("[bold]creating image using Dockerfile contents,[/bold]")
-    print(f"[magenta]{docker_file_str}[/magenta]\n\n")
+    console.print("Creating image using Dockerfile contents:", style="cyan bold")
+    console.print(f"{docker_file_str}", style="magenta")
 
     client = docker.from_env()
     client.images.build(

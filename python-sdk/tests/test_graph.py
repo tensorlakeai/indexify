@@ -3,7 +3,7 @@ from typing import List, Mapping, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph, create_client
+from indexify import Graph, LocalClient, create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
@@ -63,6 +63,11 @@ def extractor_c(file_chunk: FileChunk) -> SomeMetadata:
     return SomeMetadata(metadata={"a": "b", "c": "d"})
 
 
+@indexify_function()
+def extractor_exception(file: File) -> SomeMetadata:
+    raise Exception("This executor will raise an exception.")
+
+
 @indexify_router()
 def router_x(input: File) -> List[Union[extractor_b, extractor_d]]:
     return [extractor_d]
@@ -83,6 +88,14 @@ def create_graph_b():
     )
     graph = graph.add_edge(extractor_a_with_pydantic_model_as_input, router_x)
     graph = graph.route(router_x, [extractor_b, extractor_d])
+    return graph
+
+
+def create_graph_c():
+    graph = Graph(name="test", description="test", start_node=extractor_a)
+    graph = graph.add_edge(extractor_a, extractor_exception)
+    graph = graph.add_edge(extractor_exception, extractor_c)
+
     return graph
 
 
@@ -117,135 +130,147 @@ class TestGraphA(unittest.TestCase):
         runner = create_client(local=True)
         runner.run(graph, url="https://example.com")
 
+    def test_run_graph_with_pydantic_model_as_input(self):
+        graph = Graph(
+            name="test",
+            description="test",
+            start_node=extractor_a_with_pydantic_model_as_input,
+        )
+        graph = graph.add_edge(extractor_a_with_pydantic_model_as_input, extractor_b)
+        graph = graph.add_edge(extractor_b, extractor_c)
 
-#    def test_run_graph_with_pydantic_model_as_input(self):
-#        graph = Graph(
-#            name="test",
-#            description="test",
-#            start_node=extractor_a_with_pydantic_model_as_input,
-#        )
-#        graph = graph.add_edge(extractor_a_with_pydantic_model_as_input, extractor_b)
-#        graph = graph.add_edge(extractor_b, extractor_c)
-#
-#        runner = create_client(local=True)
-#        runner.register_compute_graph(graph)
-#        runner.invoke_graph_with_object(
-#            graph.name, url=YoutubeURL(url="https://example.com")
-#        )
-#
-#    def test_run_graph_with_router(self):
-#        graph = create_graph_b()
-#
-#        runner = create_client(local=True)
-#        runner.register_compute_graph(graph)
-#        runner.invoke_graph_with_object(
-#            graph.name, url=YoutubeURL(url="https://example.com")
-#        )
-#
-#    def test_get_graph_metadata_with_router(self):
-#        graph = create_graph_b()
-#        metadata = graph.definition()
-#        expected_graph_metadata = """{
-#    "name": "test",
-#    "description": "test",
-#    "start_node": {
-#        "compute_fn": {
-#            "name": "extractor_a_with_pydantic_model_as_input",
-#            "fn_name": "extractor_a_with_pydantic_model_as_input",
-#            "description": ""
-#        }
-#    },
-#    "nodes": {
-#        "extractor_a_with_pydantic_model_as_input": {
-#            "compute_fn": {
-#                "name": "extractor_a_with_pydantic_model_as_input",
-#                "fn_name": "extractor_a_with_pydantic_model_as_input",
-#                "description": ""
-#            }
-#        },
-#        "router_x": {
-#            "dynamic_router": {
-#                "name": "router_x",
-#                "description": "",
-#                "source_fn": "router_x",
-#                "target_fns": [
-#                    "extractor_b",
-#                    "extractor_d"
-#                ]
-#            }
-#        },
-#        "extractor_b": {
-#            "compute_fn": {
-#                "name": "extractor_b",
-#                "fn_name": "extractor_b",
-#                "description": ""
-#            }
-#        },
-#        "extractor_d": {
-#            "compute_fn": {
-#                "name": "extractor_d",
-#                "fn_name": "extractor_d",
-#                "description": ""
-#            }
-#        }
-#    },
-#    "edges": {
-#        "extractor_a_with_pydantic_model_as_input": [
-#            "router_x"
-#        ]
-#    }
-# }"""
-#        result = metadata.model_dump_json(indent=4, exclude_none=True)
-#        self.maxDiff = None
-#        self.assertEqual(result, expected_graph_metadata)
-#
-#    def test_get_graph_metadata(self):
-#        graph = create_graph_a()
-#        metadata = graph.definition()
-#        expected_graph_metadata = """{
-#    "name": "test",
-#    "description": "test",
-#    "start_node": {
-#        "compute_fn": {
-#            "name": "extractor_a",
-#            "fn_name": "extractor_a",
-#            "description": "Random description of extractor_a"
-#        }
-#    },
-#    "nodes": {
-#        "extractor_a": {
-#            "compute_fn": {
-#                "name": "extractor_a",
-#                "fn_name": "extractor_a",
-#                "description": "Random description of extractor_a"
-#            }
-#        },
-#        "extractor_b": {
-#            "compute_fn": {
-#                "name": "extractor_b",
-#                "fn_name": "extractor_b",
-#                "description": ""
-#            }
-#        },
-#        "extractor_c": {
-#            "compute_fn": {
-#                "name": "extractor_c",
-#                "fn_name": "extractor_c",
-#                "description": ""
-#            }
-#        }
-#    },
-#    "edges": {
-#        "extractor_a": [
-#            "extractor_b"
-#        ],
-#        "extractor_b": [
-#            "extractor_c"
-#        ]
-#    }
-# }"""
-#        result = metadata.model_dump_json(indent=4, exclude_none=True)
-#        self.assertEqual(result, expected_graph_metadata)
+        runner = create_client(local=True)
+        runner.register_compute_graph(graph)
+        runner.invoke_graph_with_object(
+            graph.name, url=YoutubeURL(url="https://example.com")
+        )
+
+    def test_run_graph_with_router(self):
+        graph = create_graph_b()
+
+        runner = create_client(local=True)
+        runner.register_compute_graph(graph)
+        runner.invoke_graph_with_object(
+            graph.name, url=YoutubeURL(url="https://example.com")
+        )
+
+    def test_run_graph_with_executor_exception(self):
+        graph = create_graph_c()
+
+        runner = create_client(local=True)
+        runner.register_compute_graph(graph)
+
+        try:
+            runner.invoke_graph_with_object(graph.name, url="https://example.com")
+        except Exception as e:
+            self.assertEqual(str(e), "This executor will raise an exception.")
+
+    def test_get_graph_metadata_with_router(self):
+        graph = create_graph_b()
+        metadata = graph.definition()
+        expected_graph_metadata = """{
+    "name": "test",
+    "description": "test",
+    "start_node": {
+        "compute_fn": {
+            "name": "extractor_a_with_pydantic_model_as_input",
+            "fn_name": "extractor_a_with_pydantic_model_as_input",
+            "description": ""
+        }
+    },
+    "nodes": {
+        "extractor_a_with_pydantic_model_as_input": {
+            "compute_fn": {
+                "name": "extractor_a_with_pydantic_model_as_input",
+                "fn_name": "extractor_a_with_pydantic_model_as_input",
+                "description": ""
+            }
+        },
+        "router_x": {
+            "dynamic_router": {
+                "name": "router_x",
+                "description": "",
+                "source_fn": "router_x",
+                "target_fns": [
+                    "extractor_b",
+                    "extractor_d"
+                ]
+            }
+        },
+        "extractor_b": {
+            "compute_fn": {
+                "name": "extractor_b",
+                "fn_name": "extractor_b",
+                "description": ""
+            }
+        },
+        "extractor_d": {
+            "compute_fn": {
+                "name": "extractor_d",
+                "fn_name": "extractor_d",
+                "description": ""
+            }
+        }
+    },
+    "edges": {
+        "extractor_a_with_pydantic_model_as_input": [
+            "router_x"
+        ]
+    },
+    "accumulator_zero_values": {}
+}"""
+        result = metadata.model_dump_json(indent=4, exclude_none=True)
+        self.maxDiff = None
+        self.assertEqual(result, expected_graph_metadata)
+
+    def test_get_graph_metadata(self):
+        graph = create_graph_a()
+        metadata = graph.definition()
+        expected_graph_metadata = """{
+    "name": "test",
+    "description": "test",
+    "start_node": {
+        "compute_fn": {
+            "name": "extractor_a",
+            "fn_name": "extractor_a",
+            "description": "Random description of extractor_a"
+        }
+    },
+    "nodes": {
+        "extractor_a": {
+            "compute_fn": {
+                "name": "extractor_a",
+                "fn_name": "extractor_a",
+                "description": "Random description of extractor_a"
+            }
+        },
+        "extractor_b": {
+            "compute_fn": {
+                "name": "extractor_b",
+                "fn_name": "extractor_b",
+                "description": ""
+            }
+        },
+        "extractor_c": {
+            "compute_fn": {
+                "name": "extractor_c",
+                "fn_name": "extractor_c",
+                "description": ""
+            }
+        }
+    },
+    "edges": {
+        "extractor_a": [
+            "extractor_b"
+        ],
+        "extractor_b": [
+            "extractor_c"
+        ]
+    },
+    "accumulator_zero_values": {}
+}"""
+        result = metadata.model_dump_json(indent=4, exclude_none=True)
+        self.assertEqual(result, expected_graph_metadata)
 
 
 if __name__ == "__main__":

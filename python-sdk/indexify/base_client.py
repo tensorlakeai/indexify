@@ -43,7 +43,9 @@ class IndexifyClient(ABC):
 
     ### Ingestion APIs
     @abstractmethod
-    def invoke_graph_with_object(self, graph: str, **kwargs) -> str:
+    def invoke_graph_with_object(
+        self, graph: str, block_until_done: bool = False, **kwargs
+    ) -> str:
         """
         Invokes a graph with an input object.
         graph: str: The name of the graph to invoke
@@ -71,7 +73,6 @@ class IndexifyClient(ABC):
         graph: str,
         invocation_id: str,
         fn_name: Optional[str],
-        block_until_done: bool = True,
     ) -> Union[Dict[str, List[Any]], List[Any]]:
         """
         Returns the extracted objects by a graph for an ingested object. If the extractor name is provided, only the objects extracted by that extractor are returned.

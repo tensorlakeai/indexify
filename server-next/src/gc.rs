@@ -47,7 +47,7 @@ impl Gc {
             } else {
                 for url in urls.iter() {
                     tracing::debug!("Deleting url {:?}", url);
-                    if let Err(e) = storage.delete(&url).await {
+                    if let Err(e) = storage.delete(url).await {
                         tracing::error!("Error deleting url {:?}: {:?}", url, e);
                     }
                 }
@@ -90,7 +90,9 @@ mod tests {
     #[tokio::test]
     async fn test_gc() -> Result<()> {
         let temp_dir = tempfile::tempdir().unwrap();
-        let state = IndexifyState::new(temp_dir.path().join("state")).unwrap();
+        let state = IndexifyState::new(temp_dir.path().join("state"))
+            .await
+            .unwrap();
         let config =
             blob_store::BlobStorageConfig::new_disk(temp_dir.path().join("blob").to_str().unwrap());
         let storage = Arc::new(BlobStorage::new(config)?);
@@ -130,6 +132,8 @@ mod tests {
                 size: res.size_bytes,
                 sha256_hash: res.sha256_hash,
             }),
+            errors: None,
+            reduced_state: false,
         };
         let key = output.key(&output.invocation_id);
         let serialized_output = JsonEncoder::encode(&output)?;

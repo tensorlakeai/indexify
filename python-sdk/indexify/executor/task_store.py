@@ -14,6 +14,7 @@ class CompletedTask(BaseModel):
     task_outcome: Literal["success", "failure"]
     outputs: List[IndexifyData]
     router_output: Optional[RouterOutput] = None
+    errors: Optional[str] = None
 
 
 class TaskStore:

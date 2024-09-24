@@ -3,14 +3,12 @@ from typing import List, Mapping, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph
+from indexify import Graph, create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
-from indexify.local_client import LocalClient
-from indexify.remote_client import RemoteClient
 
 
 @indexify_function()
@@ -78,19 +76,20 @@ def create_graph_a():
 class TestRemoteClient(unittest.TestCase):
     def test_register_graph(self):
         # Register graph
-        client = RemoteClient(namespace="default")
+        client = create_client(namespace="default")
         graph = create_graph_a()
-        print(graph.definition().model_dump_json(exclude_none=True))
-        client.register_graph(graph)
+        client.register_compute_graph(graph)
 
         # Get graph Defintion
         compute_graph = client.graph("graph_a_router")
         self.assertEqual(compute_graph.name, "graph_a_router")
 
         # Load and run Graph Code
-        graph = client.load_graph("graph_a_router")
-        runner = LocalClient()
-        runner.run(graph, url="https://example.com")
+        client.invoke_graph_with_object(
+            graph.name,
+            block_until_done=True,
+            url="https://example.com",
+        )
 
 
 if __name__ == "__main__":

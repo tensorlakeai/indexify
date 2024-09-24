@@ -3,11 +3,9 @@ from typing import List, Mapping
 
 from pydantic import BaseModel
 
-from indexify import Graph
+from indexify import Graph, create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import indexify_function
-from indexify.local_client import LocalClient
-from indexify.remote_client import RemoteClient
 
 
 @indexify_function()
@@ -56,7 +54,7 @@ def create_graph_a():
 class TestRemoteClient(unittest.TestCase):
     def test_register_graph(self):
         # Register graph
-        client = RemoteClient(namespace="default")
+        client = create_client()
         graph = create_graph_a()
         client.register_compute_graph(graph)
 
@@ -65,12 +63,16 @@ class TestRemoteClient(unittest.TestCase):
         self.assertEqual(compute_graph.name, "graph_a")
 
         # Invoke Graph
-        client.invoke_graph_with_object(graph.name, url="https://example.com")
-
-        # Load and run Graph Code
-        # graph = client.load_graph("graph_a")
-        # runner = LocalClient()
-        # runner.run(graph, url="https://example.com")
+        invocation_id = client.invoke_graph_with_object(
+            graph.name,
+            block_until_done=True,
+            url="https://example.com",
+        )
+        print("getting outputs")
+        outputs = client.graph_outputs(
+            graph.name, invocation_id, fn_name=extractor_c.name
+        )
+        print(f"Outputs: {outputs}")
 
 
 if __name__ == "__main__":

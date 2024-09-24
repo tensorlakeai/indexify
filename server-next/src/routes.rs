@@ -5,7 +5,7 @@ use axum::{
     body::Body,
     extract::{DefaultBodyLimit, MatchedPath, Multipart, Path, Query, Request, State},
     http::{Method, Response},
-    response::IntoResponse,
+    response::{sse::Event, IntoResponse},
     routing::{delete, get, post},
     Json,
     Router,
@@ -25,7 +25,6 @@ use state_store::{
         StateMachineUpdateRequest,
     },
     IndexifyState,
-    EXECUTOR_TIMEOUT,
 };
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -35,7 +34,7 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::executors;
+use crate::executors::{self, EXECUTOR_TIMEOUT};
 
 mod download;
 mod internal_ingest;
@@ -406,11 +405,7 @@ async fn list_compute_graphs(
     let (compute_graphs, cursor) = state
         .indexify_state
         .reader()
-        .list_compute_graphs(
-            &namespace,
-            params.cursor.as_ref().map(|v| v.as_slice()),
-            params.limit,
-        )
+        .list_compute_graphs(&namespace, params.cursor.as_deref(), params.limit)
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(ComputeGraphsList {
         compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
@@ -464,7 +459,7 @@ async fn graph_invocations(
         .list_invocations(
             &namespace,
             &compute_graph,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -484,9 +479,25 @@ async fn graph_invocations(
 
 async fn notify_on_change(
     Path((_namespace, _compute_graph)): Path<(String, String)>,
-    State(_state): State<RouteState>,
+    State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    Ok(())
+    let mut rx = state.indexify_state.task_event_stream();
+    let invocation_event_stream = async_stream::stream! {
+        loop {
+                if let Ok(ev)  =  rx.recv().await {
+                        yield Event::default().json_data(ev.clone());
+                        return;
+                    }
+                }
+    };
+
+    Ok(
+        axum::response::Sse::new(invocation_event_stream).keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .text("keep-alive-text"),
+        ),
+    )
 }
 
 async fn executor_tasks(
@@ -504,7 +515,7 @@ async fn executor_tasks(
             labels: payload.labels.clone(),
         })
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone(), TASK_LIMIT);
     let executor_manager = state.executor_manager.clone();
     let stream = stream
@@ -549,7 +560,7 @@ async fn list_tasks(
             &namespace,
             &compute_graph,
             &invocation_id,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -580,7 +591,7 @@ async fn list_outputs(
             &namespace,
             &compute_graph,
             &invocation_id,
-            params.cursor.as_ref().map(|v| v.as_slice()),
+            params.cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -608,7 +619,7 @@ async fn delete_invocation(
         compute_graph,
         invocation_id,
     });
-    let _ = state
+    state
         .indexify_state
         .write(StateMachineUpdateRequest {
             payload: request,
@@ -627,7 +638,7 @@ async fn get_code(
         .indexify_state
         .reader()
         .get_compute_graph(&namespace, &compute_graph)
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     if compute_graph.is_none() {
         return Err(IndexifyAPIError::not_found("Compute Graph not found"));
     }
@@ -636,7 +647,7 @@ async fn get_code(
     let code_stream = storage_reader
         .get()
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")

@@ -1,7 +1,6 @@
 import asyncio
-
-from pydantic import Json
-
+from typing import Optional
+from indexify.functions_sdk.data_objects import IndexifyData
 from .api_objects import Task
 from .downloader import Downloader
 from .function_worker import FunctionWorker
@@ -47,7 +46,8 @@ class ExtractTask(asyncio.Task):
         *,
         function_worker: FunctionWorker,
         task: Task,
-        input: Json,
+        input: IndexifyData,
+        init_value: Optional[IndexifyData] = None,
         code_path: str,
         **kwargs,
     ):
@@ -59,6 +59,7 @@ class ExtractTask(asyncio.Task):
                 graph_name=task.compute_graph,
                 fn_name=task.compute_fn,
                 input=input,
+                init_value=init_value,
                 code_path=code_path,
             ),
             **kwargs,

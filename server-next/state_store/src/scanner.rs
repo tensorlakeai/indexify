@@ -9,8 +9,10 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
+    ReduceTask,
     StateChange,
     Task,
+    TaskFinishedEvent,
 };
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -415,6 +417,16 @@ impl StateReader {
         )
     }
 
+    pub fn get_task_from_finished_event(&self, req: &TaskFinishedEvent) -> Result<Option<Task>> {
+        return self.get_task(
+            &req.namespace,
+            &req.compute_graph,
+            &req.invocation_id,
+            &req.compute_fn,
+            &req.task_id.to_string(),
+        );
+    }
+
     pub fn get_task(
         &self,
         namespace: &str,
@@ -545,14 +557,15 @@ impl StateReader {
         invocation_id: &str,
         compute_fn: &str,
         id: &str,
-    ) -> Result<NodeOutput> {
+    ) -> Result<Option<NodeOutput>> {
         let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
         let value = self
             .db
-            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)
+            .map_err(|e| anyhow!("unable to get output payload: {}", e))?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Err(anyhow!("fn output not found")),
+            None => Ok(None),
         }
     }
 
@@ -564,6 +577,34 @@ impl StateReader {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("fn output not found")),
         }
+    }
+
+    pub fn all_reduction_tasks(&self, ns: &str, cg: &str, inv_id: &str) -> Result<Vec<ReduceTask>> {
+        let key = format!("{}|{}|{}|", ns, cg, inv_id);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
+            key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::ReductionTasks,
+            None,
+        )?;
+        Ok(tasks)
+    }
+
+    pub fn next_reduction_task(
+        &self,
+        ns: &str,
+        cg: &str,
+        inv_id: &str,
+        c_fn: &str,
+    ) -> Result<Option<ReduceTask>> {
+        let key = format!("{}|{}|{}|{}", ns, cg, inv_id, c_fn);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
+            key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::ReductionTasks,
+            Some(1),
+        )?;
+        Ok(tasks.into_iter().next())
     }
 }
 #[cfg(test)]
@@ -585,8 +626,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_rows_from_cf_with_limits() {
         let temp_dir = TempDir::new().unwrap();
-        let indexify_state =
-            IndexifyState::new(PathBuf::from(temp_dir.path().join("state"))).unwrap();
+        let indexify_state = IndexifyState::new(PathBuf::from(temp_dir.path().join("state")))
+            .await
+            .unwrap();
         for i in 0..4 {
             let name = format!("test_{}", i);
             indexify_state

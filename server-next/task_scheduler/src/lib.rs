@@ -1,10 +1,23 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, Node, Task};
+use data_model::{ExecutorId, Node, ReduceTask, Task};
 use rand::seq::SliceRandom;
 use state_store::{requests::TaskPlacement, IndexifyState};
 use tracing::info;
+
+pub mod task_creator;
+
+#[derive(Debug)]
+pub struct TaskCreationResult {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub tasks: Vec<Task>,
+    pub new_reduction_tasks: Vec<ReduceTask>,
+    pub processed_reduction_tasks: Vec<String>,
+    pub invocation_finished: bool,
+    pub invocation_id: String,
+}
 
 pub struct TaskScheduler {
     indexify_state: Arc<IndexifyState>,
@@ -17,7 +30,6 @@ impl TaskScheduler {
 
     pub fn schedule_unplaced_tasks(&self) -> Result<Vec<TaskPlacement>> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
-        info!("allocating {:?} tasks", tasks);
         self.schedule_tasks(tasks)
     }
 

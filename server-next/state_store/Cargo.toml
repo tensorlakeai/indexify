@@ -15,6 +15,7 @@ serde_json = { workspace = true }
 strum = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 futures.workspace = true
 async-stream = "0.3.5"
 tempfile = { workspace = true }

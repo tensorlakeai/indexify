@@ -12,12 +12,29 @@ use state_store::{
     IndexifyState,
 };
 
+pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct ExecutorManager {
     indexify_state: Arc<IndexifyState>,
 }
 
 impl ExecutorManager {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
+    pub async fn new(indexify_state: Arc<IndexifyState>) -> Self {
+        let cs = indexify_state.clone();
+        let executors = cs.reader().get_all_executors().unwrap_or_default();
+        tokio::spawn(async move {
+            tokio::time::sleep(EXECUTOR_TIMEOUT).await;
+            for executor in executors {
+                let _ = cs
+                    .write(StateMachineUpdateRequest {
+                        payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                            executor_id: executor.id,
+                        }),
+                        state_changes_processed: vec![],
+                    })
+                    .await;
+            }
+        });
+
         ExecutorManager { indexify_state }
     }
 
@@ -65,8 +82,10 @@ mod tests {
     #[tokio::test]
     async fn test_register_executor() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))
+            .await
+            .unwrap();
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             runner_name: "test".to_string(),
@@ -85,8 +104,10 @@ mod tests {
     #[tokio::test]
     async fn test_deregister_executor() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))?;
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()));
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state"))
+            .await
+            .unwrap();
+        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             runner_name: "test".to_string(),
@@ -115,7 +136,7 @@ mod tests {
         let time = std::time::Instant::now();
         loop {
             let executors = indexify_state.reader().get_all_executors()?;
-            if executors.len() == 0 {
+            if executors.is_empty() {
                 break;
             }
             if time.elapsed().as_secs() > 10 {
