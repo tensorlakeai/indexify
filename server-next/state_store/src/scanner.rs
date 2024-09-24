@@ -557,14 +557,15 @@ impl StateReader {
         invocation_id: &str,
         compute_fn: &str,
         id: &str,
-    ) -> Result<NodeOutput> {
+    ) -> Result<Option<NodeOutput>> {
         let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
         let value = self
             .db
-            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)
+            .map_err(|e| anyhow!("unable to get output payload: {}", e))?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Err(anyhow!("fn output not found")),
+            None => Ok(None),
         }
     }
 

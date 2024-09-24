@@ -124,6 +124,7 @@ impl Node {
             .compute_graph_name(compute_graph_name.to_string())
             .invocation_id(invocation_id.to_string())
             .input_key(input_key.to_string())
+            .reducer(self.reducer())
             .build()?;
         Ok(task)
     }
@@ -428,6 +429,7 @@ pub struct Task {
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
     pub diagnostics: Option<TaskDiagnostics>,
+    pub reducer: bool,
 }
 
 impl Task {
@@ -504,6 +506,7 @@ impl TaskBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
+        let reducer = self.reducer.unwrap_or(false);
         let mut hasher = DefaultHasher::new();
         cg_name.hash(&mut hasher);
         compute_fn_name.hash(&mut hasher);
@@ -521,6 +524,7 @@ impl TaskBuilder {
             outcome: TaskOutcome::Unknown,
             creation_time: SystemTime::now(),
             diagnostics: None,
+            reducer,
         };
         Ok(task)
     }
