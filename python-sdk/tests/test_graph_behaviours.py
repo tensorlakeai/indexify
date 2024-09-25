@@ -6,6 +6,15 @@ from pydantic import BaseModel
 from indexify import Graph, create_client, indexify_function, indexify_router
 
 
+class MyObject(BaseModel):
+    x: str
+
+
+@indexify_function()
+def simple_function(x: MyObject) -> MyObject:
+    return MyObject(x=x.x + "b")
+
+
 @indexify_function()
 def generate_seq(x: int) -> List[int]:
     return list(range(x))
@@ -81,7 +90,19 @@ def create_router_graph():
 
 
 class TestGraphBehaviors(unittest.TestCase):
-    def test_graph_behavior(self):
+    def test_simple_function(self):
+        graph = Graph(
+            name="test_simple_function", description="test", start_node=simple_function
+        )
+        client = create_client()
+        client.register_compute_graph(graph)
+        invocation_id = client.invoke_graph_with_object(
+            graph.name, block_until_done=True, x=MyObject(x="a")
+        )
+        output_str = client.graph_outputs(graph.name, invocation_id, "simple_function")
+        self.assertEqual(output_str, [MyObject(x="ab")])
+
+    def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
         client = create_client()
         client.register_compute_graph(graph)
@@ -95,7 +116,7 @@ class TestGraphBehaviors(unittest.TestCase):
         output_sq = client.graph_outputs(graph.name, invocation_id, "square")
         self.assertEqual(sorted(output_sq), [0, 1, 4])
 
-    def test_graph_behavior_with_map_reduce(self):
+    def test_map_reduce_operation(self):
         graph = create_pipeline_graph_with_map_reduce()
         client = create_client()
         client.register_compute_graph(graph)
