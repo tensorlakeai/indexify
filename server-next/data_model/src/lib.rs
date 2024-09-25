@@ -363,7 +363,7 @@ impl GraphInvocationCtx {
 }
 
 impl GraphInvocationCtxBuilder {
-    pub fn build(&mut self) -> Result<GraphInvocationCtx> {
+    pub fn build(&mut self, compute_graph: ComputeGraph) -> Result<GraphInvocationCtx> {
         let namespace = self
             .namespace
             .clone()
@@ -376,13 +376,17 @@ impl GraphInvocationCtxBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingested_data_object_id is required"))?;
+        let mut fn_task_analytics = HashMap::new();
+        for (fn_name, _node) in compute_graph.nodes.iter() {
+                fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
+        }
         Ok(GraphInvocationCtx {
             namespace,
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
             outstanding_tasks: 0,
-            fn_task_analytics: HashMap::new(),
+            fn_task_analytics,
         })
     }
 }

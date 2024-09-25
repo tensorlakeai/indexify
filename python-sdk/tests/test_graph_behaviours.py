@@ -61,7 +61,7 @@ def create_router_graph():
     graph.route(route_if_even, [add_two, add_three])
     return graph
 
-class TestGraphBehaviours(unittest.TestCase):
+class TestGraphBehaviors(unittest.TestCase):
     def test_graph_behavior(self):
         graph = create_pipeline_graph_with_map()
         client = create_client()

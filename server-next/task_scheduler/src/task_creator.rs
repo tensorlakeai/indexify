@@ -196,9 +196,7 @@ pub async fn handle_task_finished(
                     0
                 },
             };
-            println!("outstanding_reduction_tasks: {:?}", outstanding_reduction_tasks);
             if compute_node.reducer() && (new_tasks.len() > 0 || outstanding_reduction_tasks > 0) {
-                println!("creating new redduction task {}", compute_node.name());
                 let new_task = compute_node.reducer_task(
                     &task.namespace,
                     &task.compute_graph_name,
@@ -209,7 +207,6 @@ pub async fn handle_task_finished(
                 new_reduction_tasks.push(new_task);
                 continue;
             }
-            println!("creating new task {}", compute_node.name());
             let new_task = compute_node.create_task(
                 &task.namespace,
                 &task.compute_graph_name,
