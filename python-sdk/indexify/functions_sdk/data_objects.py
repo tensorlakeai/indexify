@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Json
 
@@ -14,7 +14,8 @@ class IndexifyData(BaseModel):
 
 
 class FunctionWorkerOutput(BaseModel):
-    indexify_data: List[IndexifyData]
+    fn_outputs: Optional[List[IndexifyData]]
+    router_output: Optional[RouterOutput]
     exception: Optional[str]
     stdout: Optional[str]
     stderr: Optional[str]

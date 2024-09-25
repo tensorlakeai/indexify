@@ -18,7 +18,8 @@ import io
 from contextlib import redirect_stdout, redirect_stderr
 
 class FunctionOutput(BaseModel):
-    outputs: Union[List[IndexifyData], RouterOutput]
+    fn_outputs: Optional[List[IndexifyData]]
+    router_output: Optional[RouterOutput]
     reducer: bool = False
 
 class LoggingProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
@@ -90,7 +91,8 @@ class FunctionWorker:
             raise mp
 
         return FunctionWorkerOutput(
-            indexify_data=result.outputs,
+            fn_outputs=result.fn_outputs,
+            router_output=result.router_output,
             exception=exception,
             stdout=stdout,
             stderr=stderr,
@@ -118,10 +120,11 @@ def _run_function(
 
     graph: Graph = graphs[f"{namespace}/{graph_name}"]
     if fn_name in graph.routers:
-        return graph.invoke_router(fn_name, input)
+        graph_outputs = graph.invoke_router(fn_name, input)
+        return FunctionOutput(fn_outputs=None, router_output=graph_outputs, reducer=False)
 
     output = graph.invoke_fn_ser(fn_name, input, init_value)
 
     is_reducer = graph.get_function(fn_name).indexify_function.accumulate is not None
 
-    return FunctionOutput(outputs=output, reducer=is_reducer)
+    return FunctionOutput(fn_outputs=output, router_output=None, reducer=is_reducer)

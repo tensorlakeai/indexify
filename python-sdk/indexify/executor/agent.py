@@ -113,7 +113,7 @@ class ExtractorAgent:
                     Panel(
                         f"Reporting outcome of task {task_outcome.task.id}\n"
                         f"Outcome: {style_outcome}\n"
-                        f"Outputs: {len(task_outcome.outputs)}",
+                        f"Outputs: {len(task_outcome.outputs or [])}  Router Output: {task_outcome.router_output}",
                         title="Task Completion",
                         border_style="info",
                     )
@@ -252,24 +252,16 @@ class ExtractorAgent:
                     async_task: ExtractTask
                     try:
                         outputs: FunctionWorkerOutput = await async_task
-                        router_output = (
-                            outputs if isinstance(outputs, RouterOutput) else None
-                        )
-
                         if outputs.exception:
                             task_outcome = "failure"
-                            fn_outputs = []
                         else:
                             task_outcome = "success"
-                            fn_outputs = (
-                                outputs.indexify_data if not isinstance(outputs, RouterOutput) else []
-                            )
 
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome=task_outcome,
-                            outputs=fn_outputs,
-                            router_output=router_output,
+                            outputs=outputs.fn_outputs,
+                            router_output=outputs.router_output,
                             errors=outputs.exception,
                             stdout=outputs.stdout,
                             stderr=outputs.stderr,

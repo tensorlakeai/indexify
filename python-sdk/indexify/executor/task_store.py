@@ -12,7 +12,7 @@ from .api_objects import Task
 class CompletedTask(BaseModel):
     task: Task
     task_outcome: Literal["success", "failure"]
-    outputs: List[IndexifyData]
+    outputs: Optional[List[IndexifyData]] = None
     router_output: Optional[RouterOutput] = None
     errors: Optional[str] = None
     stdout: Optional[str] = None
