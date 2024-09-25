@@ -133,7 +133,6 @@ pub async fn ingest_files_from_executor(
                     name_ref,
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
-                println!("---------- file_name {}", file_name);
                 match name_ref.as_str() {
                     "exception_msg" => { exception_msg = Some(res) },
                     "stdout" => { stdout_msg = Some(res) },
