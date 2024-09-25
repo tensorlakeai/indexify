@@ -1,3 +1,5 @@
+import sys
+
 from indexify import create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
@@ -11,6 +13,9 @@ def extractor_a(url: str) -> File:
     """
     Download pdf from url
     """
+    print("`extractor_a` is writing to stdout")
+    # print("`extractor_a` is writing to stderr", file=sys.stderr)
+    sys.stderr.write('===================== extractor_a is writing to stderr=================')
     return File(data="abc", mime_type="application/pdf")
 
 
@@ -19,7 +24,9 @@ def extractor_b(file: File) -> str:
     """
     Download pdf from url
     """
-    raise Exception("raises an exception")
+    print("`extractor_b` is writing to stdout", file=sys.stdout)
+    print("`extractor_b` is writing to stderr", file=sys.stderr)
+    raise Exception("this exception was raised from extractor_b")
 
 
 @indexify_function()
@@ -27,12 +34,12 @@ def extractor_c(s: str) -> str:
     """
     Download pdf from url
     """
-    return "def"
+    return "this is a return from extractor_c"
 
 
 if __name__ == "__main__":
     g = Graph(
-        "Extract_pages_tables_images_pdf",
+        "test-graph-has-an-exception-for-stdout-stderr",
         start_node=extractor_a,
     )
 

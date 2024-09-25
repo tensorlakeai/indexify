@@ -10,7 +10,7 @@ resolver = "2"
 [workspace]
 members = [
     ".", "blob_store", 
-    "data_model", "metrics",
+    "data_model",
     "state_store",
     "task_scheduler",
     "utils",

@@ -32,6 +32,8 @@ class TaskReporter:
         task: Task,
         outcome: str,
         exception_msg: Optional[str],
+        stdout: Optional[str],
+        stderr: Optional[str],
     ):
         fn_outputs = []
         for output in outputs:
@@ -52,6 +54,22 @@ class TaskReporter:
                     "exception_msg",
                     (nanoid.generate(), io.BytesIO(exception_msg.encode())),
                 )
+            )
+
+        if stdout:
+            print(
+                f"[bold]task-reporter[/bold] uploading stdout of size: {len(stdout)}"
+            )
+            fn_outputs.append(
+                ("stdout", (nanoid.generate(), io.BytesIO(stdout.encode())))
+            )
+
+        if stderr:
+            print(
+                f"[bold]task-reporter[/bold] uploading stderr of size: {len(stderr)}"
+            )
+            fn_outputs.append(
+                ("stderr", (nanoid.generate(), io.BytesIO(stderr.encode())))
             )
 
         router_output = (
