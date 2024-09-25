@@ -147,7 +147,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(list_compute_graphs).with_state(route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs",
+            "/namespaces/:namespace/compute_graphs/:compute_graph",
             delete(delete_compute_graph).with_state(route_state.clone()),
         )
         .route(
@@ -364,7 +364,7 @@ async fn create_compute_graph(
 /// Delete compute graph
 #[utoipa::path(
     delete,
-    path = "/namespaces/{namespace}/compute_graphs/{name}",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}",
     tag = "operations",
     responses(
         (status = 200, description = "Extraction graph deleted successfully"),
@@ -372,10 +372,10 @@ async fn create_compute_graph(
     ),
 )]
 async fn delete_compute_graph(
-    Path((namespace, name)): Path<(String, String)>,
+    Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name });
+    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name: compute_graph });
     state
         .indexify_state
         .write(StateMachineUpdateRequest {
