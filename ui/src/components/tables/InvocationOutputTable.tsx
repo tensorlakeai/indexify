@@ -57,7 +57,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ invocatio
 
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
-      <Typography variant="h6" gutterBottom>Outputs for Invocation {invocationId}</Typography>
+      <Typography variant="h6" gutterBottom>Outputs for Invocation</Typography>
       <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}}>
         <Table>
           <TableHead>

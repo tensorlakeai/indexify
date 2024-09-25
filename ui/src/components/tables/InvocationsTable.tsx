@@ -50,9 +50,7 @@ const InvocationsTable: React.FC<InvocationsTableProps> = ({ invocationsList, co
           <TableHead>
             <TableRow>
               <TableCell>ID</TableCell>
-              <TableCell>Payload</TableCell>
               <TableCell>Payload Size</TableCell>
-              <TableCell>Payload SHA-256</TableCell>
               <TableCell>Action</TableCell>
             </TableRow>
           </TableHead>
@@ -69,9 +67,7 @@ const InvocationsTable: React.FC<InvocationsTableProps> = ({ invocationsList, co
                     <CopyText text={invocation.id}/>
                   </Box>
                 </TableCell>
-                <TableCell>{invocation.payload}</TableCell>
                 <TableCell>{invocation.payload_size} bytes</TableCell>
-                <TableCell sx={{ wordBreak: 'break-all' }}>{invocation.payload_sha_256}</TableCell>
                 <TableCell>
                   <IconButton onClick={() => handleDelete(invocation.id)} color="error" size="small">
                     <DeleteIcon />
