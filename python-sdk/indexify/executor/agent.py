@@ -120,7 +120,6 @@ class ExtractorAgent:
                 )
 
                 try:
-                    print(f'task_outcome: {task_outcome}')
                     # Send task outcome to the server
                     self._task_reporter.report_task_outcome(
                         task_outcome.outputs,
@@ -305,7 +304,6 @@ class ExtractorAgent:
                             )
                             + Text(f"Exception: {e}", style="red")
                         )
-                        print('----here {}', type(async_task.task))
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="failure",
