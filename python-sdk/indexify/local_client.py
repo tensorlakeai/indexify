@@ -61,7 +61,7 @@ class LocalClient(IndexifyClient):
         while queue:
             node_name, input = queue.popleft()
             input_bytes = cbor2.dumps(input.model_dump())
-            cached_output_bytes: Optional[List[bytes]] = self._cache.get(
+            cached_output_bytes: Optional[bytes] = self._cache.get(
                 g.name, node_name, input_bytes
             )
             if cached_output_bytes is not None:
@@ -69,10 +69,14 @@ class LocalClient(IndexifyClient):
                     f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
                 )
                 function_outputs: List[IndexifyData] = []
-                for cached_output in cached_output_bytes:
-                    output = CborSerializer.deserialize(cached_output)
-                    function_outputs.append(output)
-                    outputs[node_name].append(output)
+                cached_output_list = CborSerializer.deserialize_list(
+                    cached_output_bytes
+                )
+                if self._accumulators.get(node_name, None) is not None:
+                    self._accumulators[node_name] = cached_output_list[-1].model_copy()
+                    outputs[node_name] = []
+                function_outputs.extend(cached_output_list)
+                outputs[node_name].extend(cached_output_list)
             else:
                 function_outputs: List[IndexifyData] = g.invoke_fn_ser(
                     node_name, input, self._accumulators.get(node_name, None)
@@ -83,8 +87,7 @@ class LocalClient(IndexifyClient):
                     outputs[node_name] = []
                 outputs[node_name].extend(function_outputs)
                 function_outputs_bytes: List[bytes] = [
-                    CborSerializer.serialize(function_output)
-                    for function_output in function_outputs
+                    CborSerializer.serialize_list(function_outputs)
                 ]
                 self._cache.set(
                     g.name,

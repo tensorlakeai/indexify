@@ -21,6 +21,7 @@ class FunctionWorkerOutput(BaseModel):
     stderr: Optional[str]
     reducer: bool = False
 
+
 class File(BaseModel):
     data: bytes
     metadata: Optional[Dict[str, Json]] = None

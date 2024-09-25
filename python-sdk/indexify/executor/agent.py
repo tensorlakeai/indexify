@@ -14,11 +14,14 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput, \
-    FunctionWorkerOutput
+from indexify.functions_sdk.data_objects import (
+    FunctionWorkerOutput,
+    IndexifyData,
+    RouterOutput,
+)
 
 from .api_objects import ExecutorMetadata, Task
-from .downloader import Downloader, DownloadedInputs
+from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
 from .task_reporter import TaskReporter
@@ -121,9 +124,7 @@ class ExtractorAgent:
 
                 try:
                     # Send task outcome to the server
-                    self._task_reporter.report_task_outcome(
-                        completed_task=task_outcome
-                    )
+                    self._task_reporter.report_task_outcome(completed_task=task_outcome)
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
                     console.print(
@@ -245,7 +246,7 @@ class ExtractorAgent:
                             task=async_task.task,
                             task_outcome="failure",
                             outputs=[],
-                            errors=str(async_task.exception())
+                            errors=str(async_task.exception()),
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue

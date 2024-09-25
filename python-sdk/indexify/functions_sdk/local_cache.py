@@ -24,7 +24,7 @@ class CacheAwareFunctionWrapper:
         outputs = []
         for file in files:
             with open(os.path.join(dir_path, file), "rb") as f:
-                outputs.append(f.read())
+                return f.read()
 
         return outputs
 

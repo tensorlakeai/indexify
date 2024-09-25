@@ -3,9 +3,7 @@ import unittest
 from indexify import create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import (
-    indexify_function,
-)
+from indexify.functions_sdk.indexify_functions import indexify_function
 
 
 @indexify_function()
@@ -15,7 +13,9 @@ def extractor_a(url: str) -> File:
     """
     print("`extractor_a` is writing to stdout")
     # print("`extractor_a` is writing to stderr", file=sys.stderr)
-    sys.stderr.write('===================== extractor_a is writing to stderr=================')
+    sys.stderr.write(
+        "===================== extractor_a is writing to stderr================="
+    )
     return File(data="abc", mime_type="application/pdf")
 
 
@@ -50,7 +50,6 @@ def create_broken_graph():
 class TestBrokenGraphs(unittest.TestCase):
     def test_broken_graph(self):
         g = create_broken_graph()
-
         client = create_client()
         client.register_compute_graph(g)
         invocation_id = client.invoke_graph_with_object(

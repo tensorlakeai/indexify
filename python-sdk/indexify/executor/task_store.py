@@ -41,7 +41,9 @@ class TaskStore:
                 or (task.id in self._finished)
             ):
                 continue
-            print(f"[bold] task store: [/bold] added task: {task.id} graph: {task.compute_graph} fn: {task.compute_fn} to queue")
+            print(
+                f"[bold] task store: [/bold] added task: {task.id} graph: {task.compute_graph} fn: {task.compute_fn} to queue"
+            )
             self._tasks[task.id] = task
             self._new_task_event.set()
 

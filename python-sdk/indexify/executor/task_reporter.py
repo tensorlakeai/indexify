@@ -26,15 +26,12 @@ class TaskReporter:
         self._base_url = base_url
         self._executor_id = executor_id
 
-    def report_task_outcome(
-        self,
-        completed_task: CompletedTask
-    ):
+    def report_task_outcome(self, completed_task: CompletedTask):
         fn_outputs = []
         print(
             f"[bold]task-reporter[/bold] uploading output of size: {len(completed_task.outputs or [])}"
         )
-        for output in completed_task.outputs or []: 
+        for output in completed_task.outputs or []:
             output_bytes = CborSerializer.serialize(output)
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
@@ -56,7 +53,10 @@ class TaskReporter:
                 f"[bold]task-reporter[/bold] uploading stdout of size: {len(completed_task.stdout)}"
             )
             fn_outputs.append(
-                ("stdout", (nanoid.generate(), io.BytesIO(completed_task.stdout.encode())))
+                (
+                    "stdout",
+                    (nanoid.generate(), io.BytesIO(completed_task.stdout.encode())),
+                )
             )
 
         if completed_task.stderr:
@@ -64,11 +64,16 @@ class TaskReporter:
                 f"[bold]task-reporter[/bold] uploading stderr of size: {len(completed_task.stderr)}"
             )
             fn_outputs.append(
-                ("stderr", (nanoid.generate(), io.BytesIO(completed_task.stderr.encode())))
+                (
+                    "stderr",
+                    (nanoid.generate(), io.BytesIO(completed_task.stderr.encode())),
+                )
             )
 
         router_output = (
-            ApiRouterOutput(edges=completed_task.router_output.edges) if completed_task.router_output else None
+            ApiRouterOutput(edges=completed_task.router_output.edges)
+            if completed_task.router_output
+            else None
         )
 
         task_result = TaskResult(

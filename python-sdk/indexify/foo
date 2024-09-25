@@ -1,0 +1,72 @@
+./functions_sdk/local_cache.py:        outputs = []
+./functions_sdk/local_cache.py:                outputs.append(f.read())
+./functions_sdk/local_cache.py:        return outputs
+./functions_sdk/graph.py:        outputs: List[Any] = fn_wrapper.run_fn(input, acc=acc)
+./functions_sdk/graph.py:            IndexifyData(payload=CborSerializer.serialize(output)) for output in outputs
+./functions_sdk/output_serializer.py:class OutputSerializer:
+./functions_sdk/output_serializer.py:        normalized_outputs = []
+./functions_sdk/output_serializer.py:            normalized_outputs.append(
+./functions_sdk/output_serializer.py:        return normalized_outputs
+./base_client.py:    def graph_outputs(
+./remote_client.py:class GraphOutputs(BaseModel):
+./remote_client.py:    outputs: List[GraphOutputMetadata]
+./remote_client.py:    def graph_outputs(
+./remote_client.py:            f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{invocation_id}/outputs",
+./remote_client.py:        graph_outputs = GraphOutputs(**response.json())
+./remote_client.py:        outputs = []
+./remote_client.py:        for output in graph_outputs.outputs:
+./remote_client.py:                outputs.append(output)
+./remote_client.py:        return outputs
+./executor/task_reporter.py:        fn_outputs = []
+./executor/task_reporter.py:            f"[bold]task-reporter[/bold] uploading output of size: {len(completed_task.outputs)}"
+./executor/task_reporter.py:        for output in completed_task.outputs: 
+./executor/task_reporter.py:            fn_outputs.append(
+./executor/task_reporter.py:                ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
+./executor/task_reporter.py:            fn_outputs.append(
+./executor/task_reporter.py:            fn_outputs.append(
+./executor/task_reporter.py:            fn_outputs.append(
+./executor/task_reporter.py:        if fn_outputs and len(fn_outputs) > 0:
+./executor/task_reporter.py:            kwargs["files"] = fn_outputs
+./executor/task_store.py:    outputs: List[IndexifyData]
+./executor/task_store.py:                    task_id=task_id, task_outcome="failed", outputs=[]
+./executor/downloader.py:            url = f"{self.base_url}/internal/fn_outputs/{task.input_key}"
+./executor/function_worker.py:    outputs: Union[List[IndexifyData], RouterOutput]
+./executor/function_worker.py:            indexify_data=result.outputs,
+./executor/function_worker.py:    return FunctionOutput(outputs=output, reducer=is_reducer)
+./executor/agent.py:                        f"Outputs: {len(task_outcome.outputs)}",
+./executor/agent.py:                            outputs=[],
+./executor/agent.py:                            outputs=[],
+./executor/agent.py:                            outputs=[],
+./executor/agent.py:                        outputs: FunctionWorkerOutput = await async_task
+./executor/agent.py:                            outputs if isinstance(outputs, RouterOutput) else None
+./executor/agent.py:                        if outputs.exception:
+./executor/agent.py:                            fn_outputs = []
+./executor/agent.py:                            fn_outputs = (
+./executor/agent.py:                                outputs.indexify_data if not isinstance(outputs, RouterOutput) else []
+./executor/agent.py:                            outputs=fn_outputs,
+./executor/agent.py:                            errors=outputs.exception,
+./executor/agent.py:                            stdout=outputs.stdout,
+./executor/agent.py:                            stderr=outputs.stderr,
+./executor/agent.py:                            reducer=outputs.reducer,
+./executor/agent.py:                            outputs=[],
+./local_client.py:# Holds the outputs of a
+./local_client.py:    outputs: Dict[str, List[IndexifyData]]
+./local_client.py:        outputs = defaultdict(list)
+./local_client.py:        self._results[input.id] = outputs
+./local_client.py:        self._run(g, input, outputs)
+./local_client.py:        outputs: Dict[str, List[bytes]],
+./local_client.py:                    f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
+./local_client.py:                function_outputs: List[IndexifyData] = []
+./local_client.py:                    function_outputs.append(output)
+./local_client.py:                    outputs[node_name].append(output)
+./local_client.py:                function_outputs: List[IndexifyData] = g.invoke_fn_ser(
+./local_client.py:                print(f"ran {node_name}: num outputs: {len(function_outputs)}")
+./local_client.py:                    self._accumulators[node_name] = function_outputs[-1].model_copy()
+./local_client.py:                    outputs[node_name] = []
+./local_client.py:                outputs[node_name].extend(function_outputs)
+./local_client.py:                function_outputs_bytes: List[bytes] = [
+./local_client.py:                    for function_output in function_outputs
+./local_client.py:                    function_outputs_bytes,
+./local_client.py:                    for output in function_outputs:
+./local_client.py:                for output in function_outputs:
+./local_client.py:    def graph_outputs(

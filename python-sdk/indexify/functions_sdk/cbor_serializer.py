@@ -21,3 +21,12 @@ class CborSerializer:
     def deserialize(data: bytes) -> IndexifyData:
         cached_output = cbor2.loads(data)
         return IndexifyData(**cached_output)
+
+    @staticmethod
+    def serialize_list(data: List[IndexifyData]) -> bytes:
+        data = [item.model_dump() for item in data]
+        return cbor2.dumps(data)
+
+    @staticmethod
+    def deserialize_list(data: bytes) -> List[IndexifyData]:
+        return [IndexifyData(**item) for item in cbor2.loads(data)]
