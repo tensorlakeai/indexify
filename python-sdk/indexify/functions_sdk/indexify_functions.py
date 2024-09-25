@@ -156,22 +156,14 @@ class IndexifyFunctionWrapper:
         return return_type
 
     def run_router(self, input: Union[Dict, Type[BaseModel]]) -> List[str]:
-        print("running router herere ")
         kwargs = input if isinstance(input, dict) else {"input": input}
-        print(f"router inputs: {kwargs}")
-        print(f"router : {self.indexify_function.run}")
-        try:
-            args = []
-            kwargs = {}
-            if isinstance(input, dict):
-                kwargs = input
-            else:
-                args.append(input)
-            extracted_data = self.indexify_function.run(*args, **kwargs)
-        except Exception as e:
-            print(f"router error: {e}")
-            raise
-        print(f"router outputs: {extracted_data}")
+        args = []
+        kwargs = {}
+        if isinstance(input, dict):
+            kwargs = input
+        else:
+            args.append(input)
+        extracted_data = self.indexify_function.run(*args, **kwargs)
         if not isinstance(extracted_data, list) and extracted_data is not None:
             return [extracted_data.name]
         edges = []
@@ -191,10 +183,6 @@ class IndexifyFunctionWrapper:
         else:
             args.append(input)
 
-        print(f"args: {args}")
-        print(f"kwargs: {kwargs}")
-
         extracted_data = self.indexify_function.run(*args, **kwargs)
-        print(f"extracted_data: {extracted_data}")
 
         return extracted_data if isinstance(extracted_data, list) else [extracted_data]
