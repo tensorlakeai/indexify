@@ -95,12 +95,15 @@ pub async fn ingest_files_from_executor(
 ) -> Result<(), IndexifyAPIError> {
     let mut output_objects: Vec<PutResult> = vec![];
     let mut exception_msg: Option<PutResult> = None;
+    let mut stdout_msg: Option<PutResult> = None;
+    let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
     while let Some(mut field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
+            let name_ref = name.to_string();
             if name == "node_outputs" {
                 let task_result = task_result.as_ref().ok_or_else(|| {
                     IndexifyAPIError::bad_request("task_result is required before node_outputs")
@@ -117,7 +120,7 @@ pub async fn ingest_files_from_executor(
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 node_output_sequence += 1;
                 output_objects.push(res.clone());
-            } else if name == "exception_msg" {
+            } else if name == "exception_msg" || name == "stdout" || name == "stderr" {
                 let task_result = task_result.as_ref().ok_or_else(|| {
                     IndexifyAPIError::bad_request("task_result is required before node_outputs")
                 })?;
@@ -127,10 +130,16 @@ pub async fn ingest_files_from_executor(
                     task_result.compute_graph,
                     task_result.compute_fn,
                     task_result.invocation_id,
-                    "exception_msg"
+                    name_ref,
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
-                exception_msg = Some(res);
+                println!("---------- file_name {}", file_name);
+                match name_ref.as_str() {
+                    "exception_msg" => { exception_msg = Some(res) },
+                    "stdout" => { stdout_msg = Some(res) },
+                    "stderr" => { stderr_msg = Some(res) },
+                    _ => { panic! ("should not match here") }
+                }
             } else if name == "task_result" {
                 let text = field
                     .text()
@@ -165,19 +174,34 @@ pub async fn ingest_files_from_executor(
         node_outputs.push(node_output);
     }
 
-    let task_diagnostic = exception_msg.map(|exception_msg| {
-        let exception_payload = DataPayload {
+    let exception_payload = exception_msg.map(|exception_msg| {
+        DataPayload {
             path: exception_msg.url,
             size: exception_msg.size_bytes,
             sha256_hash: exception_msg.sha256_hash,
-        };
+    }});
 
-        TaskDiagnostics {
-            exception: Some(exception_payload),
-            stdout: None,
-            stderr: None,
+    let stdout_payload = stdout_msg.map(|stdout_msg| {
+        DataPayload {
+            path: stdout_msg.url,
+            size: stdout_msg.size_bytes,
+            sha256_hash: stdout_msg.sha256_hash,
         }
     });
+
+    let stderr_payload = stderr_msg.map(|stderr_msg| {
+        DataPayload {
+            path: stderr_msg.url,
+            size: stderr_msg.size_bytes,
+            sha256_hash: stderr_msg.sha256_hash,
+        }
+    });
+
+    let task_diagnostic = TaskDiagnostics {
+        exception: exception_payload,
+        stdout: stdout_payload,
+        stderr: stderr_payload,
+    };
 
     if let Some(router_output) = task_result.router_output {
         let node_output = NodeOutputBuilder::default()
@@ -204,7 +228,7 @@ pub async fn ingest_files_from_executor(
         node_outputs,
         task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
-        diagnostics: task_diagnostic,
+        diagnostics: Some(task_diagnostic),
     });
 
     state
