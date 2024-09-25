@@ -122,13 +122,7 @@ class ExtractorAgent:
                 try:
                     # Send task outcome to the server
                     self._task_reporter.report_task_outcome(
-                        task_outcome.outputs,
-                        task_outcome.router_output,
-                        task_outcome.task,
-                        task_outcome.task_outcome,
-                        task_outcome.errors,
-                        task_outcome.stdout,
-                        task_outcome.stderr,
+                        completed_task=task_outcome
                     )
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
@@ -262,19 +256,7 @@ class ExtractorAgent:
                             outputs if isinstance(outputs, RouterOutput) else None
                         )
 
-                        errors = (
-                            outputs.exception if not isinstance(outputs, RouterOutput) else []
-                        )
-
-                        fn_stdout = (
-                            outputs.stdout if not isinstance(outputs, RouterOutput) else []
-                        )
-
-                        fn_stderr = (
-                            outputs.stderr if not isinstance(outputs, RouterOutput) else []
-                        )
-
-                        if errors:
+                        if outputs.exception:
                             task_outcome = "failure"
                             fn_outputs = []
                         else:
@@ -288,9 +270,10 @@ class ExtractorAgent:
                             task_outcome=task_outcome,
                             outputs=fn_outputs,
                             router_output=router_output,
-                            errors=errors,
-                            stdout=fn_stdout,
-                            stderr=fn_stderr,
+                            errors=outputs.exception,
+                            stdout=outputs.stdout,
+                            stderr=outputs.stderr,
+                            reducer=outputs.reducer,
                         )
                         self._task_store.complete(outcome=completed_task)
                     except BrokenProcessPool:

@@ -18,7 +18,7 @@ class FunctionWorkerOutput(BaseModel):
     exception: Optional[str]
     stdout: Optional[str]
     stderr: Optional[str]
-
+    reducer: bool = False
 
 class File(BaseModel):
     data: bytes

@@ -2,7 +2,7 @@ import asyncio
 import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Union, Optional
-
+from pydantic import BaseModel
 from rich import print
 
 from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput, \
@@ -17,6 +17,9 @@ import concurrent.futures
 import io
 from contextlib import redirect_stdout, redirect_stderr
 
+class FunctionOutput(BaseModel):
+    outputs: Union[List[IndexifyData], RouterOutput]
+    reducer: bool = False
 
 class LoggingProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
     def __init__(self, *args, **kwargs):
@@ -58,10 +61,6 @@ def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str
 
 class FunctionWorker:
     def __init__(self, workers: int = 1) -> None:
-        # self._executor: concurrent.futures.ProcessPoolExecutor = (
-        #     concurrent.futures.ProcessPoolExecutor(max_workers=workers)
-        # )
-
         self._executor: LoggingProcessPoolExecutor = (
             LoggingProcessPoolExecutor(max_workers=workers)
         )
@@ -91,10 +90,11 @@ class FunctionWorker:
             raise mp
 
         return FunctionWorkerOutput(
-            indexify_data=result,
+            indexify_data=result.outputs,
             exception=exception,
             stdout=stdout,
-            stderr=stderr
+            stderr=stderr,
+            reducer=result.reducer
         )
 
     def shutdown(self):
@@ -122,4 +122,6 @@ def _run_function(
 
     output = graph.invoke_fn_ser(fn_name, input, init_value)
 
-    return output
+    is_reducer = graph.get_function(fn_name).indexify_function.accumulate is not None
+
+    return FunctionOutput(outputs=output, reducer=is_reducer)

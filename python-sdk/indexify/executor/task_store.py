@@ -17,6 +17,7 @@ class CompletedTask(BaseModel):
     errors: Optional[str] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
+    reducer: bool = False
 
 
 class TaskStore:
