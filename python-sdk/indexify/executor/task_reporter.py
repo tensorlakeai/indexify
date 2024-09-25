@@ -76,6 +76,8 @@ class TaskReporter:
             ApiRouterOutput(edges=router_output.edges) if router_output else None
         )
 
+        is_reducer = True if task.reducer_output_id else False
+
         task_result = TaskResult(
             router_output=router_output,
             outcome=outcome,
@@ -85,6 +87,7 @@ class TaskReporter:
             invocation_id=task.invocation_id,
             executor_id=self._executor_id,
             task_id=task.id,
+            reducer=is_reducer,
         )
         task_result_data = task_result.model_dump_json(exclude_none=True)
 

@@ -186,7 +186,19 @@ pub async fn handle_task_finished(
                 .nodes
                 .get(edge)
                 .ok_or(anyhow!("compute node not found: {:?}", edge))?;
-            if compute_node.reducer() && new_tasks.len() > 0 {
+            let task_analytics_edge = indexify_state
+                .reader()
+                .task_analytics(&task.namespace, &task.compute_graph_name, &task.invocation_id, &edge)?;
+            let outstanding_reduction_tasks = match task_analytics_edge {
+                Some(task_analytics) => task_analytics.pending_tasks,
+                None => {
+                    error!("task analytics not found for edge : {:?}", edge);
+                    0
+                },
+            };
+            println!("outstanding_reduction_tasks: {:?}", outstanding_reduction_tasks);
+            if compute_node.reducer() && (new_tasks.len() > 0 || outstanding_reduction_tasks > 0) {
+                println!("creating new redduction task {}", compute_node.name());
                 let new_task = compute_node.reducer_task(
                     &task.namespace,
                     &task.compute_graph_name,
@@ -197,6 +209,7 @@ pub async fn handle_task_finished(
                 new_reduction_tasks.push(new_task);
                 continue;
             }
+            println!("creating new task {}", compute_node.name());
             let new_task = compute_node.create_task(
                 &task.namespace,
                 &task.compute_graph_name,

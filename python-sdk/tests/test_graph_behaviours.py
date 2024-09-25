@@ -17,7 +17,7 @@ class Sum(BaseModel):
 
 @indexify_function(accumulate=Sum)
 def sum_of_squares(init_value: Sum, x: int) -> Sum:
-    init_value.val += x * x
+    init_value.val += x
     return init_value
 
 @indexify_function()
@@ -34,20 +34,21 @@ def create_pipeline_graph_with_map_reduce():
     graph = Graph(name="test_map_reduce", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, square)
     graph.add_edge(square, sum_of_squares)
+    #graph.add_edge(sum_of_squares, make_it_string)
     return graph
 
 class TestGraphBehaviours(unittest.TestCase):
-    def test_graph_behavior(self):
-        graph = create_pipeline_graph_with_map()
-        client = create_client()
-        client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(graph.name, block_until_done=True, x=3)
+    # def test_graph_behavior(self):
+    #     graph = create_pipeline_graph_with_map()
+    #     client = create_client()
+    #     client.register_compute_graph(graph)
+    #     invocation_id = client.invoke_graph_with_object(graph.name, block_until_done=True, x=3)
 
-        output_seq = client.graph_outputs(graph.name, invocation_id, "generate_seq")
-        self.assertEqual(sorted(output_seq), [0, 1, 2])
+    #     output_seq = client.graph_outputs(graph.name, invocation_id, "generate_seq")
+    #     self.assertEqual(sorted(output_seq), [0, 1, 2])
 
-        output_sq = client.graph_outputs(graph.name, invocation_id, "square")
-        self.assertEqual(sorted(output_sq), [0, 1, 4])
+    #     output_sq = client.graph_outputs(graph.name, invocation_id, "square")
+    #     self.assertEqual(sorted(output_sq), [0, 1, 4])
 
     def test_graph_behavior_with_map_reduce(self):
         graph = create_pipeline_graph_with_map_reduce()

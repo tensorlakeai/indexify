@@ -3,9 +3,7 @@ import sys
 from indexify import create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import (
-    indexify_function,
-)
+from indexify.functions_sdk.indexify_functions import indexify_function
 
 
 @indexify_function()
@@ -50,7 +48,9 @@ if __name__ == "__main__":
     client = create_client()
     client.register_compute_graph(g)
     invocation_id = client.invoke_graph_with_object(
-        g.name, block_until_done=True, url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
+        g.name,
+        block_until_done=True,
+        url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
     )
 
     # invocation_id = "4bd41e4e8a694c66"
