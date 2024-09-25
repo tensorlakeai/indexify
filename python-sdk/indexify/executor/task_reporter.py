@@ -36,10 +36,10 @@ class TaskReporter:
         stderr: Optional[str],
     ):
         fn_outputs = []
-        for output in outputs:
-            print(
-                f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)}"
-            )
+        print(
+            f"[bold]task-reporter[/bold] uploading output of size: {len(outputs)}"
+        )
+        for output in outputs: 
             output_bytes = CborSerializer.serialize(output)
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))

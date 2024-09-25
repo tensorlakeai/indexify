@@ -1,13 +1,8 @@
 use std::{
-    collections::HashMap,
-    fs,
-    path::PathBuf,
-    pin::Pin,
-    sync::{
+    collections::{HashMap, HashSet}, fs, path::PathBuf, pin::Pin, sync::{
         atomic::{self, AtomicU64},
         Arc,
-    },
-    vec,
+    }, vec
 };
 
 use anyhow::{anyhow, Result};
@@ -20,6 +15,7 @@ use data_model::{
     StateChangeId,
     Task,
     TaskFinishedEvent,
+    TaskId,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
@@ -45,6 +41,7 @@ pub mod test_state_store;
 pub struct ExecutorState {
     pub new_task_channel: broadcast::Sender<()>,
     pub num_registered: u64,
+    pub task_ids_sent: HashSet<TaskId>,
 }
 
 impl ExecutorState {
@@ -53,17 +50,23 @@ impl ExecutorState {
         Self {
             new_task_channel,
             num_registered: 0,
+            task_ids_sent: HashSet::new(),
         }
     }
 
-    pub fn added(&mut self) {
+    pub fn notify(&mut self) {
         let _ = self.new_task_channel.send(());
+    }
+
+    pub fn added(&mut self, task_ids: &Vec<TaskId>) {
+        self.task_ids_sent.extend(task_ids.clone());
     }
 
     // Send notification for remove because new task can be available if
     // were at maximum number of tasks before task completion.
-    pub fn removed(&mut self) {
+    pub fn removed(&mut self, task_id: TaskId) {
         let _ = self.new_task_channel.send(());
+        self.task_ids_sent.remove(&task_id);
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<()> {
@@ -144,6 +147,8 @@ impl IndexifyState {
     }
 
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+        let mut allocated_tasks_by_executor = Vec::new();
+        let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
         let txn = self.db.transaction();
         let new_state_changes = match &request.payload {
             requests::RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
@@ -160,6 +165,10 @@ impl IndexifyState {
             requests::RequestPayload::FinalizeTask(finalize_task) => {
                 let state_changes = self.finalize_task(&finalize_task).await?;
                 state_machine::mark_task_completed(self.db.clone(), &txn, &finalize_task)?;
+                tasks_finalized
+                    .entry(finalize_task.executor_id.clone())
+                    .or_default()
+                    .push(finalize_task.task_id.clone());
                 state_changes
             }
             requests::RequestPayload::CreateNameSpace(namespace_request) => {
@@ -201,13 +210,7 @@ impl IndexifyState {
                         &allocation.task,
                         &allocation.executor,
                     )?;
-                    self.executor_states
-                        .write()
-                        .await
-                        .get_mut(&allocation.executor)
-                        .map(|tasks| {
-                            tasks.added();
-                        });
+                    allocated_tasks_by_executor.push(allocation.executor.clone());
                 }
                 new_state_changes
             }
@@ -256,6 +259,26 @@ impl IndexifyState {
             &request.state_changes_processed.clone(),
         )?;
         txn.commit()?;
+        for executor_id in allocated_tasks_by_executor {
+            self.executor_states
+                .write()
+                .await
+                .get_mut(&executor_id)
+                .map(|executor_state| {
+                    executor_state.notify();
+                });
+        }
+        for (executor_id, tasks) in tasks_finalized {
+            self.executor_states
+                .write()
+                .await
+                .get_mut(&executor_id)
+                .map(|executor_state| {
+                    for task_id in tasks {
+                        executor_state.removed(task_id);
+                    }
+                });
+        }
         self.handle_invocation_state_changes(&request).await;
         for state_change in new_state_changes {
             self.state_change_tx.send(state_change.id).unwrap();
@@ -449,7 +472,22 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
                 .reader()
                 .get_tasks_by_executor(&executor, limit)
                  {
-                    Ok(tasks) => yield Ok(tasks),
+                    Ok(tasks) => {
+                        let state = state.clone();
+                        let filtered_tasks = async {
+                            let mut executor_state = state.executor_states.write().await;
+                            let executor_s = executor_state.get_mut(&executor).unwrap();
+                            let mut filtered_tasks = vec![];
+                            for task in &tasks {
+                                if !executor_s.task_ids_sent.contains(&task.id) {
+                                    filtered_tasks.push(task.clone());
+                                    executor_s.added(&vec![task.id.clone()]);
+                                }
+                            }
+                            filtered_tasks
+                        }.await;
+                        yield Ok(filtered_tasks)
+                    },
                     Err(e) => {
                         yield Err(e);
                         return;

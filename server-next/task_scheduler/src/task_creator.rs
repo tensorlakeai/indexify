@@ -159,21 +159,26 @@ pub async fn handle_task_finished(
 
     // Find the edges of the function
     let edges = compute_graph.edges.get(&task.compute_fn_name);
-    if edges.is_none() && invocation_ctx.outstanding_tasks == 0 {
-        if invocation_ctx.outstanding_tasks == 0 {
-            info!("compute graph completed: {:?}", task.compute_graph_name);
-            return Ok(TaskCreationResult {
-                namespace: task.namespace.clone(),
-                compute_graph: task.compute_graph_name.clone(),
-                invocation_id: task.invocation_id.clone(),
-                tasks: vec![],
-                new_reduction_tasks: vec![],
-                processed_reduction_tasks: vec![],
-                invocation_finished: true,
-            });
-        }
+    if edges.is_none() {
+        let invocation_finished = if invocation_ctx.outstanding_tasks == 0 {
+            true
+        } else {
+            false
+        };
+        info!(
+            "compute graph {} invocation finished: {:?}",
+            task.compute_graph_name, invocation_finished
+        );
+        return Ok(TaskCreationResult {
+            namespace: task.namespace.clone(),
+            compute_graph: task.compute_graph_name.clone(),
+            invocation_id: task.invocation_id.clone(),
+            tasks: vec![],
+            new_reduction_tasks: vec![],
+            processed_reduction_tasks: vec![],
+            invocation_finished,
+        });
     }
-
     let edges = edges.unwrap();
     for edge in edges {
         for output in &outputs {

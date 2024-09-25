@@ -326,6 +326,7 @@ pub(crate) fn create_tasks(
             .entry(task.compute_fn_name.clone())
             .or_insert_with(|| TaskAnalytics::default());
         analytics.pending();
+        graph_ctx.outstanding_tasks += 1;
         let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
 
         txn.put_cf(
@@ -420,6 +421,7 @@ pub fn mark_task_completed(
         data_model::TaskOutcome::Failure => analytics.fail(),
         _ => {}
     }
+    graph_ctx.outstanding_tasks -= 1;
     let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),

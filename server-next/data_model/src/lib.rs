@@ -33,7 +33,7 @@ impl ExecutorId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskId(String);
 
 impl TaskId {
@@ -457,12 +457,12 @@ impl Task {
         format!("{}|{}|{}", self.namespace, self.id, output_id)
     }
 
-    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> Vec<u8> {
+    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
         let duration = self.creation_time.duration_since(UNIX_EPOCH).unwrap();
         let secs = duration.as_secs() as u128;
         let nsecs = duration.subsec_nanos() as u128;
         let nsecs = secs * 1_000_000_000 + nsecs;
-        format!("{}|{}|{}", executor_id, nsecs, self.key(),).into()
+        format!("{}|{}|{}", executor_id, nsecs, self.key())
     }
 
     pub fn key_from_allocation_key(allocation_key: &[u8]) -> Result<Vec<u8>> {
