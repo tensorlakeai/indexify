@@ -14,6 +14,7 @@ use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
     requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
 };
+use tokio::sync::broadcast::Receiver;
 use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -173,7 +174,10 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let id = invocation_payload.id.clone();
-    let mut rx = state.indexify_state.task_event_stream();
+    let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
+    if should_block {
+        rx.replace(state.indexify_state.task_event_stream());
+    }
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.clone(),
@@ -191,22 +195,22 @@ pub async fn invoke_with_object(
         })?;
 
     let invocation_event_stream = async_stream::stream! {
-        loop {
-            if should_block {
+        if !should_block {
+            yield Event::default().json_data(InvocationId { id: id.clone() });
+            return;
+        }
+        if let Some(rx) = rx.as_mut() {
+            loop {
                 if let Ok(ev)  =  rx.recv().await {
                     if ev.invocation_id() == id {
                         yield Event::default().json_data(ev.clone());
 
                         if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {
                             yield Event::default().json_data(InvocationId { id: id.clone() });
-                            drop(rx);
                             return;
                         }
                     }
                 }
-            } else {
-                yield Event::default().json_data(InvocationId { id: id.clone() });
-                return;
             }
         }
     };

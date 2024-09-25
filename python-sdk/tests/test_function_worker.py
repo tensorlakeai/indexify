@@ -65,7 +65,6 @@ def create_graph_exception():
 
 
 class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
-
     def setUp(self):
         self.g = create_graph_a()
         self.function_worker = FunctionWorker()
@@ -93,9 +92,9 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(output), 2)
 
-            self.assertEqual(output[0].payload_encoding, 'cbor')
+            self.assertEqual(output[0].payload_encoding, "cbor")
 
-            expected_json = {'data': b'hello', 'start': 5, 'end': 5}
+            expected_json = {"data": b"hello", "start": 5, "end": 5}
             actual_json = cbor2.loads(output[1].payload)
 
             self.assertEqual(expected_json, actual_json)
@@ -115,10 +114,7 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
                     namespace="test",
                     graph_name="test",
                     fn_name="extractor_exception",
-                    input=IndexifyData(
-                        id="123",
-                        payload=cbor2.dumps(10)
-                    ),
+                    input=IndexifyData(id="123", payload=cbor2.dumps(10)),
                     code_path=temp_file_path,
                 )
                 self.fail("Should throw exception.")

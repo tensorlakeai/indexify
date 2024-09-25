@@ -10,7 +10,7 @@ from pydantic import BaseModel, Json
 from rich import print
 
 from indexify.base_client import IndexifyClient
-from indexify.error import ApiException, Error
+from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
@@ -72,9 +72,9 @@ class RemoteClient(IndexifyClient):
             message = (
                 f"Make sure the server is running and accesible at {self._service_url}"
             )
-            error = Error(status="ConnectionError", message=message)
-            print(error)
-            raise error
+            ex = ApiException(status="ConnectionError", message=message)
+            print(ex)
+            raise ex
         return response
 
     @classmethod

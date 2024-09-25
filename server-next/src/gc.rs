@@ -133,6 +133,7 @@ mod tests {
                 sha256_hash: res.sha256_hash,
             }),
             errors: None,
+            reduced_state: false,
         };
         let key = output.key(&output.invocation_id);
         let serialized_output = JsonEncoder::encode(&output)?;

@@ -50,7 +50,10 @@ class TaskReporter:
                 f"[bold]task-reporter[/bold] uploading error of size: {len(exception_msg)}"
             )
             fn_outputs.append(
-                ("exception_msg", (nanoid.generate(), io.BytesIO(exception_msg.encode())))
+                (
+                    "exception_msg",
+                    (nanoid.generate(), io.BytesIO(exception_msg.encode())),
+                )
             )
 
         if stdout:
