@@ -15,7 +15,7 @@ use data_model::{
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
-use tracing::info;
+use tracing::{info, error};
 use utoipa::ToSchema;
 
 use super::RouteState;
@@ -101,10 +101,11 @@ pub async fn ingest_files_from_executor(
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
+    let diagnostics_keys = vec!["exception_msg", "stdout", "stderr"];
     while let Some(mut field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
             let name_ref = name.to_string();
-            if name == "node_outputs" {
+            if name_ref == "node_outputs" {
                 let task_result = task_result.as_ref().ok_or_else(|| {
                     IndexifyAPIError::bad_request("task_result is required before node_outputs")
                 })?;
@@ -120,7 +121,7 @@ pub async fn ingest_files_from_executor(
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 node_output_sequence += 1;
                 output_objects.push(res.clone());
-            } else if name == "exception_msg" || name == "stdout" || name == "stderr" {
+            } else if diagnostics_keys.iter().any(|e| name_ref.contains(e)) {
                 let task_result = task_result.as_ref().ok_or_else(|| {
                     IndexifyAPIError::bad_request("task_result is required before node_outputs")
                 })?;
@@ -130,14 +131,14 @@ pub async fn ingest_files_from_executor(
                     task_result.compute_graph,
                     task_result.compute_fn,
                     task_result.invocation_id,
-                    name_ref,
+                    name,
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 match name_ref.as_str() {
                     "exception_msg" => { exception_msg = Some(res) },
                     "stdout" => { stdout_msg = Some(res) },
                     "stderr" => { stderr_msg = Some(res) },
-                    _ => { panic! ("should not match here") }
+                    _ => { error!("should not match here") }
                 }
             } else if name == "task_result" {
                 let text = field
@@ -173,28 +174,9 @@ pub async fn ingest_files_from_executor(
         node_outputs.push(node_output);
     }
 
-    let exception_payload = exception_msg.map(|exception_msg| {
-        DataPayload {
-            path: exception_msg.url,
-            size: exception_msg.size_bytes,
-            sha256_hash: exception_msg.sha256_hash,
-    }});
-
-    let stdout_payload = stdout_msg.map(|stdout_msg| {
-        DataPayload {
-            path: stdout_msg.url,
-            size: stdout_msg.size_bytes,
-            sha256_hash: stdout_msg.sha256_hash,
-        }
-    });
-
-    let stderr_payload = stderr_msg.map(|stderr_msg| {
-        DataPayload {
-            path: stderr_msg.url,
-            size: stderr_msg.size_bytes,
-            sha256_hash: stderr_msg.sha256_hash,
-        }
-    });
+    let exception_payload = prepare_data_payload(exception_msg);
+    let stdout_payload = prepare_data_payload(stdout_msg);
+    let stderr_payload = prepare_data_payload(stderr_msg);
 
     let task_diagnostic = TaskDiagnostics {
         exception: exception_payload,
@@ -257,5 +239,15 @@ async fn write_to_disk<'a>(
     let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     blob_storage.put(&file_name, stream).await.map_err(|e| {
         IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
+    })
+}
+
+fn prepare_data_payload(msg: Option<PutResult>) -> Option<DataPayload> {
+    msg.map(|msg| {
+        DataPayload {
+            path: msg.url,
+            size: msg.size_bytes,
+            sha256_hash: msg.sha256_hash,
+        }
     })
 }
