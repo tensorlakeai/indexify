@@ -65,11 +65,12 @@ impl ExecutorState {
     // Send notification for remove because new task can be available if
     // were at maximum number of tasks before task completion.
     pub fn removed(&mut self, task_id: TaskId) {
-        let _ = self.new_task_channel.send(());
         self.task_ids_sent.remove(&task_id);
+        let _ = self.new_task_channel.send(());
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe(&mut self) -> broadcast::Receiver<()> {
+        self.task_ids_sent.clear();
         self.new_task_channel.subscribe()
     }
 }
