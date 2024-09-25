@@ -378,7 +378,7 @@ impl GraphInvocationCtxBuilder {
             .ok_or(anyhow!("ingested_data_object_id is required"))?;
         let mut fn_task_analytics = HashMap::new();
         for (fn_name, _node) in compute_graph.nodes.iter() {
-                fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
+            fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
         }
         Ok(GraphInvocationCtx {
             namespace,

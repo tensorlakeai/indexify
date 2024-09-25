@@ -186,15 +186,18 @@ pub async fn handle_task_finished(
                 .nodes
                 .get(edge)
                 .ok_or(anyhow!("compute node not found: {:?}", edge))?;
-            let task_analytics_edge = indexify_state
-                .reader()
-                .task_analytics(&task.namespace, &task.compute_graph_name, &task.invocation_id, &edge)?;
+            let task_analytics_edge = indexify_state.reader().task_analytics(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.invocation_id,
+                &edge,
+            )?;
             let outstanding_tasks_for_node = match task_analytics_edge {
                 Some(task_analytics) => task_analytics.pending_tasks,
                 None => {
                     error!("task analytics not found for edge : {:?}", edge);
                     0
-                },
+                }
             };
             if compute_node.reducer() && (new_tasks.len() > 0 || outstanding_tasks_for_node > 0) {
                 let new_task = compute_node.reducer_task(

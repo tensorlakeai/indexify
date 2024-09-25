@@ -2,7 +2,18 @@ use std::{mem, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph, ExecutorId, ExecutorMetadata, GraphInvocationCtx, InvocationPayload, Namespace, NodeOutput, ReduceTask, StateChange, Task, TaskAnalytics, TaskFinishedEvent
+    ComputeGraph,
+    ExecutorId,
+    ExecutorMetadata,
+    GraphInvocationCtx,
+    InvocationPayload,
+    Namespace,
+    NodeOutput,
+    ReduceTask,
+    StateChange,
+    Task,
+    TaskAnalytics,
+    TaskFinishedEvent,
 };
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -505,7 +516,13 @@ impl StateReader {
         }
     }
 
-    pub fn task_analytics(&self, namespace: &str, compute_graph: &str, invocation_id: &str, compute_fn: &str) -> Result<Option<TaskAnalytics>> {
+    pub fn task_analytics(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+    ) -> Result<Option<TaskAnalytics>> {
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
         let value = self.db.get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
@@ -513,13 +530,11 @@ impl StateReader {
         )?;
         let ctx = match value {
             Some(value) => Some(JsonEncoder::decode::<GraphInvocationCtx>(&value)?),
-            None => None
+            None => None,
         };
         let task_analytics = match ctx {
-            Some(ctx) => {
-                ctx.fn_task_analytics.get(compute_fn).cloned()
-            }
-            None => None
+            Some(ctx) => ctx.fn_task_analytics.get(compute_fn).cloned(),
+            None => None,
         };
         Ok(task_analytics)
     }

@@ -1,8 +1,13 @@
 use std::{
-    collections::{HashMap, HashSet}, fs, path::PathBuf, pin::Pin, sync::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    pin::Pin,
+    sync::{
         atomic::{self, AtomicU64},
         Arc,
-    }, vec
+    },
+    vec,
 };
 
 use anyhow::{anyhow, Result};
@@ -506,7 +511,7 @@ mod tests {
     use std::collections::HashMap;
 
     use data_model::{
-        test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        test_objects::tests::{create_mock_task, mock_graph_a, TEST_NAMESPACE},
         ComputeGraph,
         GraphInvocationCtxBuilder,
         Namespace,
@@ -631,21 +636,19 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         let executor_id = ExecutorId::new("executor1".to_string());
-        let task = TaskBuilder::default()
-            .namespace("namespace".to_string())
-            .compute_fn_name("fn".to_string())
-            .compute_graph_name("graph".to_string())
-            .input_node_output_key("namespace|graph|ingested_id|fn|id_1".to_string())
-            .invocation_id("ingested_id".to_string())
-            .reducer_output_id(None)
-            .build()?;
-
+        let cg = mock_graph_a();
+        let task = create_mock_task(
+            &cg,
+            "fn",
+            "namespace|graph|ingested_id|fn|id_1",
+            "ingested_id",
+        );
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
-            .build()?;
+            .build(cg.clone())?;
         indexify_state.db.put_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
             graph_invocation_ctx.key(),
@@ -686,21 +689,19 @@ mod tests {
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].id, task.id);
 
-        let task_1 = TaskBuilder::default()
-            .namespace("namespace".to_string())
-            .compute_fn_name("fn".to_string())
-            .compute_graph_name("graph".to_string())
-            .input_node_output_key("namespace|graph|ingested_id|fn|id_2".to_string())
-            .invocation_id("ingested_id".to_string())
-            .reducer_output_id(None)
-            .build()?;
+        let task_1 = create_mock_task(
+            &cg,
+            "fn",
+            "namespace|graph|ingested_id|fn|id_2",
+            "ingested_id",
+        );
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
-            .build()?;
+            .build(cg.clone())?;
         indexify_state.db.put_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
             graph_invocation_ctx.key(),
@@ -737,9 +738,8 @@ mod tests {
 
         let res = stream.next().await.unwrap()?;
 
-        assert_eq!(res.len(), 2);
-        assert_eq!(res[0].id, task.id);
-        assert_eq!(res[1].id, task_1.id);
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].id, task_1.id);
 
         Ok(())
     }
