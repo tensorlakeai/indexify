@@ -22,37 +22,24 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 
 
+class FunctionRunException(Exception):
+    def __init__(
+        self, exception: Exception, stdout: str, stderr: str, is_reducer: bool
+    ):
+        super().__init__(str(exception))
+        self.exception = exception
+        self.stdout = stdout
+        self.stderr = stderr
+        self.is_reducer = is_reducer
+
+
 class FunctionOutput(BaseModel):
     fn_outputs: Optional[List[IndexifyData]]
     router_output: Optional[RouterOutput]
     reducer: bool = False
-
-
-class LoggingProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.submit_count = 0
-
-    @staticmethod
-    def wrapped_fn(fn, *args, **kwargs):
-        stdout_capture = io.StringIO()
-        stderr_capture = io.StringIO()
-
-        result, exception = [], None
-        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-            try:
-                result = fn(*args, **kwargs)
-            except Exception:
-                exception = traceback.format_exc()
-
-        return result, exception, stdout_capture.getvalue(), stderr_capture.getvalue()
-
-    def submit(self, fn, *args, **kwargs):
-        fn_future = super().submit(
-            LoggingProcessPoolExecutor.wrapped_fn, fn, *args, **kwargs
-        )
-
-        return fn_future
+    success: bool = True
+    stdout: str = ""
+    stderr: str = ""
 
 
 def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str):
@@ -70,8 +57,8 @@ def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str
 
 class FunctionWorker:
     def __init__(self, workers: int = 1) -> None:
-        self._executor: LoggingProcessPoolExecutor = LoggingProcessPoolExecutor(
-            max_workers=workers
+        self._executor: concurrent.futures.ProcessPoolExecutor = (
+            concurrent.futures.ProcessPoolExecutor(max_workers=workers)
         )
 
     async def async_submit(
@@ -84,12 +71,7 @@ class FunctionWorker:
         init_value: Optional[IndexifyData] = None,
     ) -> FunctionWorkerOutput:
         try:
-            (
-                result,
-                exception,
-                stdout,
-                stderr,
-            ) = await asyncio.get_running_loop().run_in_executor(
+            result = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 _run_function,
                 namespace,
@@ -101,15 +83,27 @@ class FunctionWorker:
             )
         except BrokenProcessPool as mp:
             self._executor.shutdown(wait=True, cancel_futures=True)
+            traceback.print_exc()
             raise mp
+        except FunctionRunException as e:
+            print(e)
+            print(traceback.format_exc())
+            return FunctionWorkerOutput(
+                exception=str(e),
+                stdout=e.stdout,
+                stderr=e.stderr,
+                reducer=e.is_reducer,
+                success=False,
+            )
 
         return FunctionWorkerOutput(
             fn_outputs=result.fn_outputs,
             router_output=result.router_output,
-            exception=exception,
-            stdout=stdout,
-            stderr=stderr,
+            exception=None,
+            stdout=result.stdout,
+            stderr=result.stderr,
             reducer=result.reducer,
+            success=result.success,
         )
 
     def shutdown(self):
@@ -123,23 +117,55 @@ def _run_function(
     input: IndexifyData,
     code_path: str,
     init_value: Optional[IndexifyData] = None,
-) -> Union[List[IndexifyData], RouterOutput]:
-    print(
-        f"[bold] function worker: [/bold] running function: {fn_name} namespace: {namespace} graph: {graph_name}"
-    )
-    key = f"{namespace}/{graph_name}/{fn_name}"
-    if key not in function_wrapper_map:
-        _load_function(namespace, graph_name, fn_name, code_path)
+) -> FunctionOutput:
+    import io
+    import traceback
+    from contextlib import redirect_stderr, redirect_stdout
 
-    graph: Graph = graphs[f"{namespace}/{graph_name}"]
-    if fn_name in graph.routers:
-        graph_outputs = graph.invoke_router(fn_name, input)
-        return FunctionOutput(
-            fn_outputs=None, router_output=graph_outputs, reducer=False
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    is_reducer = False
+    router_output = None
+    fn_output = None
+    has_failed = False
+    exception_msg = None
+    with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+        try:
+            key = f"{namespace}/{graph_name}/{fn_name}"
+            if key not in function_wrapper_map:
+                _load_function(namespace, graph_name, fn_name, code_path)
+
+            graph: Graph = graphs[f"{namespace}/{graph_name}"]
+            if fn_name in graph.routers:
+                router_output = graph.invoke_router(fn_name, input)
+            else:
+                fn_output = graph.invoke_fn_ser(fn_name, input, init_value)
+
+                is_reducer = (
+                    graph.get_function(fn_name).indexify_function.accumulate is not None
+                )
+        except Exception as e:
+            print(traceback.format_exc())
+            has_failed = True
+            exception_msg = str(e)
+
+    # WARNING - IF THIS FAILS, WE WILL NOT BE ABLE TO RECOVER
+    # ANY LOGS
+    if has_failed:
+        return FunctionWorkerOutput(
+            fn_outputs=None,
+            router_output=None,
+            exception=exception_msg,
+            stdout=stdout_capture.getvalue(),
+            stderr=stderr_capture.getvalue(),
+            reducer=is_reducer,
+            success=False,
         )
-
-    output = graph.invoke_fn_ser(fn_name, input, init_value)
-
-    is_reducer = graph.get_function(fn_name).indexify_function.accumulate is not None
-
-    return FunctionOutput(fn_outputs=output, router_output=None, reducer=is_reducer)
+    return FunctionOutput(
+        fn_outputs=fn_output,
+        router_output=router_output,
+        reducer=is_reducer,
+        success=True,
+        stdout=stdout_capture.getvalue(),
+        stderr=stderr_capture.getvalue(),
+    )
