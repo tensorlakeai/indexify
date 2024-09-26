@@ -379,7 +379,10 @@ async fn delete_compute_graph(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name: compute_graph });
+    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest {
+        namespace,
+        name: compute_graph,
+    });
     state
         .indexify_state
         .write(StateMachineUpdateRequest {

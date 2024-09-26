@@ -57,7 +57,7 @@ impl Service {
         });
         tokio::spawn(async move {
             info!("starting system tasks executor");
-            let _ = system_tasks_executor.start().await;
+            let _ = system_tasks_executor.run().await;
             info!("system tasks executor shutdown");
         });
 

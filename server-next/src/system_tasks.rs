@@ -21,24 +21,17 @@ impl SystemTasksExecutor {
         }
     }
 
-    pub async fn start(&mut self) -> Result<()> {
-        loop {
-            if self.shutdown_rx.has_changed().unwrap_or(false) {
-                return Ok(());
-            }
-
-            self.run().await?;
-        }
-    }
-
-    async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         let pending_tasks = self.state.reader().get_pending_system_tasks()?;
         let (tasks, _) = self.state.reader().get_system_tasks(Some(1))?;
-        tracing::info!("num pending tasks {:?} tasks {:?}", pending_tasks, tasks);
         if tasks.is_empty() || pending_tasks >= MAX_PENDING_TASKS {
             tokio::select! {
-                _ = self.rx.changed() => { self.rx.borrow_and_update(); }
+                _ = self.rx.changed() => {
+                    println!("GC signal received.");
+                    self.rx.borrow_and_update();
+                }
                 _ = self.shutdown_rx.changed() => {
+                    println!("shutdown signal received.");
                     return Ok(());
                 }
             }
