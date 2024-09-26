@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::ComputeGraphCode;
+use data_model::{ComputeGraphCode, GraphVersion};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -220,6 +220,7 @@ impl ComputeGraph {
             namespace: self.namespace,
             description: self.description,
             start_fn,
+            version: Default::default(),
             code: ComputeGraphCode {
                 sha256_hash: sha256_hash.to_string(),
                 size,
@@ -227,8 +228,7 @@ impl ComputeGraph {
             },
             nodes,
             edges: self.edges.clone(),
-            create_at: 0,
-            tomb_stoned: false,
+            created_at: 0,
         };
         Ok(compute_graph)
     }
@@ -251,7 +251,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             start_node: start_fn,
             nodes,
             edges: compute_graph.edges,
-            created_at: compute_graph.create_at,
+            created_at: compute_graph.created_at,
         }
     }
 }
@@ -346,6 +346,7 @@ pub struct Task {
     pub input_key: String,
     pub outcome: TaskOutcome,
     pub reducer_output_id: Option<String>,
+    pub graph_version: GraphVersion,
 }
 
 impl From<data_model::Task> for Task {
@@ -359,6 +360,7 @@ impl From<data_model::Task> for Task {
             input_key: task.input_node_output_key,
             outcome: task.outcome.into(),
             reducer_output_id: task.reducer_output_id,
+            graph_version: task.graph_version,
         }
     }
 }

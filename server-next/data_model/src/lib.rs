@@ -14,6 +14,30 @@ use filter::LabelsFilter;
 use indexify_utils::default_creation_time;
 use serde::{Deserialize, Serialize};
 
+// Invoke graph for all existing payloads
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemTask {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub graph_version: GraphVersion,
+    pub restart_key: Option<Vec<u8>>, // Key for the next invocation id to process
+}
+
+impl SystemTask {
+    pub fn new(namespace: String, compute_graph_name: String, graph_version: GraphVersion) -> Self {
+        Self {
+            namespace,
+            compute_graph_name,
+            graph_version,
+            restart_key: None,
+        }
+    }
+
+    pub fn key_from(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}", namespace, compute_graph)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ExecutorId(String);
 
@@ -114,6 +138,7 @@ impl Node {
         invocation_id: &str,
         input_key: &str,
         reducer_output_id: Option<String>,
+        graph_version: GraphVersion,
     ) -> Result<Task> {
         let name = match self {
             Node::Router(router) => router.name.clone(),
@@ -126,6 +151,7 @@ impl Node {
             .invocation_id(invocation_id.to_string())
             .input_node_output_key(input_key.to_string())
             .reducer_output_id(reducer_output_id)
+            .graph_version(graph_version)
             .build()?;
         Ok(task)
     }
@@ -160,14 +186,29 @@ pub struct ComputeGraphCode {
     pub sha256_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
+pub struct GraphVersion(u32);
+
+impl GraphVersion {
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+impl Default for GraphVersion {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
     pub description: String,
+    pub version: GraphVersion, // Version incremented with code update
     pub code: ComputeGraphCode,
-    pub create_at: u64,
-    pub tomb_stoned: bool,
+    pub created_at: u64,
     pub start_fn: Node,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
@@ -208,6 +249,7 @@ pub enum OutputPayload {
 #[builder(build_fn(skip))]
 pub struct NodeOutput {
     pub id: String,
+    pub graph_version: GraphVersion,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
@@ -260,6 +302,7 @@ impl NodeOutputBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
+        let graph_version = self.graph_version.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
         let mut hasher = DefaultHasher::new();
@@ -278,6 +321,7 @@ impl NodeOutputBuilder {
         let id = format!("{:x}", hasher.finish());
         Ok(NodeOutput {
             id,
+            graph_version,
             namespace: ns,
             compute_graph_name: cg_name,
             invocation_id,
@@ -343,10 +387,12 @@ impl InvocationPayloadBuilder {
 pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
+    pub graph_version: GraphVersion,
     pub invocation_id: String,
     pub completed: bool,
-    pub outstanding_tasks: u16,
+    pub outstanding_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
+    pub is_system_task: bool,
 }
 
 impl GraphInvocationCtx {
@@ -380,13 +426,17 @@ impl GraphInvocationCtxBuilder {
         for (fn_name, _node) in compute_graph.nodes.iter() {
             fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
         }
+        let graph_version = self.graph_version.clone().unwrap_or_default();
+        let is_system_task = self.is_system_task.unwrap_or(false);
         Ok(GraphInvocationCtx {
             namespace,
+            graph_version,
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
-            outstanding_tasks: 0,
             fn_task_analytics,
+            outstanding_tasks: 1, // Starts with 1 for the initial state change event
+            is_system_task,
         })
     }
 }
@@ -438,6 +488,7 @@ pub struct Task {
     pub creation_time: SystemTime,
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
+    pub graph_version: GraphVersion,
 }
 
 impl Task {
@@ -514,6 +565,10 @@ impl TaskBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
+        let graph_version = self
+            .graph_version
+            .clone()
+            .ok_or(anyhow!("graph version is not present"))?;
         let reducer_output_id = self.reducer_output_id.clone().flatten();
         let id = uuid::Uuid::new_v4().to_string();
         let task = Task {
@@ -527,6 +582,7 @@ impl TaskBuilder {
             creation_time: SystemTime::now(),
             diagnostics: None,
             reducer_output_id,
+            graph_version,
         };
         Ok(task)
     }

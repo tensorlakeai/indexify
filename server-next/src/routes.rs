@@ -45,7 +45,7 @@ use download::{
     download_invocation_payload,
 };
 use internal_ingest::ingest_files_from_executor;
-use invoke::{invoke_with_file, invoke_with_object};
+use invoke::{invoke_with_file, invoke_with_object, rerun_compute_graph};
 
 use crate::{
     executors::ExecutorManager,
@@ -173,6 +173,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invoke_object",
             post(invoke_with_object).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/rerun",
+            post(rerun_compute_graph).with_state(route_state.clone()),
         )
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",

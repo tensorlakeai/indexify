@@ -964,6 +964,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "http"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,9 +1135,11 @@ dependencies = [
  "data_model",
  "figment",
  "futures",
+ "hex",
  "indexify_utils",
  "nanoid",
  "object_store",
+ "rand",
  "serde",
  "serde_json",
  "sha2",

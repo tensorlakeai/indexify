@@ -157,7 +157,7 @@ class ExtractorAgent:
                         function_worker=self._function_worker,
                         task=task,
                         input=fn.input,
-                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}",
+                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
                         init_value=fn.init_value,
                     )
                 )

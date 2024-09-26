@@ -37,6 +37,7 @@ pub async fn handle_invoke_compute_graph(
         &event.invocation_id,
         &event.invocation_id,
         None,
+        compute_graph.version,
     )?;
     Ok(TaskCreationResult {
         namespace: event.namespace.clone(),
@@ -106,6 +107,7 @@ pub async fn handle_task_finished(
                 &task.invocation_id,
                 &task.input_node_output_key,
                 None,
+                invocation_ctx.graph_version,
             )?;
             new_tasks.push(new_task);
         }
@@ -141,6 +143,7 @@ pub async fn handle_task_finished(
                         &task.invocation_id,
                         &reduction_task.task_output_key,
                         Some(output.id.clone()),
+                        invocation_ctx.graph_version,
                     )?;
 
                     return Ok(TaskCreationResult {
@@ -216,6 +219,7 @@ pub async fn handle_task_finished(
                 &task.invocation_id,
                 &output.key(&task.invocation_id),
                 None,
+                invocation_ctx.graph_version,
             )?;
             new_tasks.push(new_task);
         }

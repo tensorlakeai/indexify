@@ -75,7 +75,6 @@ impl Scheduler {
                     namespace: result.namespace.clone(),
                     invocation_id: result.invocation_id.clone(),
                     compute_graph: result.compute_graph.clone(),
-                    invocation_finished: result.invocation_finished,
                     tasks: result.tasks,
                 };
                 create_task_requests.push(request);

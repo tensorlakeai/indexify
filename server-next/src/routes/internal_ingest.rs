@@ -172,6 +172,7 @@ pub async fn ingest_files_from_executor(
         };
         let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
+            .graph_version(Default::default())
             .compute_graph_name(task_result.compute_graph.to_string())
             .invocation_id(task_result.invocation_id.to_string())
             .compute_fn_name(task_result.compute_fn.to_string())
@@ -196,6 +197,7 @@ pub async fn ingest_files_from_executor(
     if let Some(router_output) = task_result.router_output {
         let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
+            .graph_version(Default::default())
             .compute_graph_name(task_result.compute_graph.to_string())
             .invocation_id(task_result.invocation_id.to_string())
             .compute_fn_name(task_result.compute_fn.to_string())

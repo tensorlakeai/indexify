@@ -33,8 +33,8 @@ class Downloader:
         self.code_path = code_path
         self.base_url = base_url
 
-    async def download_graph(self, namespace: str, name: str):
-        path = os.path.join(self.code_path, namespace, name)
+    async def download_graph(self, namespace: str, name: str, version: int) -> str:
+        path = os.path.join(self.code_path, namespace, f"{name}.{version}")
         if os.path.exists(path):
             return path
 

@@ -8,7 +8,13 @@ use tokio::{self, signal, sync::watch};
 use tracing::info;
 
 use super::{routes::RouteState, scheduler::Scheduler};
-use crate::{config::ServerConfig, executors::ExecutorManager, gc::Gc, routes::create_routes};
+use crate::{
+    config::ServerConfig,
+    executors::ExecutorManager,
+    gc::Gc,
+    routes::create_routes,
+    system_tasks::SystemTasksExecutor,
+};
 
 pub struct Service {
     pub config: ServerConfig,
@@ -35,6 +41,8 @@ impl Service {
         let scheduler = Scheduler::new(indexify_state.clone());
 
         let mut gc = Gc::new(indexify_state.clone(), blob_storage, shutdown_rx.clone());
+        let mut system_tasks_executor =
+            SystemTasksExecutor::new(indexify_state.clone(), shutdown_rx.clone());
 
         let state_watcher_rx = indexify_state.get_state_change_watcher();
         tokio::spawn(async move {
@@ -46,6 +54,11 @@ impl Service {
             info!("starting garbage collector");
             let _ = gc.start().await;
             info!("garbage collector shutdown");
+        });
+        tokio::spawn(async move {
+            info!("starting system tasks executor");
+            let _ = system_tasks_executor.start().await;
+            info!("system tasks executor shutdown");
         });
 
         tokio::spawn(async move {

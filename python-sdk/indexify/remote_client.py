@@ -182,6 +182,9 @@ class RemoteClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         self._post("namespaces", json={"namespace": namespace})
 
+    def rerun_graph(self, graph: str):
+        self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/rerun")
+
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
