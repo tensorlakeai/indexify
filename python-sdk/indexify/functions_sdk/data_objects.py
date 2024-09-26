@@ -20,6 +20,7 @@ class FunctionWorkerOutput(BaseModel):
     stdout: Optional[str]
     stderr: Optional[str]
     reducer: bool = False
+    success: bool = True
 
 
 class File(BaseModel):

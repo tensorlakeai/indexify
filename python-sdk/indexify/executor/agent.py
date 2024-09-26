@@ -253,7 +253,7 @@ class ExtractorAgent:
                     async_task: ExtractTask
                     try:
                         outputs: FunctionWorkerOutput = await async_task
-                        if outputs.exception:
+                        if not outputs.success:
                             task_outcome = "failure"
                         else:
                             task_outcome = "success"
