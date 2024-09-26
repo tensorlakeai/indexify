@@ -12,31 +12,31 @@ import {
 import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
 import {
-  ComputeGraphsPageLoader,
-  IndividualComputeGraphPageLoader,
-  IndividualInvocationPageLoader,
-  NamespacesPageLoader,
+  ExtractionPolicyPageLoader,
+  SearchIndexPageLoader,
+  IndividualContentPageLoader,
+  ExtractorsPageLoader,
+  ExtractionGraphsPageLoader,
+  IndexesPageLoader,
+  SqlTablesPageLoader,
+  IndividualExtractionGraphPageLoader,
+  StateChangesPageLoader
 } from "./utils/loaders";
 import {
-  ComputeGraphsPage,
-  NamespacesPage,
-  IndividualComputeGraphPage,
-  IndividualInvocationPage
+  ExtractionPolicyPage,
+  SearchIndexPage,
+  IndividualContentPage,
+  ExtractorsPage,
+  ExtractionGraphsPage,
+  IndexesPage,
+  SqlTablesPage,
+  StateChangesPage
 } from "./routes/Namespace";
+import IndividualExtractionGraphPage from "./routes/Namespace/IndividualExtractionGraphPage";
 
-function RedirectToComputeGraphs() {
+function RedirectToExtractors() {
   const { namespace } = useParams();
-  
-  if (namespace === "namespaces") {
-    // Don't redirect if the param is "namespaces"
-    return null;
-  } else if (namespace === "namespace") {
-    // Redirect to extractors if the param is "namespace"
-    return <Navigate to={`/${namespace}/extractors`} replace />;
-  } else {
-    // Original behavior for other cases
-    return <Navigate to={`/${namespace}/extractors`} replace />;
-  }
+  return <Navigate to={`/${namespace}/extractors`} replace />;
 }
 
 const router = createBrowserRouter(
@@ -49,30 +49,60 @@ const router = createBrowserRouter(
       children: [
         {
           path: "/:namespace",
-          element: <RedirectToComputeGraphs />
+          element: <RedirectToExtractors />
         },
         {
-          path: "/namespaces",
-          element: <NamespacesPage />,
-          loader: NamespacesPageLoader,
+          path: "/:namespace/indexes/:indexName",
+          element: <SearchIndexPage />,
+          loader: SearchIndexPageLoader,
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/compute-graphs",
-          element: <ComputeGraphsPage />,
-          loader: ComputeGraphsPageLoader,
+          path: "/:namespace/extraction-graphs/:extractorName/content/:contentId",
+          element: <IndividualContentPage />,
+          loader: IndividualContentPageLoader,
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/compute-graphs/:compute-graph",
-          element: <IndividualComputeGraphPage />,
-          loader: IndividualComputeGraphPageLoader,
+          path: "/:namespace/extractors",
+          element: <ExtractorsPage />,
+          loader: ExtractorsPageLoader,
           errorElement: <ErrorPage />
         },
         {
-          path: "/:namespace/compute-graphs/:compute-graph/invocations/:invocation-id",
-          element: <IndividualInvocationPage />,
-          loader: IndividualInvocationPageLoader,
+          path: "/:namespace/extraction-graphs",
+          element: <ExtractionGraphsPage />,
+          loader: ExtractionGraphsPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/extraction-graphs/:extraction_graph",
+          element: <IndividualExtractionGraphPage />,
+          loader: IndividualExtractionGraphPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/extraction-graphs/:extraction_graph/extraction-policies/:policyName",
+          element: <ExtractionPolicyPage />,
+          loader: ExtractionPolicyPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/indexes",
+          element: <IndexesPage />,
+          loader: IndexesPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/sql-tables",
+          element: <SqlTablesPage />,
+          loader: SqlTablesPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/:namespace/state-changes",
+          element: <StateChangesPage />,
+          loader: StateChangesPageLoader,
           errorElement: <ErrorPage />
         },
       ]

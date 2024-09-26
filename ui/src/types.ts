@@ -1,4 +1,4 @@
-// import { IContentMetadata, ITask } from 'getindexify'
+import { IContentMetadata, ITask } from 'getindexify'
 
 export interface IExtractionGraphCol {
   displayName: string
@@ -13,9 +13,9 @@ export interface IExtractionGraphColumns {
   taskCount?: IExtractionGraphCol
 }
 
-// export interface IContentMetadataExtended extends IContentMetadata {
-//   children?: number
-// }
+export interface IContentMetadataExtended extends IContentMetadata {
+  children?: number
+}
 
 export interface TaskCounts {
   totalSuccess: number
@@ -28,16 +28,16 @@ export type TaskCountsMap = Map<
   TaskCounts
 >
 
-// export interface IHash {
-//   [key: string]: {
-//     tasks: ITask[],
-//     totalTasks?: {
-//       unknown?: number,
-//       success?: number,
-//       failure?: number,
-//     },
-//   };
-// }
+export interface IHash {
+  [key: string]: {
+    tasks: ITask[],
+    totalTasks?: {
+      unknown?: number,
+      success?: number,
+      failure?: number,
+    },
+  };
+}
 
 export interface StateChange {
   id: number;

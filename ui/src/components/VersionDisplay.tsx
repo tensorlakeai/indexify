@@ -50,7 +50,7 @@ const VersionDisplay: React.FC<VersionDisplayProps> = ({ owner, repo, variant = 
   useEffect(() => {
     const fetchOpenApiVersion = async () => {
       try {
-        const response = await fetch(`${serviceUrl}/docs/openapi.json`);
+        const response = await fetch(`${serviceUrl}/api-docs/openapi.json`);
         if (!response.ok) {
           throw new Error('Failed to fetch OpenAPI version');
         }
