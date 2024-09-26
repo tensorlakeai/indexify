@@ -72,7 +72,9 @@ class TestReduce(unittest.TestCase):
         graph = create_graph()
         client = create_client(local=True)
         client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(graph.name, block_until_done=True, x=3)
+        invocation_id = client.invoke_graph_with_object(
+            graph.name, block_until_done=True, x=3
+        )
         result = client.graph_outputs(
             graph.name, invocation_id, fn_name=store_result.name
         )

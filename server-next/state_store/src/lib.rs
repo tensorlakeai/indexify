@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     pin::Pin,
@@ -20,6 +20,7 @@ use data_model::{
     StateChangeId,
     Task,
     TaskFinishedEvent,
+    TaskId,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
@@ -45,6 +46,7 @@ pub mod test_state_store;
 pub struct ExecutorState {
     pub new_task_channel: broadcast::Sender<()>,
     pub num_registered: u64,
+    pub task_ids_sent: HashSet<TaskId>,
 }
 
 impl ExecutorState {
@@ -53,20 +55,27 @@ impl ExecutorState {
         Self {
             new_task_channel,
             num_registered: 0,
+            task_ids_sent: HashSet::new(),
         }
     }
 
-    pub fn added(&mut self) {
+    pub fn notify(&mut self) {
         let _ = self.new_task_channel.send(());
+    }
+
+    pub fn added(&mut self, task_ids: &Vec<TaskId>) {
+        self.task_ids_sent.extend(task_ids.clone());
     }
 
     // Send notification for remove because new task can be available if
     // were at maximum number of tasks before task completion.
-    pub fn removed(&mut self) {
+    pub fn removed(&mut self, task_id: TaskId) {
+        self.task_ids_sent.remove(&task_id);
         let _ = self.new_task_channel.send(());
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe(&mut self) -> broadcast::Receiver<()> {
+        self.task_ids_sent.clear();
         self.new_task_channel.subscribe()
     }
 }
@@ -144,6 +153,8 @@ impl IndexifyState {
     }
 
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+        let mut allocated_tasks_by_executor = Vec::new();
+        let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
         let txn = self.db.transaction();
         let new_state_changes = match &request.payload {
             requests::RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
@@ -160,6 +171,10 @@ impl IndexifyState {
             requests::RequestPayload::FinalizeTask(finalize_task) => {
                 let state_changes = self.finalize_task(&finalize_task).await?;
                 state_machine::mark_task_completed(self.db.clone(), &txn, &finalize_task)?;
+                tasks_finalized
+                    .entry(finalize_task.executor_id.clone())
+                    .or_default()
+                    .push(finalize_task.task_id.clone());
                 state_changes
             }
             requests::RequestPayload::CreateNameSpace(namespace_request) => {
@@ -201,13 +216,7 @@ impl IndexifyState {
                         &allocation.task,
                         &allocation.executor,
                     )?;
-                    self.executor_states
-                        .write()
-                        .await
-                        .get_mut(&allocation.executor)
-                        .map(|tasks| {
-                            tasks.added();
-                        });
+                    allocated_tasks_by_executor.push(allocation.executor.clone());
                 }
                 new_state_changes
             }
@@ -256,6 +265,26 @@ impl IndexifyState {
             &request.state_changes_processed.clone(),
         )?;
         txn.commit()?;
+        for executor_id in allocated_tasks_by_executor {
+            self.executor_states
+                .write()
+                .await
+                .get_mut(&executor_id)
+                .map(|executor_state| {
+                    executor_state.notify();
+                });
+        }
+        for (executor_id, tasks) in tasks_finalized {
+            self.executor_states
+                .write()
+                .await
+                .get_mut(&executor_id)
+                .map(|executor_state| {
+                    for task_id in tasks {
+                        executor_state.removed(task_id);
+                    }
+                });
+        }
         self.handle_invocation_state_changes(&request).await;
         for state_change in new_state_changes {
             self.state_change_tx.send(state_change.id).unwrap();
@@ -449,7 +478,22 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
                 .reader()
                 .get_tasks_by_executor(&executor, limit)
                  {
-                    Ok(tasks) => yield Ok(tasks),
+                    Ok(tasks) => {
+                        let state = state.clone();
+                        let filtered_tasks = async {
+                            let mut executor_state = state.executor_states.write().await;
+                            let executor_s = executor_state.get_mut(&executor).unwrap();
+                            let mut filtered_tasks = vec![];
+                            for task in &tasks {
+                                if !executor_s.task_ids_sent.contains(&task.id) {
+                                    filtered_tasks.push(task.clone());
+                                    executor_s.added(&vec![task.id.clone()]);
+                                }
+                            }
+                            filtered_tasks
+                        }.await;
+                        yield Ok(filtered_tasks)
+                    },
                     Err(e) => {
                         yield Err(e);
                         return;
@@ -467,7 +511,7 @@ mod tests {
     use std::collections::HashMap;
 
     use data_model::{
-        test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        test_objects::tests::{create_mock_task, mock_graph_a, TEST_NAMESPACE},
         ComputeGraph,
         GraphInvocationCtxBuilder,
         Namespace,
@@ -592,21 +636,19 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         let executor_id = ExecutorId::new("executor1".to_string());
-        let task = TaskBuilder::default()
-            .namespace("namespace".to_string())
-            .compute_fn_name("fn".to_string())
-            .compute_graph_name("graph".to_string())
-            .input_node_output_key("namespace|graph|ingested_id|fn|id_1".to_string())
-            .invocation_id("ingested_id".to_string())
-            .reducer_output_id(None)
-            .build()?;
-
+        let cg = mock_graph_a();
+        let task = create_mock_task(
+            &cg,
+            "fn",
+            "namespace|graph|ingested_id|fn|id_1",
+            "ingested_id",
+        );
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
-            .build()?;
+            .build(cg.clone())?;
         indexify_state.db.put_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
             graph_invocation_ctx.key(),
@@ -647,21 +689,19 @@ mod tests {
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].id, task.id);
 
-        let task_1 = TaskBuilder::default()
-            .namespace("namespace".to_string())
-            .compute_fn_name("fn".to_string())
-            .compute_graph_name("graph".to_string())
-            .input_node_output_key("namespace|graph|ingested_id|fn|id_2".to_string())
-            .invocation_id("ingested_id".to_string())
-            .reducer_output_id(None)
-            .build()?;
+        let task_1 = create_mock_task(
+            &cg,
+            "fn",
+            "namespace|graph|ingested_id|fn|id_2",
+            "ingested_id",
+        );
 
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
-            .build()?;
+            .build(cg.clone())?;
         indexify_state.db.put_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
             graph_invocation_ctx.key(),
@@ -698,9 +738,8 @@ mod tests {
 
         let res = stream.next().await.unwrap()?;
 
-        assert_eq!(res.len(), 2);
-        assert_eq!(res[0].id, task.id);
-        assert_eq!(res[1].id, task_1.id);
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].id, task_1.id);
 
         Ok(())
     }

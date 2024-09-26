@@ -14,11 +14,14 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput, \
-    FunctionWorkerOutput
+from indexify.functions_sdk.data_objects import (
+    FunctionWorkerOutput,
+    IndexifyData,
+    RouterOutput,
+)
 
 from .api_objects import ExecutorMetadata, Task
-from .downloader import Downloader, DownloadedInputs
+from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
 from .task_reporter import TaskReporter
@@ -113,7 +116,7 @@ class ExtractorAgent:
                     Panel(
                         f"Reporting outcome of task {task_outcome.task.id}\n"
                         f"Outcome: {style_outcome}\n"
-                        f"Outputs: {len(task_outcome.outputs)}",
+                        f"Outputs: {len(task_outcome.outputs or [])}  Router Output: {task_outcome.router_output}",
                         title="Task Completion",
                         border_style="info",
                     )
@@ -121,15 +124,7 @@ class ExtractorAgent:
 
                 try:
                     # Send task outcome to the server
-                    self._task_reporter.report_task_outcome(
-                        task_outcome.outputs,
-                        task_outcome.router_output,
-                        task_outcome.task,
-                        task_outcome.task_outcome,
-                        task_outcome.errors,
-                        task_outcome.stdout,
-                        task_outcome.stderr,
-                    )
+                    self._task_reporter.report_task_outcome(completed_task=task_outcome)
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
                     console.print(
@@ -251,46 +246,27 @@ class ExtractorAgent:
                             task=async_task.task,
                             task_outcome="failure",
                             outputs=[],
-                            errors=str(async_task.exception())
+                            errors=str(async_task.exception()),
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
                     async_task: ExtractTask
                     try:
                         outputs: FunctionWorkerOutput = await async_task
-                        router_output = (
-                            outputs if isinstance(outputs, RouterOutput) else None
-                        )
-
-                        errors = (
-                            outputs.exception if not isinstance(outputs, RouterOutput) else []
-                        )
-
-                        fn_stdout = (
-                            outputs.stdout if not isinstance(outputs, RouterOutput) else []
-                        )
-
-                        fn_stderr = (
-                            outputs.stderr if not isinstance(outputs, RouterOutput) else []
-                        )
-
-                        if errors:
+                        if outputs.exception:
                             task_outcome = "failure"
-                            fn_outputs = []
                         else:
                             task_outcome = "success"
-                            fn_outputs = (
-                                outputs.indexify_data if not isinstance(outputs, RouterOutput) else []
-                            )
 
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome=task_outcome,
-                            outputs=fn_outputs,
-                            router_output=router_output,
-                            errors=errors,
-                            stdout=fn_stdout,
-                            stderr=fn_stderr,
+                            outputs=outputs.fn_outputs,
+                            router_output=outputs.router_output,
+                            errors=outputs.exception,
+                            stdout=outputs.stdout,
+                            stderr=outputs.stderr,
+                            reducer=outputs.reducer,
                         )
                         self._task_store.complete(outcome=completed_task)
                     except BrokenProcessPool:

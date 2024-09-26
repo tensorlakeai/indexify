@@ -1,7 +1,9 @@
-from indexify import indexify_function, Graph
-from typing import List
-from indexify.client import create_client
 import unittest
+from typing import List
+
+from indexify import Graph, indexify_function
+from indexify.client import create_client
+
 
 @indexify_function()
 def generate_seq(x: int) -> List[int]:
@@ -35,13 +37,19 @@ class TestVersionAndGraphRerun(unittest.TestCase):
         graph = create_graph()
         client = create_client()
         client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(graph.name, block_until_done=True, x=3)
-        print(client.graph_outputs(graph.name, invocation_id=invocation_id, fn_name="square"))
+        invocation_id = client.invoke_graph_with_object(
+            graph.name, block_until_done=True, x=3
+        )
+        print(
+            client.graph_outputs(
+                graph.name, invocation_id=invocation_id, fn_name="square"
+            )
+        )
 
+        # client.register_compute_graph(create_graph_v2())
+        # invocation_id = client.invoke_graph_with_object(graph.name, block_until_done=True, x=3)
+        # print(client.graph_outputs(graph.name, invocation_id=invocation_id, fn_name="add_one"))
 
-        #client.register_compute_graph(create_graph_v2())
-        #invocation_id = client.invoke_graph_with_object(graph.name, block_until_done=True, x=3)
-        #print(client.graph_outputs(graph.name, invocation_id=invocation_id, fn_name="add_one"))
 
 if __name__ == "__main__":
     unittest.main()

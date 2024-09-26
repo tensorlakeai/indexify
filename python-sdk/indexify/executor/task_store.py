@@ -12,11 +12,12 @@ from .api_objects import Task
 class CompletedTask(BaseModel):
     task: Task
     task_outcome: Literal["success", "failure"]
-    outputs: List[IndexifyData]
+    outputs: Optional[List[IndexifyData]] = None
     router_output: Optional[RouterOutput] = None
     errors: Optional[str] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
+    reducer: bool = False
 
 
 class TaskStore:
@@ -32,6 +33,7 @@ class TaskStore:
         return self._tasks[id]
 
     def add_tasks(self, tasks: List[Task]):
+        task: Task
         for task in tasks:
             if (
                 (task.id in self._tasks)
@@ -39,7 +41,9 @@ class TaskStore:
                 or (task.id in self._finished)
             ):
                 continue
-            print(f"[bold] task store: [/bold] added task {task.id} to queue")
+            print(
+                f"[bold] task store: [/bold] added task: {task.id} graph: {task.compute_graph} fn: {task.compute_fn} to queue"
+            )
             self._tasks[task.id] = task
             self._new_task_event.set()
 
@@ -83,6 +87,7 @@ class TaskStore:
     def mark_reported(self, task_id: str):
         self._tasks.pop(task_id)
         self._finished.pop(task_id)
+        print(f"[bold] task store: [/bold] removed task: {task_id} from queue")
 
     def report_failed(self, task_id: str):
         if self._finished[task_id].task_outcome != "Failed":

@@ -1,12 +1,16 @@
 import asyncio
 import traceback
 from concurrent.futures.process import BrokenProcessPool
-from typing import Dict, List, Union, Optional
+from typing import Dict, List, Optional, Union
 
+from pydantic import BaseModel
 from rich import print
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput, \
-    FunctionWorkerOutput
+from indexify.functions_sdk.data_objects import (
+    FunctionWorkerOutput,
+    IndexifyData,
+    RouterOutput,
+)
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
@@ -15,7 +19,13 @@ function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
 import concurrent.futures
 import io
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
+
+
+class FunctionOutput(BaseModel):
+    fn_outputs: Optional[List[IndexifyData]]
+    router_output: Optional[RouterOutput]
+    reducer: bool = False
 
 
 class LoggingProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
@@ -38,7 +48,9 @@ class LoggingProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
         return result, exception, stdout_capture.getvalue(), stderr_capture.getvalue()
 
     def submit(self, fn, *args, **kwargs):
-        fn_future = super().submit(LoggingProcessPoolExecutor.wrapped_fn, fn, *args, **kwargs)
+        fn_future = super().submit(
+            LoggingProcessPoolExecutor.wrapped_fn, fn, *args, **kwargs
+        )
 
         return fn_future
 
@@ -58,12 +70,8 @@ def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str
 
 class FunctionWorker:
     def __init__(self, workers: int = 1) -> None:
-        # self._executor: concurrent.futures.ProcessPoolExecutor = (
-        #     concurrent.futures.ProcessPoolExecutor(max_workers=workers)
-        # )
-
-        self._executor: LoggingProcessPoolExecutor = (
-            LoggingProcessPoolExecutor(max_workers=workers)
+        self._executor: LoggingProcessPoolExecutor = LoggingProcessPoolExecutor(
+            max_workers=workers
         )
 
     async def async_submit(
@@ -76,7 +84,12 @@ class FunctionWorker:
         init_value: Optional[IndexifyData] = None,
     ) -> FunctionWorkerOutput:
         try:
-            result, exception, stdout, stderr = await asyncio.get_running_loop().run_in_executor(
+            (
+                result,
+                exception,
+                stdout,
+                stderr,
+            ) = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 _run_function,
                 namespace,
@@ -91,10 +104,12 @@ class FunctionWorker:
             raise mp
 
         return FunctionWorkerOutput(
-            indexify_data=result,
+            fn_outputs=result.fn_outputs,
+            router_output=result.router_output,
             exception=exception,
             stdout=stdout,
-            stderr=stderr
+            stderr=stderr,
+            reducer=result.reducer,
         )
 
     def shutdown(self):
@@ -118,8 +133,13 @@ def _run_function(
 
     graph: Graph = graphs[f"{namespace}/{graph_name}"]
     if fn_name in graph.routers:
-        return graph.invoke_router(fn_name, input)
+        graph_outputs = graph.invoke_router(fn_name, input)
+        return FunctionOutput(
+            fn_outputs=None, router_output=graph_outputs, reducer=False
+        )
 
     output = graph.invoke_fn_ser(fn_name, input, init_value)
 
-    return output
+    is_reducer = graph.get_function(fn_name).indexify_function.accumulate is not None
+
+    return FunctionOutput(fn_outputs=output, router_output=None, reducer=is_reducer)

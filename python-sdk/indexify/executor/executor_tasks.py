@@ -1,6 +1,8 @@
 import asyncio
 from typing import Optional
+
 from indexify.functions_sdk.data_objects import IndexifyData
+
 from .api_objects import Task
 from .downloader import Downloader
 from .function_worker import FunctionWorker

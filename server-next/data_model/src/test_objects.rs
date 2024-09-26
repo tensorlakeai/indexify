@@ -19,10 +19,29 @@ pub mod tests {
         InvocationPayload,
         InvocationPayloadBuilder,
         NodeOutputBuilder,
+        Task,
+        TaskBuilder,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
+
+    pub fn create_mock_task(
+        cg: &ComputeGraph,
+        cg_fn: &str,
+        node_output_key: &str,
+        inv_id: &str,
+    ) -> Task {
+        TaskBuilder::default()
+            .namespace(cg.namespace.to_string())
+            .compute_fn_name(cg_fn.to_string())
+            .compute_graph_name(cg.name.to_string())
+            .input_node_output_key(node_output_key.to_string())
+            .invocation_id(inv_id.to_string())
+            .reducer_output_id(None)
+            .build()
+            .unwrap()
+    }
 
     fn test_compute_fn(name: &str) -> ComputeFn {
         ComputeFn {

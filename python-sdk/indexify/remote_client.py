@@ -185,12 +185,12 @@ class RemoteClient(IndexifyClient):
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
-        json_object = {}
+        input_as_dict = {}
         for key, value in kwargs.items():
             if isinstance(value, BaseModel):
-                value = value.model_dump_json(exclude_none=True)
-            json_object[key] = value
-        cbor_object = cbor2.dumps(json_object)
+                value = value.model_dump(exclude_none=True)
+            input_as_dict[key] = value
+        cbor_object = cbor2.dumps(input_as_dict)
         params = {"block_until_finish": block_until_done}
         with httpx.Client() as client:
             with connect_sse(

@@ -7,6 +7,7 @@ from rich import print
 
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import Task, TaskResult
+from indexify.executor.task_store import CompletedTask
 from indexify.functions_sdk.cbor_serializer import CborSerializer
 from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 
@@ -25,66 +26,66 @@ class TaskReporter:
         self._base_url = base_url
         self._executor_id = executor_id
 
-    def report_task_outcome(
-        self,
-        outputs: List[IndexifyData],
-        router_output: Optional[RouterOutput],
-        task: Task,
-        outcome: str,
-        exception_msg: Optional[str],
-        stdout: Optional[str],
-        stderr: Optional[str],
-    ):
+    def report_task_outcome(self, completed_task: CompletedTask):
         fn_outputs = []
-        for output in outputs:
-            print(
-                f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)}"
-            )
+        print(
+            f"[bold]task-reporter[/bold] uploading output of size: {len(completed_task.outputs or [])}"
+        )
+        for output in completed_task.outputs or []:
             output_bytes = CborSerializer.serialize(output)
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )
 
-        if exception_msg:
+        if completed_task.errors:
             print(
-                f"[bold]task-reporter[/bold] uploading error of size: {len(exception_msg)}"
+                f"[bold]task-reporter[/bold] uploading error of size: {len(completed_task.errors)}"
             )
             fn_outputs.append(
                 (
                     "exception_msg",
-                    (nanoid.generate(), io.BytesIO(exception_msg.encode())),
+                    (nanoid.generate(), io.BytesIO(completed_task.errors.encode())),
                 )
             )
 
-        if stdout:
+        if completed_task.stdout:
             print(
-                f"[bold]task-reporter[/bold] uploading stdout of size: {len(stdout)}"
+                f"[bold]task-reporter[/bold] uploading stdout of size: {len(completed_task.stdout)}"
             )
             fn_outputs.append(
-                ("stdout", (nanoid.generate(), io.BytesIO(stdout.encode())))
+                (
+                    "stdout",
+                    (nanoid.generate(), io.BytesIO(completed_task.stdout.encode())),
+                )
             )
 
-        if stderr:
+        if completed_task.stderr:
             print(
-                f"[bold]task-reporter[/bold] uploading stderr of size: {len(stderr)}"
+                f"[bold]task-reporter[/bold] uploading stderr of size: {len(completed_task.stderr)}"
             )
             fn_outputs.append(
-                ("stderr", (nanoid.generate(), io.BytesIO(stderr.encode())))
+                (
+                    "stderr",
+                    (nanoid.generate(), io.BytesIO(completed_task.stderr.encode())),
+                )
             )
 
         router_output = (
-            ApiRouterOutput(edges=router_output.edges) if router_output else None
+            ApiRouterOutput(edges=completed_task.router_output.edges)
+            if completed_task.router_output
+            else None
         )
 
         task_result = TaskResult(
             router_output=router_output,
-            outcome=outcome,
-            namespace=task.namespace,
-            compute_graph=task.compute_graph,
-            compute_fn=task.compute_fn,
-            invocation_id=task.invocation_id,
+            outcome=completed_task.task_outcome,
+            namespace=completed_task.task.namespace,
+            compute_graph=completed_task.task.compute_graph,
+            compute_fn=completed_task.task.compute_fn,
+            invocation_id=completed_task.task.invocation_id,
             executor_id=self._executor_id,
-            task_id=task.id,
+            task_id=completed_task.task.id,
+            reducer=completed_task.reducer,
         )
         task_result_data = task_result.model_dump_json(exclude_none=True)
 

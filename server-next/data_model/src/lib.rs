@@ -33,7 +33,7 @@ impl ExecutorId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskId(String);
 
 impl TaskId {
@@ -363,7 +363,7 @@ impl GraphInvocationCtx {
 }
 
 impl GraphInvocationCtxBuilder {
-    pub fn build(&mut self) -> Result<GraphInvocationCtx> {
+    pub fn build(&mut self, compute_graph: ComputeGraph) -> Result<GraphInvocationCtx> {
         let namespace = self
             .namespace
             .clone()
@@ -376,13 +376,17 @@ impl GraphInvocationCtxBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingested_data_object_id is required"))?;
+        let mut fn_task_analytics = HashMap::new();
+        for (fn_name, _node) in compute_graph.nodes.iter() {
+            fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
+        }
         Ok(GraphInvocationCtx {
             namespace,
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
             outstanding_tasks: 0,
-            fn_task_analytics: HashMap::new(),
+            fn_task_analytics,
         })
     }
 }
@@ -457,12 +461,12 @@ impl Task {
         format!("{}|{}|{}", self.namespace, self.id, output_id)
     }
 
-    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> Vec<u8> {
+    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
         let duration = self.creation_time.duration_since(UNIX_EPOCH).unwrap();
         let secs = duration.as_secs() as u128;
         let nsecs = duration.subsec_nanos() as u128;
         let nsecs = secs * 1_000_000_000 + nsecs;
-        format!("{}|{}|{}", executor_id, nsecs, self.key(),).into()
+        format!("{}|{}|{}", executor_id, nsecs, self.key())
     }
 
     pub fn key_from_allocation_key(allocation_key: &[u8]) -> Result<Vec<u8>> {

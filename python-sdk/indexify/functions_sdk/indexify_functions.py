@@ -157,7 +157,13 @@ class IndexifyFunctionWrapper:
 
     def run_router(self, input: Union[Dict, Type[BaseModel]]) -> List[str]:
         kwargs = input if isinstance(input, dict) else {"input": input}
-        extracted_data = self.indexify_function.run(**kwargs)
+        args = []
+        kwargs = {}
+        if isinstance(input, dict):
+            kwargs = input
+        else:
+            args.append(input)
+        extracted_data = self.indexify_function.run(*args, **kwargs)
         if not isinstance(extracted_data, list) and extracted_data is not None:
             return [extracted_data.name]
         edges = []

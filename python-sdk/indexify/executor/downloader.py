@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+
 import httpx
 from pydantic import BaseModel
 from rich.console import Console
@@ -20,6 +21,7 @@ custom_theme = Theme(
 )
 
 console = Console(theme=custom_theme)
+
 
 class DownloadedInputs(BaseModel):
     input: IndexifyData
@@ -97,7 +99,9 @@ class Downloader:
             raise
 
         if task.invocation_id == input_id:
-            return DownloadedInputs(input=IndexifyData(payload=response.content, id=input_id))
+            return DownloadedInputs(
+                input=IndexifyData(payload=response.content, id=input_id)
+            )
 
         init_value = None
         if reducer_url:
@@ -115,4 +119,6 @@ class Downloader:
                 raise
             init_value = CborSerializer.deserialize(init_value.content)
 
-        return DownloadedInputs(input=CborSerializer.deserialize(response.content), init_value=init_value)
+        return DownloadedInputs(
+            input=CborSerializer.deserialize(response.content), init_value=init_value
+        )

@@ -111,12 +111,13 @@ pub fn create_graph_input(
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
     let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
-    let _ = txn
+    let cg = txn
         .get_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &compute_graph_key,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+    let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
     let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
@@ -129,7 +130,7 @@ pub fn create_graph_input(
         .compute_graph_name(req.compute_graph_name.to_string())
         .invocation_id(req.invocation_payload.id.clone())
         .fn_task_analytics(HashMap::new())
-        .build()?;
+        .build(cg)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         graph_invocation_ctx.key(),
@@ -326,6 +327,7 @@ pub(crate) fn create_tasks(
             .entry(task.compute_fn_name.clone())
             .or_insert_with(|| TaskAnalytics::default());
         analytics.pending();
+        graph_ctx.outstanding_tasks += 1;
         let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
 
         txn.put_cf(
@@ -420,6 +422,7 @@ pub fn mark_task_completed(
         data_model::TaskOutcome::Failure => analytics.fail(),
         _ => {}
     }
+    graph_ctx.outstanding_tasks -= 1;
     let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),

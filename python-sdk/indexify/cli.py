@@ -1,5 +1,7 @@
 import asyncio
 import io
+import os
+import shutil
 from typing import Annotated, List, Optional
 
 import docker
@@ -84,6 +86,8 @@ def executor(
     from pathlib import Path
 
     executor_cache = Path(executor_cache).expanduser().absolute()
+    if os.path.exists(executor_cache):
+        shutil.rmtree(executor_cache)
     Path(executor_cache).mkdir(parents=True, exist_ok=True)
 
     agent = ExtractorAgent(
