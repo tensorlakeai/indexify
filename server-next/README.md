@@ -1,4 +1,4 @@
-# Indexify 
+no# Indexify 
 
 ## Stateful Compute Framework for building Data-Intensive Agentic Workflows 
 
@@ -180,7 +180,7 @@ You could deploy Indexify Server in production in the following ways -
 ##### Scheduler 
 
 * Enable batching in functions
-* Data Local function executions - Move functions to where data lives for faster execution.
+* Data Local function executions - Prioritizs scheduling on machines where intermediate output lives for faster execution.
 * Reducer optimizations - Being able to batch serial execution reduce function calls. 
 * Machine parallel scheduling for even lower latency.
 * Support Cycles in the graphs for more flexible agentic behaviors in Graphs.
