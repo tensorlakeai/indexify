@@ -39,6 +39,7 @@ use crate::executors::{self, EXECUTOR_TIMEOUT};
 mod download;
 mod internal_ingest;
 mod invoke;
+mod logs;
 use download::{
     download_fn_output_by_key,
     download_fn_output_payload,
@@ -46,6 +47,7 @@ use download::{
 };
 use internal_ingest::ingest_files_from_executor;
 use invoke::{invoke_with_file, invoke_with_object, rerun_compute_graph};
+use logs::download_logs;
 
 use crate::{
     executors::ExecutorManager,
@@ -86,6 +88,7 @@ use crate::{
             list_tasks,
             list_outputs,
             delete_invocation,
+            logs::download_logs,
         ),
         components(
             schemas(
@@ -197,6 +200,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/:id",
             get(download_fn_output_payload).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/logs/:file",
+            get(download_logs).with_state(route_state.clone()),
         )
         .route(
             "/internal/ingest_files",

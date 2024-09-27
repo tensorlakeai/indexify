@@ -496,6 +496,18 @@ impl Task {
         self.outcome != TaskOutcome::Unknown
     }
 
+    pub fn key_prefix_for_fn(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn_name: &str,
+    ) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            namespace, compute_graph, invocation_id, compute_fn_name
+        )
+    }
+
     pub fn key(&self) -> String {
         // <namespace>_<compute_graph_name>_<invocation_id>_<fn_name>_<task_id>
         format!(

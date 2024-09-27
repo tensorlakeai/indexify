@@ -3,6 +3,7 @@ use std::{mem, sync::Arc};
 use anyhow::{anyhow, Result};
 use data_model::{
     ComputeGraph,
+    DataPayload,
     ExecutorId,
     ExecutorMetadata,
     GraphInvocationCtx,
@@ -309,6 +310,49 @@ impl StateReader {
             }
             None => Ok(0),
         }
+    }
+
+    pub fn get_diagnostic_payload(
+        &self,
+        ns: &str,
+        cg: &str,
+        inv_id: &str,
+        cg_fn: &str,
+        file: &str,
+    ) -> Result<Option<DataPayload>> {
+        let key = Task::key_prefix_for_fn(ns, cg, inv_id, cg_fn);
+        println!("{}", key);
+        let diagnostic = self.get_rows_from_cf_with_limits::<Task>(
+            &key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::Tasks,
+            None,
+        )?;
+        for task in diagnostic.0 {
+            if let Some(diagnostics) = task.diagnostics {
+                match file {
+                    "stdout" => {
+                        if let Some(stdout) = diagnostics.stdout {
+                            return Ok(Some(stdout));
+                        }
+                    }
+                    "stderr" => {
+                        if let Some(stderr) = diagnostics.stderr {
+                            return Ok(Some(stderr));
+                        }
+                    }
+                    "exception_msg" => {
+                        if let Some(exception_msg) = diagnostics.exception {
+                            return Ok(Some(exception_msg));
+                        }
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Invalid file type"));
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 
     pub fn get_system_tasks(

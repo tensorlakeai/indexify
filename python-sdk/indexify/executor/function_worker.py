@@ -38,6 +38,7 @@ class FunctionOutput(BaseModel):
     router_output: Optional[RouterOutput]
     reducer: bool = False
     success: bool = True
+    exception: Optional[str] = None
     stdout: str = ""
     stderr: str = ""
 
@@ -99,7 +100,7 @@ class FunctionWorker:
         return FunctionWorkerOutput(
             fn_outputs=result.fn_outputs,
             router_output=result.router_output,
-            exception=None,
+            exception=result.exception,
             stdout=result.stdout,
             stderr=result.stderr,
             reducer=result.reducer,
@@ -152,7 +153,7 @@ def _run_function(
     # WARNING - IF THIS FAILS, WE WILL NOT BE ABLE TO RECOVER
     # ANY LOGS
     if has_failed:
-        return FunctionWorkerOutput(
+        return FunctionOutput(
             fn_outputs=None,
             router_output=None,
             exception=exception_msg,
