@@ -12,6 +12,8 @@ class Task(BaseModel):
     compute_fn: str
     invocation_id: str
     input_key: str
+    reducer_output_id: Optional[str] = None
+    graph_version: int
 
 
 class ExecutorMetadata(BaseModel):
@@ -38,3 +40,4 @@ class TaskResult(BaseModel):
     invocation_id: str
     executor_id: str
     task_id: str
+    reducer: bool = False

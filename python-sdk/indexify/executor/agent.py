@@ -1,6 +1,7 @@
 import asyncio
 import json
 import ssl
+import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
@@ -8,17 +9,19 @@ import httpx
 import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
-from rich import print
 from rich.console import Console
 from rich.panel import Panel
-from rich.style import Style
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.functions_sdk.data_objects import (
+    FunctionWorkerOutput,
+    IndexifyData,
+    RouterOutput,
+)
 
 from .api_objects import ExecutorMetadata, Task
-from .downloader import Downloader
+from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
 from .task_reporter import TaskReporter
@@ -42,6 +45,7 @@ class FunctionInput(BaseModel):
     compute_graph: str
     function: str
     input: IndexifyData
+    init_value: Optional[IndexifyData] = None
 
 
 class ExtractorAgent:
@@ -102,24 +106,25 @@ class ExtractorAgent:
         while True:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
+                outcome = task_outcome.task_outcome
+                style_outcome = (
+                    f"[bold red] {outcome} [/]"
+                    if "fail" in outcome
+                    else f"[bold green] {outcome} [/]"
+                )
                 console.print(
                     Panel(
                         f"Reporting outcome of task {task_outcome.task.id}\n"
-                        f"Outcome: {task_outcome.task_outcome}\n"
-                        f"Outputs: {len(task_outcome.outputs)}",
+                        f"Outcome: {style_outcome}\n"
+                        f"Outputs: {len(task_outcome.outputs or [])}  Router Output: {task_outcome.router_output}",
                         title="Task Completion",
                         border_style="info",
                     )
                 )
-                task: Task = self._task_store.get_task(task_outcome.task.id)
+
                 try:
                     # Send task outcome to the server
-                    self._task_reporter.report_task_outcome(
-                        task_outcome.outputs,
-                        task_outcome.router_output,
-                        task_outcome.task,
-                        task_outcome.task_outcome,
-                    )
+                    self._task_reporter.report_task_outcome(completed_task=task_outcome)
                 except Exception as e:
                     # The connection was dropped in the middle of the reporting, process, retry
                     console.print(
@@ -152,13 +157,16 @@ class ExtractorAgent:
                         function_worker=self._function_worker,
                         task=task,
                         input=fn.input,
-                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}",
+                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
+                        init_value=fn.init_value,
                     )
                 )
+
             fn_queue = []
             done, pending = await asyncio.wait(
                 async_tasks, return_when=asyncio.FIRST_COMPLETED
             )
+
             async_tasks: List[asyncio.Task] = list(pending)
             for async_task in done:
                 if async_task.get_name() == "get_runnable_tasks":
@@ -220,7 +228,7 @@ class ExtractorAgent:
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
-                    function_input: bytes = await async_task
+                    downloaded_inputs: DownloadedInputs = await async_task
                     task: Task = async_task.task
                     fn_queue.append(
                         FunctionInput(
@@ -228,39 +236,37 @@ class ExtractorAgent:
                             namespace=task.namespace,
                             compute_graph=task.compute_graph,
                             function=task.compute_fn,
-                            input=function_input,
+                            input=downloaded_inputs.input,
+                            init_value=downloaded_inputs.init_value,
                         )
                     )
                 elif async_task.get_name() == "run_function":
                     if async_task.exception():
-                        console.print(
-                            Text("Execution Error: ", style="red bold")
-                            + Text(
-                                f"Failed to execute tasks: {async_task.exception()}",
-                                style="red",
-                            )
-                        )
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="failure",
                             outputs=[],
+                            errors=str(async_task.exception()),
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
                     async_task: ExtractTask
                     try:
-                        outputs = await async_task
-                        router_output = (
-                            outputs if isinstance(outputs, RouterOutput) else None
-                        )
-                        fn_outputs = (
-                            outputs if not isinstance(outputs, RouterOutput) else []
-                        )
+                        outputs: FunctionWorkerOutput = await async_task
+                        if not outputs.success:
+                            task_outcome = "failure"
+                        else:
+                            task_outcome = "success"
+
                         completed_task = CompletedTask(
                             task=async_task.task,
-                            task_outcome="success",
-                            outputs=fn_outputs,
-                            router_output=router_output,
+                            task_outcome=task_outcome,
+                            outputs=outputs.fn_outputs,
+                            router_output=outputs.router_output,
+                            errors=outputs.exception,
+                            stdout=outputs.stdout,
+                            stderr=outputs.stderr,
+                            reducer=outputs.reducer,
                         )
                         self._task_store.complete(outcome=completed_task)
                     except BrokenProcessPool:

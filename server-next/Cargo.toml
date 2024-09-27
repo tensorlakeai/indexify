@@ -40,6 +40,7 @@ utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 object_store = {version= "0.11.0", features = ["aws"]}
 futures = "0.3.30"
 bytes = "1.7.2"
+pin-project-lite = "0.2.14"
 async-trait = "0.1.82"
 tokio-stream = "0.1.16"
 reqwest = { version = "0.12.7", default-features = false, features = [
@@ -55,6 +56,9 @@ tower-http = { version = "0.5.2", default-features = false, features = [
 ] }
 pin-project = "1.1.5"
 ciborium = "0.2.2"
+opentelemetry_sdk = "0.25.0"
+opentelemetry = "0.25.0"
+uuid = { version = "1.10.0", features = ["v4"] }
 
 [dependencies]
 async-stream = {workspace = true}
@@ -78,11 +82,13 @@ utoipa-swagger-ui = { workspace = true }
 sha2={workspace=true}
 nanoid={workspace=true}
 object_store.workspace = true
-uuid = { version = "1.10.0", features = ["v4"] }
+uuid = {workspace=true}
 indexify_utils = {workspace=true}
 tower-http = { workspace = true }
 bytes.workspace = true
 ciborium.workspace = true
+rand.workspace = true
+hex = "0.4.3"
 
 [dev-dependencies]
 tempfile = { workspace = true }

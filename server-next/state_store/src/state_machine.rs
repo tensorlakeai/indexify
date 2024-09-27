@@ -2,15 +2,19 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    ChangeType,
     ComputeGraph,
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
+    InvokeComputeGraphEvent,
     Namespace,
     NodeOutput,
     OutputPayload,
     StateChange,
+    StateChangeBuilder,
     StateChangeId,
+    SystemTask,
     Task,
     TaskAnalytics,
 };
@@ -36,7 +40,12 @@ use crate::requests::{
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
+    ReductionTasks,
     RegisterExecutorRequest,
+    RemoveSystemTaskRequest,
+    RerunComputeGraphRequest,
+    RerunInvocationRequest,
+    UpdateSystemTaskRequest,
 };
 
 pub type ContentId = String;
@@ -57,6 +66,7 @@ pub enum IndexifyObjectsColumns {
 
     Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
+    ReductionTasks,     //  Ns_CG_Fn_TaskId -> ReduceTask
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
@@ -69,6 +79,10 @@ pub enum IndexifyObjectsColumns {
     UnallocatedTasks,        //  Task_Key -> Empty
 
     GcUrls, // List of URLs pending deletion
+
+    SystemTasks, // Long running tasks involving multiple invocations
+
+    Stats, // Stats
 }
 
 impl IndexifyObjectsColumns {
@@ -103,18 +117,203 @@ pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -
     Ok(())
 }
 
+pub fn remove_system_task(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: RemoveSystemTaskRequest,
+) -> Result<()> {
+    let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
+    txn.delete_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
+    Ok(())
+}
+
+pub fn update_system_task(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: UpdateSystemTaskRequest,
+) -> Result<()> {
+    let key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
+    let task = txn
+        .get_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &key)?
+        .ok_or(anyhow::anyhow!("Task not found"))?;
+    let mut task = JsonEncoder::decode::<SystemTask>(&task)?;
+    task.restart_key = Some(req.restart_key);
+    let serialized_task = JsonEncoder::encode(&task)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
+        &key,
+        &serialized_task,
+    )?;
+    Ok(())
+}
+
+pub fn rerun_compute_graph(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: RerunComputeGraphRequest,
+) -> Result<()> {
+    let key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let graph = txn
+        .get_cf(&IndexifyObjectsColumns::ComputeGraphs.cf_db(&db), &key)?
+        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+    let graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
+    let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
+    let existing_task = txn.get_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
+    if let Some(existing_task) = existing_task {
+        let existing_task: SystemTask = JsonEncoder::decode(&existing_task)?;
+        if existing_task.graph_version >= graph.version {
+            return Err(anyhow::anyhow!("Task already exists"));
+        }
+        txn.delete_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
+    }
+    let task = SystemTask::new(
+        req.namespace.clone(),
+        req.compute_graph_name.clone(),
+        graph.version,
+    );
+    let serialized_task = JsonEncoder::encode(&task)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
+        &task_key,
+        &serialized_task,
+    )?;
+
+    Ok(())
+}
+
+pub fn rerun_invocation(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: RerunInvocationRequest,
+) -> Result<Vec<StateChange>> {
+    let graph_ctx_key =
+        GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph_name, &req.invocation_id);
+    let graph_ctx = txn
+        .get_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &graph_ctx_key,
+        )?
+        .ok_or(anyhow::anyhow!("Graph context not found"))?;
+    let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
+    if graph_ctx.graph_version >= req.graph_version {
+        tracing::info!(
+            "skipping rerun of invocation: {}, already latest version of invocation context",
+            req.invocation_id
+        );
+        return Ok(Vec::new());
+    }
+    let output_key = format!(
+        "{}|{}|{}|",
+        req.namespace, req.compute_graph_name, req.invocation_id
+    );
+    let outputs = make_prefix_iterator(
+        txn,
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        output_key.as_bytes(),
+        &None,
+    );
+    for output in outputs {
+        let (_, value) = output?;
+        let value: NodeOutput = JsonEncoder::decode(&value)?;
+        if value.graph_version >= req.graph_version {
+            tracing::info!(
+                "skipping rerun of invocation: {}, already latest version of outputs",
+                req.invocation_id
+            );
+            return Ok(Vec::new());
+        }
+    }
+
+    let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let graph = txn
+        .get_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            &compute_graph_key,
+        )?
+        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+    let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
+    if graph.version > req.graph_version {
+        // Graph was updated after rerun task was created
+        return Ok(Vec::new());
+    }
+
+    // Delete any previous outputs and any in progress context.
+    // The tasks will abort when they fail to find the context.
+    let outputs = make_prefix_iterator(
+        txn,
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        output_key.as_bytes(),
+        &None,
+    );
+    for output in outputs {
+        let (key, _) = output?;
+        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), key)?;
+    }
+    txn.delete_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        graph_ctx_key,
+    )?;
+
+    // Create a new invocation context after all checks passed
+    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        .namespace(req.namespace.to_string())
+        .compute_graph_name(req.compute_graph_name.to_string())
+        .graph_version(graph.version)
+        .invocation_id(req.invocation_id.clone())
+        .fn_task_analytics(HashMap::new())
+        .is_system_task(true)
+        .build(graph)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        graph_invocation_ctx.key(),
+        &JsonEncoder::encode(&graph_invocation_ctx)?,
+    )?;
+
+    // Increment number of outstanding tasks
+    let cf = IndexifyObjectsColumns::Stats.cf_db(&db);
+    let key = b"pending_system_tasks";
+    let value = txn.get_cf(&cf, key)?;
+    let mut pending_system_tasks = match value {
+        Some(value) => {
+            let bytes: [u8; 8] = value
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+            usize::from_be_bytes(bytes)
+        }
+        None => 0,
+    };
+    pending_system_tasks += 1;
+    txn.put_cf(&cf, key, &pending_system_tasks.to_be_bytes())?;
+
+    let state_change = StateChangeBuilder::default()
+        .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
+            namespace: req.namespace.clone(),
+            invocation_id: req.invocation_id.clone(),
+            compute_graph: req.compute_graph_name.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(req.invocation_id.clone())
+        .id(StateChangeId::new(0)) // updated with correct id by the caller
+        .processed_at(None)
+        .build()?;
+
+    Ok(vec![state_change])
+}
+
 pub fn create_graph_input(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
     let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
-    let _ = txn
+    let cg = txn
         .get_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &compute_graph_key,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+    let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
     let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
@@ -125,9 +324,10 @@ pub fn create_graph_input(
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(req.namespace.to_string())
         .compute_graph_name(req.compute_graph_name.to_string())
+        .graph_version(cg.version)
         .invocation_id(req.invocation_payload.id.clone())
         .fn_task_analytics(HashMap::new())
-        .build()?;
+        .build(cg)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         graph_invocation_ctx.key(),
@@ -164,9 +364,25 @@ pub(crate) fn delete_input_data_object(
 
 pub(crate) fn create_compute_graph(
     db: Arc<TransactionDB>,
-    compute_graph: &ComputeGraph,
+    mut compute_graph: ComputeGraph,
 ) -> Result<()> {
-    let serialized_compute_graph = JsonEncoder::encode(compute_graph)?;
+    let existing_compute_graph = db.get_cf(
+        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+        compute_graph.key(),
+    )?;
+
+    if let Some(existing_compute_graph) = existing_compute_graph {
+        let existing_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
+        if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash ||
+            compute_graph.edges != existing_compute_graph.edges ||
+            compute_graph.nodes != existing_compute_graph.nodes ||
+            compute_graph.start_fn != existing_compute_graph.start_fn
+        {
+            compute_graph.version = existing_compute_graph.version.next();
+        }
+    };
+
+    let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
     db.put_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
@@ -276,11 +492,46 @@ pub fn make_prefix_iterator<'a>(
         })
 }
 
+pub(crate) fn processed_reduction_tasks(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    task: &ReductionTasks,
+) -> Result<()> {
+    let cf = &IndexifyObjectsColumns::ReductionTasks.cf_db(&db);
+    for task in &task.new_reduction_tasks {
+        let serialized_task = JsonEncoder::encode(&task)?;
+        txn.put_cf(cf, task.key(), &serialized_task)?;
+    }
+    for key in &task.processed_reduction_tasks {
+        txn.delete_cf(cf, key)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum InvocationCompletion {
+    User,
+    System,
+}
+
+// returns true if system task has finished
 pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &CreateTasksRequest,
-) -> Result<()> {
+) -> Result<Option<InvocationCompletion>> {
+    let ctx_key = format!(
+        "{}|{}|{}",
+        req.namespace, req.compute_graph, req.invocation_id
+    );
+    let graph_ctx = txn.get_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        &ctx_key,
+    )?;
+    if graph_ctx.is_none() {
+        error!("Graph context not found for graph: {}", req.compute_graph);
+    }
+    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.unwrap())?;
     for task in &req.tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
@@ -294,38 +545,32 @@ pub(crate) fn create_tasks(
             &[],
         )?;
 
-        let key = format!(
-            "{}|{}|{}",
-            task.namespace, task.compute_graph_name, task.invocation_id
-        );
-        let graph_ctx = txn.get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?;
-        if graph_ctx.is_none() {
-            error!("Graph context not found for task: {}", task.key());
-        }
-        let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.unwrap())?;
         let analytics = graph_ctx
             .fn_task_analytics
             .entry(task.compute_fn_name.clone())
             .or_insert_with(|| TaskAnalytics::default());
         analytics.pending();
-        let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-            key,
-            serialized_analytics,
-        )?;
     }
-    if req.invocation_finished {
-        mark_invocation_finished(
+    graph_ctx.outstanding_tasks += req.tasks.len() as u64;
+    // Subtract reference for completed state change event
+    graph_ctx.outstanding_tasks -= 1;
+    let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        ctx_key,
+        serialized_analytics,
+    )?;
+    if graph_ctx.outstanding_tasks == 0 {
+        Ok(Some(mark_invocation_finished(
             db,
             txn,
             &req.namespace,
             &req.compute_graph,
             &req.invocation_id,
-        )?;
+        )?))
+    } else {
+        Ok(None)
     }
-    Ok(())
 }
 
 pub fn allocate_tasks(
@@ -349,7 +594,7 @@ pub fn allocate_tasks(
 pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: &FinalizeTaskRequest,
+    req: FinalizeTaskRequest,
 ) -> Result<()> {
     let task_key = format!(
         "{}|{}|{}|{}|{}",
@@ -359,7 +604,24 @@ pub fn mark_task_completed(
         .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)?
         .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
-    for output in &req.node_outputs {
+    let graph_ctx_key = format!(
+        "{}|{}|{}",
+        req.namespace, req.compute_graph, req.invocation_id
+    );
+    let graph_ctx = txn
+        .get_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &graph_ctx_key,
+        )?
+        .ok_or(anyhow!(
+            "Graph context not found for task: {}",
+            &req.task_id
+        ))?;
+    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
+    for mut output in req.node_outputs {
+        // Update with correct graph version
+        output.graph_version = graph_ctx.graph_version;
+
         let serialized_output = JsonEncoder::encode(&output)?;
         // Create an output key
         let output_key = output.key(&req.invocation_id);
@@ -379,20 +641,6 @@ pub fn mark_task_completed(
             node_output_id,
         )?;
     }
-    let graph_ctx_key = format!(
-        "{}|{}|{}",
-        req.namespace, req.compute_graph, req.invocation_id
-    );
-    let graph_ctx = txn
-        .get_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-            &graph_ctx_key,
-        )?
-        .ok_or(anyhow!(
-            "Graph context not found for task: {}",
-            &req.task_id
-        ))?;
-    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     let analytics = graph_ctx
         .fn_task_analytics
         .entry(req.compute_fn.to_string())
@@ -413,6 +661,8 @@ pub fn mark_task_completed(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         &task.make_allocation_key(&req.executor_id),
     )?;
+
+    task.diagnostics = req.diagnostics.clone();
 
     task.outcome = req.task_outcome.clone();
     let task_bytes = JsonEncoder::encode(&task)?;
@@ -477,13 +727,20 @@ pub(crate) fn mark_state_changes_processed(
     Ok(())
 }
 
+// Returns true if the invocation was a system task
 fn mark_invocation_finished(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     namespace: &str,
     compute_graph: &str,
     invocation_id: &str,
-) -> Result<()> {
+) -> Result<InvocationCompletion> {
+    tracing::info!(
+        "Marking invocation finished: {} {} {}",
+        namespace,
+        compute_graph,
+        invocation_id
+    );
     let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
     let graph_ctx = txn
         .get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?
@@ -499,7 +756,26 @@ fn mark_invocation_finished(
         key,
         serialized_graph_ctx,
     )?;
-    Ok(())
+    if graph_ctx.is_system_task {
+        let cf = IndexifyObjectsColumns::Stats.cf_db(&db);
+        let key = b"pending_system_tasks";
+        let value = txn.get_cf(&cf, key)?;
+        let mut pending_system_tasks = match value {
+            Some(value) => {
+                let bytes: [u8; 8] = value
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+                usize::from_be_bytes(bytes)
+            }
+            None => 0,
+        };
+        pending_system_tasks -= 1;
+        txn.put_cf(&cf, key, &pending_system_tasks.to_be_bytes())?;
+        Ok(InvocationCompletion::System)
+    } else {
+        Ok(InvocationCompletion::User)
+    }
 }
 
 pub(crate) fn register_executor(

@@ -1,35 +1,24 @@
 use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use data_model::{
-    ChangeType,
-    InvokeComputeGraphEvent,
-    OutputPayload,
-    StateChangeId,
-    Task,
-    TaskFinishedEvent,
-};
+use data_model::{ChangeType, StateChangeId};
 use state_store::{
     requests::{
         CreateTasksRequest,
+        ReductionTasks,
         RequestPayload,
         SchedulerUpdateRequest,
         StateMachineUpdateRequest,
     },
     IndexifyState,
 };
-use task_scheduler::TaskScheduler;
+use task_scheduler::{
+    task_creator::{handle_invoke_compute_graph, handle_task_finished},
+    TaskScheduler,
+};
 use tokio::{self, sync::watch::Receiver};
 use tracing::{error, info};
 
-#[derive(Debug)]
-struct TaskCreationResult {
-    namespace: String,
-    compute_graph: String,
-    tasks: Vec<Task>,
-    invocation_finished: bool,
-    invocation_id: String,
-}
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
     task_allocator: Arc<TaskScheduler>,
@@ -44,166 +33,6 @@ impl Scheduler {
         }
     }
 
-    async fn handle_invoke_compute_graph(
-        &self,
-        event: InvokeComputeGraphEvent,
-    ) -> Result<TaskCreationResult> {
-        let compute_graph = self
-            .indexify_state
-            .reader()
-            .get_compute_graph(&event.namespace, &event.compute_graph)?;
-        if compute_graph.is_none() {
-            error!(
-                "compute graph not found: {:?} {:?}",
-                event.namespace, event.compute_graph
-            );
-            return Ok(TaskCreationResult {
-                tasks: vec![],
-                namespace: event.namespace.clone(),
-                invocation_id: event.invocation_id.clone(),
-                compute_graph: event.compute_graph.clone(),
-                invocation_finished: false,
-            });
-        }
-        let compute_graph = compute_graph.unwrap();
-        // Crate a task for the compute graph
-        let task = compute_graph.start_fn.create_task(
-            &event.namespace,
-            &event.compute_graph,
-            &event.invocation_id,
-            &event.invocation_id,
-        )?;
-        Ok(TaskCreationResult {
-            namespace: event.namespace.clone(),
-            compute_graph: event.compute_graph.clone(),
-            invocation_id: event.invocation_id.clone(),
-            tasks: vec![task],
-            invocation_finished: false,
-        })
-    }
-
-    async fn handle_task_finished(
-        &self,
-        task_finished_event: &TaskFinishedEvent,
-    ) -> Result<TaskCreationResult> {
-        let task = self
-            .indexify_state
-            .reader()
-            .get_task(
-                &task_finished_event.namespace,
-                &task_finished_event.compute_graph,
-                &task_finished_event.invocation_id,
-                &task_finished_event.compute_fn,
-                &task_finished_event.task_id.to_string(),
-            )?
-            .ok_or(anyhow!("task not found: {:?}", task_finished_event))?;
-
-        let compute_graph = self
-            .indexify_state
-            .reader()
-            .get_compute_graph(
-                &task_finished_event.namespace,
-                &task_finished_event.compute_graph,
-            )?
-            .ok_or(anyhow!(
-                "compute graph not found: {:?} {:?}",
-                task_finished_event.namespace,
-                task_finished_event.compute_graph
-            ))?;
-
-        // Get the output of the task
-        // If this was a router task, we 1. use the edges of the router to create
-        // subsequent tasks
-        // 2. We use the input to the router as the input of the new tasks
-
-        let mut new_tasks = vec![];
-        let outputs = self.indexify_state.reader().get_task_outputs(
-            &task_finished_event.namespace,
-            &task_finished_event.task_id.to_string(),
-        )?;
-        let mut router_edges = vec![];
-        for output in &outputs {
-            if let OutputPayload::Router(router_output) = &output.payload {
-                for edge in &router_output.edges {
-                    router_edges.push(edge);
-                }
-            }
-        }
-        if !router_edges.is_empty() {
-            for edge in router_edges {
-                let compute_fn = compute_graph.nodes.get(edge);
-                if compute_fn.is_none() {
-                    error!("compute fn not found: {:?}", edge);
-                    continue;
-                }
-                let compute_fn = compute_fn.unwrap();
-                let new_task = compute_fn.create_task(
-                    &task.namespace,
-                    &task.compute_graph_name,
-                    &task.invocation_id,
-                    &task.input_key,
-                )?;
-                new_tasks.push(new_task);
-            }
-            return Ok(TaskCreationResult {
-                namespace: task_finished_event.namespace.clone(),
-                compute_graph: task_finished_event.compute_graph.clone(),
-                invocation_id: task_finished_event.invocation_id.clone(),
-                tasks: new_tasks,
-                invocation_finished: false,
-            });
-        }
-
-        // Find the edges of the function
-        let edges = compute_graph.edges.get(&task_finished_event.compute_fn);
-        if edges.is_none() {
-            let invocation_ctx = self.indexify_state.reader().invocation_ctx(
-                &task_finished_event.namespace,
-                &task_finished_event.compute_graph,
-                &task_finished_event.invocation_id,
-            )?;
-            if invocation_ctx.outstanding_tasks == 0 {
-                info!(
-                    "compute graph completed: {:?}",
-                    task_finished_event.compute_graph
-                );
-                return Ok(TaskCreationResult {
-                    namespace: task_finished_event.namespace.clone(),
-                    compute_graph: task_finished_event.compute_graph.clone(),
-                    invocation_id: task_finished_event.invocation_id.clone(),
-                    tasks: vec![],
-                    invocation_finished: true,
-                });
-            }
-        }
-
-        let edges = edges.unwrap();
-        for edge in edges {
-            for output in &outputs {
-                let compute_fn = compute_graph.nodes.get(edge);
-                if compute_fn.is_none() {
-                    error!("compute fn not found: {:?}", edge);
-                    continue;
-                }
-                let compute_fn = compute_fn.unwrap();
-                let new_task = compute_fn.create_task(
-                    &task.namespace,
-                    &task.compute_graph_name,
-                    &task.invocation_id,
-                    &output.key(&task.invocation_id),
-                )?;
-                new_tasks.push(new_task);
-            }
-        }
-        Ok(TaskCreationResult {
-            namespace: task_finished_event.namespace.clone(),
-            compute_graph: task_finished_event.compute_graph.clone(),
-            invocation_id: task_finished_event.invocation_id.clone(),
-            tasks: new_tasks,
-            invocation_finished: false,
-        })
-    }
-
     pub async fn run_scheduler(&self) -> Result<()> {
         let state_changes = self
             .indexify_state
@@ -211,15 +40,33 @@ impl Scheduler {
             .get_unprocessed_state_changes()?;
         let mut create_task_requests = vec![];
         let mut processed_state_changes = vec![];
+        let mut new_reduction_tasks = vec![];
+        let mut processed_reduction_tasks = vec![];
         for state_change in &state_changes {
-            processed_state_changes.push(state_change.id);
+            processed_state_changes.push(state_change.id.clone());
             let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
-                    self.handle_invoke_compute_graph(invoke_compute_graph_event.clone())
-                        .await?,
+                    handle_invoke_compute_graph(
+                        self.indexify_state.clone(),
+                        invoke_compute_graph_event.clone(),
+                    )
+                    .await?,
                 ),
                 ChangeType::TaskFinished(task_finished_event) => {
-                    Some(self.handle_task_finished(task_finished_event).await?)
+                    let task = self
+                        .indexify_state
+                        .reader()
+                        .get_task_from_finished_event(&task_finished_event)?
+                        .ok_or(anyhow!("task not found {}", task_finished_event.task_id))?;
+                    let compute_graph = self
+                        .indexify_state
+                        .reader()
+                        .get_compute_graph(&task.namespace, &task.compute_graph_name)?
+                        .ok_or(anyhow!("compute graph not found"))?;
+                    Some(
+                        handle_task_finished(self.indexify_state.clone(), task, compute_graph)
+                            .await?,
+                    )
                 }
                 _ => None,
             };
@@ -228,10 +75,11 @@ impl Scheduler {
                     namespace: result.namespace.clone(),
                     invocation_id: result.invocation_id.clone(),
                     compute_graph: result.compute_graph.clone(),
-                    invocation_finished: result.invocation_finished,
                     tasks: result.tasks,
                 };
                 create_task_requests.push(request);
+                new_reduction_tasks.extend(result.new_reduction_tasks);
+                processed_reduction_tasks.extend(result.processed_reduction_tasks);
             }
         }
         let mut new_allocations = vec![];
@@ -251,6 +99,10 @@ impl Scheduler {
             payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
                 task_requests: create_task_requests,
                 allocations: new_allocations,
+                reduction_tasks: ReductionTasks {
+                    new_reduction_tasks,
+                    processed_reduction_tasks,
+                },
             }),
             state_changes_processed: processed_state_changes,
         };
@@ -288,11 +140,11 @@ mod tests {
         test_objects::tests::{
             mock_executor,
             mock_executor_id,
-            mock_invocation_payload,
             mock_invocation_payload_graph_b,
             TEST_NAMESPACE,
         },
         ExecutorId,
+        TaskOutcome,
     };
     use state_store::test_state_store::tests::TestStateStore;
 
@@ -334,11 +186,10 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
-        let task_id = &tasks[0].id;
-
+        let task = &tasks[0];
         // Finish the task and check if new tasks are created
         state_store
-            .finalize_task(&mock_invocation_payload().id, task_id)
+            .finalize_task(task, 1, TaskOutcome::Success, false)
             .await
             .unwrap();
         scheduler.run_scheduler().await?;
@@ -355,6 +206,50 @@ mod tests {
 
         // has task crated state change in it.
         assert_eq!(unprocessed_state_changes.len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn handle_failed_tasks() -> Result<()> {
+        let state_store = TestStateStore::new().await?;
+        let indexify_state = state_store.indexify_state.clone();
+        let scheduler = Scheduler::new(indexify_state.clone());
+        let invocation_id = state_store.with_simple_graph().await;
+        scheduler.run_scheduler().await?;
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 1);
+        let task = &tasks[0];
+
+        // Finish the task and check if new tasks are created
+        state_store
+            .finalize_task(task, 1, TaskOutcome::Failure, false)
+            .await
+            .unwrap();
+        scheduler.run_scheduler().await?;
+        let tasks = indexify_state
+            .reader()
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
+            .unwrap()
+            .0;
+        assert_eq!(tasks.len(), 1);
+
+        let task = &tasks[0];
+
+        let invocation_ctx = indexify_state
+            .reader()
+            .invocation_ctx(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.invocation_id,
+            )
+            .unwrap();
+
+        assert!(invocation_ctx.completed);
+
         Ok(())
     }
 
@@ -399,8 +294,9 @@ mod tests {
         let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
         assert_eq!(unallocated_tasks.len(), 0);
 
+        let task = tasks.first().unwrap();
         state_store
-            .finalize_task(&tasks[0].invocation_id, &tasks[0].id)
+            .finalize_task(&task, 1, TaskOutcome::Success, false)
             .await?;
 
         let executor_tasks = indexify_state

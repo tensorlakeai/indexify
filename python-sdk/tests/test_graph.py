@@ -3,7 +3,7 @@ from typing import List, Mapping, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph, create_client
+from indexify import Graph, LocalClient, create_client
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
@@ -63,6 +63,11 @@ def extractor_c(file_chunk: FileChunk) -> SomeMetadata:
     return SomeMetadata(metadata={"a": "b", "c": "d"})
 
 
+@indexify_function()
+def extractor_exception(file: File) -> SomeMetadata:
+    raise Exception("This executor will raise an exception.")
+
+
 @indexify_router()
 def router_x(input: File) -> List[Union[extractor_b, extractor_d]]:
     return [extractor_d]
@@ -83,6 +88,14 @@ def create_graph_b():
     )
     graph = graph.add_edge(extractor_a_with_pydantic_model_as_input, router_x)
     graph = graph.route(router_x, [extractor_b, extractor_d])
+    return graph
+
+
+def create_graph_c():
+    graph = Graph(name="test", description="test", start_node=extractor_a)
+    graph = graph.add_edge(extractor_a, extractor_exception)
+    graph = graph.add_edge(extractor_exception, extractor_c)
+
     return graph
 
 
@@ -140,6 +153,17 @@ class TestGraphA(unittest.TestCase):
         runner.invoke_graph_with_object(
             graph.name, url=YoutubeURL(url="https://example.com")
         )
+
+    def test_run_graph_with_executor_exception(self):
+        graph = create_graph_c()
+
+        runner = create_client(local=True)
+        runner.register_compute_graph(graph)
+
+        try:
+            runner.invoke_graph_with_object(graph.name, url="https://example.com")
+        except Exception as e:
+            self.assertEqual(str(e), "This executor will raise an exception.")
 
     def test_get_graph_metadata_with_router(self):
         graph = create_graph_b()

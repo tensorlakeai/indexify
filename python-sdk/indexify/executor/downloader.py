@@ -1,7 +1,8 @@
 import os
+from typing import Optional
 
 import httpx
-from rich import print
+from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
 from rich.theme import Theme
@@ -22,13 +23,18 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 
+class DownloadedInputs(BaseModel):
+    input: IndexifyData
+    init_value: Optional[IndexifyData] = None
+
+
 class Downloader:
     def __init__(self, code_path: str, base_url: str):
         self.code_path = code_path
         self.base_url = base_url
 
-    async def download_graph(self, namespace: str, name: str):
-        path = os.path.join(self.code_path, namespace, name)
+    async def download_graph(self, namespace: str, name: str, version: int) -> str:
+        path = os.path.join(self.code_path, namespace, f"{name}.{version}")
         if os.path.exists(path):
             return path
 
@@ -67,9 +73,13 @@ class Downloader:
         else:
             url = f"{self.base_url}/internal/fn_outputs/{task.input_key}"
 
+        reducer_url = None
+        if task.reducer_output_id:
+            reducer_url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/{task.reducer_output_id}"
+
         console.print(
             Panel(
-                f"Downloading input\nURL: {url}",
+                f"Downloading input\nURL: {url} \n Reducer Input URL: {reducer_url}",
                 title="Downloader",
                 border_style="cyan",
             )
@@ -89,5 +99,26 @@ class Downloader:
             raise
 
         if task.invocation_id == input_id:
-            return IndexifyData(payload=response.content, id=input_id)
-        return CborSerializer.deserialize(response.content)
+            return DownloadedInputs(
+                input=IndexifyData(payload=response.content, id=input_id)
+            )
+
+        init_value = None
+        if reducer_url:
+            init_value = httpx.get(reducer_url)
+            try:
+                init_value.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                console.print(
+                    Panel(
+                        f"Failed to download reducer output: {task.reducer_output_id}\nError: {init_value.text}",
+                        title="Downloader Error",
+                        border_style="error",
+                    )
+                )
+                raise
+            init_value = CborSerializer.deserialize(init_value.content)
+
+        return DownloadedInputs(
+            input=CborSerializer.deserialize(response.content), init_value=init_value
+        )

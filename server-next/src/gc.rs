@@ -123,6 +123,7 @@ mod tests {
 
         let output = NodeOutput {
             id: "id".to_string(),
+            graph_version: Default::default(),
             namespace: TEST_NAMESPACE.to_string(),
             compute_fn_name: "fn_a".to_string(),
             compute_graph_name: "graph_A".to_string(),
@@ -132,6 +133,8 @@ mod tests {
                 size: res.size_bytes,
                 sha256_hash: res.sha256_hash,
             }),
+            errors: None,
+            reduced_state: false,
         };
         let key = output.key(&output.invocation_id);
         let serialized_output = JsonEncoder::encode(&output)?;

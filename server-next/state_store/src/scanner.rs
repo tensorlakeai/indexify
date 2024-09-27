@@ -3,14 +3,19 @@ use std::{mem, sync::Arc};
 use anyhow::{anyhow, Result};
 use data_model::{
     ComputeGraph,
+    DataPayload,
     ExecutorId,
     ExecutorMetadata,
     GraphInvocationCtx,
     InvocationPayload,
     Namespace,
     NodeOutput,
+    ReduceTask,
     StateChange,
+    SystemTask,
     Task,
+    TaskAnalytics,
+    TaskFinishedEvent,
 };
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
@@ -290,6 +295,79 @@ impl StateReader {
         Ok(Some(result))
     }
 
+    pub fn get_pending_system_tasks(&self) -> Result<usize> {
+        let cf = IndexifyObjectsColumns::Stats.cf_db(&self.db);
+        let key = b"pending_system_tasks";
+        let value = self.db.get_cf(&cf, key)?;
+        match value {
+            Some(value) => {
+                let bytes: [u8; 8] = value
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+                let pending_tasks = usize::from_be_bytes(bytes);
+                Ok(pending_tasks)
+            }
+            None => Ok(0),
+        }
+    }
+
+    pub fn get_diagnostic_payload(
+        &self,
+        ns: &str,
+        cg: &str,
+        inv_id: &str,
+        cg_fn: &str,
+        file: &str,
+    ) -> Result<Option<DataPayload>> {
+        let key = Task::key_prefix_for_fn(ns, cg, inv_id, cg_fn);
+        println!("{}", key);
+        let diagnostic = self.get_rows_from_cf_with_limits::<Task>(
+            &key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::Tasks,
+            None,
+        )?;
+        for task in diagnostic.0 {
+            if let Some(diagnostics) = task.diagnostics {
+                match file {
+                    "stdout" => {
+                        if let Some(stdout) = diagnostics.stdout {
+                            return Ok(Some(stdout));
+                        }
+                    }
+                    "stderr" => {
+                        if let Some(stderr) = diagnostics.stderr {
+                            return Ok(Some(stderr));
+                        }
+                    }
+                    "exception_msg" => {
+                        if let Some(exception_msg) = diagnostics.exception {
+                            return Ok(Some(exception_msg));
+                        }
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!("Invalid file type"));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn get_system_tasks(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<(Vec<SystemTask>, Option<Vec<u8>>)> {
+        let (tasks, restart_key) = self.get_rows_from_cf_with_limits::<SystemTask>(
+            &[],
+            None,
+            IndexifyObjectsColumns::SystemTasks,
+            limit,
+        )?;
+        Ok((tasks, restart_key))
+    }
+
     pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<String>> {
         let limit = limit.unwrap_or(usize::MAX);
         let cf = IndexifyObjectsColumns::GcUrls.cf_db(&self.db);
@@ -415,6 +493,16 @@ impl StateReader {
         )
     }
 
+    pub fn get_task_from_finished_event(&self, req: &TaskFinishedEvent) -> Result<Option<Task>> {
+        return self.get_task(
+            &req.namespace,
+            &req.compute_graph,
+            &req.invocation_id,
+            &req.compute_fn,
+            &req.task_id.to_string(),
+        );
+    }
+
     pub fn get_task(
         &self,
         namespace: &str,
@@ -429,6 +517,21 @@ impl StateReader {
         );
         let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
         Ok(task)
+    }
+
+    pub fn list_tasks_by_namespace(
+        &self,
+        namespace: &str,
+        restart_key: Option<&[u8]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let key = format!("{}|", namespace);
+        self.get_rows_from_cf_with_limits::<Task>(
+            key.as_bytes(),
+            restart_key,
+            IndexifyObjectsColumns::Tasks,
+            limit,
+        )
     }
 
     pub fn list_tasks_by_compute_graph(
@@ -503,6 +606,29 @@ impl StateReader {
         }
     }
 
+    pub fn task_analytics(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+    ) -> Result<Option<TaskAnalytics>> {
+        let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
+        let value = self.db.get_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
+            &key,
+        )?;
+        let ctx = match value {
+            Some(value) => Some(JsonEncoder::decode::<GraphInvocationCtx>(&value)?),
+            None => None,
+        };
+        let task_analytics = match ctx {
+            Some(ctx) => ctx.fn_task_analytics.get(compute_fn).cloned(),
+            None => None,
+        };
+        Ok(task_analytics)
+    }
+
     pub fn invocation_payload(
         &self,
         namespace: &str,
@@ -545,14 +671,15 @@ impl StateReader {
         invocation_id: &str,
         compute_fn: &str,
         id: &str,
-    ) -> Result<NodeOutput> {
+    ) -> Result<Option<NodeOutput>> {
         let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
         let value = self
             .db
-            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
+            .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)
+            .map_err(|e| anyhow!("unable to get output payload: {}", e))?;
         match value {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Err(anyhow!("fn output not found")),
+            None => Ok(None),
         }
     }
 
@@ -564,6 +691,34 @@ impl StateReader {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("fn output not found")),
         }
+    }
+
+    pub fn all_reduction_tasks(&self, ns: &str, cg: &str, inv_id: &str) -> Result<Vec<ReduceTask>> {
+        let key = format!("{}|{}|{}|", ns, cg, inv_id);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
+            key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::ReductionTasks,
+            None,
+        )?;
+        Ok(tasks)
+    }
+
+    pub fn next_reduction_task(
+        &self,
+        ns: &str,
+        cg: &str,
+        inv_id: &str,
+        c_fn: &str,
+    ) -> Result<Option<ReduceTask>> {
+        let key = format!("{}|{}|{}|{}", ns, cg, inv_id, c_fn);
+        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
+            key.as_bytes(),
+            None,
+            IndexifyObjectsColumns::ReductionTasks,
+            Some(1),
+        )?;
+        Ok(tasks.into_iter().next())
     }
 }
 #[cfg(test)]

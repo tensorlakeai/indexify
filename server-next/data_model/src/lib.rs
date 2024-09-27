@@ -14,6 +14,30 @@ use filter::LabelsFilter;
 use indexify_utils::default_creation_time;
 use serde::{Deserialize, Serialize};
 
+// Invoke graph for all existing payloads
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemTask {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub graph_version: GraphVersion,
+    pub restart_key: Option<Vec<u8>>, // Key for the next invocation id to process
+}
+
+impl SystemTask {
+    pub fn new(namespace: String, compute_graph_name: String, graph_version: GraphVersion) -> Self {
+        Self {
+            namespace,
+            compute_graph_name,
+            graph_version,
+            restart_key: None,
+        }
+    }
+
+    pub fn key_from(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}", namespace, compute_graph)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ExecutorId(String);
 
@@ -33,7 +57,7 @@ impl ExecutorId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskId(String);
 
 impl TaskId {
@@ -62,12 +86,13 @@ pub struct DynamicEdgeRouter {
     pub target_functions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ComputeFn {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
+    pub reducer: bool,
 }
 
 impl ComputeFn {
@@ -96,6 +121,13 @@ impl Node {
             Node::Compute(compute) => compute.matches_executor(executor),
         }
     }
+
+    pub fn reducer(&self) -> bool {
+        match self {
+            Node::Router(_) => false,
+            Node::Compute(compute) => compute.reducer,
+        }
+    }
 }
 
 impl Node {
@@ -105,6 +137,8 @@ impl Node {
         compute_graph_name: &str,
         invocation_id: &str,
         input_key: &str,
+        reducer_output_id: Option<String>,
+        graph_version: GraphVersion,
     ) -> Result<Task> {
         let name = match self {
             Node::Router(router) => router.name.clone(),
@@ -115,9 +149,33 @@ impl Node {
             .compute_fn_name(name)
             .compute_graph_name(compute_graph_name.to_string())
             .invocation_id(invocation_id.to_string())
-            .input_key(input_key.to_string())
+            .input_node_output_key(input_key.to_string())
+            .reducer_output_id(reducer_output_id)
+            .graph_version(graph_version)
             .build()?;
         Ok(task)
+    }
+
+    pub fn reducer_task(
+        &self,
+        namespace: &str,
+        compute_graph_name: &str,
+        invocation_id: &str,
+        task_id: &str,
+        task_output_key: &str,
+    ) -> ReduceTask {
+        let name = match self {
+            Node::Router(router) => router.name.clone(),
+            Node::Compute(compute) => compute.name.clone(),
+        };
+        ReduceTask {
+            namespace: namespace.to_string(),
+            compute_graph_name: compute_graph_name.to_string(),
+            invocation_id: invocation_id.to_string(),
+            compute_fn_name: name,
+            task_id: task_id.to_string(),
+            task_output_key: task_output_key.to_string(),
+        }
     }
 }
 
@@ -128,14 +186,29 @@ pub struct ComputeGraphCode {
     pub sha256_hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
+pub struct GraphVersion(u32);
+
+impl GraphVersion {
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+impl Default for GraphVersion {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
     pub description: String,
+    pub version: GraphVersion, // Version incremented with code update
     pub code: ComputeGraphCode,
-    pub create_at: u64,
-    pub tomb_stoned: bool,
+    pub created_at: u64,
     pub start_fn: Node,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
@@ -160,6 +233,13 @@ pub struct DataPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskDiagnostics {
+    pub exception: Option<DataPayload>,
+    pub stdout: Option<DataPayload>,
+    pub stderr: Option<DataPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputPayload {
     Router(RouterOutput),
     Fn(DataPayload),
@@ -169,18 +249,24 @@ pub enum OutputPayload {
 #[builder(build_fn(skip))]
 pub struct NodeOutput {
     pub id: String,
+    pub graph_version: GraphVersion,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub invocation_id: String,
     pub payload: OutputPayload,
+    pub errors: Option<DataPayload>,
+    pub reduced_state: bool,
 }
 
 impl NodeOutput {
     pub fn key(&self, invocation_id: &str) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.namespace, self.compute_graph_name, invocation_id, self.compute_fn_name, self.id
+        NodeOutput::key_from(
+            &self.namespace,
+            &self.compute_graph_name,
+            invocation_id,
+            &self.compute_fn_name,
+            &self.id,
         )
     }
 
@@ -216,7 +302,9 @@ impl NodeOutputBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
+        let graph_version = self.graph_version.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
+        let reduced_state = self.reduced_state.clone().unwrap_or(false);
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
@@ -225,18 +313,22 @@ impl NodeOutputBuilder {
         match &payload {
             OutputPayload::Router(router) => router.edges.hash(&mut hasher),
             OutputPayload::Fn(data) => {
-                data.sha256_hash.hash(&mut hasher);
                 data.path.hash(&mut hasher);
             }
         }
+        let errors = self.errors.clone().flatten();
+
         let id = format!("{:x}", hasher.finish());
         Ok(NodeOutput {
             id,
+            graph_version,
             namespace: ns,
             compute_graph_name: cg_name,
             invocation_id,
             compute_fn_name: fn_name,
             payload,
+            errors,
+            reduced_state,
         })
     }
 }
@@ -295,10 +387,12 @@ impl InvocationPayloadBuilder {
 pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
+    pub graph_version: GraphVersion,
     pub invocation_id: String,
     pub completed: bool,
-    pub outstanding_tasks: u16,
+    pub outstanding_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
+    pub is_system_task: bool,
 }
 
 impl GraphInvocationCtx {
@@ -315,7 +409,7 @@ impl GraphInvocationCtx {
 }
 
 impl GraphInvocationCtxBuilder {
-    pub fn build(&mut self) -> Result<GraphInvocationCtx> {
+    pub fn build(&mut self, compute_graph: ComputeGraph) -> Result<GraphInvocationCtx> {
         let namespace = self
             .namespace
             .clone()
@@ -328,14 +422,48 @@ impl GraphInvocationCtxBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingested_data_object_id is required"))?;
+        let mut fn_task_analytics = HashMap::new();
+        for (fn_name, _node) in compute_graph.nodes.iter() {
+            fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
+        }
+        let graph_version = self.graph_version.clone().unwrap_or_default();
+        let is_system_task = self.is_system_task.unwrap_or(false);
         Ok(GraphInvocationCtx {
             namespace,
+            graph_version,
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
-            outstanding_tasks: 0,
-            fn_task_analytics: HashMap::new(),
+            fn_task_analytics,
+            outstanding_tasks: 1, // Starts with 1 for the initial state change event
+            is_system_task,
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReduceTask {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub invocation_id: String,
+    pub compute_fn_name: String,
+
+    // The task for which we are need to create the reduce task
+    pub task_id: String,
+    pub task_output_key: String,
+}
+
+impl ReduceTask {
+    pub fn key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}|{}",
+            self.namespace,
+            self.compute_graph_name,
+            self.invocation_id,
+            self.compute_fn_name,
+            self.task_id,
+            self.task_output_key,
+        )
     }
 }
 
@@ -354,15 +482,30 @@ pub struct Task {
     pub compute_fn_name: String,
     pub compute_graph_name: String,
     pub invocation_id: String,
-    pub input_key: String,
+    pub input_node_output_key: String,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
+    pub diagnostics: Option<TaskDiagnostics>,
+    pub reducer_output_id: Option<String>,
+    pub graph_version: GraphVersion,
 }
 
 impl Task {
     pub fn terminal_state(&self) -> bool {
         self.outcome != TaskOutcome::Unknown
+    }
+
+    pub fn key_prefix_for_fn(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn_name: &str,
+    ) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            namespace, compute_graph, invocation_id, compute_fn_name
+        )
     }
 
     pub fn key(&self) -> String {
@@ -381,12 +524,12 @@ impl Task {
         format!("{}|{}|{}", self.namespace, self.id, output_id)
     }
 
-    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> Vec<u8> {
+    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
         let duration = self.creation_time.duration_since(UNIX_EPOCH).unwrap();
         let secs = duration.as_secs() as u128;
         let nsecs = duration.subsec_nanos() as u128;
         let nsecs = secs * 1_000_000_000 + nsecs;
-        format!("{}|{}|{}", executor_id, nsecs, self.key(),).into()
+        format!("{}|{}|{}", executor_id, nsecs, self.key())
     }
 
     pub fn key_from_allocation_key(allocation_key: &[u8]) -> Result<Vec<u8>> {
@@ -407,7 +550,7 @@ impl Display for Task {
         write!(
             f,
             "Task(id: {}, compute_fn_name: {}, compute_graph_name: {}, input_key: {}, outcome: {:?})",
-            self.id, self.compute_fn_name, self.compute_graph_name, self.input_key, self.outcome
+            self.id, self.compute_fn_name, self.compute_graph_name, self.input_node_output_key, self.outcome
         )
     }
 }
@@ -427,29 +570,31 @@ impl TaskBuilder {
             .clone()
             .ok_or(anyhow!("compute fn name is not present"))?;
         let input_key = self
-            .input_key
+            .input_node_output_key
             .clone()
             .ok_or(anyhow!("input data object id is not present"))?;
         let invocation_id = self
             .invocation_id
             .clone()
             .ok_or(anyhow!("ingestion data object id is not present"))?;
-        let mut hasher = DefaultHasher::new();
-        cg_name.hash(&mut hasher);
-        compute_fn_name.hash(&mut hasher);
-        input_key.hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        namespace.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
+        let graph_version = self
+            .graph_version
+            .clone()
+            .ok_or(anyhow!("graph version is not present"))?;
+        let reducer_output_id = self.reducer_output_id.clone().flatten();
+        let id = uuid::Uuid::new_v4().to_string();
         let task = Task {
             id: TaskId(id),
             compute_graph_name: cg_name,
             compute_fn_name,
-            input_key,
+            input_node_output_key: input_key,
             invocation_id,
             namespace,
             outcome: TaskOutcome::Unknown,
             creation_time: SystemTime::now(),
+            diagnostics: None,
+            reducer_output_id,
+            graph_version,
         };
         Ok(task)
     }

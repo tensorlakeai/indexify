@@ -39,13 +39,15 @@ use crate::executors::{self, EXECUTOR_TIMEOUT};
 mod download;
 mod internal_ingest;
 mod invoke;
+mod logs;
 use download::{
     download_fn_output_by_key,
     download_fn_output_payload,
     download_invocation_payload,
 };
 use internal_ingest::ingest_files_from_executor;
-use invoke::{invoke_with_file, invoke_with_object};
+use invoke::{invoke_with_file, invoke_with_object, rerun_compute_graph};
+use logs::download_logs;
 
 use crate::{
     executors::ExecutorManager,
@@ -86,6 +88,7 @@ use crate::{
             list_tasks,
             list_outputs,
             delete_invocation,
+            logs::download_logs,
         ),
         components(
             schemas(
@@ -147,7 +150,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(list_compute_graphs).with_state(route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs",
+            "/namespaces/:namespace/compute_graphs/:compute_graph",
             delete(delete_compute_graph).with_state(route_state.clone()),
         )
         .route(
@@ -175,6 +178,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
             post(invoke_with_object).with_state(route_state.clone()),
         )
         .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/rerun",
+            post(rerun_compute_graph).with_state(route_state.clone()),
+        )
+        .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
             delete(delete_invocation).with_state(route_state.clone()),
         )
@@ -193,6 +200,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/:id",
             get(download_fn_output_payload).with_state(route_state.clone()),
+        )
+        .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/logs/:file",
+            get(download_logs).with_state(route_state.clone()),
         )
         .route(
             "/internal/ingest_files",
@@ -364,7 +375,7 @@ async fn create_compute_graph(
 /// Delete compute graph
 #[utoipa::path(
     delete,
-    path = "/namespaces/{namespace}/compute_graphs/{name}",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}",
     tag = "operations",
     responses(
         (status = 200, description = "Extraction graph deleted successfully"),
@@ -372,10 +383,13 @@ async fn create_compute_graph(
     ),
 )]
 async fn delete_compute_graph(
-    Path((namespace, name)): Path<(String, String)>,
+    Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest { namespace, name });
+    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest {
+        namespace,
+        name: compute_graph,
+    });
     state
         .indexify_state
         .write(StateMachineUpdateRequest {

@@ -11,4 +11,5 @@ derive_builder = "0.20.1"
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 indexify_utils = { workspace = true }
-
+rand = {workspace=true}
+uuid = {workspace=true}

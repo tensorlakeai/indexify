@@ -12,8 +12,14 @@ use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
-    requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
+    requests::{
+        InvokeComputeGraphRequest,
+        RequestPayload,
+        RerunComputeGraphRequest,
+        StateMachineUpdateRequest,
+    },
 };
+use tokio::sync::broadcast::Receiver;
 use tracing::info;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -173,7 +179,10 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let id = invocation_payload.id.clone();
-    let mut rx = state.indexify_state.task_event_stream();
+    let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
+    if should_block {
+        rx.replace(state.indexify_state.task_event_stream());
+    }
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.clone(),
@@ -191,22 +200,22 @@ pub async fn invoke_with_object(
         })?;
 
     let invocation_event_stream = async_stream::stream! {
-        loop {
-            if should_block {
+        if !should_block {
+            yield Event::default().json_data(InvocationId { id: id.clone() });
+            return;
+        }
+        if let Some(rx) = rx.as_mut() {
+            loop {
                 if let Ok(ev)  =  rx.recv().await {
                     if ev.invocation_id() == id {
                         yield Event::default().json_data(ev.clone());
 
                         if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {
                             yield Event::default().json_data(InvocationId { id: id.clone() });
-                            drop(rx);
                             return;
                         }
                     }
                 }
-            } else {
-                yield Event::default().json_data(InvocationId { id: id.clone() });
-                return;
             }
         }
     };
@@ -218,4 +227,37 @@ pub async fn invoke_with_object(
                 .text("keep-alive-text"),
         ),
     )
+}
+
+/// Rerun compute graph with all existing payloads
+#[utoipa::path(
+    post,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/rerun",
+    request_body(content_type = "application/json", content = inline(serde_json::Value)),
+    tag = "ingestion",
+    responses(
+        (status = 200, description = "invocation successful"),
+        (status = 400, description = "bad request"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+pub async fn rerun_compute_graph(
+    Path((namespace, compute_graph)): Path<(String, String)>,
+    State(state): State<RouteState>,
+) -> Result<(), IndexifyAPIError> {
+    let request = RequestPayload::RerunComputeGraph(RerunComputeGraphRequest {
+        namespace: namespace.clone(),
+        compute_graph_name: compute_graph.clone(),
+    });
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            state_changes_processed: vec![],
+        })
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to create graph rerun task: {}", e))
+        })?;
+    Ok(())
 }

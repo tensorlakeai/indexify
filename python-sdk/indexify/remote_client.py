@@ -10,10 +10,23 @@ from pydantic import BaseModel, Json
 from rich import print
 
 from indexify.base_client import IndexifyClient
-from indexify.error import ApiException, Error
+from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
+
+
+class InvocationEventPayload(BaseModel):
+    invocation_id: str
+    fn_name: str
+    task_id: str
+    executor_id: Optional[str] = None
+    outcome: Optional[str] = None
+
+
+class InvocationEvent(BaseModel):
+    event_name: str
+    payload: InvocationEventPayload
 
 
 class GraphOutputMetadata(BaseModel):
@@ -72,9 +85,9 @@ class RemoteClient(IndexifyClient):
             message = (
                 f"Make sure the server is running and accesible at {self._service_url}"
             )
-            error = Error(status="ConnectionError", message=message)
-            print(error)
-            raise error
+            ex = ApiException(status="ConnectionError", message=message)
+            print(ex)
+            raise ex
         return response
 
     @classmethod
@@ -182,15 +195,31 @@ class RemoteClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         self._post("namespaces", json={"namespace": namespace})
 
+    def logs(
+        self, invocation_id: str, cg_name: str, fn_name: str, file: str
+    ) -> Optional[str]:
+        try:
+            response = self._get(
+                f"namespaces/{self.namespace}/compute_graphs/{cg_name}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}"
+            )
+            response.raise_for_status()
+            return response.content.decode("utf-8")
+        except ApiException as e:
+            print(f"failed to fetch logs: {e}")
+            return None
+
+    def rerun_graph(self, graph: str):
+        self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/rerun")
+
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
-        json_object = {}
+        input_as_dict = {}
         for key, value in kwargs.items():
             if isinstance(value, BaseModel):
-                value = value.model_dump_json(exclude_none=True)
-            json_object[key] = value
-        cbor_object = cbor2.dumps(json_object)
+                value = value.model_dump(exclude_none=True)
+            input_as_dict[key] = value
+        cbor_object = cbor2.dumps(input_as_dict)
         params = {"block_until_finish": block_until_done}
         with httpx.Client() as client:
             with connect_sse(
@@ -203,9 +232,34 @@ class RemoteClient(IndexifyClient):
             ) as event_source:
                 for sse in event_source.iter_sse():
                     obj = json.loads(sse.data)
-                    print(f"[bold red]Server Event[/bold red]: {obj}")
-                    if "id" in obj:
-                        return obj["id"]
+                    for k, v in obj.items():
+                        if k == "InvocationFinished":
+                            return v["id"]
+                        event_payload = InvocationEventPayload.model_validate(v)
+                        event = InvocationEvent(event_name=k, payload=event_payload)
+                        if (
+                            event.event_name == "TaskCompleted"
+                            and event.payload.outcome == "Failure"
+                        ):
+                            stdout = self.logs(
+                                event.payload.invocation_id,
+                                graph,
+                                event.payload.fn_name,
+                                "stdout",
+                            )
+                            stderr = self.logs(
+                                event.payload.invocation_id,
+                                graph,
+                                event.payload.fn_name,
+                                "stderr",
+                            )
+                            if stdout:
+                                print(f"[bold red]stdout[/bold red]: \n {stdout}")
+                            if stderr:
+                                print(f"[bold red]stderr[/bold red]: \n {stderr}")
+                        print(
+                            f"[bold green]{event.event_name}[/bold green]: {event.payload}"
+                        )
         raise Exception("invocation ID not returned")
 
     def _download_output(

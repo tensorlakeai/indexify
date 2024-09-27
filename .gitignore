@@ -32,3 +32,6 @@ sqlite*
 *.trace
 venv
 charts/*.tgz
+
+indexify
+/executor-py/~
