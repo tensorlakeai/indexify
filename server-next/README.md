@@ -14,7 +14,7 @@ Indexify is a compute framework for building data-intensive workflows with Agent
 
 Indexify gives you the following features out of the box,
 
-* **Dynamic Dataflow**: Indexify supports dynamic dataflow branching and cycles between ***Functions*** of a ***Graph***. 
+* **Dynamic Dataflow**: Dynamic dataflow branching across ***Functions*** of a ***Graph***. 
 
 * **Distributed Map and Reduce**: Parallelize execution of functions on sequences(map) automatically across many compute machines. Reducer functions are called serially as map functions finishes over time.
 
