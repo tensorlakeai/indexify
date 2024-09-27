@@ -35,9 +35,9 @@ pip install indexify
 
 ## Basic Usage
 
-Write your workflow as Python functions and connect as a Graph. Functions are units of logic you would like to be either retried if they fail, or they need to run on specific hardware. For example, if you make calls to OpenAI or run an expensive model for summarization, and don't want to retry the work if writes to the database fails you can break them into two functions. Indexify retains the output of every function so when their downstream is retried they don't have to be re-run again.
+Write your workflow as interconnected Python functions forming a graph. Each function acts as a logical unit that can be retried if it fails or designated to run on specific hardware. For example, when making OpenAI API calls or executing resource-intensive summarization models, you can split these tasks into separate functions to avoid repeating them if a subsequent database write fails. With Indexify, the output of every function is stored, so when downstream processes are retried, previous steps don't need to be rerun.
 
-API calls to workflows are automatically queued, and routed to the functions based on the topology of the workflow/Graph. There is no need to use RPC libraries, Kafka or other databases to store internal state and communicate between functions across process/machine boundaries if you are deploying them to production.
+API calls to these Graphs are automatically queued and directed to the appropriate functions based on the graph's topology. This approach eliminates the need for RPC libraries, Kafka, or additional databases to manage internal state and communication between functions across different processes or machines in production environments.
 
 ### Create a Graph 
 ```python
