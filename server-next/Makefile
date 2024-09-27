@@ -1,5 +1,5 @@
 DOCKER_USERNAME ?= tensorlake
-APPLICATION_NAME ?= indexify-server
+APPLICATION_NAME ?= indexify-server-next
 current_dir = $(shell pwd)
 
 # Installation directory
@@ -13,30 +13,15 @@ TARGET = ./target/release/$(APPLICATION_NAME)
 build: ## Build rust application
 	cargo build
 
-build-release: ## Build rust release
-	cargo install cross
-	cross build --target x86_64-unknown-linux-gnu --release
-
-build-release-aarch64:
-	cargo install cross
-	cross build --target aarch64-unknown-linux-gnu --release
-
 clean: ## Clean rust build artifacts
 	cargo clean
 
 build-container: ## Build container
-	docker build -f dockerfiles/Dockerfile.server --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
+	docker build --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 	docker image prune -f
 
-build-container-dev: ## Build container for local development
-	docker build -f dockerfiles/Dockerfile.builder --tag ${DOCKER_USERNAME}/builder .
-	docker build -f dockerfiles/Dockerfile.local --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
-
 push-container: ## Push container to docker hub
-	docker buildx build -f dockerfiles/Dockerfile.server --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
-
-build-ui: ## Build Indexify UI
-	docker build -f dockerfiles/Dockerfile.ui --tag ${DOCKER_USERNAME}/indexify-ui .
+	docker buildx build --platform linux/amd64,linux/arm64 --push --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 fmt: ## Run rustfmt
 	rustup run nightly cargo fmt
@@ -59,7 +44,3 @@ local-dev-tls-insecure: ## Generate local development TLS certificates (insecure
 install: build-release ## Build the application and install it to the system
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(APPLICATION_NAME)
-
-package-ui:
-	cd ui && npm install && npm run build
-
