@@ -165,7 +165,9 @@ Everything else, remains the same in your application code that invokes the Grap
 
 * The executor loads and executes the function and sends the data back to the server.
 
-* The two above steps are executed for every function in the Graph. 
+* The two above steps are repeated for every function in the Graph. 
+
+There are a lot of details we are skipping here! The scheduler utilizes a state of the art distributed and parallel event driven design internally to schedule tasks under 10 micro seconds, and uses many optimization technoques around storing blobs, rocksdb for state storage, streaming HTTP2 based RPC between server and executor to speed up execution.
 
 ### Production Deployment  
 
