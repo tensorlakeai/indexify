@@ -1,0 +1,279 @@
+name: Publish Indexify Server Next
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_message:
+        type: string
+        description: Release message
+        required: true
+      pre-release:
+        type: boolean
+        description: 'Is this a pre-release?'
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-x86:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-deb cross
+      - run: apt-get update && apt-get install -y clang gcc g++
+      - run: cross build --target x86_64-unknown-linux-gnu --release
+      - run: cargo deb --no-build --no-strip --target x86_64-unknown-linux-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-linux-x86_64
+          path: target/x86_64-unknown-linux-gnu/release/indexify-server
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-linux-x86_64-deb
+          path: target/x86_64-unknown-linux-gnu/debian/indexify-server_*.deb
+          if-no-files-found: error
+
+  build-linux-arm64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-deb cross
+      - run: apt-get update && apt-get install -y clang gcc g++
+      - run: cross build --target aarch64-unknown-linux-gnu --release
+      - run: cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-linux-arm64
+          path: target/aarch64-unknown-linux-gnu/release/indexify-server
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-linux-arm64-deb
+          path: target/aarch64-unknown-linux-gnu/debian/indexify-server_*.deb
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update
+      - run: rustup target add aaarch64-apple-darwin
+      - run: brew install protobuf
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-darwin-arm64
+          path: target/release/indexify-server
+          if-no-files-found: error
+
+  build-macos-x86:
+    name: Build macOS x86_64
+    runs-on: macos-12
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update
+      - run: brew install protobuf
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-darwin-x86_64
+          path: target/release/indexify-server
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/setup-nasm@v1
+      - run: choco install protoc
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server-next-windows-amd64.exe
+          path: target/release/indexify-server.exe
+          if-no-files-found: error
+
+  extract-version:
+    name: Extract Version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./server-next
+    outputs:
+      version: ${{ steps.extract-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: extract-version
+        run: echo "::set-output name=version::$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "indexify-server") | .version')"
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux-x86
+      - build-linux-arm64
+      - build-macos
+      - build-windows
+      - extract-version
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p /tmp/release
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/release
+      - name: install dependencies
+        run: sudo apt-get update && sudo apt-get install -y reprepro
+      - name: Rename artifacts
+        run: |
+          mv /tmp/release/indexify-server-next-linux-x86_64 /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-x86_64
+          mv /tmp/release/indexify-server-next-linux-x86_64-deb /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-x86_64.deb
+          mv /tmp/release/indexify-server-next-linux-arm64 /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-arm64
+          mv /tmp/release/indexify-server-next-linux-arm64-deb /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          mv /tmp/release/indexify-server-next-windows-amd64.exe /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          mv /tmp/release/indexify-server-next-darwin-arm64 /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          mv /tmp/release/indexify-server-next-darwin-x86_64 /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-darwin-x86_64
+      - name: Run reprepro
+        run: |
+          ls /tmp/release/
+          reprepro includedeb buster /tmp/release/*.deb
+          reprepro includedeb focal /tmp/release/*.deb
+          reprepro includedeb jammy /tmp/release/*.deb
+      - name: Create release
+        id: create-release
+        uses: actions/create-release@v1
+        with:
+          tag_name: "v${{ needs.extract-version.outputs.version }}"
+          prerelease: ${{ github.event.inputs.pre-release }}
+          body: ${{ github.event.inputs.release_message }}
+          release_name: "v${{ needs.extract-version.outputs.version }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux x86_64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-x86_64
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-x86_64
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux x86_64 deb
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-x86_64.deb
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-x86_64.deb
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux ARM64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-arm64
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-arm64
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux ARM64 deb
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Windows
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload macOS ARM64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload macOS x86_64
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: /tmp/release/indexify-server/indexify-server-next-${{ needs.extract-version.outputs.version }}-darwin-x86_64
+          asset_name: indexify-server-next-${{ needs.extract-version.outputs.version }}-darwin-x86_64
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload to R2 bucket
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: .repo
+          destination-dir: ./repo
+
+  publish-docker:
+    name: Publish Docker
+    runs-on: ubuntu-latest
+    needs:
+      - extract-version
+      - release
+    defaults:
+      run:
+        working-directory: ./server-next
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: tensorlake/indexify-next:latest,tensorlake/indexify-next:stable,tensorlake/indexify-next:${{ needs.extract-version.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+
