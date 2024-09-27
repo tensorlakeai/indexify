@@ -1,0 +1,12 @@
+binop_separator = "Back"
+combine_control_expr = false
+condense_wildcard_suffixes = true
+format_code_in_doc_comments = false
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+imports_layout = "HorizontalVertical"
+max_width = 100
+normalize_doc_attributes = true
+reorder_impl_items = true
+use_field_init_shorthand = true
+wrap_comments = true
