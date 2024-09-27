@@ -1,9 +1,9 @@
-import { IndexifyClient } from 'getindexify'
+import { ComputeGraph, ComputeGraphsList, IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
   getIndexifyServiceURL,
 } from './helpers'
-import axios from 'axios'
+import axios from 'axios';
 
 async function createClient(namespace: string | undefined) {
   if (!namespace) throw new Error('Namespace is required')
@@ -19,149 +19,80 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
   return { client }
 }
 
-export async function ExtractionGraphsPageLoader({
+export async function ComputeGraphsPageLoader({
   params,
 }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const client = await createClient(params.namespace)
-
-  return {
-    client: client,
-    namespace: client.namespace,
+  
+  try {
+    const computeGraphs = await axios.get<ComputeGraphsList>('http://localhost:8900/namespaces/default/compute_graphs');
+    return {
+      client: client,
+      computeGraphs: computeGraphs.data,
+      namespace: client.namespace,
+    }
+  } catch (error) {
+    console.error("Error fetching compute graphs:", error)
+    return {
+      client: client,
+      computeGraphs: { compute_graphs: [] },
+      namespace: client.namespace,
+    }
   }
 }
 
-export async function IndividualExtractionGraphPageLoader({
+export async function IndividualComputeGraphPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, extraction_graph } = params
-  const extractorName = extraction_graph
+  const { namespace } = params
+  const computeGraph = params['compute-graph']
   if (!namespace) return redirect('/')
   
-  const client = await createClient(params.namespace)
+  const computeGraphs = (await axios.get<ComputeGraphsList>('http://localhost:8900/namespaces/default/compute_graphs')).data;
+
+  const localComputeGraph = computeGraphs.compute_graphs.find((graph: ComputeGraph) => graph.name === computeGraph);
   
-  const [extractionGraphs, extractors] = await Promise.all([
-    client.getExtractionGraphs(),
-    client.extractors(),
-  ])
-
-  const extractionGraph = extractionGraphs.find(graph => graph.name === extractorName);
-  if (!extractionGraph) {
-    throw new Error(`Extraction graph ${extractorName} not found`);
+  const invocationsList = (await axios.get(`http://localhost:8900/namespaces/default/compute_graphs/${computeGraph}/invocations`)).data.invocations;
+  if (!computeGraph) {
+    throw new Error(`Extraction graph ${localComputeGraph} not found`);
   }
 
   return {
-    extractors,
-    extractionGraph,
-    client,
+    invocationsList,
+    computeGraph: localComputeGraph,
     namespace: params.namespace,
-    extractorName
   }
 }
 
-export async function ExtractionPolicyPageLoader({
+export async function InvocationsPageLoader({
   params,
 }: LoaderFunctionArgs) {
-  const { namespace, policyName, extraction_graph } = params
-  if (!namespace || !policyName) return redirect('/')
+  const { namespace } = params
+  const computeGraph = params['compute-graph']
+  if (!namespace) return redirect('/')
 
   const client = await createClient(namespace)
-  const [extractionGraphs] = await Promise.all([
-    client.getExtractionGraphs()
-  ])
 
-  const extractionGraph = extractionGraphs.find(
-    (graph) => graph.name === extraction_graph
-  )
-  const policy = extractionGraphs
-    .flatMap((graph) => graph.extraction_policies)
-    .find(
-      (policy) => policy.name === policyName && policy.graph_name === extraction_graph
-    )
+  const invocationsList = await client.getGraphInvocations(computeGraph ? computeGraph : '')
 
-  return { policy, namespace, extractionGraph, client }
+  return { namespace, computeGraph, invocationsList }
 }
 
-export async function ExtractorsPageLoader({ params }: LoaderFunctionArgs) {
+export async function NamespacesPageLoader() {
+  const namespaces = await IndexifyClient.namespaces()
+  return { namespaces }
+}
+
+export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
-  const extractors = await client.extractors()
-  return { extractors }
-}
-
-export async function IndexesPageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
-  const indexes = await client.indexes()
-  return {
-    indexes,
-    namespace: params.namespace,
-  }
-}
-
-export async function IndividualContentPageLoader({
-  params,
-}: LoaderFunctionArgs) {
-  const { namespace, extractorName, contentId } = params
-  if (!namespace || !contentId) return redirect('/')
-
-  const client = await createClient(namespace)
-  const [extractionGraphs, contentMetadata] = await Promise.all([
-    client.getExtractionGraphs(),
-    client.getContentMetadata(contentId)
-  ])
+  const { namespace } = params
+  const computeGraph = params['compute-graph']
+  const invocationId = params['invocation-id']
 
   return {
-    client,
-    namespace,
-    contentId,
-    contentMetadata,
-    extractorName,
-    extractionGraphs
+    invocationId,
+    computeGraph,
+    namespace: namespace,
   }
-}
-
-export async function NamespacePageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
-  const [extractors, indexes, schemas] = await Promise.all([
-    client.extractors(),
-    client.indexes(),
-    client.getSchemas(),
-  ])
-  return {
-    client,
-    extractors,
-    indexes,
-    schemas,
-    namespace: params.namespace,
-  }
-}
-
-export async function SearchIndexPageLoader({ params }: LoaderFunctionArgs) {
-  const { namespace, indexName } = params
-  if (!namespace || !indexName) return redirect('/')
-
-  const client = await createClient(namespace)
-  const indexes = await client.indexes()
-  const index = indexes.find((index) => index.name === indexName)
-  if (!index) {
-    return redirect('/')
-  }
-
-  return { index, namespace, client }
-}
-
-export async function SqlTablesPageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
-  const schemas = await client.getSchemas()
-  return { schemas }
-}
-
-export async function StateChangesPageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const response = await axios.get(`${getIndexifyServiceURL()}/state_changes`);
-  const stateChanges = response.data.state_changes
-  return { stateChanges };
 }

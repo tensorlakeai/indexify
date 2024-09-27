@@ -1,243 +1,195 @@
-# Indexify
+# Indexify 
 
-![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
-[![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
+## Stateful Compute Framework for building Data-Intensive Agentic Workflows 
 
-[Examples](examples) | [Indexify Extractors](https://github.com/tensorlakeai/indexify-extractors) | [Python Client](https://github.com/tensorlakeai/indexify-python-client) | [TypeScript Client](https://github.com/tensorlakeai/indexify-typescript-client)
+Indexify is a compute framework for building data-intensive workflows with agentic state machines. It lets you data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. Some of the use-cases that you can use Indexify for - 
 
+* Scraping and Summarizing websites 
 
-![Indexify High Level](docs/images/docs_intro_diagram.png)
+* Document Extraction, Indexing and Populating Knowledge Graphs.
 
-> **LLM applications backed by Indexify will never answer outdated information.**
+* Transcribing audio and summarization.
 
-Indexify is an open-source engine for building fast data pipelines for unstructured data (video, audio, images and documents) using re-usable extractors for embedding, transformation and feature extraction. Indexify keeps vectordbs, structured databases (Postgres) updated automatically when pipelines produce embedding or structured data.
+### Key Features
+* **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
+* **Local Inference:** Run multiple LLMs within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers by assigning functions to machines with adequate resources.
+* **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are called serially as map functions finish.
+* **Version Graphs and Backfill:** Offers a backfill API to update already processed data when functions or models in graphs are updated.
+* **Observability: Provides a UI for visualizing and debugging complex dynamic graphs.
+* **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
+* **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
 
-Applications can query indexes and databases using semantic search and SQL queries. 
-
-## Differences with Batch/ETL Systems
-ETL-based ingestion systems process files in batches, suitable for offline use cases with infrequent data updates. In contrast, Indexify’s pipelines function as live APIs, instantly processing files or text upon ingestion like any online system. Indexify efficiently schedules data processing tasks across thousands of machines, enabling real-time extraction for RAG applications or agents where up-to-date indexes are crucial.
-
-## More Cool Features!
-
-* **Incremental Extraction** when content is updated. Indexfiy processes only the chunks which have changed when documents, video or audio are updated.
-* **Extractor SDK** allows plugging in any custom model or API in pipelines.
-* Many pre-built extractors for embedding and handling **PDF**, **Image** and **Video**.
-* Works with **any LLM Framework**. Built in support for **Langchain**, **DSPy**, etc.
-* Runs locally for **prototyping** without any external dependencies.
-* Works with many **Blob Stores**, **Vector Stores** and **Structured Databases**
-* Automation to deploy to **Kubernetes** in production.
-
-
-## Detailed Getting Started
-
-To get started follow our [documentation](https://docs.getindexify.ai/getting-started-basic/).
-
-## Quick Start
-#### Download and start Indexify | Terminal1
-```bash title="Terminal 1"
-curl https://getindexify.ai | sh
-./indexify server -d
-```
-
-#### Install the Indexify Extractor and Client SDKs | Terminal2
-```bash title="Terminal 2"
-virtualenv ve
-source ve/bin/activate
-pip install indexify indexify-extractor-sdk requests
-```
-
-#### Download some extractors | Terminal2
-```bash title="Terminal 2"
-indexify-extractor download tensorlake/minilm-l6
-indexify-extractor download tensorlake/pdfextractor
-indexify-extractor download tensorlake/yolo-extractor
-indexify-extractor download tensorlake/chunk-extractor
-indexify-extractor download tensorlake/summarization
-indexify-extractor download tensorlake/whisper-asr
-indexify-extractor join-server
-```
-
-### Text Embedding Pipeline
-This example shows how to implement RAG on text
-#### Create an Extraction Graph
-```python
-from indexify import IndexifyClient, ExtractionGraph
-client = IndexifyClient()
-
-extraction_graph_spec = """
-name: 'sportsknowledgebase'
-extraction_policies:
-   - extractor: 'tensorlake/minilm-l6'
-     name: 'minilml6'
-"""
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph) 
-print("indexes", client.indexes())
-```
-#### Add Texts
-```python
-content_ids = client.add_documents("sportsknowledgebase", ["Adam Silver is the NBA Commissioner", "Roger Goodell is the NFL commisioner"])
-```
-
-#### Retrieve
-```python
-client.wait_for_extraction(content_ids)
-context = client.search_index(name="sportsknowledgebase.minilml6.embedding", query="NBA commissioner", top_k=1)
-```
-
-> The method wait_for_extraction blocks the client until Indexify runs the extraction on the ingested content. In production applications you will most likely won't block your application, and let extraction be asynchronous.
-
-###  PDF Extraction and Retrieval
-This example shows how to create a pipeline that extracts from PDF documents.
-More information here - https://docs.getindexify.ai/usecases/pdf_extraction/
-
-#### Create an Extraction Graph
-```python
-from indexify import IndexifyClient, ExtractionGraph
-import requests
-client = IndexifyClient()
-
-extraction_graph_spec = """
-name: 'pdfqa'
-extraction_policies:
-   - extractor: 'tensorlake/pdfextractor'
-     name: 'docextractor'
-"""
-
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)
-```
-
-#### Upload a Document
-```python
-with open("sample.pdf", 'wb') as file:
-  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/scientific-paper-example.pdf")).content)
-content_id = client.upload_file("pdfqa", "sample.pdf")
-```
-
-#### Get Text, Image and Tables
-```python
-client.wait_for_extraction(content_id)
-print(client.get_extracted_content(content_id, "pdfqa", "docextractor"))
-```
-
-### Audio Transcription and Summarization
-
-This example shows how to transcribe audio, and create a pipeline that embeds the transcription 
-More details about Audio Use Cases - https://docs.getindexify.ai/usecases/audio_extraction/
-
-#### Create an Extraction Graph
-```python
-from indexify import IndexifyClient, ExtractionGraph
-import requests
-client = IndexifyClient()
-
-extraction_graph_spec = """
-name: 'audiosummary'
-extraction_policies:
-   - extractor: 'tensorlake/whisper-asr'
-     name: 'transcription'
-   - extractor: 'tensorlake/summarization'
-     name: 'summarizer'
-     input_params:
-        max_length: 400
-        min_length: 300
-        chunk_method: str = 'recursive'
-     content_source: 'transcription'
-   - extractor: 'tensorlake/minilm-l6'
-     name: 'minilml6'
-     content_source: 'summarizer'
-"""
-
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)
-```
-
-#### Upload an Audio
-```python
-with open("sample.mp3", 'wb') as file:
-  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/sample-000009.mp3")).content)
-content_id = client.upload_file("audiosummary", "sample.mp3")
-```
-
-> Adding Texts and Files can be a time consuming process and by default we allow asynchronous ingestion for parallel operations. However the following codes might fail until the extraction has been completed. To make it a blocking call, use `client.wait_for_extraction(content_id)` after getting the content_id from above.
-
-#### Retrieve Summary
-```python
-client.wait_for_extraction(content_id)
-print("transcription ----")
-print(client.get_extracted_content(content_id, "audiosummary", "transcription"))
-print("summary ----")
-print(client.get_extracted_content(content_id, "audiosummary", "summarizer"))
-```
-
-#### Search Transcription Index
-```python
-context = client.search_index(name="audiosummary.minilml6.embedding", query="President of America", top_k=1)
-```
-
-### Object Detection on Images
-This example shows how to create a pipeline that performs object detection on images using the Yolo extractor.
-More details about Image understanding and retrieval - https://docs.getindexify.ai/usecases/image_retrieval/
-
-#### Create an Extraction Graph
-```python
-from indexify import IndexifyClient, ExtractionGraph
-import requests
-
-client = IndexifyClient()
-
-extraction_graph_spec = """
-name: 'imageknowledgebase'
-extraction_policies:
-   - extractor: 'tensorlake/yolo-extractor'
-     name: 'object_detection'
-"""
-
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)
-```
-
-#### Upload Images
-```python
-with open("sample.jpg", 'wb') as file:
-  file.write((requests.get("https://extractor-files.diptanu-6d5.workers.dev/people-standing.jpg")).content)
-content_id = client.upload_file("imageknowledgebase", "sample.jpg")
-```
-
-#### Retrieve Features of an Image
-```python
-client.wait_for_extraction(content_id)
-client.get_extracted_content(content_id, "imageknowledgebase", "object_detection")
-```
-
-> The Yolo extractor adds the objects detected in the image in the database. The table name is same as the extraction graph name
-
-#### Query using SQL
-```python
-print(client.sql_query("select * from imageknowledgebase where object_name='person';"))
-```
-
-### LLM Framework Integration 
-Indexify can work with any LLM framework, or with your applications directly. We have an example of a Langchain application [here](https://docs.getindexify.ai/integrations/langchain/python) and DSPy [here](https://docs.getindexify.ai/integrations/dspy/python).
-
-### Try out other extractors
-We have a ton of other extractors, you can list them and try them out - 
+## Installation
 ```bash
-indexify-extractor list
+pip install indexify
 ```
 
-### Custom Extractors
-Any extraction or transformation algorithm can be expressed as an Indexify Extractor. We provide an SDK to write your own. Please follow [the docs here for instructions](https://docs.getindexify.ai/apis/develop_extractors/). 
+## Basic Usage
 
-### Structured Data
+Create workflows by connecting Python functions into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. For example, you can separate resource-intensive tasks like OpenAI API calls or local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
 
-Extractors which produce structured data from content, such as bounding boxes and object type, or line items of invoices are stored in
-structured store. You can query extracted structured data using Indexify's SQL interface.
+API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
-We have an example [here](https://docs.getindexify.ai/usecases/image_retrieval/)
+### Example: Creating and Using a Compute Graph
+```python
+from pydantic import BaseModel
 
-## Contributions
-Please open an issue to discuss new features, or join our Discord group. Contributions are welcome, there are a bunch of open tasks we could use help with! 
+@indexify_function()
+def generate_sequence(a: int) -> List[int]:
+    return [i for i in range(a)]
 
-If you want to contribute on the Rust codebase, please read the [developer readme](docs/docs/develop.md).
+class Sum(BaseModel):
+    val: int
+@indexify_function(init_value=Sum)
+def sum_all_numbers(sum: Sum, val: int) -> Sum:
+    return Sum(sum.val + val)
+
+@indexify_function()
+def square_of_sum(sum: Sum) -> int:
+    return sum.val * sum.val
+
+from indexify import ComputeGraph
+g = ComputeGraph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
+g.add_edge(generate_sequence, sum_all_numbers)
+g.add_edge(sum_all_numbers, square_of_sum)
+```
+
+#### Register and Invoke the Compute Graph 
+```python
+from indexify import create_client 
+client = create_client(local=True)
+client.register_compute_graph(g)
+
+client.invoke_workflow_with_object("sequence_summer", a=10)
+result = client.graph_outputs("sequence_summer", "square_of_sum")
+print(result)
+```
+
+This is it! You have built and your first multi-stage workflow locally! 
+
+#### Programming Model:
+
+**Automatic Parallelization:**
+If a function returns a list, downstream functions are invoked in parallel with each list element.
+```python
+@indexify_function()
+def fetch_urls() -> list[str]:
+    return [
+        'https://example.com/page1',
+        'https://example.com/page2',
+        'https://example.com/page3',
+    ]
+
+@indexify_function()
+def scrape_page(url: str) -> str:
+    # Code to scrape the page content
+    content = requests.get(url).text
+    return content
+
+@indexify_function()
+def process_content(content: str) -> dict:
+    # Process the content, e.g., extract data or summarize
+    return {'summary': summarize(content)}
+```
+*Use Cases:* Generating Embedding from every single chunk of a document.
+
+**Dynamic Routing**
+
+Functions can route data to different nodes based on custom logic, enabling dynamic branching.
+```python
+@indexify_function()
+def analyze_text(text: str) -> list:
+    if 'error' in text.lower():
+        return [handle_error]
+    else:
+        return [handle_normal]
+
+@indexify_function()
+def handle_error(text: str):
+    # Logic to handle error messages
+    pass
+
+@indexify_function()
+def handle_normal(text: str):
+    # Logic to process normal text
+    pass
+```
+
+*Use Cases:* Use Case: Processing outputs differently based on classification results.
+
+**Reducing/Accumulating from Sequences:**
+
+```python
+@indexify_function()
+def fetch_numbers() -> list[int]:
+    return [1, 2, 3, 4, 5]
+
+class Total(BaseModel):
+    value: int = 0
+
+@indexify_function(init_value=Total)
+def accumulate_total(total: Total, number: int) -> Total:
+    total.value += number
+    return total
+```
+*Use Cases:* Aggregating a summary from hundreds of web pages.
+
+### Deploying Graph as an API:
+
+Indexify includes a server for deploying compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+
+```bash
+indexify-cli server-dev-mode
+```
+
+This starts the Indexify Server and an Executor on your terminal - 
+
+**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs.
+
+**Executor**: Runs python functions coordinates execution state of functions with server.
+
+Change the code above to deploy the graph as an API on the server -
+
+```python
+client = create_client() # local=True
+client.register_compute_graph(g) # Same as above
+```
+
+This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
+
+Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs! 
+
+**What happens when you invoke a Compute Graph API?**
+
+* Indexify serializes the input and calls the API over HTTP. 
+
+* The server creates and schedules a Task for the fist function on an executor.
+
+* The executor loads and executes the function and sends the data back to the server.
+
+* The two above steps are repeated for every function in the Graph. 
+
+There are a lot of details we are skipping here! The scheduler utilizes a state of the art distributed and parallel event driven design internally to schedule tasks under 10 micro seconds, and uses many optimization technoques around storing blobs, rocksdb for state storage, streaming HTTP2 based RPC between server and executor to speed up execution.
+
+### Production Deployment  
+
+You could deploy Indexify Server in production in the following ways -
+
+1. **Single Node:** Run both the server and executor on a single machine to run workflows on a single machine. Indexify would queue requests so you can upload as much data as you want, and can expect them to be eventually completed.
+
+2. **Distributed:** If you anticipate processing a lot of data, and have fixed latency or throughput requirements you can deploy the executors on 100s or 1000s of machines for parallel execution. You can always scale up and down the clusters with ease. 
+
+### Roadmap
+
+##### Scheduler 
+
+* Enable batching in functions
+* Data Local function executions - Prioritizs scheduling on machines where intermediate output lives for faster execution.
+* Reducer optimizations - Being able to batch serial execution reduce function calls. 
+* Machine parallel scheduling for even lower latency.
+* Support Cycles in the graphs for more flexible agentic behaviors in Graphs.
+* Ephemeral Graphs - multi-stage inference and retrieval with no persistence of intermediate outputs
+
+##### SDK 
+
+* Build a Typescript SDK for writing workflows in Typescript

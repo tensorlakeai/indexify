@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/Users/diptanuc/Projects/indexify/python-sdk/indexify/executor/function_worker.py", line 143, in _run_function
+    fn_output = graph.invoke_fn_ser(fn_name, input, init_value)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/diptanuc/Projects/indexify/python-sdk/indexify/functions_sdk/graph.py", line 176, in invoke_fn_ser
+    fn_wrapper = self.get_function(name)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/diptanuc/Projects/indexify/python-sdk/indexify/functions_sdk/graph.py", line 108, in get_function
+    raise ValueError(f"Function {name} not found in graph")
+ValueError: Function update not found in graph
+

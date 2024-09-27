@@ -20,7 +20,7 @@ COPY --from=planner /app/recipe.json recipe.json
 COPY rust-toolchain.toml .
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --bin indexify
+RUN cargo build --release --bin indexify-server
 
 FROM ubuntu:22.04 AS runner
 
@@ -37,12 +37,10 @@ RUN update-ca-certificates
 
 WORKDIR /indexify
 
-COPY --from=rust-builder /app/target/release/indexify ./
+COPY --from=rust-builder /app/target/release/indexify-server ./
 
 COPY sample_config.yaml ./config/indexify.yaml
 
 ENV PATH="/indexify:${PATH}"
 
-COPY ./scripts/docker_compose_start.sh .
-
-ENTRYPOINT [ "/indexify/indexify" ]
+ENTRYPOINT [ "/indexify/indexify-server" ]

@@ -1,7 +1,0 @@
-name: 'audio_summarization'
-extraction_policies:
-- extractor: 'tensorlake/whisper-asr'
-  name: 'transcription'
-- extractor: 'tensorlake/summarization'
-  name: 'summarization'
-  content_source: 'transcription'
