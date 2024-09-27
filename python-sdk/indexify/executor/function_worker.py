@@ -43,16 +43,18 @@ class FunctionOutput(BaseModel):
     stderr: str = ""
 
 
-def _load_function(namespace: str, graph_name: str, fn_name: str, code_path: str):
+def _load_function(
+    namespace: str, graph_name: str, fn_name: str, code_path: str, version: int
+):
     """Load an extractor to the memory: extractor_wrapper_map."""
     global function_wrapper_map
-    key = f"{namespace}/{graph_name}/{fn_name}"
+    key = f"{namespace}/{graph_name}/{version}/{fn_name}"
     if key in function_wrapper_map:
         return
     graph = Graph.from_path(code_path)
     function_wrapper = graph.get_function(fn_name)
     function_wrapper_map[key] = function_wrapper
-    graph_key = f"{namespace}/{graph_name}"
+    graph_key = f"{namespace}/{graph_name}/{version}"
     graphs[graph_key] = graph
 
 
@@ -69,6 +71,7 @@ class FunctionWorker:
         fn_name: str,
         input: IndexifyData,
         code_path: str,
+        version: int,
         init_value: Optional[IndexifyData] = None,
     ) -> FunctionWorkerOutput:
         try:
@@ -80,6 +83,7 @@ class FunctionWorker:
                 fn_name,
                 input,
                 code_path,
+                version,
                 init_value,
             )
         except BrokenProcessPool as mp:
@@ -117,6 +121,7 @@ def _run_function(
     fn_name: str,
     input: IndexifyData,
     code_path: str,
+    version: int,
     init_value: Optional[IndexifyData] = None,
 ) -> FunctionOutput:
     import io
@@ -132,11 +137,11 @@ def _run_function(
     exception_msg = None
     with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
         try:
-            key = f"{namespace}/{graph_name}/{fn_name}"
+            key = f"{namespace}/{graph_name}/{version}/{fn_name}"
             if key not in function_wrapper_map:
-                _load_function(namespace, graph_name, fn_name, code_path)
+                _load_function(namespace, graph_name, fn_name, code_path, version)
 
-            graph: Graph = graphs[f"{namespace}/{graph_name}"]
+            graph: Graph = graphs[f"{namespace}/{graph_name}/{version}"]
             if fn_name in graph.routers:
                 router_output = graph.invoke_router(fn_name, input)
             else:
