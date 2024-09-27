@@ -198,13 +198,13 @@ class RemoteClient(IndexifyClient):
     def logs(
         self, invocation_id: str, cg_name: str, fn_name: str, file: str
     ) -> Optional[str]:
-        response = self._get(
-            f"namespaces/{self.namespace}/compute_graphs/{cg_name}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}"
-        )
         try:
+            response = self._get(
+                f"namespaces/{self.namespace}/compute_graphs/{cg_name}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}"
+            )
             response.raise_for_status()
             return response.content.decode("utf-8")
-        except httpx.HTTPStatusError as e:
+        except ApiException as e:
             print(f"failed to fetch logs: {e}")
             return None
 
