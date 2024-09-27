@@ -16,6 +16,19 @@ from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 
 
+class InvocationEventPayload(BaseModel):
+    invocation_id: str
+    fn_name: str
+    task_id: str
+    executor_id: Optional[str] = None
+    outcome: Optional[str] = None
+
+
+class InvocationEvent(BaseModel):
+    event_name: str
+    payload: InvocationEventPayload
+
+
 class GraphOutputMetadata(BaseModel):
     id: str
     compute_fn: str
@@ -182,6 +195,19 @@ class RemoteClient(IndexifyClient):
     def create_namespace(self, namespace: str):
         self._post("namespaces", json={"namespace": namespace})
 
+    def logs(
+        self, invocation_id: str, cg_name: str, fn_name: str, file: str
+    ) -> Optional[str]:
+        response = self._get(
+            f"namespaces/{self.namespace}/compute_graphs/{cg_name}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}"
+        )
+        try:
+            response.raise_for_status()
+            return response.content.decode("utf-8")
+        except httpx.HTTPStatusError as e:
+            print(f"failed to fetch logs: {e}")
+            return None
+
     def rerun_graph(self, graph: str):
         self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/rerun")
 
@@ -206,9 +232,34 @@ class RemoteClient(IndexifyClient):
             ) as event_source:
                 for sse in event_source.iter_sse():
                     obj = json.loads(sse.data)
-                    print(f"[bold red]Server Event[/bold red]: {obj}")
-                    if "id" in obj:
-                        return obj["id"]
+                    for k, v in obj.items():
+                        if k == "InvocationFinished":
+                            return v["id"]
+                        event_payload = InvocationEventPayload.model_validate(v)
+                        event = InvocationEvent(event_name=k, payload=event_payload)
+                        if (
+                            event.event_name == "TaskCompleted"
+                            and event.payload.outcome == "Failure"
+                        ):
+                            stdout = self.logs(
+                                event.payload.invocation_id,
+                                graph,
+                                event.payload.fn_name,
+                                "stdout",
+                            )
+                            stderr = self.logs(
+                                event.payload.invocation_id,
+                                graph,
+                                event.payload.fn_name,
+                                "stderr",
+                            )
+                            if stdout:
+                                print(f"[bold red]stdout[/bold red]: \n {stdout}")
+                            if stderr:
+                                print(f"[bold red]stderr[/bold red]: \n {stderr}")
+                        print(
+                            f"[bold green]{event.event_name}[/bold green]: {event.payload}"
+                        )
         raise Exception("invocation ID not returned")
 
     def _download_output(

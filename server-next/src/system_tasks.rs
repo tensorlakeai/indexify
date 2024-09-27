@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, Arc};
 
 use anyhow::Result;
 use state_store::IndexifyState;
@@ -7,6 +7,7 @@ pub struct SystemTasksExecutor {
     state: Arc<IndexifyState>,
     rx: tokio::sync::watch::Receiver<()>,
     shutdown_rx: tokio::sync::watch::Receiver<()>,
+    should_shutdown: AtomicBool,
 }
 
 const MAX_PENDING_TASKS: usize = 10;
@@ -18,6 +19,20 @@ impl SystemTasksExecutor {
             state,
             rx,
             shutdown_rx,
+            should_shutdown: AtomicBool::new(false),
+        }
+    }
+
+    pub async fn start(&mut self) -> Result<()> {
+        loop {
+            if self
+                .should_shutdown
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return Ok(());
+            }
+
+            self.run().await?;
         }
     }
 
@@ -31,6 +46,7 @@ impl SystemTasksExecutor {
                     self.rx.borrow_and_update();
                 }
                 _ = self.shutdown_rx.changed() => {
+                    self.should_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
                     println!("shutdown signal received.");
                     return Ok(());
                 }

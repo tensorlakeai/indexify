@@ -1,7 +1,7 @@
+import time
 from typing import List
 
 import httpx
-import time
 from pydantic import BaseModel
 
 from indexify import create_client
