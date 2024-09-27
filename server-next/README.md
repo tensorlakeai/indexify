@@ -2,7 +2,7 @@
 
 ## Stateful Compute Framework for building Data-Intensive Agentic Workflows 
 
-Indexify is a compute framework for building data-intensive workflows with Agentic state machines. The workflows are deployed as live API endpoints for easy integration with existing systems. Application and Business logic are expressed as ***Functions*** while Dataflow across them are defined as ***Graphs***. Some of the use-cases that you can use Indexify for - 
+Indexify is a compute framework for building data-intensive workflows with agentic state machines. It lets you data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. Some of the use-cases that you can use Indexify for - 
 
 * Scraping and Summarizing websites 
 
@@ -11,35 +11,26 @@ Indexify is a compute framework for building data-intensive workflows with Agent
 * Transcribing audio and summarization.
 
 ### Key Features
+* **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
+* **Local Inference:** Run multiple LLMs within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers by assigning functions to machines with adequate resources.
+* **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are called serially as map functions finish.
+* **Version Graphs and Backfill:** Offers a backfill API to update already processed data when functions or models in graphs are updated.
+* **Observability: Provides a UI for visualizing and debugging complex dynamic graphs.
+* **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
+* **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
 
-Indexify gives you the following features out of the box,
-
-* **Dynamic Branching and Data Flow**: Dynamic dataflow branching across ***Functions*** of a ***Graph***. 
-
-* **Local Inference**: Run any number of LLMs in functions of a workflow using LLamaCPP, vLLM or HF Transformers by placing functions on machines with adequate resources. 
-
-* **Distributed Map and Reduce**: Parallelize execution of functions on sequences(map) automatically across many compute machines. Reducer functions are called serially as map functions finishes over time.
-
-* **Version Graphs and Backfill**: Backfill API for updating already processed data when functions(or models) in graphs are updated.
-
-* **Observability**: UI for visualization and debugging complex dynamic Graphs.
-
-* **Placement Constraints**: Graphs can span across GPU instances and cost-effective CPU machines. Functions can be constrained to specific instance types. 
-
-* **Request Queuing and Batching**: Automatically queue and batch parallel workflow invocations and maximize GPU utilization.
-
-## Install 
+## Installation
 ```bash
 pip install indexify
 ```
 
 ## Basic Usage
 
-Write your workflow as interconnected Python functions forming a graph. Each function acts as a logical unit that can be retried if it fails or designated to run on specific hardware. For example, when making OpenAI API calls or executing resource-intensive summarization models, you can split these tasks into separate functions to avoid repeating them if a subsequent database write fails. With Indexify, the output of every function is stored, so when downstream processes are retried, previous steps don't need to be rerun.
+Create workflows by connecting Python functions into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. For example, you can separate resource-intensive tasks like OpenAI API calls or local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
 
-API calls to these Graphs are automatically queued and directed to the appropriate functions based on the graph's topology. This approach eliminates the need for RPC libraries, Kafka, or additional databases to manage internal state and communication between functions across different processes or machines in production environments.
+API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
-### Create a Graph 
+### Example: Creating and Using a Compute Graph
 ```python
 from pydantic import BaseModel
 
@@ -76,75 +67,86 @@ print(result)
 
 This is it! You have built and your first multi-stage workflow locally! 
 
-#### Automatic Parallelization 
+#### Programming Model:
 
-When a function returns a `List` the downstream function is automatically called in parallel with all the elements of the list.
-
+**Automatic Parallelization:**
+If a function returns a list, downstream functions are invoked in parallel with each list element.
 ```python
-def func_a(..) -> List[int]:
+@indexify_function()
+def fetch_urls() -> list[str]:
+    return [
+        'https://example.com/page1',
+        'https://example.com/page2',
+        'https://example.com/page3',
+    ]
+
+@indexify_function()
+def scrape_page(url: str) -> str:
+    # Code to scrape the page content
+    content = requests.get(url).text
+    return content
+
+@indexify_function()
+def process_content(content: str) -> dict:
+    # Process the content, e.g., extract data or summarize
+    return {'summary': summarize(content)}
+```
+*Use Cases:* Generating Embedding from every single chunk of a document.
+
+**Dynamic Routing**
+
+Functions can route data to different nodes based on custom logic, enabling dynamic branching.
+```python
+@indexify_function()
+def analyze_text(text: str) -> list:
+    if 'error' in text.lower():
+        return [handle_error]
+    else:
+        return [handle_normal]
+
+@indexify_function()
+def handle_error(text: str):
+    # Logic to handle error messages
     pass
 
-def func_b(x: int) -> SomeValue:
+@indexify_function()
+def handle_normal(text: str):
+    # Logic to process normal text
     pass
 ```
 
-Here, `func_b` will be invoked in parallel with every output of `func_a`. There is no need to use Ray, Spark or Dask for parallelization when an upstream function produces a sequence of values.
+*Use Cases:* Use Case: Processing outputs differently based on classification results.
 
-**Use Cases:** Generating Embedding from every single chunk of a document.
-
-#### Dynamic Routing 
-You can add functions in the graph which don't produce new data but simply route them dynamically to one or more nodes in the Graph. This enables dynamic branching in a graph by executing some business logic on the input. 
+**Reducing/Accumulating from Sequences:**
 
 ```python
-def func_a(..) -> SomeVal:
- pass
+@indexify_function()
+def fetch_numbers() -> list[int]:
+    return [1, 2, 3, 4, 5]
 
-def do_X(val: SomeVal) -> SomeOtherVal:
-  pass
+class Total(BaseModel):
+    value: int = 0
 
-def do_Y(val: SomeVal) -> SomeOtherVal1:
-  pass
-
-def route_between_X_Y(val: SomeVal) -> List[do_X, do_Y]:
-  # Write your routing logic here and
-  # pick either or all of the possible paths
-  return [do_X]
+@indexify_function(init_value=Total)
+def accumulate_total(total: Total, number: int) -> Total:
+    total.value += number
+    return total
 ```
+*Use Cases:* Aggregating a summary from hundreds of web pages.
 
-**Example Use Cases:** Running classification tasks on the outputs of an upstream function, and processing it's output differently.
+### Deploying Graph as an API:
 
-#### Reducing/Accumulating from Sequences
-
-```python
-@indexify_function
-def func_a(num_val: int) -> List[int]:
-    pass
-
-class SomeValue:
-    foo
-
-@indexify_function(accumulate=SomeValue)
-def func_b(val: SomeValue, x: int) -> SomeValue:
-    pass
-```
-
-Here, `func_b` will be called serially with every value generated by `func_a`. The previous `SomeValue` produced by `func_b` will be injected in every subsequent calls. This allows to incrementally build state from a sequence generated by upstream functions.
-
-**Use Cases:** - Producing a single summary from scraping 100s of web pages on a specific topic.
-
-### Create a Graph Endpoint HTTP API  
-
-Indexify comes with a server for deploying Compute Graphs as an API so they can be called from other applications or systems. The server can host multiple workflows and can execute functions across Graphs in parallel, and handles queuing, batching execution, managing function outputs.
+Indexify includes a server for deploying compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
 
 ```bash
-indexify-cli run-server
+indexify-cli server-dev-mode
 ```
 
-This starts the Indexify Server and an Executor - 
+This starts the Indexify Server and an Executor on your terminal - 
 
-**Indexify Server**: Manages state of your graphs when they are called. It stores the outputs of the functions and calls them based on the structure of the graph. 
+**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs.
 
-**Executor**: Runs the python functions which are part of your Graph.
+**Executor**: Runs python functions coordinates execution state of functions with server.
 
 Change the code above to deploy the graph as an API on the server -
 
