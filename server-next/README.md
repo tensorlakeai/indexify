@@ -1,4 +1,4 @@
-no# Indexify 
+# Indexify 
 
 ## Stateful Compute Framework for building Data-Intensive Agentic Workflows 
 
