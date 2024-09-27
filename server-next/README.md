@@ -14,7 +14,9 @@ Indexify is a compute framework for building data-intensive workflows with Agent
 
 Indexify gives you the following features out of the box,
 
-* **Dynamic Dataflow**: Dynamic dataflow branching across ***Functions*** of a ***Graph***. 
+* **Dynamic Branching and Data Flow**: Dynamic dataflow branching across ***Functions*** of a ***Graph***. 
+
+* **Local Inference**: Run any number of LLMs in functions of a workflow using LLamaCPP, vLLM or HF Transformers by placing functions on machines with adequate resources. 
 
 * **Distributed Map and Reduce**: Parallelize execution of functions on sequences(map) automatically across many compute machines. Reducer functions are called serially as map functions finishes over time.
 
@@ -25,8 +27,6 @@ Indexify gives you the following features out of the box,
 * **Placement Constraints**: Graphs can span across GPU instances and cost-effective CPU machines. Functions can be constrained to specific instance types. 
 
 * **Request Queuing and Batching**: Automatically queue and batch parallel workflow invocations and maximize GPU utilization.
-
-* **Output Checkpoints**: Automatically checkpoint intermediate outputs to quickly resume failed Graph stages.
 
 ## Install 
 ```bash
