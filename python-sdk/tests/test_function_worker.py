@@ -88,6 +88,7 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
                     ),
                 ),
                 code_path=temp_file_path,
+                version=1,
             )
 
             self.assertEqual(len(output), 2)
@@ -116,6 +117,7 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
                     fn_name="extractor_exception",
                     input=IndexifyData(id="123", payload=cbor2.dumps(10)),
                     code_path=temp_file_path,
+                    version=1,
                 )
                 self.fail("Should throw exception.")
             except Exception as e:
