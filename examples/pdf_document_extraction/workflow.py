@@ -4,7 +4,6 @@ from typing import List, Optional, Union
 import httpx
 from pydantic import BaseModel
 
-from indexify.extractors.pdf_parser import Page, PageFragmentType, PDFParser
 from indexify.functions_sdk.data_objects import File, IndexifyData
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import (
@@ -25,17 +24,27 @@ def download_pdf(url: str) -> File:
 
 
 class Document(BaseModel):
+    from inkwell import Page
     pages: List[Page]
 
 
-@indexify_function()
-def parse_pdf(file: File) -> Document:
-    """
-    Parse pdf file and returns pages:
-    """
-    parser = PDFParser(file.data)
-    pages: List[Page] = parser.parse()
-    return Document(pages=pages)
+class PDFParse(IndexifyFunction):
+    name = "pdf-parse"
+    description = "Parser class that captures a pdf file"
+
+    def __init__(self):
+        super().__init__()
+        from inkwell import Pipeline
+        self._pipeline = Pipeline()
+
+    def run(self, input: File) -> Document:
+        from inkwell import Page
+        import tempfile
+        with tempfile.TemporaryFile() as f:
+            f.write(input.data)
+            pages: List[Page] = self._pipeline.process(f.name)
+        return Document(pages=pages)
+    
 
 
 class TextChunk(IndexifyData):
@@ -50,6 +59,7 @@ def extract_chunks(document: Document) -> List[TextChunk]:
     """
     Extract chunks from document
     """
+    from inkwell import PageFragmentType
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
@@ -103,6 +113,7 @@ class ImageEmbeddingExtractor(IndexifyFunction):
 
     def run(self, document: Document) -> List[ImageWithEmbedding]:
         from PIL import Image
+        from inkwell import PageFragmentType
         from sentence_transformers import SentenceTransformer
 
         if self.model is None:
@@ -125,8 +136,6 @@ class ImageEmbeddingExtractor(IndexifyFunction):
 
 
 from lancedb.pydantic import LanceModel, Vector
-
-
 class ImageEmbeddingTable(LanceModel):
     vector: Vector(512)
     page_number: int
