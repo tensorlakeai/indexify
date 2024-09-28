@@ -3,7 +3,7 @@
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
 
-## Build and Serve Durable Data-Intensive Agentic Workflow APIs
+## Build and Serve Durable Data-Intensive Agentic Workflows
 
 Indexify is a compute framework for building durable data-intensive workflows with LLM driven data routing. It lets you write data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. 
 
