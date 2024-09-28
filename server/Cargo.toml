@@ -10,7 +10,7 @@ resolver = "2"
 [workspace]
 members = [
     ".",
-    "blob_store", 
+    "blob_store",
     "data_model",
     "indexify_ui",
     "state_store",
@@ -113,7 +113,7 @@ vergen = { version = "9.0.1", features = [
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
 copyright = "2024, Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
-license-file = ["LICENSE", "4"]
+license-file = ["../LICENSE", "4"]
 extended-description = """\
 Indexify is a reactive structured extraction engine for un-structured data.
 """
