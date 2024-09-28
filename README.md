@@ -9,11 +9,11 @@ Indexify is a compute framework for building durable data-intensive workflows wi
 
 Some of the use-cases that you can use Indexify for - 
 
-* Scraping and Summarizing websites 
+* [Scraping and Summarizing websites](examples/website_audio_summary/)
 
-* Document Extraction, Indexing and Populating Knowledge Graphs.
+* [PDF Documents Extraction and Indexing](examples/pdf_document_extraction/)
 
-* Transcribing audio and summarization.
+* [Transcribing audio and summarization](examples/website_audio_summary/)
 
 ### Key Features
 * **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
