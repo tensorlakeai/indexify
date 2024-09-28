@@ -2,7 +2,9 @@
 
 ## Stateful Compute Framework for building Data-Intensive Agentic Workflows 
 
-Indexify is a compute framework for building data-intensive workflows with agentic state machines. It lets you data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. Some of the use-cases that you can use Indexify for - 
+Indexify is a compute framework for building data-intensive workflows with agentic state machines. It lets you data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. 
+
+Some of the use-cases that you can use Indexify for - 
 
 * Scraping and Summarizing websites 
 
