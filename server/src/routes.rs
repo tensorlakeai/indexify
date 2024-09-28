@@ -13,6 +13,7 @@ use axum::{
 use blob_store::PutResult;
 use data_model::ExecutorId;
 use futures::StreamExt;
+use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use nanoid::nanoid;
 use state_store::{
@@ -33,8 +34,6 @@ use tower_http::{
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
-use indexify_ui::Assets as UiAssets;
-
 
 use crate::executors::{self, EXECUTOR_TIMEOUT};
 
