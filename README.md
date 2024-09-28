@@ -3,7 +3,7 @@
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
 
-## Compute Framework for building and serving Durable Data-Intensive Agentic Workflow APIs
+## Compute Framework for Serving Durable Data-Intensive Agentic Workflow APIs
 
 Indexify is a compute framework for building durable data-intensive workflows with LLM driven data routing. It lets you write data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. 
 
@@ -68,8 +68,7 @@ def dynamic_router(val: Sum) -> List[Union[squared, tripled]]:
 
 You can separate resource-intensive functions such as local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
 
-The Graphs are hosted in Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
-
+The Graphs are hosted in the Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
 #### 2: Register and Invoke the Compute Graph 
 ```python
@@ -96,7 +95,7 @@ You have built and your first multi-stage workflow locally! You are now ready to
 
 #### 4: Deploying Graph as a service API
 
-Indexify includes a server for deploying compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+Indexify server deploys compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
 
 ```bash
 indexify-cli server-dev-mode
@@ -123,7 +122,7 @@ This serializes your Graph code and uploads it to the server, and instantiates a
 
 Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs! 
 
-#### Programming Model:
+### Programming Model:
 
 **Automatic Parallelization:**
 If a function returns a list, downstream functions are invoked in parallel with each list element.
@@ -189,14 +188,11 @@ def accumulate_total(total: Total, number: int) -> Total:
 ```
 *Use Cases:* Aggregating a summary from hundreds of web pages.
 
-**What happens when you invoke a Compute Graph API?**
+### What happens when you invoke a Compute Graph API?
 
 * Indexify serializes the input and calls the API over HTTP. 
-
 * The server creates and schedules a Task for the fist function on an executor.
-
 * The executor loads and executes the function and sends the data back to the server.
-
 * The two above steps are repeated for every function in the Graph. 
 
 There are a lot of details we are skipping here! The scheduler utilizes a state of the art distributed and parallel event driven design internally to schedule tasks under 10 micro seconds, and uses many optimization techniques for storing blobs, rocksdb for state storage, streaming HTTP2 based RPC between server and executor to speed up execution.
