@@ -126,7 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: version_extraction
-        run: echo "version=$(cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify") | .version' | xargs)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(cargo metadata --format-version 1 | jq '.packages[] | select(.name == "indexify-server") | .version' | xargs)" >> "$GITHUB_OUTPUT"
 
   create-release:
     name: Create GitHub Release
