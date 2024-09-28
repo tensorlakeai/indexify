@@ -2,13 +2,12 @@ from collections import defaultdict
 from queue import deque
 from typing import Any, Dict, List, Optional, Type, Union
 
-import cbor2
+import msgpack
 from nanoid import generate
 from pydantic import BaseModel, Json
 from rich import print
 
 from indexify.base_client import IndexifyClient
-from indexify.functions_sdk.cbor_serializer import CborSerializer
 from indexify.functions_sdk.data_objects import (
     File,
     IndexifyData,
@@ -16,6 +15,7 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
+from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 
 # Holds the outputs of a
@@ -40,11 +40,11 @@ class LocalClient(IndexifyClient):
         self.run(g, **kwargs)
 
     def run(self, g: Graph, **kwargs):
-        input = IndexifyData(id=generate(), payload=CborSerializer.serialize(kwargs))
+        input = IndexifyData(id=generate(), payload=MsgPackSerializer.serialize(kwargs))
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
         self._accumulators = {
-            k: IndexifyData(payload=CborSerializer.serialize(v))
+            k: IndexifyData(payload=MsgPackSerializer.serialize(v))
             for k, v in g.get_accumulators().items()
         }
         self._results[input.id] = outputs
@@ -60,7 +60,7 @@ class LocalClient(IndexifyClient):
         queue = deque([(g._start_node.name, initial_input)])
         while queue:
             node_name, input = queue.popleft()
-            input_bytes = cbor2.dumps(input.model_dump())
+            input_bytes = msgpack.packb(input.model_dump())
             cached_output_bytes: Optional[bytes] = self._cache.get(
                 g.name, node_name, input_bytes
             )
@@ -69,7 +69,7 @@ class LocalClient(IndexifyClient):
                     f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
                 )
                 function_outputs: List[IndexifyData] = []
-                cached_output_list = CborSerializer.deserialize_list(
+                cached_output_list = MsgPackSerializer.deserialize_list(
                     cached_output_bytes
                 )
                 if self._accumulators.get(node_name, None) is not None:
@@ -87,7 +87,7 @@ class LocalClient(IndexifyClient):
                     outputs[node_name] = []
                 outputs[node_name].extend(function_outputs)
                 function_outputs_bytes: List[bytes] = [
-                    CborSerializer.serialize_list(function_outputs)
+                    MsgPackSerializer.serialize_list(function_outputs)
                 ]
                 self._cache.set(
                     g.name,
@@ -171,7 +171,7 @@ class LocalClient(IndexifyClient):
         results = []
         fn_model = self._graphs[graph].get_function(fn_name).get_output_model()
         for result in self._results[invocation_id][fn_name]:
-            payload_dict = cbor2.loads(result.payload)
+            payload_dict = msgpack.unpackb(result.payload)
             if issubclass(fn_model, BaseModel):
                 payload = fn_model.model_validate(payload_dict)
             else:

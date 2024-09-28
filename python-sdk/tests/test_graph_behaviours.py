@@ -169,8 +169,13 @@ class TestGraphBehaviors(unittest.TestCase):
         client.register_compute_graph(graph)
         import os
 
-        invocation_id = client.invoke_graph_with_file(
-            graph.name, path=os.path.dirname(__file__) + "/test_file"
+        data = Path(os.path.dirname(__file__) + "/test_file").read_text()
+        file = File(data=data, metadata={"some_val": 2})
+
+        invocation_id = client.invoke_graph_with_object(
+            graph.name,
+            block_until_done=True,
+            f=file,
         )
 
         output = client.graph_outputs(graph.name, invocation_id, "handle_file")

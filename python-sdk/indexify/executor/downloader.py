@@ -7,8 +7,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.theme import Theme
 
-from indexify.functions_sdk.cbor_serializer import CborSerializer
 from indexify.functions_sdk.data_objects import IndexifyData
+from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 from .api_objects import Task
 
@@ -41,7 +41,7 @@ class Downloader:
         console.print(
             Panel(
                 f"Downloading graph: {name}\nPath: {path}",
-                title="Downloader",
+                title="downloader",
                 border_style="cyan",
             )
         )
@@ -55,7 +55,7 @@ class Downloader:
             console.print(
                 Panel(
                     f"Failed to download graph: {name}\nError: {response.text}",
-                    title="Downloader Error",
+                    title="downloader error",
                     border_style="error",
                 )
             )
@@ -79,8 +79,8 @@ class Downloader:
 
         console.print(
             Panel(
-                f"Downloading input\nURL: {url} \n Reducer Input URL: {reducer_url}",
-                title="Downloader",
+                f"downloading input\nURL: {url} \n reducer input URL: {reducer_url}",
+                title="downloader",
                 border_style="cyan",
             )
         )
@@ -91,8 +91,8 @@ class Downloader:
         except httpx.HTTPStatusError as e:
             console.print(
                 Panel(
-                    f"Failed to download input: {task.input_key}\nError: {response.text}",
-                    title="Downloader Error",
+                    f"failed to download input: {task.input_key}\nError: {response.text}",
+                    title="downloader error",
                     border_style="error",
                 )
             )
@@ -111,14 +111,14 @@ class Downloader:
             except httpx.HTTPStatusError as e:
                 console.print(
                     Panel(
-                        f"Failed to download reducer output: {task.reducer_output_id}\nError: {init_value.text}",
-                        title="Downloader Error",
+                        f"failed to download reducer output: {task.reducer_output_id}\nError: {init_value.text}",
+                        title="downloader error",
                         border_style="error",
                     )
                 )
                 raise
-            init_value = CborSerializer.deserialize(init_value.content)
+            init_value = MsgPackSerializer.deserialize(init_value.content)
 
         return DownloadedInputs(
-            input=CborSerializer.deserialize(response.content), init_value=init_value
+            input=MsgPackSerializer.deserialize(response.content), init_value=init_value
         )

@@ -14,12 +14,11 @@ from typing import (
     get_origin,
 )
 
-import cbor2
 import cloudpickle
+import msgpack
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
 
-from .cbor_serializer import CborSerializer
 from .data_objects import IndexifyData, RouterOutput
 from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
@@ -27,6 +26,7 @@ from .indexify_functions import (
     IndexifyFunctionWrapper,
     IndexifyRouter,
 )
+from .object_serializer import MsgPackSerializer
 
 RouterFn = Annotated[
     Callable[[IndexifyData], Optional[List[IndexifyFunction]]], "RouterFn"
@@ -113,7 +113,7 @@ class Graph:
 
     def deserialize_fn_output(self, name: str, output: IndexifyData) -> Any:
         output_model = self.get_function(name).get_output_model()
-        payload_dict = cbor2.loads(output.payload)
+        payload_dict = msgpack.unpackb(output.payload)
         if issubclass(output_model, BaseModel):
             return output_model.model_validate(payload_dict)
         return payload_dict
@@ -174,11 +174,11 @@ class Graph:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> List[IndexifyData]:
         fn_wrapper = self.get_function(name)
-        payload = cbor2.loads(input.payload)
+        payload = msgpack.unpackb(input.payload)
         input = self.deserialize_input_from_dict(name, payload)
         if acc is not None:
             acc = fn_wrapper.indexify_function.accumulate.model_validate(
-                cbor2.loads(acc.payload)
+                msgpack.unpackb(acc.payload)
             )
         if acc is None and fn_wrapper.indexify_function.accumulate is not None:
             acc = fn_wrapper.indexify_function.accumulate.model_validate(
@@ -186,12 +186,13 @@ class Graph:
             )
         outputs: List[Any] = fn_wrapper.run_fn(input, acc=acc)
         return [
-            IndexifyData(payload=CborSerializer.serialize(output)) for output in outputs
+            IndexifyData(payload=MsgPackSerializer.serialize(output))
+            for output in outputs
         ]
 
     def invoke_router(self, name: str, input: IndexifyData) -> Optional[RouterOutput]:
         fn_wrapper = self.get_function(name)
-        input_payload = cbor2.loads(input.payload)
+        input_payload = msgpack.unpackb(input.payload)
         input = self.deserialize_input_from_dict(name, input_payload)
         return RouterOutput(edges=fn_wrapper.run_router(input))
 

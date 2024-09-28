@@ -2,8 +2,8 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-import cbor2
 import httpx
+import msgpack
 import yaml
 from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
@@ -219,7 +219,7 @@ class RemoteClient(IndexifyClient):
             if isinstance(value, BaseModel):
                 value = value.model_dump(exclude_none=True)
             input_as_dict[key] = value
-        cbor_object = cbor2.dumps(input_as_dict)
+        cbor_object = msgpack.packb(input_as_dict)
         params = {"block_until_finish": block_until_done}
         with httpx.Client() as client:
             with connect_sse(
@@ -274,7 +274,7 @@ class RemoteClient(IndexifyClient):
             f"namespaces/{namespace}/compute_graphs/{graph}/invocations/{invocation_id}/fn/{fn_name}/{output_id}",
         )
         response.raise_for_status()
-        data_dict = cbor2.loads(response.content)
+        data_dict = msgpack.unpackb(response.content)
         return IndexifyData.model_validate(data_dict)
 
     def graph_outputs(

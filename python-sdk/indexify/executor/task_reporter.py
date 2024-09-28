@@ -8,8 +8,8 @@ from rich import print
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import Task, TaskResult
 from indexify.executor.task_store import CompletedTask
-from indexify.functions_sdk.cbor_serializer import CborSerializer
 from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -32,7 +32,7 @@ class TaskReporter:
             f"[bold]task-reporter[/bold] uploading output of size: {len(completed_task.outputs or [])}"
         )
         for output in completed_task.outputs or []:
-            output_bytes = CborSerializer.serialize(output)
+            output_bytes = MsgPackSerializer.serialize(output)
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )

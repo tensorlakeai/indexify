@@ -1,6 +1,13 @@
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Json
+
+
+class FileInput(BaseModel):
+    url: str
+    mime_type: Optional[str] = None
+    metadata: Optional[Dict[str, Json]] = None
+    sha_256: Optional[str] = None
 
 
 class RouterOutput(BaseModel):
@@ -11,6 +18,7 @@ class IndexifyData(BaseModel):
     id: Optional[str] = None
     payload: bytes
     payload_encoding: str = "cbor"
+    file_input: Optional[FileInput] = None
 
 
 class FunctionWorkerOutput(BaseModel):
@@ -26,5 +34,5 @@ class FunctionWorkerOutput(BaseModel):
 class File(BaseModel):
     data: bytes
     mime_type: Optional[str] = None
-    metadata: Optional[Dict[str, Json]] = None
+    metadata: Optional[Dict[str, Any]] = None
     sha_256: Optional[str] = None
