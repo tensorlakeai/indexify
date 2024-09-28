@@ -36,12 +36,12 @@ jobs:
       - run: cargo deb --no-build --no-strip --target x86_64-unknown-linux-gnu
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-linux-amd64
-          path: server/target/x86_64-unknown-linux-gnu/release/indexify
+          name: indexify-server-linux-amd64
+          path: server/target/x86_64-unknown-linux-gnu/release/indexify-server
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-deb-linux-amd64
+          name: indexify-server-deb-linux-amd64
           path: server/target/x86_64-unknown-linux-gnu/debian/indexify_*.deb
           if-no-files-found: error
 
@@ -57,12 +57,12 @@ jobs:
       - run: cargo deb --no-build --no-strip --target aarch64-unknown-linux-gnu
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-linux-aarch64
-          path: server/target/aarch64-unknown-linux-gnu/release/indexify
+          name: indexify-server-linux-aarch64
+          path: server/target/aarch64-unknown-linux-gnu/release/indexify-server
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-deb-linux-aarch64
+          name: indexify-server-deb-linux-aarch64
           path: server/target/aarch64-unknown-linux-gnu/debian/indexify_*.deb
           if-no-files-found: error
 
@@ -80,8 +80,8 @@ jobs:
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-darwin-arm64
-          path: server/target/release/indexify
+          name: indexify-server-darwin-arm64
+          path: server/target/release/indexify-server
           if-no-files-found: error
 
   build-macos-package-x86:
@@ -97,8 +97,8 @@ jobs:
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-darwin-amd64
-          path: server/target/release/indexify
+          name: indexify-server-darwin-amd64
+          path: server/target/release/indexify-server
           if-no-files-found: error
 
   build-windows-package:
@@ -114,8 +114,8 @@ jobs:
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: indexify-windows-amd64.exe
-          path: server/target/release/indexify.exe
+          name: indexify-server-windows-amd64.exe
+          path: server/target/release/indexify-server.exe
           if-no-files-found: error
 
   extract-version:
@@ -147,12 +147,12 @@ jobs:
           path: /tmp/release/
       - name: Name Artifacts
         run: |
-          mv /tmp/release/indexify-windows-amd64.exe/indexify.exe /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          mv /tmp/release/indexify-darwin-arm64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          mv /tmp/release/indexify-darwin-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-amd64
-          mv /tmp/release/indexify-linux-amd64/indexify /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          mv /tmp/release/indexify-deb-linux-amd64/indexify_${{ needs.extract-version.outputs.version }}-1_amd64.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
-          mv /tmp/release/indexify-deb-linux-aarch64/indexify_${{ needs.extract-version.outputs.version }}-1_arm64.deb /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          mv /tmp/release/indexify-server-windows-amd64.exe/indexify-server.exe /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          mv /tmp/release/indexify-server-darwin-arm64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          mv /tmp/release/indexify-server-darwin-amd64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-darwin-amd64
+          mv /tmp/release/indexify-server-linux-amd64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64
+          mv /tmp/release/indexify-server-deb-linux-amd64/indexify-server_${{ needs.extract-version.outputs.version }}-1_amd64.deb /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
+          mv /tmp/release/indexify-server-deb-linux-aarch64/indexify-server_${{ needs.extract-version.outputs.version }}-1_arm64.deb /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -166,8 +166,8 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -175,8 +175,8 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64
+          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64
+          asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -184,8 +184,8 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-darwin-arm64
+          asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-darwin-arm64
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -193,8 +193,8 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-darwin-amd64
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-darwin-amd64
+          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-darwin-amd64
+          asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-darwin-amd64
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -202,7 +202,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
+          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
           asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-amd64.deb
           asset_content_type: application/octet-stream
         env:
@@ -211,8 +211,8 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
-          asset_name: indexify-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
+          asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
           asset_content_type: application/octet-stream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -262,5 +262,5 @@ jobs:
             else
               tag="$tag.$i";
             fi
-            docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify:$tag -f dockerfiles/Dockerfile.server;
+            docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:$tag -f dockerfiles/Dockerfile.server;
           done
