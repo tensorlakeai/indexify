@@ -8,6 +8,8 @@ site
 sdk-py/dist
 sdk-typescript/node_modules
 sdk-typescript/lib
+indexify_storage
+server/indexify_storage
 dist
 *.tgz
 .venv
