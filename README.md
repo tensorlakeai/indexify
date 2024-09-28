@@ -19,7 +19,7 @@ Some of the use-cases that you can use Indexify for -
 * **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
 * **Local Inference:** Run multiple LLMs within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers by assigning functions to machines with adequate resources.
 * **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
-* **Version Graphs and Backfill:** Offers a backfill API to update already processed data when functions or models in graphs are updated.
+* **Version Graphs and Backfill:** Offers a backfill API to update peviously processed data when functions or models in graphs are updated.
 * **Observability:** Provides a UI for visualizing and debugging complex dynamic graphs.
 * **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
 * **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
