@@ -31,13 +31,13 @@ pip install indexify
 
 ## Basic Usage
 
-Write Python functions and connect them into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. 
+Workflows are written as Python functions and are connected as Graphs. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. 
 
 For example, you can separate resource-intensive tasks local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
 
 The Graphs are hosted in Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
-#### 1: Creating and Using a Compute Graph
+#### 1: Create a Compute Graph
 ```python
 from pydantic import BaseModel
 from indexify import indexify_function, Graph
@@ -56,8 +56,18 @@ def sum_all_numbers(sum: Sum, val: int) -> Sum:
     return Sum(val=val)
 
 @indexify_function()
-def square_of_sum(sum: Sum) -> int:
+def squared(sum: Sum) -> int:
     return sum.val * sum.val
+
+@indexify_function()
+def tripled(sum: Sum) -> int:
+    return sum.val * sum.val * sum.val
+
+@indexify_router()
+def dynamic_router(val: Sum) -> List[Union[squared, tripled]]:
+    if val.val % 2:
+        return [squared]
+    return [tripled]
 ```
 
 #### 2: Register and Invoke the Compute Graph 
@@ -66,7 +76,9 @@ from indexify import create_client
 
 g = Graph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
 g.add_edge(generate_sequence, sum_all_numbers)
-g.add_edge(sum_all_numbers, square_of_sum)
+g.add_edge(sum_all_numbers, dynamic_router)
+g.route(dynamic_router, [squared, tripled])
+
 
 client = create_client(local=True)
 client.register_compute_graph(g)
@@ -75,7 +87,7 @@ client.register_compute_graph(g)
 #### 3: Invoke the Graph in-process
 ```python
 invocation_id = client.invoke_graph_with_object("sequence_summer", a=10)
-result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
+result = client.graph_outputs("sequence_summer", invocation_id, "squared")
 print(result)
 ```
 
@@ -102,7 +114,7 @@ client = create_client() # Remove local=True
 client.register_compute_graph(g) # Same as above
 
 invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=10)
-result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
+result = client.graph_outputs("sequence_summer", invocation_id, "squared")
 print(result)
 ```
 
