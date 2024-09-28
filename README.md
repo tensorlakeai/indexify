@@ -33,10 +33,6 @@ pip install indexify
 
 Workflows are written as Python functions and are connected as Graphs. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. 
 
-For example, you can separate resource-intensive tasks local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
-
-The Graphs are hosted in Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
-
 #### 1: Create a Compute Graph
 ```python
 from pydantic import BaseModel
@@ -69,6 +65,11 @@ def dynamic_router(val: Sum) -> List[Union[squared, tripled]]:
         return [squared]
     return [tripled]
 ```
+
+You can separate resource-intensive functions such as local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
+
+The Graphs are hosted in Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
+
 
 #### 2: Register and Invoke the Compute Graph 
 ```python
