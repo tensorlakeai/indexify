@@ -17,8 +17,7 @@ class RouterOutput(BaseModel):
 class IndexifyData(BaseModel):
     id: Optional[str] = None
     payload: bytes
-    payload_encoding: str = "cbor"
-    file_input: Optional[FileInput] = None
+    payload_encoding: str = "msgpack"
 
 
 class FunctionWorkerOutput(BaseModel):
