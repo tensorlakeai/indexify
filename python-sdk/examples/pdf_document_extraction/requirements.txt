@@ -1,6 +1,0 @@
-httpx
-pydantic
---extra-index-url https://miropsota.github.io/torch_packages_builder
-detectron2
-deepdoctection[pt]
-langchain_text_splitters

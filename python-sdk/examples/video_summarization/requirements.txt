@@ -1,4 +1,0 @@
-faster_whisper
-llama_cpp_python
-pytubefix
-huggingface_hub

@@ -1,4 +1,7 @@
 # Indexify 
+![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
+[![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
+
 
 ## Compute Framework for building and serving Durable Data-Intensive Agentic Workflow APIs
 
@@ -44,7 +47,8 @@ def generate_sequence(a: int) -> List[int]:
 
 class Sum(BaseModel):
     val: int
-@indexify_function(init_value=Sum)
+
+@indexify_function(accumulate=Sum)
 def sum_all_numbers(sum: Sum, val: int) -> Sum:
     return Sum(sum.val + val)
 
@@ -156,7 +160,7 @@ This starts the Indexify Server and an Executor on your terminal -
 Change the code above to deploy the graph as an API on the server -
 
 ```python
-client = create_client() # local=True
+client = create_client() # Remove local=True
 client.register_compute_graph(g) # Same as above
 ```
 
