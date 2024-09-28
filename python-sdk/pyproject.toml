@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "indexify"
-version = "0.0.44"
+version = "0.2"
 description = "Python Client for Indexify"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache 2.0"
@@ -15,7 +15,7 @@ indexify-cli = "indexify.cli:app"
 python = "^3.9"
 httpx = { version = "^0", extras = ["http2"] }
 pyyaml = "^6"
-pydantic = "^2.8"
+pydantic = "^2.9.2"
 cloudpickle = "^3"
 rich = "^13"
 nanoid = "^2.0.0"
