@@ -56,7 +56,11 @@ class IndexifyClient(ABC):
 
     @abstractmethod
     def invoke_graph_with_file(
-        self, graph: str, path: str, metadata: Optional[Dict[str, Json]] = None
+        self,
+        graph: str,
+        path: str,
+        metadata: Optional[Dict[str, Json]] = None,
+        block_until_done: bool = False,
     ) -> str:
         """
         Invokes a graph with an input file. The file's mimetype is appropriately detected.

@@ -9,6 +9,7 @@ sdk-py/dist
 sdk-typescript/node_modules
 sdk-typescript/lib
 indexify_storage
+indexify_local_runner_cache
 server/indexify_storage
 dist
 *.tgz

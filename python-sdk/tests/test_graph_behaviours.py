@@ -1,9 +1,11 @@
 import unittest
+from pathlib import Path
 from typing import List, Union
 
 from pydantic import BaseModel
 
 from indexify import Graph, create_client, indexify_function, indexify_router
+from indexify.functions_sdk.data_objects import File
 
 
 class MyObject(BaseModel):
@@ -62,6 +64,11 @@ def route_if_even(x: Sum) -> List[Union[add_two, add_three]]:
 @indexify_function()
 def make_it_string_from_int(x: int) -> str:
     return str(x)
+
+
+@indexify_function()
+def handle_file(f: File) -> int:
+    return len(f.data)
 
 
 def create_pipeline_graph_with_map():
@@ -153,6 +160,21 @@ class TestGraphBehaviors(unittest.TestCase):
             graph.name, invocation_id, "make_it_string_from_int"
         )
         self.assertEqual(output_str, ["7"])
+
+    def test_invoke_file(self):
+        graph = Graph(
+            name="test_handle_file", description="test", start_node=handle_file
+        )
+        client = create_client(local=True)
+        client.register_compute_graph(graph)
+        import os
+
+        invocation_id = client.invoke_graph_with_file(
+            graph.name, path=os.path.dirname(__file__) + "/test_file"
+        )
+
+        output = client.graph_outputs(graph.name, invocation_id, "handle_file")
+        self.assertEqual(output, [11])
 
 
 if __name__ == "__main__":

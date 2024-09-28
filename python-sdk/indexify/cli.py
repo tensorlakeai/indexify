@@ -2,10 +2,10 @@ import asyncio
 import io
 import os
 import shutil
-import subprocess
-import threading
-import sys
 import signal
+import subprocess
+import sys
+import threading
 import time
 from typing import Annotated, List, Optional
 
@@ -34,18 +34,18 @@ console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
-@app.command(help="Run server and executor in dev mode (Not recommended for production.)")
+
+@app.command(
+    help="Run server and executor in dev mode (Not recommended for production.)"
+)
 def server_dev_mode():
-    commands = [
-        "./target/debug/indexify-server",
-        "indexify-cli executor"
-    ]
+    commands = ["./target/debug/indexify-server", "indexify-cli executor"]
 
     processes = []
     stop_event = threading.Event()
 
     def handle_output(process):
-        for line in iter(process.stdout.readline, ''):
+        for line in iter(process.stdout.readline, ""):
             sys.stdout.write(line)
             sys.stdout.flush()
 
@@ -76,10 +76,10 @@ def server_dev_mode():
             stderr=subprocess.STDOUT,
             bufsize=1,
             universal_newlines=True,
-            preexec_fn=os.setsid if os.name != 'nt' else None
+            preexec_fn=os.setsid if os.name != "nt" else None,
         )
         processes.append(process)
-        
+
         thread = threading.Thread(target=handle_output, args=(process,))
         thread.daemon = True
         thread.start()
@@ -96,6 +96,7 @@ def server_dev_mode():
         terminate_processes()
 
     print("Script execution completed.")
+
 
 @app.command(help="Build image for function names")
 def build_image(workflow_file_path: str, func_names: List[str]):

@@ -25,5 +25,6 @@ class FunctionWorkerOutput(BaseModel):
 
 class File(BaseModel):
     data: bytes
+    mime_type: Optional[str] = None
     metadata: Optional[Dict[str, Json]] = None
     sha_256: Optional[str] = None

@@ -40,7 +40,7 @@ class LocalClient(IndexifyClient):
         self.run(g, **kwargs)
 
     def run(self, g: Graph, **kwargs):
-        input = IndexifyData(id=generate(), payload=cbor2.dumps(kwargs))
+        input = IndexifyData(id=generate(), payload=CborSerializer.serialize(kwargs))
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
         self._accumulators = {
@@ -146,12 +146,16 @@ class LocalClient(IndexifyClient):
         return self.run(graph, **kwargs)
 
     def invoke_graph_with_file(
-        self, graph: str, path: str, metadata: Optional[Dict[str, Json]] = None
+        self,
+        graph: str,
+        path: str,
+        metadata: Optional[Dict[str, Json]] = None,
+        block_until_done: bool = False,
     ) -> str:
         graph = self._graphs[graph]
         with open(path, "rb") as f:
             data = f.read()
-            file = File(data, metadata=metadata)
+            file = File(data=data, metadata=metadata).model_dump()
         return self.run(graph, file=file)
 
     def graph_outputs(
