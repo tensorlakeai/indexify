@@ -33,6 +33,8 @@ pub struct InvokeWithFile {
     /// Extra metadata for file
     metadata: Option<HashMap<String, serde_json::Value>>,
     #[schema(format = "binary")]
+    /// Mime type of file
+    mime_type: Option<String>,
     /// File to upload
     file: Option<String>,
 }
