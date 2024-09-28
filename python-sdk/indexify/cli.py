@@ -39,7 +39,24 @@ app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
     help="Run server and executor in dev mode (Not recommended for production.)"
 )
 def server_dev_mode():
-    commands = ["./target/debug/indexify-server", "indexify-cli executor"]
+    indexify_server_path = os.path.expanduser("~/.indexify/indexify-server")
+    if not os.path.exists(indexify_server_path):
+        print("indexify-server not found. Downloading...")
+        try:
+            download_command = subprocess.check_output(
+                ["curl", "-s", "https://getindexify.ai"], universal_newlines=True
+            )
+            subprocess.run(download_command, shell=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"failed to download indexify-server: {e}")
+            exit(1)
+        try:
+            os.makedirs(os.path.dirname(indexify_server_path), exist_ok=True)
+            shutil.move("indexify-server", indexify_server_path)
+        except Exception as e:
+            print(f"failed to move indexify-server to {indexify_server_path}: {e}")
+            exit(1)
+    commands = [indexify_server_path, "indexify-cli executor"]
 
     processes = []
     stop_event = threading.Event()
