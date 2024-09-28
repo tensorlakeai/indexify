@@ -40,40 +40,43 @@ The Graphs are hosted in Indexify Server and API calls to these graphs are autom
 ### Example: Creating and Using a Compute Graph
 ```python
 from pydantic import BaseModel
+from indexify import indexify_function, Graph
+from typing import List
 
 @indexify_function()
 def generate_sequence(a: int) -> List[int]:
     return [i for i in range(a)]
 
 class Sum(BaseModel):
-    val: int
+    val: int = 0
 
 @indexify_function(accumulate=Sum)
 def sum_all_numbers(sum: Sum, val: int) -> Sum:
-    return Sum(sum.val + val)
+    val = sum.val + val
+    return Sum(val=val)
 
 @indexify_function()
 def square_of_sum(sum: Sum) -> int:
     return sum.val * sum.val
-
-from indexify import ComputeGraph
-g = ComputeGraph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
-g.add_edge(generate_sequence, sum_all_numbers)
-g.add_edge(sum_all_numbers, square_of_sum)
 ```
 
 #### Register and Invoke the Compute Graph 
 ```python
 from indexify import create_client 
+
+g = Graph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
+g.add_edge(generate_sequence, sum_all_numbers)
+g.add_edge(sum_all_numbers, square_of_sum)
+
 client = create_client(local=True)
 client.register_compute_graph(g)
 
-client.invoke_workflow_with_object("sequence_summer", a=10)
-result = client.graph_outputs("sequence_summer", "square_of_sum")
+invocation_id = client.invoke_graph_with_object("sequence_summer", a=10)
+result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
 print(result)
 ```
 
-This is it! You have built and your first multi-stage workflow locally! 
+You have built and your first multi-stage workflow locally! You are now ready to deploy this as an API on Indexify Server.
 
 #### Programming Model:
 
@@ -81,31 +84,28 @@ This is it! You have built and your first multi-stage workflow locally!
 If a function returns a list, downstream functions are invoked in parallel with each list element.
 ```python
 @indexify_function()
-def fetch_urls() -> list[str]:
+def fetch_urls(num_urls: int) -> list[str]:
     return [
         'https://example.com/page1',
         'https://example.com/page2',
         'https://example.com/page3',
     ]
 
+# scrape_page is called in parallel for every element of fetch_url across
+# many machines in a cluster or across many worker processes in a machine
 @indexify_function()
 def scrape_page(url: str) -> str:
     # Code to scrape the page content
     content = requests.get(url).text
     return content
-
-@indexify_function()
-def process_content(content: str) -> dict:
-    # Process the content, e.g., extract data or summarize
-    return {'summary': summarize(content)}
 ```
 *Use Cases:* Generating Embedding from every single chunk of a document.
 
 **Dynamic Routing**
 
 Functions can route data to different nodes based on custom logic, enabling dynamic branching.
-```python
 
+```python
 @indexify_function()
 def handle_error(text: str):
     # Logic to handle error messages
@@ -116,6 +116,8 @@ def handle_normal(text: str):
     # Logic to process normal text
     pass
 
+# The function routes data into the handle_error and handle_normal based on the
+# logic of the function.
 @indexify_router()
 def analyze_text(text: str) -> List[Union[handle_error, handle_normal]]:
     if 'error' in text.lower():
@@ -127,7 +129,6 @@ def analyze_text(text: str) -> List[Union[handle_error, handle_normal]]:
 *Use Cases:* Use Case: Processing outputs differently based on classification results.
 
 **Reducing/Accumulating from Sequences:**
-
 ```python
 @indexify_function()
 def fetch_numbers() -> list[int]:
@@ -136,7 +137,7 @@ def fetch_numbers() -> list[int]:
 class Total(BaseModel):
     value: int = 0
 
-@indexify_function(init_value=Total)
+@indexify_function(accumulate=Total)
 def accumulate_total(total: Total, number: int) -> Total:
     total.value += number
     return total
@@ -162,6 +163,10 @@ Change the code above to deploy the graph as an API on the server -
 ```python
 client = create_client() # Remove local=True
 client.register_compute_graph(g) # Same as above
+
+invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=10)
+result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
+print(result)
 ```
 
 This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
