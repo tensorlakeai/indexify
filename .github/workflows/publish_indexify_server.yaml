@@ -19,6 +19,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+defaults:
+  run:
+    working-directory: ./server
+
 jobs:
   build-linux-amd64-package:
     name: Build x86_64 Linux Package
