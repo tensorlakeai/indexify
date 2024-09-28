@@ -31,13 +31,13 @@ pip install indexify
 
 ## Basic Usage
 
-Write Python functions a and connect them into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. 
+Write Python functions and connect them into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. 
 
 For example, you can separate resource-intensive tasks local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
 
 The Graphs are hosted in Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
-### Example: Creating and Using a Compute Graph
+#### 1: Creating and Using a Compute Graph
 ```python
 from pydantic import BaseModel
 from indexify import indexify_function, Graph
@@ -60,7 +60,7 @@ def square_of_sum(sum: Sum) -> int:
     return sum.val * sum.val
 ```
 
-#### Register and Invoke the Compute Graph 
+#### 2: Register and Invoke the Compute Graph 
 ```python
 from indexify import create_client 
 
@@ -70,13 +70,45 @@ g.add_edge(sum_all_numbers, square_of_sum)
 
 client = create_client(local=True)
 client.register_compute_graph(g)
+```
 
+#### 3: Invoke the Graph in-process
+```python
 invocation_id = client.invoke_graph_with_object("sequence_summer", a=10)
 result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
 print(result)
 ```
 
 You have built and your first multi-stage workflow locally! You are now ready to deploy this as an API on Indexify Server.
+
+#### 4: Deploying Graph as a service API
+
+Indexify includes a server for deploying compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+
+```bash
+indexify-cli server-dev-mode
+```
+
+This starts the Indexify Server and an Executor on your terminal - 
+
+**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs.
+
+**Executor**: Runs python functions coordinates execution state of functions with server.
+
+Change the code above to deploy the graph as an API on the server -
+
+```python
+client = create_client() # Remove local=True
+client.register_compute_graph(g) # Same as above
+
+invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=10)
+result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
+print(result)
+```
+
+This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
+
+Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs! 
 
 #### Programming Model:
 
@@ -143,35 +175,6 @@ def accumulate_total(total: Total, number: int) -> Total:
     return total
 ```
 *Use Cases:* Aggregating a summary from hundreds of web pages.
-
-### Deploying Graph as an API:
-
-Indexify includes a server for deploying compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
-
-```bash
-indexify-cli server-dev-mode
-```
-
-This starts the Indexify Server and an Executor on your terminal - 
-
-**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs.
-
-**Executor**: Runs python functions coordinates execution state of functions with server.
-
-Change the code above to deploy the graph as an API on the server -
-
-```python
-client = create_client() # Remove local=True
-client.register_compute_graph(g) # Same as above
-
-invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=10)
-result = client.graph_outputs("sequence_summer", invocation_id, "square_of_sum")
-print(result)
-```
-
-This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
-
-Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs! 
 
 **What happens when you invoke a Compute Graph API?**
 

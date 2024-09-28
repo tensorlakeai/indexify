@@ -33,6 +33,8 @@ use tower_http::{
 use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
+use indexify_ui::Assets as UiAssets;
+
 
 use crate::executors::{self, EXECUTOR_TIMEOUT};
 
@@ -217,6 +219,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/fn_outputs/:input_key",
             get(download_fn_output_by_key).with_state(route_state.clone()),
         )
+        .route("/ui", get(ui_index_handler))
+        .route("/ui/*rest", get(ui_handler))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &Request| {
@@ -238,6 +242,29 @@ pub fn create_routes(route_state: RouteState) -> Router {
 
 async fn index() -> &'static str {
     "Indexify Server"
+}
+
+#[axum::debug_handler]
+#[tracing::instrument(skip_all)]
+async fn ui_index_handler() -> impl IntoResponse {
+    let content = UiAssets::get("index.html").unwrap();
+    (
+        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+        content.data,
+    )
+        .into_response()
+}
+
+#[axum::debug_handler]
+#[tracing::instrument(skip_all)]
+async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
+    let content = UiAssets::get(url.trim_start_matches('/'))
+        .unwrap_or_else(|| UiAssets::get("index.html").unwrap());
+    (
+        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+        content.data,
+    )
+        .into_response()
 }
 
 /// Create a new namespace
