@@ -1,8 +1,8 @@
 # Indexify 
 
-## Stateful Compute Framework for building Data-Intensive Agentic Workflows 
+## Compute Framework for building and serving Durable Data-Intensive Agentic Workflow APIs
 
-Indexify is a compute framework for building data-intensive workflows with agentic state machines. It lets you data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. 
+Indexify is a compute framework for building durable data-intensive workflows with LLM driven data routing. It lets you write data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. 
 
 Some of the use-cases that you can use Indexify for - 
 
@@ -15,7 +15,7 @@ Some of the use-cases that you can use Indexify for -
 ### Key Features
 * **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
 * **Local Inference:** Run multiple LLMs within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers by assigning functions to machines with adequate resources.
-* **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are called serially as map functions finish.
+* **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
 * **Version Graphs and Backfill:** Offers a backfill API to update already processed data when functions or models in graphs are updated.
 * **Observability:** Provides a UI for visualizing and debugging complex dynamic graphs.
 * **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
@@ -28,9 +28,11 @@ pip install indexify
 
 ## Basic Usage
 
-Create workflows by connecting Python functions into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. For example, you can separate resource-intensive tasks like OpenAI API calls or local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
+Write Python functions a and connect them into a graph. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware. 
 
-API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
+For example, you can separate resource-intensive tasks local inference of LLMs from database write operations to avoid reprocessing data with models if a write fails. Indexify caches the output of every function, so when downstream processes are retried, previous steps aren’t rerun.
+
+The Graphs are hosted in Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
 ### Example: Creating and Using a Compute Graph
 ```python
@@ -99,12 +101,6 @@ def process_content(content: str) -> dict:
 
 Functions can route data to different nodes based on custom logic, enabling dynamic branching.
 ```python
-@indexify_function()
-def analyze_text(text: str) -> list:
-    if 'error' in text.lower():
-        return [handle_error]
-    else:
-        return [handle_normal]
 
 @indexify_function()
 def handle_error(text: str):
@@ -115,6 +111,13 @@ def handle_error(text: str):
 def handle_normal(text: str):
     # Logic to process normal text
     pass
+
+@indexify_router()
+def analyze_text(text: str) -> List[Union[handle_error, handle_normal]]:
+    if 'error' in text.lower():
+        return [handle_error]
+    else:
+        return [handle_normal]
 ```
 
 *Use Cases:* Use Case: Processing outputs differently based on classification results.
@@ -171,7 +174,7 @@ Everything else, remains the same in your application code that invokes the Grap
 
 * The two above steps are repeated for every function in the Graph. 
 
-There are a lot of details we are skipping here! The scheduler utilizes a state of the art distributed and parallel event driven design internally to schedule tasks under 10 micro seconds, and uses many optimization technoques around storing blobs, rocksdb for state storage, streaming HTTP2 based RPC between server and executor to speed up execution.
+There are a lot of details we are skipping here! The scheduler utilizes a state of the art distributed and parallel event driven design internally to schedule tasks under 10 micro seconds, and uses many optimization techniques for storing blobs, rocksdb for state storage, streaming HTTP2 based RPC between server and executor to speed up execution.
 
 ### Production Deployment  
 
