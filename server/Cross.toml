@@ -1,5 +1,5 @@
 [target.aarch64-unknown-linux-gnu]
-dockerfile = "dockerfiles/Dockerfile.cross"
+dockerfile = "dockerfiles/Dockerfile.builder_linux_aarch64"
 pre-build = [
     "apt-get update && apt-get install --assume-yes build-essential npm curl protobuf-compiler",
     "dpkg --add-architecture $CROSS_DEB_ARCH",
@@ -8,7 +8,7 @@ pre-build = [
 ]
 
 [target.x86_64-unknown-linux-gnu]
-dockerfile = "dockerfiles/Dockerfile.builder"
+dockerfile = "dockerfiles/Dockerfile.builder_linux_x86"
 pre-build = [
     "mkdir -p /.npm",
     "chown -R 1000:1000 /.npm"
