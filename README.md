@@ -213,6 +213,8 @@ You could deploy Indexify Server in production in the following ways -
 * Machine parallel scheduling for even lower latency.
 * Support Cycles in the graphs for more flexible agentic behaviors in Graphs.
 * Ephemeral Graphs - multi-stage inference and retrieval with no persistence of intermediate outputs
+* Data Loader Funcitons - Produces a stream of values over time into Graphs, using the yield keyword.
+
 
 ##### SDK 
 
