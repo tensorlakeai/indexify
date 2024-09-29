@@ -320,7 +320,7 @@ class ExtractorAgent:
             console.print(
                 Panel(
                     panel_content,
-                    title="Attempting to Register Executor",
+                    title="attempting to Register Executor",
                     border_style="cyan",
                 )
             )
@@ -335,7 +335,7 @@ class ExtractorAgent:
                         headers={"Content-Type": "application/json"},
                     ) as event_source:
                         console.print(
-                            Text("Executor registered successfully", style="bold green")
+                            Text("executor registered successfully", style="bold green")
                         )
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
@@ -347,14 +347,14 @@ class ExtractorAgent:
                             self._task_store.add_tasks(tasks)
             except Exception as e:
                 console.print(
-                    Text("Registration Error: ", style="red bold")
-                    + Text(f"Failed to register: {e}", style="red")
+                    Text("registration Error: ", style="red bold")
+                    + Text(f"failed to register: {e}", style="red")
                 )
                 await asyncio.sleep(5)
                 continue
 
     async def _shutdown(self, loop):
-        console.print(Text("Shutting down agent...", style="bold yellow"))
+        console.print(Text("shutting down agent...", style="bold yellow"))
         self._should_run = False
         for task in asyncio.all_tasks(loop):
             task.cancel()

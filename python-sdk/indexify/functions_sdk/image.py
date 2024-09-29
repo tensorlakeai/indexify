@@ -7,9 +7,8 @@ class Image:
         self._base_image = None
 
         self._run_strs = []
-        pass
 
-    def image_name(self, image_name):
+    def name(self, image_name):
         self._image_name = image_name
         return self
 
@@ -28,7 +27,7 @@ class Image:
 
 DEFAULT_IMAGE = (
     Image()
-    .image_name("indexify-executor-default")
+    .name("indexify-executor-default")
     .base_image("python:3.10.15-bullseye")
     .tag("latest")
     .run("pip install indexify")

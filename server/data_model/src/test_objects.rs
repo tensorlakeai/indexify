@@ -25,6 +25,7 @@ pub mod tests {
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
+    pub const TEST_EXECUTOR_IMAGE_NAME: &str = "test_image_name";
 
     pub fn create_mock_task(
         cg: &ComputeGraph,
@@ -49,6 +50,7 @@ pub mod tests {
             name: name.to_string(),
             description: format!("description {}", name),
             fn_name: name.to_string(),
+            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             ..Default::default()
         }
     }
@@ -173,7 +175,7 @@ pub mod tests {
             source_fn: "fn_a".to_string(),
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
             payload_encoder: "cloudpickle".to_string(),
-            image_name: "default".to_string(),
+            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
         };
         let fn_b = test_compute_fn("fn_b");
         let fn_c = test_compute_fn("fn_c");
@@ -234,7 +236,7 @@ pub mod tests {
     pub fn mock_executor() -> ExecutorMetadata {
         ExecutorMetadata {
             id: mock_executor_id(),
-            image_name: "test_runner".to_string(),
+            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             addr: "".to_string(),
             labels: Default::default(),
         }

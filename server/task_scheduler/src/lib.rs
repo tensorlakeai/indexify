@@ -63,6 +63,9 @@ impl TaskScheduler {
         let mut filtered_executors = Vec::new();
 
         for executor in &executors {
+            if executor.image_name != node.image_name() {
+                continue;
+            }
             if node.matches_executor(executor) {
                 filtered_executors.push(executor.id.clone());
             }
