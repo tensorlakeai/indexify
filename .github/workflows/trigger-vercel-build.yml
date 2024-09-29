@@ -26,7 +26,7 @@ jobs:
             "target": "production",
             "gitSource": {
               "type": "github",
-              "repo": "tensorlakeai/indexify-website",
+              "repo": "tensorlake/indexify-website",
               "ref": "main"
             }
           }'
