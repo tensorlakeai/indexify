@@ -1,0 +1,32 @@
+name: Trigger Vercel Build
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  trigger-vercel-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout indexify-website
+        uses: actions/checkout@v3
+        with:
+          repository: tensorlakeai/indexify-website
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Trigger Vercel Build
+        env:
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          curl -X POST "https://api.vercel.com/v1/projects/$VERCEL_PROJECT_ID/deployments" \
+          -H "Authorization: Bearer $VERCEL_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "target": "production",
+            "gitSource": {
+              "type": "github",
+              "repo": "tensorlakeai/indexify-website",
+              "ref": "main"
+            }
+          }'
