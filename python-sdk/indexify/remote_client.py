@@ -161,7 +161,6 @@ class RemoteClient(IndexifyClient):
 
     def register_compute_graph(self, graph: Graph):
         graph_metadata = graph.definition()
-        print(graph_metadata.model_dump_json(exclude_none=True))
         serialized_code = graph.serialize()
         response = self._post(
             f"namespaces/{self.namespace}/compute_graphs",
