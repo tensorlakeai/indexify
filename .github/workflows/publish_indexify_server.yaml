@@ -225,7 +225,7 @@ jobs:
           (cd .repo && reprepro includedeb buster /tmp/release/*.deb)
           (cd .repo && reprepro includedeb focal /tmp/release/*.deb)
           (cd .repo && reprepro includedeb jammy /tmp/release/*.deb)
-          ls /tmp/.repo/
+          ls .repo/
       - uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
