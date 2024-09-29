@@ -75,7 +75,6 @@ jobs:
       - run: rustup toolchain install nightly --component rustfmt
       - run: rustup target add aarch64-apple-darwin
       - run: cargo +nightly fmt --check
-      - run: brew install protobuf
       - run: make package-ui
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
@@ -92,7 +91,6 @@ jobs:
       - run: rustup update
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
-      - run: brew install protobuf
       - run: make package-ui
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
