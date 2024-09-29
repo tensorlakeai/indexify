@@ -78,7 +78,7 @@ g.add_edge(sum_all_numbers, dynamic_router)
 g.route(dynamic_router, [squared, tripled])
 
 
-client = create_client(local=True)
+client = create_client(in_process=True)
 client.register_compute_graph(g)
 ```
 
@@ -89,7 +89,7 @@ result = client.graph_outputs("sequence_summer", invocation_id, "squared")
 print(result)
 ```
 
-You have built and your first multi-stage workflow locally! You are now ready to deploy this as an API on Indexify Server.
+You have built and your first multi-stage workflow in-process! While running them in-process makes writing and testing Graphs easy, for production environments yould would want an API to call them whenever there is data to process.
 
 #### 4: Deploying Graph as a service API
 
@@ -108,7 +108,7 @@ This starts the Indexify Server and an Executor on your terminal -
 Change the code above to deploy the graph as an API on the server -
 
 ```python
-client = create_client() # Remove local=True
+client = create_client() # Remove in_process=True
 client.register_compute_graph(g) # Same as above
 
 invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=10)
