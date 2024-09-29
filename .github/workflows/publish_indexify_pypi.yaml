@@ -15,6 +15,13 @@ on:
 
 permissions:
   contents: write
+  actions: write
+  packages: write
+
+
+defaults:
+  run:
+    working-directory: ./python-sdk
 
 jobs:
   extract-version:
@@ -32,27 +39,27 @@ jobs:
       - id: version_extraction
         run: echo "version=$(python -c 'import toml; print(toml.load("pyproject.toml")["tool"]["poetry"]["version"])')" >> $GITHUB_OUTPUT
 
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs:
-      - extract-version
-    steps:
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: "v${{ needs.extract-version.outputs.version }}"
-          prerelease: ${{ github.event.inputs.prerelease }}
-          body: ${{ github.event.inputs.release_message }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # create-release:
+  #   name: Create GitHub Release
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - extract-version
+  #   steps:
+  #     - name: Create GitHub Release
+  #       id: create_release
+  #       uses: actions/create-release@v1
+  #       with:
+  #         tag_name: "v${{ needs.extract-version.outputs.version }}"
+  #         prerelease: ${{ github.event.inputs.prerelease }}
+  #         body: ${{ github.event.inputs.release_message }}
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
   publish-indexify-to-pypi:
     name: Publish Indexify Python Client
     runs-on: ubuntu-latest
-    needs:
-      - create-release
+    # needs:
+    #   - create-release
     environment:
       name: pypi
       url: https://pypi.org/p/indexify
@@ -66,7 +73,7 @@ jobs:
       - name: Install Poetry
         run: python3 -m pip install poetry --user
       - name: Build Packages
-        run: (cd python-sdk && python3 -m poetry build)
+        run: python3 -m poetry build
       - name: Publish Indexify Client to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
