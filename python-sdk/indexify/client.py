@@ -9,10 +9,10 @@ from .settings import DEFAULT_SERVICE_URL
 def create_client(
     service_url: str = DEFAULT_SERVICE_URL,
     config_path: Optional[str] = None,
-    local: bool = False,
+    in_process: bool = False,
     *args,
     **kwargs,
 ) -> IndexifyClient:
-    if local:
+    if in_process:
         return LocalClient()
     return RemoteClient(config_path=config_path, service_url=service_url, **kwargs)
