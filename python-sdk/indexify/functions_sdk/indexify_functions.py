@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData, RouterOutput
-from .image import Image
+from .image import DEFAULT_IMAGE, Image
 
 
 class EmbeddingIndexes(BaseModel):
@@ -34,8 +34,8 @@ class PlacementConstraints(BaseModel):
 
 class IndexifyFunction(ABC):
     name: str = ""
-    base_image: Optional[str] = None
     description: str = ""
+    image: Optional[Image] = DEFAULT_IMAGE
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
     payload_encoder: Optional[str] = "cloudpickle"
@@ -53,7 +53,7 @@ class IndexifyFunction(ABC):
 class IndexifyRouter(ABC):
     name: str = ""
     description: str = ""
-    image: Image = None
+    image: Optional[Image] = DEFAULT_IMAGE
     placement_constraints: List[PlacementConstraints] = []
     payload_encoder: Optional[str] = "cloudpickle"
 
@@ -65,9 +65,9 @@ class IndexifyRouter(ABC):
 def indexify_router(
     name: Optional[str] = None,
     description: Optional[str] = "",
-    image: Image = None,
+    image: Optional[Image] = DEFAULT_IMAGE,
     placement_constraints: List[PlacementConstraints] = [],
-    output_encoder: Optional[str] = "cloudpickle",
+    payload_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         args = locals().copy()
@@ -90,7 +90,7 @@ def indexify_router(
                 setattr(IndexifyRo, key, value)
 
         IndexifyRo.image = image
-        IndexifyRo.payload_encoder = output_encoder
+        IndexifyRo.payload_encoder = payload_encoder
         return IndexifyRo
 
     return construct
@@ -99,11 +99,9 @@ def indexify_router(
 def indexify_function(
     name: Optional[str] = None,
     description: Optional[str] = "",
-    image: Image = None,
+    image: Optional[Image] = DEFAULT_IMAGE,
     accumulate: Optional[Type[BaseModel]] = None,
-    min_batch_size: Optional[int] = None,
-    max_batch_size: Optional[int] = None,
-    output_encoder: Optional[str] = "cloudpickle",
+    payload_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -128,9 +126,7 @@ def indexify_function(
 
         IndexifyFn.image = image
         IndexifyFn.accumulate = accumulate
-        IndexifyFn.min_batch_size = min_batch_size
-        IndexifyFn.max_batch_size = max_batch_size
-        IndexifyFn.payload_encoder = output_encoder
+        IndexifyFn.payload_encoder = payload_encoder
         return IndexifyFn
 
     return construct

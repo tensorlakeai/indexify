@@ -173,6 +173,7 @@ pub mod tests {
             source_fn: "fn_a".to_string(),
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
             payload_encoder: "cloudpickle".to_string(),
+            image_name: "default".to_string(),
         };
         let fn_b = test_compute_fn("fn_b");
         let fn_c = test_compute_fn("fn_c");
@@ -233,7 +234,7 @@ pub mod tests {
     pub fn mock_executor() -> ExecutorMetadata {
         ExecutorMetadata {
             id: mock_executor_id(),
-            runner_name: "test_runner".to_string(),
+            image_name: "test_runner".to_string(),
             addr: "".to_string(),
             labels: Default::default(),
         }

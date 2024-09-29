@@ -18,8 +18,8 @@ class Task(BaseModel):
 
 class ExecutorMetadata(BaseModel):
     id: str
-    address: str
-    runner_name: str
+    addr: str
+    image_name: str
     labels: Dict[str, Any]
 
 

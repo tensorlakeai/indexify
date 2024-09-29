@@ -57,6 +57,10 @@ impl ExecutorManager {
             })
             .await
     }
+
+    pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+        self.indexify_state.reader().get_all_executors()
+    }
 }
 
 pub fn schedule_deregister(ex: Arc<ExecutorManager>, executor_id: ExecutorId, duration: Duration) {
@@ -88,7 +92,7 @@ mod tests {
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
-            runner_name: "test".to_string(),
+            image_name: "test".to_string(),
             addr: "".to_string(),
             labels: Default::default(),
         };
@@ -110,7 +114,7 @@ mod tests {
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
-            runner_name: "test".to_string(),
+            image_name: "test".to_string(),
             addr: "".to_string(),
             labels: Default::default(),
         };

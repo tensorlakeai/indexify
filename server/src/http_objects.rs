@@ -90,6 +90,7 @@ pub struct ComputeFn {
     pub description: String,
     pub reducer: bool,
     pub payload_encoder: String,
+    pub image_name: String,
 }
 
 impl From<&ComputeFn> for data_model::ComputeFn {
@@ -101,6 +102,7 @@ impl From<&ComputeFn> for data_model::ComputeFn {
             placement_constraints: Default::default(),
             reducer: val.reducer,
             payload_encoder: val.payload_encoder.clone(),
+            image_name: val.image_name.clone(),
         }
     }
 }
@@ -114,6 +116,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             placement_constraints: Default::default(),
             reducer: val.reducer,
             payload_encoder: val.payload_encoder.clone(),
+            image_name: val.image_name.clone(),
         }
     }
 }
@@ -126,6 +129,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             description: c.description,
             reducer: c.reducer,
             payload_encoder: c.payload_encoder,
+            image_name: c.image_name,
         }
     }
 }
@@ -137,6 +141,7 @@ pub struct DynamicRouter {
     pub description: String,
     pub target_fns: Vec<String>,
     pub payload_encoder: String,
+    pub image_name: String,
 }
 
 impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
@@ -147,6 +152,7 @@ impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
             description: val.description.clone(),
             target_functions: val.target_fns.clone(),
             payload_encoder: val.payload_encoder.clone(),
+            image_name: val.image_name.clone(),
         }
     }
 }
@@ -159,6 +165,7 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             description: d.description,
             target_fns: d.target_functions,
             payload_encoder: d.payload_encoder,
+            image_name: d.image_name,
         }
     }
 }
@@ -406,9 +413,21 @@ pub struct InvocationId {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
-    pub address: String,
-    pub runner_name: String,
+    pub id: String,
+    pub addr: String,
+    pub image_name: String,
     pub labels: HashMap<String, serde_json::Value>,
+}
+
+impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
+    fn from(executor: data_model::ExecutorMetadata) -> Self {
+        Self {
+            id: executor.id.to_string(),
+            addr: executor.addr,
+            image_name: executor.image_name,
+            labels: executor.labels,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

@@ -66,6 +66,7 @@ class FunctionMetadata(BaseModel):
     fn_name: str
     description: str
     reducer: bool = False
+    image_name: str
     payload_encoder: str = "cloudpickle"
 
 
@@ -74,6 +75,7 @@ class RouterMetadata(BaseModel):
     description: str
     source_fn: str
     target_fns: List[str]
+    image_name: str
     payload_encoder: str = "cloudpickle"
 
 
@@ -244,6 +246,7 @@ class Graph:
             fn_name=start_node.fn_name,
             description=start_node.description,
             reducer=start_node.accumulate is not None,
+            image_name=start_node.image._image_name,
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -256,6 +259,7 @@ class Graph:
                         source_fn=node_name,
                         target_fns=self.routers[node_name],
                         payload_encoder=node.payload_encoder,
+                        image_name=node.image._image_name,
                     )
                 )
             else:
@@ -265,6 +269,7 @@ class Graph:
                         fn_name=node.fn_name,
                         description=node.description,
                         reducer=node.accumulate is not None,
+                        image_name=node.image._image_name,
                     )
                 )
         return ComputeGraphMetadata(

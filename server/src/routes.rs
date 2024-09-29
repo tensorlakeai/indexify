@@ -90,6 +90,7 @@ use crate::{
             list_outputs,
             delete_invocation,
             logs::download_logs,
+            list_executors,
         ),
         components(
             schemas(
@@ -104,6 +105,7 @@ use crate::{
                 ComputeGraphCreateType,
                 ComputeGraphsList,
                 InvocationResult,
+                ExecutorMetadata,
                 Task,
                 TaskOutcome,
                 Tasks,
@@ -210,6 +212,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/ingest_files",
             post(ingest_files_from_executor).with_state(route_state.clone()),
         )
+        .route("/internal/executors", get(list_executors).with_state(route_state.clone()))
         .route(
             "/internal/executors/:id/tasks",
             post(executor_tasks).with_state(route_state.clone()),
@@ -540,22 +543,47 @@ async fn notify_on_change(
     )
 }
 
+/// List executors
+#[utoipa::path(
+    get,
+    path = "/internal/executors",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List all executors", body = Vec<ExecutorMetadata>),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn list_executors(
+    State(state): State<RouteState>,
+) -> Result<Json<Vec<ExecutorMetadata>>, IndexifyAPIError> {
+    let executors = state
+        .executor_manager
+        .list_executors()
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    let http_executors = executors.into_iter().map(|e| e.into()).collect();
+    Ok(Json(http_executors))
+}
+
 async fn executor_tasks(
     Path(executor_id): Path<ExecutorId>,
     State(state): State<RouteState>,
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
-    state
+    let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
             id: executor_id.clone(),
-            runner_name: payload.runner_name.clone(),
-            addr: payload.address.clone(),
+            image_name: payload.image_name.clone(),
+            addr: payload.addr.clone(),
             labels: payload.labels.clone(),
         })
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .await;
+    if let Err(e) = err {
+        tracing::error!("failed to register executor {}: {:?}", executor_id, e);
+        return Err(IndexifyAPIError::internal_error_str(&e.to_string()));
+    }
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone(), TASK_LIMIT);
     let executor_manager = state.executor_manager.clone();
     let stream = stream

@@ -48,7 +48,6 @@ class MsgPackSerializer:
     @staticmethod
     def deserialize(data: bytes) -> IndexifyData:
         cached_output = msgpack.unpackb(data)
-        print(cached_output)
         return IndexifyData(**cached_output)
 
     @staticmethod

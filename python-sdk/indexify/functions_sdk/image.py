@@ -24,3 +24,12 @@ class Image:
     def run(self, run_str):
         self._run_strs.append(run_str)
         return self
+
+
+DEFAULT_IMAGE = (
+    Image()
+    .image_name("indexify-executor-default")
+    .base_image("python:3.10.15-bullseye")
+    .tag("latest")
+    .run("pip install indexify")
+)

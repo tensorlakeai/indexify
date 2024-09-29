@@ -85,6 +85,7 @@ pub struct DynamicEdgeRouter {
     pub source_fn: String,
     pub target_functions: Vec<String>,
     pub payload_encoder: String,
+    pub image_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -95,6 +96,7 @@ pub struct ComputeFn {
     pub fn_name: String,
     pub reducer: bool,
     pub payload_encoder: String,
+    pub image_name: String,
 }
 
 impl ComputeFn {
@@ -114,6 +116,13 @@ impl Node {
         match self {
             Node::Router(router) => &router.name,
             Node::Compute(compute) => &compute.name,
+        }
+    }
+
+    pub fn image_name(&self) -> &str {
+        match self {
+            Node::Router(router) => &router.image_name,
+            Node::Compute(compute) => &compute.image_name,
         }
     }
 
@@ -633,7 +642,7 @@ impl TaskAnalytics {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
-    pub runner_name: String,
+    pub image_name: String,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
 }

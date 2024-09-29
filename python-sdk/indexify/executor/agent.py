@@ -1,7 +1,6 @@
 import asyncio
 import json
 import ssl
-import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
@@ -24,6 +23,7 @@ from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
+from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
 
@@ -98,6 +98,7 @@ class ExtractorAgent:
         self._task_reporter = TaskReporter(
             base_url=self._base_url, executor_id=self._executor_id
         )
+        self._probe = RuntimeProbes()
 
     async def task_completion_reporter(self):
         console.print(Text("Starting task completion reporter", style="bold cyan"))
@@ -305,11 +306,12 @@ class ExtractorAgent:
                 words = snake_str.split("_")
                 return words[0].capitalize() + "" + " ".join(words[1:])
 
+            runtime_probe: ProbeInfo = self._probe.probe()
             data = ExecutorMetadata(
                 id=self._executor_id,
-                address="",
-                runner_name="extractor",
-                labels={},
+                addr="",
+                image_name=runtime_probe.image_name,
+                labels=runtime_probe.labels,
             ).model_dump()
 
             panel_content = "\n".join(

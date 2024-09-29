@@ -211,25 +211,29 @@ def _build_image(image: Image, func_name: str = None):
         )
         exit(-1)
 
-    docker_file_str_template = """
-FROM {base_image}
+    docker_file = f"""
+FROM {image._base_image}
+
+RUN mkdir -p ~/.indexify
+
+RUN touch ~/.indexify/image_name
+
+RUN  echo {image._image_name} > ~/.indexify/image_name
 
 WORKDIR /app
 
 """
 
-    docker_file_str = docker_file_str_template.format(base_image=image._base_image)
-
     run_strs = ["RUN " + i for i in image._run_strs]
 
-    docker_file_str += "\n".join(run_strs)
+    docker_file += "\n".join(run_strs)
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
-    console.print(f"{docker_file_str}", style="magenta")
+    console.print(f"{docker_file}", style="magenta")
 
     client = docker.from_env()
     client.images.build(
-        fileobj=io.BytesIO(docker_file_str.encode()),
+        fileobj=io.BytesIO(docker_file.encode()),
         tag=f"{image._image_name}:{image._tag}",
         rm=True,
     )
