@@ -222,10 +222,9 @@ jobs:
       - name: Run reprepro
         run: |
           ls /tmp/release/
-          cd .repo
-          reprepro buster includedeb /tmp/release/*.deb
-          reprepro focal includedeb /tmp/release/*.deb
-          reprepro jammy includedeb /tmp/release/*.deb
+          (cd .repo && reprepro includedeb buster /tmp/release/*.deb)
+          (cd .repo && reprepro includedeb focal /tmp/release/*.deb)
+          (cd .repo && reprepro includedeb jammy /tmp/release/*.deb)
       - uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
