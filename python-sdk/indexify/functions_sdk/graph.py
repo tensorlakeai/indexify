@@ -26,7 +26,7 @@ from .indexify_functions import (
     IndexifyFunctionWrapper,
     IndexifyRouter,
 )
-from .object_serializer import MsgPackSerializer
+from .object_serializer import CloudPickleSerializer, get_serializer
 
 RouterFn = Annotated[
     Callable[[IndexifyData], Optional[List[IndexifyFunction]]], "RouterFn"
@@ -66,6 +66,7 @@ class FunctionMetadata(BaseModel):
     fn_name: str
     description: str
     reducer: bool = False
+    payload_encoder: str = "cloudpickle"
 
 
 class RouterMetadata(BaseModel):
@@ -73,6 +74,7 @@ class RouterMetadata(BaseModel):
     description: str
     source_fn: str
     target_fns: List[str]
+    payload_encoder: str = "cloudpickle"
 
 
 class NodeMetadata(BaseModel):
@@ -88,6 +90,9 @@ class ComputeGraphMetadata(BaseModel):
     edges: Dict[str, List[str]]
     accumulator_zero_values: Dict[str, bytes] = {}
 
+    def get_input_payload_serializer(self):
+        return get_serializer(self.start_node.compute_fn.payload_encoder)
+
 
 class Graph:
     def __init__(
@@ -100,7 +105,7 @@ class Graph:
         self.edges: Dict[str, List[str]] = defaultdict(list)
         self.accumulator_zero_values: Dict[str, Any] = {}
 
-        self._start_node: str = start_node
+        self._start_node: str = start_node.name
         self.add_node(start_node)
 
     def get_function(self, name: str) -> IndexifyFunctionWrapper:
@@ -112,11 +117,8 @@ class Graph:
         return self.accumulator_zero_values
 
     def deserialize_fn_output(self, name: str, output: IndexifyData) -> Any:
-        output_model = self.get_function(name).get_output_model()
-        payload_dict = msgpack.unpackb(output.payload)
-        if issubclass(output_model, BaseModel):
-            return output_model.model_validate(payload_dict)
-        return payload_dict
+        serializer = get_serializer(self.nodes[name].payload_encoder)
+        return serializer.deserialize(output.payload)
 
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]
@@ -174,11 +176,11 @@ class Graph:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> List[IndexifyData]:
         fn_wrapper = self.get_function(name)
-        payload = msgpack.unpackb(input.payload)
-        input = self.deserialize_input_from_dict(name, payload)
+        input = self.deserialize_input(name, input)
+        serializer = get_serializer(fn_wrapper.indexify_function.payload_encoder)
         if acc is not None:
             acc = fn_wrapper.indexify_function.accumulate.model_validate(
-                msgpack.unpackb(acc.payload)
+                serializer.deserialize(acc.payload)
             )
         if acc is None and fn_wrapper.indexify_function.accumulate is not None:
             acc = fn_wrapper.indexify_function.accumulate.model_validate(
@@ -186,22 +188,21 @@ class Graph:
             )
         outputs: List[Any] = fn_wrapper.run_fn(input, acc=acc)
         return [
-            IndexifyData(payload=MsgPackSerializer.serialize(output))
-            for output in outputs
+            IndexifyData(payload=serializer.serialize(output)) for output in outputs
         ]
 
     def invoke_router(self, name: str, input: IndexifyData) -> Optional[RouterOutput]:
         fn_wrapper = self.get_function(name)
-        input_payload = msgpack.unpackb(input.payload)
-        input = self.deserialize_input_from_dict(name, input_payload)
+        input = self.deserialize_input(name, input)
         return RouterOutput(edges=fn_wrapper.run_router(input))
 
-    def deserialize_input_from_dict(
-        self, compute_fn: str, payload: Dict[str, Any]
-    ) -> IndexifyData:
+    def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
         compute_fn = self.nodes[compute_fn]
         if not compute_fn:
             raise ValueError(f"Compute function {compute_fn} not found in graph")
+        if compute_fn.output_encoder == "cloudpickle":
+            return CloudPickleSerializer.deserialize(indexify_data.payload)
+        payload = msgpack.unpackb(indexify_data.payload)
         signature = inspect.signature(compute_fn.run)
         arg_types = {}
         for name, param in signature.parameters.items():
@@ -238,11 +239,12 @@ class Graph:
         return self
 
     def definition(self) -> ComputeGraphMetadata:
+        start_node = self.nodes[self._start_node]
         start_node = FunctionMetadata(
-            name=self._start_node.name,
-            fn_name=self._start_node.fn_name,
-            description=self._start_node.description,
-            reducer=self._start_node.accumulate is not None,
+            name=start_node.name,
+            fn_name=start_node.fn_name,
+            description=start_node.description,
+            reducer=start_node.accumulate is not None,
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -254,6 +256,7 @@ class Graph:
                         description=node.description or "",
                         source_fn=node_name,
                         target_fns=self.routers[node_name],
+                        payload_encoder=node.payload_encoder,
                     )
                 )
             else:

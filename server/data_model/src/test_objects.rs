@@ -172,6 +172,7 @@ pub mod tests {
             description: "description router_x".to_string(),
             source_fn: "fn_a".to_string(),
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
+            payload_encoder: "cloudpickle".to_string(),
         };
         let fn_b = test_compute_fn("fn_b");
         let fn_c = test_compute_fn("fn_c");

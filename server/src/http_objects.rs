@@ -89,6 +89,7 @@ pub struct ComputeFn {
     pub fn_name: String,
     pub description: String,
     pub reducer: bool,
+    pub payload_encoder: String,
 }
 
 impl From<&ComputeFn> for data_model::ComputeFn {
@@ -99,6 +100,7 @@ impl From<&ComputeFn> for data_model::ComputeFn {
             description: val.description.clone(),
             placement_constraints: Default::default(),
             reducer: val.reducer,
+            payload_encoder: val.payload_encoder.clone(),
         }
     }
 }
@@ -111,6 +113,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             description: val.description.clone(),
             placement_constraints: Default::default(),
             reducer: val.reducer,
+            payload_encoder: val.payload_encoder.clone(),
         }
     }
 }
@@ -122,6 +125,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             fn_name: c.fn_name,
             description: c.description,
             reducer: c.reducer,
+            payload_encoder: c.payload_encoder,
         }
     }
 }
@@ -132,6 +136,7 @@ pub struct DynamicRouter {
     pub source_fn: String,
     pub description: String,
     pub target_fns: Vec<String>,
+    pub payload_encoder: String,
 }
 
 impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
@@ -141,6 +146,7 @@ impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
             source_fn: val.source_fn.clone(),
             description: val.description.clone(),
             target_functions: val.target_fns.clone(),
+            payload_encoder: val.payload_encoder.clone(),
         }
     }
 }
@@ -152,6 +158,7 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             source_fn: d.source_fn,
             description: d.description,
             target_fns: d.target_functions,
+            payload_encoder: d.payload_encoder,
         }
     }
 }
@@ -416,7 +423,7 @@ mod tests {
         // Don't delete this. It makes it easier
         // to test the deserialization of the ComputeGraph struct
         // from the python side
-        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"extractor_b":{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":"", "reducer": false}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false}}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]}}"#;
+        let json = r#"{"name":"test","description":"test","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false, "payload_encoder":"cloudpickle"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false, "payload_encoder":"cloudpickle"}},"extractor_b":{"compute_fn":{"name":"extractor_b","fn_name":"extractor_b","description":"", "reducer": false, "payload_encoder":"cloudpickle"}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false, "payload_encoder":"cloudpickle"}}},"edges":{"extractor_a":["extractor_b"],"extractor_b":["extractor_c"]}}"#;
         let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();
@@ -424,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_compute_graph_with_router_deserialization() {
-        let json = r#"{"name":"graph_a_router","description":"description of graph_a","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false}},"router_x":{"dynamic_router":{"name":"router_x","description":"","source_fn":"router_x","target_fns":["extractor_y","extractor_z"], "reducer": false}},"extractor_y":{"compute_fn":{"name":"extractor_y","fn_name":"extractor_y","description":"", "reducer": false}},"extractor_z":{"compute_fn":{"name":"extractor_z","fn_name":"extractor_z","description":"", "reducer": false}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false}}},"edges":{"extractor_a":["router_x"],"extractor_y":["extractor_c"],"extractor_z":["extractor_c"]}}"#;
+        let json = r#"{"name":"graph_a_router","description":"description of graph_a","start_node":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false, "payload_encoder":"cloudpickle"}},"nodes":{"extractor_a":{"compute_fn":{"name":"extractor_a","fn_name":"extractor_a","description":"Random description of extractor_a", "reducer": false, "payload_encoder":"cloudpickle"}},"router_x":{"dynamic_router":{"name":"router_x","description":"","source_fn":"router_x","target_fns":["extractor_y","extractor_z"], "reducer": false, "payload_encoder":"cloudpickle"}},"extractor_y":{"compute_fn":{"name":"extractor_y","fn_name":"extractor_y","description":"", "reducer": false, "payload_encoder":"cloudpickle"}},"extractor_z":{"compute_fn":{"name":"extractor_z","fn_name":"extractor_z","description":"", "reducer": false, "payload_encoder":"cloudpickle"}},"extractor_c":{"compute_fn":{"name":"extractor_c","fn_name":"extractor_c","description":"", "reducer": false, "payload_encoder":"cloudpickle"}}},"edges":{"extractor_a":["router_x"],"extractor_y":["extractor_c"],"extractor_z":["extractor_c"]}}"#;
         let mut json_value: serde_json::Value = serde_json::from_str(json).unwrap();
         json_value["namespace"] = serde_json::Value::String("test".to_string());
         let _: super::ComputeGraph = serde_json::from_value(json_value).unwrap();

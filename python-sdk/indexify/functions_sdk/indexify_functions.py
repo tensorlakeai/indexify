@@ -38,6 +38,7 @@ class IndexifyFunction(ABC):
     description: str = ""
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
+    payload_encoder: Optional[str] = "cloudpickle"
 
     @abstractmethod
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
@@ -54,6 +55,7 @@ class IndexifyRouter(ABC):
     description: str = ""
     image: Image = None
     placement_constraints: List[PlacementConstraints] = []
+    payload_encoder: Optional[str] = "cloudpickle"
 
     @abstractmethod
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
@@ -65,6 +67,7 @@ def indexify_router(
     description: Optional[str] = "",
     image: Image = None,
     placement_constraints: List[PlacementConstraints] = [],
+    output_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         args = locals().copy()
@@ -87,7 +90,7 @@ def indexify_router(
                 setattr(IndexifyRo, key, value)
 
         IndexifyRo.image = image
-
+        IndexifyRo.payload_encoder = output_encoder
         return IndexifyRo
 
     return construct
@@ -100,6 +103,7 @@ def indexify_function(
     accumulate: Optional[Type[BaseModel]] = None,
     min_batch_size: Optional[int] = None,
     max_batch_size: Optional[int] = None,
+    output_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -126,7 +130,7 @@ def indexify_function(
         IndexifyFn.accumulate = accumulate
         IndexifyFn.min_batch_size = min_batch_size
         IndexifyFn.max_batch_size = max_batch_size
-
+        IndexifyFn.payload_encoder = output_encoder
         return IndexifyFn
 
     return construct

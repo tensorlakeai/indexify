@@ -2,6 +2,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+import cloudpickle
 import httpx
 import msgpack
 import yaml
@@ -160,6 +161,7 @@ class RemoteClient(IndexifyClient):
 
     def register_compute_graph(self, graph: Graph):
         graph_metadata = graph.definition()
+        print(graph_metadata.model_dump_json(exclude_none=True))
         serialized_code = graph.serialize()
         response = self._post(
             f"namespaces/{self.namespace}/compute_graphs",
@@ -214,12 +216,7 @@ class RemoteClient(IndexifyClient):
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
-        input_as_dict = {}
-        for key, value in kwargs.items():
-            if isinstance(value, BaseModel):
-                value = value.model_dump(exclude_none=True)
-            input_as_dict[key] = value
-        cbor_object = msgpack.packb(input_as_dict)
+        ser_input = cloudpickle.dumps(kwargs)
         params = {"block_until_finish": block_until_done}
         with httpx.Client() as client:
             with connect_sse(
@@ -227,7 +224,7 @@ class RemoteClient(IndexifyClient):
                 "POST",
                 f"{self.service_url}/namespaces/{self.namespace}/compute_graphs/{graph}/invoke_object",
                 headers={"Content-Type": "application/cbor"},
-                data=cbor_object,
+                data=ser_input,
                 params=params,
             ) as event_source:
                 for sse in event_source.iter_sse():

@@ -2,7 +2,6 @@ from collections import defaultdict
 from queue import deque
 from typing import Any, Dict, List, Optional, Type, Union
 
-import msgpack
 from nanoid import generate
 from pydantic import BaseModel, Json
 from rich import print
@@ -15,7 +14,7 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
-from indexify.functions_sdk.object_serializer import MsgPackSerializer
+from indexify.functions_sdk.object_serializer import get_serializer
 
 
 # Holds the outputs of a
@@ -40,13 +39,17 @@ class LocalClient(IndexifyClient):
         self.run(g, **kwargs)
 
     def run(self, g: Graph, **kwargs):
-        input = IndexifyData(id=generate(), payload=MsgPackSerializer.serialize(kwargs))
+        serializer = get_serializer(
+            g.get_function(g._start_node).indexify_function.payload_encoder
+        )
+        input = IndexifyData(id=generate(), payload=serializer.serialize(kwargs))
         print(f"[bold] Invoking {g._start_node}[/bold]")
         outputs = defaultdict(list)
-        self._accumulators = {
-            k: IndexifyData(payload=MsgPackSerializer.serialize(v))
-            for k, v in g.get_accumulators().items()
-        }
+        for k, v in g.get_accumulators().items():
+            serializer = get_serializer(
+                g.get_function(k).indexify_function.payload_encoder
+            )
+            self._accumulators[k] = IndexifyData(payload=serializer.deserialize(v))
         self._results[input.id] = outputs
         self._run(g, input, outputs)
         return input.id
@@ -57,10 +60,13 @@ class LocalClient(IndexifyClient):
         initial_input: bytes,
         outputs: Dict[str, List[bytes]],
     ):
-        queue = deque([(g._start_node.name, initial_input)])
+        queue = deque([(g._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
-            input_bytes = msgpack.packb(input.model_dump())
+            serializer = get_serializer(
+                g.get_function(node_name).indexify_function.payload_encoder
+            )
+            input_bytes = serializer.serialize(input)
             cached_output_bytes: Optional[bytes] = self._cache.get(
                 g.name, node_name, input_bytes
             )
@@ -69,9 +75,7 @@ class LocalClient(IndexifyClient):
                     f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
                 )
                 function_outputs: List[IndexifyData] = []
-                cached_output_list = MsgPackSerializer.deserialize_list(
-                    cached_output_bytes
-                )
+                cached_output_list = serializer.deserialize_list(cached_output_bytes)
                 if self._accumulators.get(node_name, None) is not None:
                     self._accumulators[node_name] = cached_output_list[-1].model_copy()
                     outputs[node_name] = []
@@ -87,7 +91,7 @@ class LocalClient(IndexifyClient):
                     outputs[node_name] = []
                 outputs[node_name].extend(function_outputs)
                 function_outputs_bytes: List[bytes] = [
-                    MsgPackSerializer.serialize_list(function_outputs)
+                    serializer.serialize_list(function_outputs)
                 ]
                 self._cache.set(
                     g.name,
@@ -138,11 +142,7 @@ class LocalClient(IndexifyClient):
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
-        graph = self._graphs[graph]
-        for key, value in kwargs.items():
-            if isinstance(value, BaseModel):
-                kwargs[key] = value.model_dump()
-
+        graph: Graph = self._graphs[graph]
         return self.run(graph, **kwargs)
 
     def invoke_graph_with_file(
@@ -170,9 +170,12 @@ class LocalClient(IndexifyClient):
             raise ValueError(f"no results found for fn {fn_name} on graph {graph}")
         results = []
         fn_model = self._graphs[graph].get_function(fn_name).get_output_model()
+        serializer = get_serializer(
+            self._graphs[graph].get_function(fn_name).indexify_function.payload_encoder
+        )
         for result in self._results[invocation_id][fn_name]:
-            payload_dict = msgpack.unpackb(result.payload)
-            if issubclass(fn_model, BaseModel):
+            payload_dict = serializer.deserialize(result.payload)
+            if issubclass(fn_model, BaseModel) and isinstance(payload_dict, dict):
                 payload = fn_model.model_validate(payload_dict)
             else:
                 payload = payload_dict
