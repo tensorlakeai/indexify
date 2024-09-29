@@ -233,7 +233,7 @@ jobs:
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: ${{ secrets.R2_BUCKET }}
           source-dir: server/.repo/
-          destination-dir: ./debianpackages
+          destination-dir: ./repo
 
   build-and-push-docker-images:
     name: Build and Push Docker Images
