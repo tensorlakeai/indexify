@@ -15,6 +15,9 @@ on:
 
 permissions:
   contents: write
+  actions: write
+  packages: write
+  
 
 env:
   CARGO_TERM_COLOR: always
