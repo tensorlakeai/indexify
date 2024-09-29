@@ -56,6 +56,9 @@ def server_dev_mode():
         except Exception as e:
             print(f"failed to move indexify-server to {indexify_server_path}: {e}")
             exit(1)
+    print("starting indexify server and executor in dev mode...")
+    print("press Ctrl+C to stop the server and executor.")
+    print(f"server binary path: {indexify_server_path}")
     commands = [indexify_server_path, "indexify-cli executor"]
 
     processes = []
