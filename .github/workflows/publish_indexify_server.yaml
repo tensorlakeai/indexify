@@ -223,9 +223,9 @@ jobs:
         run: |
           ls /tmp/release/
           cd .repo
-          reprepro includedeb buster /tmp/release/*.deb
-          reprepro includedeb focal /tmp/release/*.deb
-          reprepro includedeb jammy /tmp/release/*.deb
+          reprepro buster includedeb /tmp/release/*.deb
+          reprepro focal includedeb /tmp/release/*.deb
+          reprepro jammy includedeb /tmp/release/*.deb
       - uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
@@ -253,7 +253,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
-          docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify:latest -t tensorlake/indexify:stable -f dockerfiles/Dockerfile.server;
+          docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:latest -f dockerfiles/Dockerfile.server;
 
           tag="";
           for i in $(echo ${{ needs.extract-version.outputs.version }} | tr '.' '\n')

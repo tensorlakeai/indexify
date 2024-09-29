@@ -10,9 +10,7 @@ Indexify is a compute framework for building durable data-intensive workflows wi
 Some of the use-cases that you can use Indexify for - 
 
 * [Scraping and Summarizing websites](examples/website_audio_summary/)
-
 * [PDF Documents Extraction and Indexing](examples/pdf_document_extraction/)
-
 * [Transcribing audio and summarization](examples/website_audio_summary/)
 
 ### Key Features
