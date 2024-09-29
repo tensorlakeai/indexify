@@ -4,13 +4,14 @@ from typing import List, Optional, Union
 import httpx
 from pydantic import BaseModel
 
+from inkwell import Page, Document as InkwellDocument
 from indexify.functions_sdk.data_objects import File, IndexifyData
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunction,
     indexify_function,
 )
-from indexify.local_client import LocalClient
+from indexify import create_client
 
 
 @indexify_function()
@@ -24,11 +25,10 @@ def download_pdf(url: str) -> File:
 
 
 class Document(BaseModel):
-    from inkwell import Page
     pages: List[Page]
 
 
-class PDFParse(IndexifyFunction):
+class PDFParser(IndexifyFunction):
     name = "pdf-parse"
     description = "Parser class that captures a pdf file"
 
@@ -38,18 +38,16 @@ class PDFParse(IndexifyFunction):
         self._pipeline = Pipeline()
 
     def run(self, input: File) -> Document:
-        from inkwell import Page
         import tempfile
-        with tempfile.TemporaryFile() as f:
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
             f.write(input.data)
-            pages: List[Page] = self._pipeline.process(f.name)
-        return Document(pages=pages)
+            document: InkwellDocument = self._pipeline.process(f.name)
+        return Document(pages=document.pages)
     
 
 
-class TextChunk(IndexifyData):
+class TextChunk(BaseModel):
     chunk: str
-    metadata: dict = {}
     page_number: Optional[int] = None
     embeddings: Optional[List[float]] = None
 
@@ -65,11 +63,12 @@ def extract_chunks(document: Document) -> List[TextChunk]:
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
     chunks: List[TextChunk] = []
     for page in document.pages:
-        for fragment in page.fragments:
+        for fragment in page.page_fragments:
             if fragment.fragment_type == PageFragmentType.TEXT:
-                texts = text_splitter.split_text(fragment.text)
+                texts = text_splitter.split_text(fragment.content.text)
                 for text in texts:
-                    chunks.append(TextChunk(chunk=text, page_number=page.number))
+                    chunk = TextChunk(chunk=text, page_number=page.page_number)
+                    chunks.append(chunk)
 
     return chunks
 
@@ -104,8 +103,6 @@ class ImageWithEmbedding(BaseModel):
 class ImageEmbeddingExtractor(IndexifyFunction):
     name = "image-embedding"
     description = "Extractor class that captures an embedding model"
-    system_dependencies = []
-    input_mime_types = ["text"]
 
     def __init__(self):
         super().__init__()
@@ -121,14 +118,14 @@ class ImageEmbeddingExtractor(IndexifyFunction):
 
         embedding = []
         for page in document.pages:
-            for fragment in page.fragments:
+            for fragment in page.page_fragments:
                 if fragment.fragment_type == PageFragmentType.FIGURE:
-                    image = fragment.image
-                    img_emb = self.model.encode(Image.open(io.BytesIO(image.data)))
+                    image = fragment.content.image
+                    img_emb = self.model.encode(image)
                     embedding.append(
                         ImageWithEmbedding(
                             embedding=img_emb,
-                            page_number=page.number,
+                            page_number=page.page_number,
                             figure_number=0,
                         )
                     )
@@ -195,24 +192,24 @@ if __name__ == "__main__":
     )
 
     # Parse the PDF which was downloaded
-    g.add_edge(download_pdf, parse_pdf)
+    g.add_edge(download_pdf, PDFParser)
 
     # Extract all the text chunks in the PDF
     # and embed the images with CLIP
-    g.add_edges(parse_pdf, [extract_chunks, ImageEmbeddingExtractor])
+    #g.add_edges(PDFParser, [extract_chunks, ImageEmbeddingExtractor])
+    g.add_edges(PDFParser, [extract_chunks])
 
     ## Embed all the text chunks in the PDF
     g.add_edge(extract_chunks, TextEmbeddingExtractor)
 
     ## Write all the embeddings to the vector database
     g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
-    g.add_edge(ImageEmbeddingExtractor, LanceDBWriter)
+    #g.add_edge(ImageEmbeddingExtractor, LanceDBWriter)
 
-    local_runner = LocalClient()
-    local_runner.run_from_serialized_code(
-        code=g.serialize(),
-        url="https://raft.github.io/raft.pdf",
-    )
+    client = create_client(local=True)
+    client.register_compute_graph(g)
+    invocation_id = client.invoke_graph_with_object(g.name, block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf")
+    print(f"Invocation ID: {invocation_id}")
 
     ## After extraction, lets test retreival
 

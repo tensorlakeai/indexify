@@ -105,8 +105,8 @@ class Graph:
         self.edges: Dict[str, List[str]] = defaultdict(list)
         self.accumulator_zero_values: Dict[str, Any] = {}
 
-        self._start_node: str = start_node.name
         self.add_node(start_node)
+        self._start_node: str = start_node.name
 
     def get_function(self, name: str) -> IndexifyFunctionWrapper:
         if name not in self.nodes:
@@ -123,7 +123,6 @@ class Graph:
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]
     ) -> "Graph":
-
         validate_node(indexify_fn=indexify_fn)
 
         if indexify_fn.name in self.nodes:
@@ -200,7 +199,7 @@ class Graph:
         compute_fn = self.nodes[compute_fn]
         if not compute_fn:
             raise ValueError(f"Compute function {compute_fn} not found in graph")
-        if compute_fn.output_encoder == "cloudpickle":
+        if compute_fn.payload_encoder == "cloudpickle":
             return CloudPickleSerializer.deserialize(indexify_data.payload)
         payload = msgpack.unpackb(indexify_data.payload)
         signature = inspect.signature(compute_fn.run)

@@ -6,8 +6,14 @@ from .indexify_functions import IndexifyFunction, IndexifyRouter
 
 
 def validate_node(indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]):
+    if inspect.isfunction(indexify_fn):
+        raise Exception(
+            f"Unable to add node of type `{type(indexify_fn)}`. "
+            f"Required, `IndexifyFunction` or `IndexifyRouter`"
+        )
     if not (
-        indexify_fn.__name__ == "IndexifyFn" or indexify_fn.__name__ == "IndexifyRo"
+        issubclass(indexify_fn, IndexifyFunction)
+        or issubclass(indexify_fn, IndexifyRouter)
     ):
         raise Exception(
             f"Unable to add node of type `{indexify_fn.__name__}`. "
@@ -17,6 +23,8 @@ def validate_node(indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter
     signature = inspect.signature(indexify_fn.run)
 
     for param in signature.parameters.values():
+        if param.name == "self":
+            continue
         if param.annotation == inspect.Parameter.empty:
             raise Exception(
                 f"Input param {param.name} in {indexify_fn.name} has empty"

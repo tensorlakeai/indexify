@@ -78,11 +78,7 @@ class TestValidations(unittest.TestCase):
 
             g.add_edge(node1, node2)
 
-        msg = (
-            "Unable to add node of type `node1`. Required, "
-            "`IndexifyFunction` or `IndexifyRouter`"
-        )
-
+        msg = "Unable to add node of type `<class 'function'>`. Required, `IndexifyFunction` or `IndexifyRouter`"
         self.assertEqual(msg, str(cm.exception))
 
     def test_router_callables_are_in_added_nodes_union(self):
