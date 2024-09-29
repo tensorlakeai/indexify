@@ -93,7 +93,7 @@ You have built and your first multi-stage workflow locally! You are now ready to
 
 #### 4: Deploying Graph as a service API
 
-Indexify server deploys compute graphs as API endpoints, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
 
 ```bash
 indexify-cli server-dev-mode
