@@ -49,7 +49,7 @@ class LocalClient(IndexifyClient):
             serializer = get_serializer(
                 g.get_function(k).indexify_function.payload_encoder
             )
-            self._accumulators[k] = IndexifyData(payload=serializer.deserialize(v))
+            self._accumulators[k] = IndexifyData(payload=serializer.serialize(v))
         self._results[input.id] = outputs
         self._run(g, input, outputs)
         return input.id
