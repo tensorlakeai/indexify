@@ -27,8 +27,8 @@ jobs:
             ui:
               - 'server/ui/**'
             other:
-              - '**'
               - '!server/ui/**'
+              - '**'
               - '!docs/**'
 
   lint:
