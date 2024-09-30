@@ -34,23 +34,26 @@ jobs:
   lint:
     name: Lint Checks
     needs: changes
-    if: ${{ needs.changes.outputs.ui == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       
       - name: Setup Node.js
+        if: ${{ needs.changes.outputs.ui == 'true' }}
         uses: actions/setup-node@v3
         with:
           node-version: '20'
 
       - name: Npm Install
+        if: ${{ needs.changes.outputs.ui == 'true' }}
         run: cd server/ui && npm ci
 
       - name: UI Lint Check
+        if: ${{ needs.changes.outputs.ui == 'true' }}
         run: cd server/ui && npm run lint
 
       - name: Setup Rust
+        if: ${{ needs.changes.outputs.other == 'true' }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -58,6 +61,7 @@ jobs:
           override: true
 
       - name: Rust Format Check
+        if: ${{ needs.changes.outputs.other == 'true' }}
         run: |
           cd server/
           cargo +nightly fmt -- --check
