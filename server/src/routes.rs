@@ -169,6 +169,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(list_outputs).with_state(route_state.clone()),
         )
         .route(
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/context",
+            get(get_context).with_state(route_state.clone()),
+        )
+        .route(
             "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
             get(graph_invocations).with_state(route_state.clone()),
         )
@@ -634,6 +638,28 @@ async fn list_tasks(
         .map_err(IndexifyAPIError::internal_error)?;
     let tasks = tasks.into_iter().map(Into::into).collect();
     Ok(Json(Tasks { tasks, cursor }))
+}
+
+/// Get accounting information for a compute graph invocation
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/context",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Accounting information for an invocation id", body = Tasks),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn get_context(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let context = state
+        .indexify_state
+        .reader()
+        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(Json(context))
 }
 
 /// Get outputs for a compute graph invocation
