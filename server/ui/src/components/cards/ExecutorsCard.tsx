@@ -5,7 +5,7 @@ import { ExecutorMetadata } from 'getindexify';
 
 const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
   const renderContent = () => {
-    if (executors || executors.length === 0) {
+    if (!executors || executors.length === 0) {
       return (
         <Box mt={2} mb={2}>
           <Alert variant="outlined" severity="info">
