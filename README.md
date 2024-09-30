@@ -33,7 +33,7 @@ Workflows are written as Python functions and are connected as Graphs. Each func
 #### 1: Create a Compute Graph
 ```python
 from pydantic import BaseModel
-from indexify import indexify_function, Graph
+from indexify import indexify_function, indexify_router, Graph
 from typing import List
 
 @indexify_function()
