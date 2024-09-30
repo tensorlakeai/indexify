@@ -1,7 +1,7 @@
 import { Box } from '@mui/material'
 import { Namespace } from 'getindexify'
 import { useLoaderData } from 'react-router-dom'
-import NamespacesTable from '../../components/tables/NamespacesTable'
+import NamespacesCard from '../../components/cards/NamespacesCard'
 
 const NamespacesPage = () => {
   const {
@@ -9,7 +9,7 @@ const NamespacesPage = () => {
   } = useLoaderData() as {
     namespaces: Namespace[]
   }
-  return <Box><NamespacesTable namespaces={namespaces}/></Box>
+  return <Box><NamespacesCard namespaces={namespaces}/></Box>
 }
 
 export default NamespacesPage;

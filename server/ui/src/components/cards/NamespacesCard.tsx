@@ -4,7 +4,7 @@ import { Namespace } from 'getindexify';
 import { TableDocument, InfoCircle } from 'iconsax-react';
 import { formatTimestamp } from '../../utils/helpers';
 
-const NamespacesTable = ({ namespaces }: { namespaces: Namespace[] }) => {
+const NamespacesCard = ({ namespaces }: { namespaces: Namespace[] }) => {
   const renderContent = () => {
     if (namespaces.length === 0) {
       return (
@@ -75,4 +75,4 @@ const NamespacesTable = ({ namespaces }: { namespaces: Namespace[] }) => {
   );
 };
 
-export default NamespacesTable;
+export default NamespacesCard;

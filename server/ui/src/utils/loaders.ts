@@ -1,4 +1,4 @@
-import { ComputeGraph, ComputeGraphsList, IndexifyClient } from 'getindexify'
+import { ComputeGraph, ComputeGraphsList, IndexifyClient, listExecutors } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
   getIndexifyServiceURL,
@@ -82,6 +82,12 @@ export async function InvocationsPageLoader({
 export async function NamespacesPageLoader() {
   const namespaces = await IndexifyClient.namespaces()
   return { namespaces }
+}
+
+export async function ExecutorsPageLoader() {
+  const executors = await listExecutors()
+  
+  return { executors }
 }
 
 export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {

@@ -13,6 +13,7 @@ import Root, { loader as RootLoader } from "./routes/root";
 import { ErrorPage } from "./error-page";
 import {
   ComputeGraphsPageLoader,
+  ExecutorsPageLoader,
   IndividualComputeGraphPageLoader,
   IndividualInvocationPageLoader,
   NamespacesPageLoader,
@@ -21,7 +22,8 @@ import {
   ComputeGraphsPage,
   NamespacesPage,
   IndividualComputeGraphPage,
-  IndividualInvocationPage
+  IndividualInvocationPage,
+  ExecutorsPage
 } from "./routes/Namespace";
 
 function RedirectToComputeGraphs() {
@@ -73,6 +75,12 @@ const router = createBrowserRouter(
           path: "/:namespace/compute-graphs/:compute-graph/invocations/:invocation-id",
           element: <IndividualInvocationPage />,
           loader: IndividualInvocationPageLoader,
+          errorElement: <ErrorPage />
+        },
+        {
+          path: "/executors",
+          element: <ExecutorsPage />,
+          loader: ExecutorsPageLoader,
           errorElement: <ErrorPage />
         },
       ]
