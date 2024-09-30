@@ -4,7 +4,6 @@ import { Setting4, InfoCircle } from 'iconsax-react';
 import { ExecutorMetadata } from 'getindexify';
 
 const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
-  console.log('executors', executors)
   const renderContent = () => {
     if (!executors || executors.length === 0) {
       return (
