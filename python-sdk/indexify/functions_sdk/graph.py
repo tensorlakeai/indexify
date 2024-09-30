@@ -266,7 +266,7 @@ class Graph:
                 metadata_nodes[node_name] = NodeMetadata(
                     compute_fn=FunctionMetadata(
                         name=node_name,
-                        fn_name=node.fn_name,
+                        fn_name=node.name,
                         description=node.description,
                         reducer=node.accumulate is not None,
                         image_name=node.image._image_name,
