@@ -120,6 +120,18 @@ This serializes your Graph code and uploads it to the server, and instantiates a
 
 Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs! 
 
+#### Docker Compose
+You can spin up the server and executor in a docker compose, and deploy and run in a production-like environment.
+
+```bash
+docker compose up
+```
+
+Copy and run the code above and you should see Indexify hosting your workflow API in the server running in Docker, and the executor running the workflow code. You can add as many executor containers to add more parallelism to the workflow.
+
+The docker compose uses the default indexify executor container with a default Python installation. If you need additional dependencies in your function, you can [build custom images](#building-images) with system and pip dependencies.
+
+
 ### Programming Model:
 
 **Automatic Parallelization:**
@@ -202,6 +214,29 @@ You could deploy Indexify Server in production in the following ways -
 1. **Single Node:** Run both the server and executor on a single machine to run workflows on a single machine. Indexify would queue requests so you can upload as much data as you want, and can expect them to be eventually completed.
 
 2. **Distributed:** If you anticipate processing a lot of data, and have fixed latency or throughput requirements you can deploy the executors on 100s or 1000s of machines for parallel execution. You can always scale up and down the clusters with ease. 
+
+#### Building Images
+
+You can build custom images for functions that require additional Python or System dependencies. 
+
+```python
+from indexify import indexify_function, Image
+
+image = Image.name("my-custom-image").base_image("ubuntu:22.04").run("apt update").run("apt install python").run("pip install indexify")
+
+@indexify_function(image=image)
+def func_a(x: int) -> str:
+    ...
+```
+This will instruct the Indexify server to run the function in images with name `my-custom-image`. This function won't run in the default executor image or any other image.
+
+You can build the images -
+```bash
+indexify-cli build-image /path/to/workflow/code func_a
+```
+
+This will produce an image tagged `my-custom-image` by running all the commands you mentioned above! 
+
 
 ### Roadmap
 
