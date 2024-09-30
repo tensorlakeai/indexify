@@ -134,7 +134,7 @@ pub fn update_system_task(
 ) -> Result<()> {
     let key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
     let task = txn
-        .get_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &key)?
+        .get_for_update_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &key, true)?
         .ok_or(anyhow::anyhow!("Task not found"))?;
     let mut task = JsonEncoder::decode::<SystemTask>(&task)?;
     task.restart_key = Some(req.restart_key);
@@ -154,17 +154,24 @@ pub fn rerun_compute_graph(
 ) -> Result<()> {
     let key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let graph = txn
-        .get_cf(&IndexifyObjectsColumns::ComputeGraphs.cf_db(&db), &key)?
+        .get_for_update_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            &key,
+            false,
+        )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
     let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
-    let existing_task = txn.get_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
+    let existing_task = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
+        &task_key,
+        true,
+    )?;
     if let Some(existing_task) = existing_task {
         let existing_task: SystemTask = JsonEncoder::decode(&existing_task)?;
         if existing_task.graph_version >= graph.version {
             return Err(anyhow::anyhow!("Task already exists"));
         }
-        txn.delete_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
     }
     let task = SystemTask::new(
         req.namespace.clone(),
@@ -189,9 +196,10 @@ pub fn rerun_invocation(
     let graph_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph_name, &req.invocation_id);
     let graph_ctx = txn
-        .get_cf(
+        .get_for_update_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &graph_ctx_key,
+            false,
         )?
         .ok_or(anyhow::anyhow!("Graph context not found"))?;
     let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
@@ -226,9 +234,10 @@ pub fn rerun_invocation(
 
     let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let graph = txn
-        .get_cf(
+        .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &compute_graph_key,
+            false,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
@@ -272,7 +281,7 @@ pub fn rerun_invocation(
     // Increment number of outstanding tasks
     let cf = IndexifyObjectsColumns::Stats.cf_db(&db);
     let key = b"pending_system_tasks";
-    let value = txn.get_cf(&cf, key)?;
+    let value = txn.get_for_update_cf(&cf, key, true)?;
     let mut pending_system_tasks = match value {
         Some(value) => {
             let bytes: [u8; 8] = value
@@ -308,9 +317,10 @@ pub fn create_graph_input(
 ) -> Result<()> {
     let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let cg = txn
-        .get_cf(
+        .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &compute_graph_key,
+            false,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
@@ -524,9 +534,10 @@ pub(crate) fn create_tasks(
         "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
     );
-    let graph_ctx = txn.get_cf(
+    let graph_ctx = txn.get_for_update_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         &ctx_key,
+        false,
     )?;
     if graph_ctx.is_none() {
         error!("Graph context not found for graph: {}", req.compute_graph);
@@ -609,9 +620,10 @@ pub fn mark_task_completed(
         req.namespace, req.compute_graph, req.invocation_id
     );
     let graph_ctx = txn
-        .get_cf(
+        .get_for_update_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &graph_ctx_key,
+            false,
         )?
         .ok_or(anyhow!(
             "Graph context not found for task: {}",
