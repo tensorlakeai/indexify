@@ -28,7 +28,7 @@ class Image:
 DEFAULT_IMAGE = (
     Image()
     .name("indexify-executor-default")
-    .base_image("python:3.10.15-bullseye")
+    .base_image("python:3.10.15-slim-bookworm")
     .tag("latest")
     .run("pip install indexify")
 )
