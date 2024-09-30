@@ -5,7 +5,7 @@ import { ExecutorMetadata } from 'getindexify';
 
 const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
   const renderContent = () => {
-    if (executors?.length === 0) {
+    if (executors || executors.length === 0) {
       return (
         <Box mt={2} mb={2}>
           <Alert variant="outlined" severity="info">
@@ -17,7 +17,7 @@ const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
     return (
       <Box sx={{ width: '100%', marginTop: '1rem' }}>
         <Grid container spacing={2}>
-          {executors.map((executor) => (
+          {executors?.map((executor) => (
             <Grid item xs={12} sm={12} md={12} lg={12} key={executor.image_name}>
               <Paper
                 sx={{
