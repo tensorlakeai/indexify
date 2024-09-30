@@ -1,5 +1,5 @@
 import unittest
-from typing import Union
+from typing import List, Union
 
 from pydantic import BaseModel
 
@@ -99,7 +99,11 @@ class TestValidations(unittest.TestCase):
             pass
 
         @indexify_router()
-        def router(a: int) -> Union[node1, node3]:
+        def router(a: int) -> List[Union[node1, node3]]:
+            pass
+
+        @indexify_router()
+        def router2(a: int) -> Union[node1, node3]:
             pass
 
         with self.assertRaises(Exception) as cm:
@@ -110,10 +114,21 @@ class TestValidations(unittest.TestCase):
 
             g.add_edge(node0, router)
             g.route(router, [node1, node2])
-
         msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
-
         self.assertEqual(msg, str(cm.exception))
+        
+        with self.assertRaises(Exception) as cm:
+            g = Graph(
+                "test-graph",
+                start_node=node0,
+            )
+
+            g.add_edge(node0, router)
+            g.route(router2, [node1, node2])
+        msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
+        self.assertEqual(msg, str(cm.exception))
+
+
 
 
 if __name__ == "__main__":

@@ -42,28 +42,25 @@ def validate_route(
 
     if signature.return_annotation == inspect.Signature.empty:
         raise Exception(f"Function {from_node.name} has empty return type annotation")
+    
+    return_annotation = signature.return_annotation
 
-    # We lose the exact type string when the object is created
-    source = inspect.getsource(from_node.run)
+    if hasattr(return_annotation, '__origin__') and return_annotation.__origin__ is Union:
+        for arg in return_annotation.__args__:
+            if hasattr(arg, 'name'):
+                if arg not in to_nodes:
+                    raise Exception(
+                        f"Unable to find {arg.name} in to_nodes {[node.name for node in to_nodes]}"
+                    )
 
-    union_pattern = r"Union\[((?:\w+(?:,\s*)?)+)\]"
-    union_match = re.search(union_pattern, source)
-
-    src_route_nodes = None
-    if union_match:
-        # nodes = re.findall(r'\w+', match.group(1))
-        src_route_nodes = [node.strip() for node in union_match.group(1).split(",")]
-        if len(src_route_nodes) <= 1:
-            raise Exception(f"Invalid router for {from_node.name}, lte 1 route.")
+    if hasattr(return_annotation, '__origin__') and return_annotation.__origin__ is list:
+        union_args = return_annotation.__args__[0].__args__
+        for arg in union_args:
+            if hasattr(arg, 'name'):
+                if arg not in to_nodes:
+                    raise Exception(
+                        f"Unable to find {arg.name} in to_nodes {[node.name for node in to_nodes]}"
+                    )
     else:
-        raise Exception(
-            f"Invalid router for {from_node.name}, cannot find output nodes"
-        )
+        raise Exception(f"Return type of {from_node.name} is not a Union")
 
-    to_node_names = [i.name for i in to_nodes]
-
-    for src_node in src_route_nodes:
-        if src_node not in to_node_names:
-            raise Exception(
-                f"Unable to find {src_node} in to_nodes " f"{to_node_names}"
-            )
