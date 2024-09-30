@@ -1,0 +1,67 @@
+{{- with .Values.server }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexify-server
+spec:
+  ports:
+    - port: 8900
+  selector:
+    {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: indexify-server
+  labels:
+    {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 8 }}
+
+    spec:
+      {{- if .nodeSelector }}
+      nodeSelector:
+        {{- toYaml .nodeSelector | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: indexify
+          image: {{ .image }}
+          env:
+            {{- include "blobStore.env" $.Values | nindent 12 }}
+
+          {{- if not $.Values.blobStore.config }}
+          volumeMounts:
+            - mountPath: /tmp/indexify-blob-storage
+              name: data
+          {{- end}}
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8900
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8900
+
+  {{- with .persistance }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 8 }}
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .storageClassName | default "standard" }}
+      resources:
+        requests:
+          storage: {{ .size | default "1Gi" }}
+  {{- end -}}
+{{- end }}

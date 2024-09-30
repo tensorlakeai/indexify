@@ -1,15 +1,3 @@
-dbURL: postgres://postgres:indexify@vector-store/indexify
-indexConfig:
-  index_store: PgVector
-  pg_vector_config:
-    addr: postgres://postgres:indexify@vector-store/indexify
-    m: 16
-    efconstruction: 64
-    efsearch: 40
-metadataStorage:
-  metadata_store: postgres
-  conn_url: postgres://postgres:indexify@vector-store/indexify
-
 blobStore:
   allowHTTP: true
   endpoint: http://blob-store:9000
@@ -20,22 +8,23 @@ blobStore:
       bucket: indexify
       region: us-east-1
 
-api:
+server:
+  image: tensorlake/indexify-server:latest
   ingress:
     enabled: true
+  persistance:
+    storageClassName: 'local-path'
+    size: 1Gi
 
-  image: tensorlake/indexify:latest
+  #   nodeselector:
+  #     gpu: "true"
 
-coordinator:
-  image: tensorlake/indexify:latest
-
-extractors:
-  - image: tensorlake/chunk-extractor:latest
-    name: chunker
-  - image: tensorlake/minilm-l6:latest
-    name: minilm-l6
-  - image: tensorlake/pdfextractor:latest
-    name: pdfextractor
+executors:
+  name: indexify-executor
+  image: tensorlake/indexify-default-executor:latest
+  replicas: 1
+  # nodeselector:
+  #   gpu: "true"
 
 extraObjects:
   - |
@@ -67,25 +56,3 @@ minio:
   resources:
     requests:
       memory: 128Mi
-
-postgresql:
-  enabled: true
-  fullnameOverride: vector-store
-  auth:
-    enablePostgresUser: true
-    postgresPassword: indexify
-    database: indexify
-  image:
-    repository: pgvector/pgvector
-    tag: pg16
-    debug: true
-  primary:
-    containerSecurityContext:
-      readOnlyRootFilesystem: false
-    initdb:
-      scripts:
-        initdb.sh: |
-          #!/bin/bash
-          echo "Creating database indexify..."
-          export PGPASSWORD=indexify
-          psql -U postgres -c "CREATE DATABASE indexify;"

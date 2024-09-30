@@ -1,0 +1,44 @@
+{{- with .Values.executors }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name | replace "-" "" }}
+  labels:
+    {{- include "labels" (dict "name" .name "component" "executors" "global" $) | nindent 4 }}
+spec:
+  ports:
+    - port: 9501
+  selector:
+    {{- include "labels" (dict "name" .name "component" "executors" "global" $) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .name | replace "-" "" }}
+  labels:
+    {{- include "labels" (dict "name" .name "component" "executors" "global" $) | nindent 4 }}
+spec:
+  replicas: {{ default .replicas 1 }}
+  selector:
+    matchLabels:
+      {{- include "labels" (dict "name" .name "component" "executors" "global" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "labels" (dict "name" .name "component" "executors" "global" $) | nindent 8 }}
+    spec:
+      {{- if .nodeSelector }}
+      nodeSelector:
+        {{- toYaml .nodeSelector | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: executor
+          image: {{ .image }}
+          command:
+            - indexify-cli
+            - executor
+            - --server-addr
+            - indexify-server:8900
+
+{{- end }}
