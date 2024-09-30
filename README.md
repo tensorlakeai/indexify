@@ -34,7 +34,7 @@ Workflows are written as Python functions and are connected as Graphs. Each func
 ```python
 from pydantic import BaseModel
 from indexify import indexify_function, indexify_router, Graph
-from typing import List
+from typing import List, Union
 
 @indexify_function()
 def generate_sequence(a: int) -> List[int]:
