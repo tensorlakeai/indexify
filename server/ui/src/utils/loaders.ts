@@ -1,4 +1,4 @@
-import { ComputeGraph, ComputeGraphsList, IndexifyClient, listExecutors } from 'getindexify'
+import { ComputeGraph, ComputeGraphsList, IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import {
   getIndexifyServiceURL,
@@ -85,7 +85,7 @@ export async function NamespacesPageLoader() {
 }
 
 export async function ExecutorsPageLoader() {
-  const executors = await listExecutors()
+  const executors = (await axios.get(`http://localhost:8900/internal/executors`)).data;
   
   return { executors }
 }
