@@ -20,35 +20,23 @@ blobStore:
     #   bucket: indexify
     #   region: us-east-1
 
-api:
-  enabled: true
-  # replicas: 1
-
-  image: tensorlake/indexify:stable
-
+server:
+  image: tensorlake/indexify-server:latest
   ingress:
     enabled: false
+  persistance: {}
+    # storageClassName: 'local-path'
+    # size: 1Gi
 
   #   nodeselector:
   #     gpu: "true"
 
-coordinator:
-  enabled: true
-  # replicas: 1 # must be an odd number
-
-  image: tensorlake/indexify:stable
-  #   nodeselector:
-  #     gpu: "true"
-
-  # persistence:
-  #   storageClass: 'standard'
-
-extractors:
-  # - image: tensorlake/chunker:latest
-  #   name: chunker
-  #   replicas: 1
-  #   nodeselector:
-  #     gpu: "true"
+executors:
+  name: indexify-executor
+  image: tensorlake/indexify-default-executor:latest
+  replicas: 1
+  # nodeselector:
+  #   gpu: "true"
 
 extraObjects:
 
