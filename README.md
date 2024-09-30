@@ -17,7 +17,7 @@ Some of the use-cases that you can use Indexify for -
 * **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
 * **Local Inference:** Run multiple LLMs within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers by assigning functions to machines with adequate resources.
 * **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
-* **Version Graphs and Backfill:** Offers a backfill API to update peviously processed data when functions or models in graphs are updated.
+* **Version Graphs and Backfill:** Offers a backfill API to update perviously processed data when functions or models in graphs are updated.
 * **Observability:** Provides a UI for visualizing and debugging complex dynamic graphs.
 * **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
 * **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
@@ -121,13 +121,13 @@ This serializes your Graph code and uploads it to the server, and instantiates a
 Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs! 
 
 #### Docker Compose
-You can spin up the server and executor in a docker compose, and deploy and run in a production-like environment.
+You can spin up the server and executor using docker compose, and deploy and run in a production-like environment. Copy the [docker-compose.yaml file from here](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml).
 
 ```bash
 docker compose up
 ```
 
-Copy and run the code above and you should see Indexify hosting your workflow API in the server running in Docker, and the executor running the workflow code. You can add as many executor containers to add more parallelism to the workflow.
+Copy and run the graph creation example above and see your workflow API being served from Indexify, and the executor running the workflow code in Docker. Change the `replicas` field for the executor in docker compose to add more executors (i.e parallelism) to the workflow.
 
 The docker compose uses the default indexify executor container with a default Python installation. If you need additional dependencies in your function, you can [build custom images](#building-images) with system and pip dependencies.
 
@@ -230,12 +230,12 @@ def func_a(x: int) -> str:
 ```
 This will instruct the Indexify server to run the function in images with name `my-custom-image`. This function won't run in the default executor image or any other image.
 
-You can build the images -
+Build the image -
 ```bash
 indexify-cli build-image /path/to/workflow/code func_a
 ```
 
-This will produce an image tagged `my-custom-image` by running all the commands you mentioned above! 
+This will produce an image tagged `my-custom-image` by running all the commands specified above! 
 
 
 ### Roadmap
@@ -243,12 +243,12 @@ This will produce an image tagged `my-custom-image` by running all the commands 
 ##### Scheduler 
 
 * Enable batching in functions
-* Data Local function executions - Prioritizs scheduling on machines where intermediate output lives for faster execution.
+* Data Local function executions - Prioritize scheduling on machines where intermediate output lives for faster execution.
 * Reducer optimizations - Being able to batch serial execution reduce function calls. 
 * Machine parallel scheduling for even lower latency.
 * Support Cycles in the graphs for more flexible agentic behaviors in Graphs.
 * Ephemeral Graphs - multi-stage inference and retrieval with no persistence of intermediate outputs
-* Data Loader Funcitons - Produces a stream of values over time into Graphs, using the yield keyword.
+* Data Loader Functions - Produces a stream of values over time into Graphs, using the yield keyword.
 
 
 ##### SDK 
