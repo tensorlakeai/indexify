@@ -1,11 +1,10 @@
-import io
 from typing import List, Optional, Union
 
 import httpx
 from pydantic import BaseModel
 
 from inkwell import Page, Document as InkwellDocument
-from indexify.functions_sdk.data_objects import File, IndexifyData
+from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunction,
@@ -35,15 +34,16 @@ class PDFParser(IndexifyFunction):
     def __init__(self):
         super().__init__()
         from inkwell import Pipeline
+
         self._pipeline = Pipeline()
 
     def run(self, input: File) -> Document:
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
             f.write(input.data)
             document: InkwellDocument = self._pipeline.process(f.name)
         return Document(pages=document.pages)
-    
 
 
 class TextChunk(BaseModel):
@@ -60,15 +60,18 @@ def extract_chunks(document: Document) -> List[TextChunk]:
     from inkwell import PageFragmentType
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks: List[TextChunk] = []
     for page in document.pages:
+        page_text = ""
         for fragment in page.page_fragments:
             if fragment.fragment_type == PageFragmentType.TEXT:
-                texts = text_splitter.split_text(fragment.content.text)
-                for text in texts:
-                    chunk = TextChunk(chunk=text, page_number=page.page_number)
-                    chunks.append(chunk)
+                page_text += fragment.content.text
+        texts = text_splitter.split_text(page_text)
+        for text in texts:
+            print(text)
+            chunk = TextChunk(chunk=text, page_number=page.page_number)
+            chunks.append(chunk)
 
     return chunks
 
@@ -120,7 +123,7 @@ class ImageEmbeddingExtractor(IndexifyFunction):
         for page in document.pages:
             for fragment in page.page_fragments:
                 if fragment.fragment_type == PageFragmentType.FIGURE:
-                    image = fragment.content.image
+                    image = Image.fromarray(fragment.content.image)
                     img_emb = self.model.encode(image)
                     embedding.append(
                         ImageWithEmbedding(
@@ -133,6 +136,8 @@ class ImageEmbeddingExtractor(IndexifyFunction):
 
 
 from lancedb.pydantic import LanceModel, Vector
+
+
 class ImageEmbeddingTable(LanceModel):
     vector: Vector(512)
     page_number: int
@@ -196,19 +201,20 @@ if __name__ == "__main__":
 
     # Extract all the text chunks in the PDF
     # and embed the images with CLIP
-    #g.add_edges(PDFParser, [extract_chunks, ImageEmbeddingExtractor])
-    g.add_edges(PDFParser, [extract_chunks])
+    g.add_edges(PDFParser, [extract_chunks, ImageEmbeddingExtractor])
 
     ## Embed all the text chunks in the PDF
     g.add_edge(extract_chunks, TextEmbeddingExtractor)
 
     ## Write all the embeddings to the vector database
     g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
-    #g.add_edge(ImageEmbeddingExtractor, LanceDBWriter)
+    g.add_edge(ImageEmbeddingExtractor, LanceDBWriter)
 
-    client = create_client(local=True)
+    client = create_client(in_process=True)
     client.register_compute_graph(g)
-    invocation_id = client.invoke_graph_with_object(g.name, block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf")
+    invocation_id = client.invoke_graph_with_object(
+        g.name, block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf"
+    )
     print(f"Invocation ID: {invocation_id}")
 
     ## After extraction, lets test retreival
@@ -221,7 +227,7 @@ if __name__ == "__main__":
     st = sentence_transformers.SentenceTransformer(
         "sentence-transformers/all-MiniLM-L6-v2"
     )
-    emb = st.encode("leader election")
+    emb = st.encode("Generative adversarial networks")
     results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
     print(f"Found {len(results)} results")
     for result in results:
