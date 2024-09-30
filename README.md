@@ -17,7 +17,7 @@ Some of the use-cases that you can use Indexify for -
 * **Dynamic Branching and Data Flow:** Supports dynamic dataflow branching across functions within a graph.
 * **Local Inference:** Run multiple LLMs within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers by assigning functions to machines with adequate resources.
 * **Distributed Map and Reduce:** Automatically parallelizes execution of functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
-* **Version Graphs and Backfill:** Offers a backfill API to update perviously processed data when functions or models in graphs are updated.
+* **Version Graphs and Backfill:** Offers a backfill API to update previously processed data when functions or models in graphs are updated.
 * **Observability:** Provides a UI for visualizing and debugging complex dynamic graphs.
 * **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
 * **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
@@ -89,7 +89,7 @@ result = client.graph_outputs("sequence_summer", invocation_id, "squared")
 print(result)
 ```
 
-You have built and your first multi-stage workflow in-process! While running them in-process makes writing and testing Graphs easy, for production environments yould would want an API to call them whenever there is data to process.
+You have built and your first multi-stage workflow in-process! While running them in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
 
 #### 4: Deploying Graph as a service API
 
@@ -222,7 +222,13 @@ You can build custom images for functions that require additional Python or Syst
 ```python
 from indexify import indexify_function, Image
 
-image = Image.name("my-custom-image").base_image("ubuntu:22.04").run("apt update").run("apt install python").run("pip install indexify")
+image = (
+    Image()
+    .name("indexify-executor-default")
+    .base_image("python:3.10.15-slim-bookworm")
+    .tag("latest")
+    .run("pip install indexify")
+)
 
 @indexify_function(image=image)
 def func_a(x: int) -> str:
