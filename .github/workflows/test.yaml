@@ -25,10 +25,10 @@ jobs:
         with:
           filters: |
             ui:
-              - 'ui/**'
+              - 'server/ui/**'
             other:
               - '**'
-              - '!ui/**'
+              - '!server/ui/**'
               - '!docs/**'
 
   lint:
