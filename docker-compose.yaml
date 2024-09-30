@@ -25,5 +25,8 @@ services:
       server:
     volumes:
       - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 2
 volumes:
   data:
