@@ -59,6 +59,7 @@ jobs:
 
       - name: Rust Format Check
         run: |
+          cd server/
           cargo +nightly fmt -- --check
 
   test:
