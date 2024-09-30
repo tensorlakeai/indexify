@@ -19,7 +19,7 @@ from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
-from indexify.functions_sdk.image import Image
+from indexify.functions_sdk.image import Image, DEFAULT_IMAGE
 
 custom_theme = Theme(
     {
@@ -130,7 +130,6 @@ def build_image(workflow_file_path: str, func_names: List[str]):
         )
 
     found_funcs = []
-    graph = None
     for name, obj in globals_dict.items():
         for func_name in func_names:
             if name == func_name:
@@ -140,6 +139,15 @@ def build_image(workflow_file_path: str, func_names: List[str]):
     console.print(
         Text(f"Processed functions: ", style="cyan"),
         Text(f"{found_funcs}", style="green"),
+    )
+
+
+@app.command(help="Build default image for indexify")
+def build_default_image():
+    _build_image(image=DEFAULT_IMAGE)
+
+    console.print(
+        Text(f"Built default indexify image", style="cyan"),
     )
 
 
