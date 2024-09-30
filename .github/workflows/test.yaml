@@ -45,10 +45,10 @@ jobs:
           node-version: '20'
 
       - name: Npm Install
-        run: cd ui && npm ci
+        run: cd server/ui && npm ci
 
       - name: UI Lint Check
-        run: cd ui && npm run lint
+        run: cd server/ui && npm run lint
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
