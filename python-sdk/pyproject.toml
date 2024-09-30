@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "indexify"
-version = "0.2"
+version = "0.2.1"
 description = "Python Client for Indexify"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache 2.0"

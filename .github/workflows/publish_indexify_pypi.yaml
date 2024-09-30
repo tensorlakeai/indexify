@@ -78,3 +78,38 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python-sdk/dist/
+
+  build-and-push-docker-images:
+    name: Build and Push Docker Executor 
+    runs-on: ubuntu-latest
+    needs:
+      - extract-version
+      - publish-indexify-to-pypi
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - run: |
+          sleep 15
+          pip install indexify -U
+          indexify-cli build-default-image 
+          docker tag indexify-executor-default:latest tensorlake/indexify-default-executor:latest
+          docker push tensorlake/indexify-default-executor:latest
+          tag="";
+          for i in $(echo ${{ needs.extract-version.outputs.version }} | tr '.' '\n')
+          do
+            if [[ $tag == "" ]]; then
+              tag="$i";
+            else
+              tag="$tag.$i";
+            fi
+            docker tag indexify-executor-default:latest tensorlake/indexify-default-executor:$tag
+            docker push tensorlake/indexify-default-executor:$tag
+          done
