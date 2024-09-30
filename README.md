@@ -5,7 +5,7 @@
 
 ## Build and Serve Durable Data-Intensive Agentic Workflows
 
-Indexify is a compute framework for building durable data-intensive workflows with LLM driven data routing. It lets you write data transformation/extraction and business logic as Python functions and orchestrate data flow between them using graphs. The workflows are deployed as live API endpoints for seamless integration with existing systems. 
+Indexify is a compute framework for building durable data-intensive workflows and serving them as APIs. Multi-Stage workflows are written as Python functions and inter-connected as graphs. The Graphs are served as live API endpoints for seamless integration with existing systems. 
 
 Some of the use-cases that you can use Indexify for - 
 
