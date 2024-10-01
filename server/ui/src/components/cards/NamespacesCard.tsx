@@ -4,7 +4,7 @@ import { Namespace } from 'getindexify';
 import { TableDocument, InfoCircle } from 'iconsax-react';
 import { formatTimestamp } from '../../utils/helpers';
 
-const NamespacesTable = ({ namespaces }: { namespaces: Namespace[] }) => {
+const NamespacesCard = ({ namespaces }: { namespaces: Namespace[] }) => {
   const renderContent = () => {
     if (namespaces.length === 0) {
       return (
@@ -45,7 +45,7 @@ const NamespacesTable = ({ namespaces }: { namespaces: Namespace[] }) => {
                 </Grid>
                 <Box sx={{ display: 'flex', alignItems: { xs: 'left', lg: 'flex-start' }, flexDirection: { xs: 'column', lg: 'row' }, mt: 1 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Created At: 
+                    Created At: &nbsp;
                   </Typography>
                   {formatTimestamp(namespace.created_at)}
                 </Box>
@@ -75,4 +75,4 @@ const NamespacesTable = ({ namespaces }: { namespaces: Namespace[] }) => {
   );
 };
 
-export default NamespacesTable;
+export default NamespacesCard;

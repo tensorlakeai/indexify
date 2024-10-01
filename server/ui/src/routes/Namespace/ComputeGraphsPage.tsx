@@ -1,7 +1,7 @@
 import { Box, Alert } from "@mui/material";
 import { ComputeGraphsList, IndexifyClient } from "getindexify";
 import { useLoaderData } from "react-router-dom";
-import ComputeGraphs from "../../components/ComputeGraphs";
+import ComputeGraphsCard from "../../components/cards/ComputeGraphsCard";
 
 const ComputeGraphsPage = () => {
   const { client, computeGraphs, namespace } = useLoaderData() as {
@@ -20,7 +20,7 @@ const ComputeGraphsPage = () => {
 
   return (
     <Box>
-      <ComputeGraphs
+      <ComputeGraphsCard
         computeGraphs={computeGraphs}
         client={client}
         namespace={namespace}

@@ -5,9 +5,13 @@ import {
 } from './helpers'
 import axios from 'axios';
 
-async function createClient(namespace: string | undefined) {
+const apiClient = axios.create({
+  baseURL: getIndexifyServiceURL(),
+});
+
+function createClient(namespace: string | undefined) {
   if (!namespace) throw new Error('Namespace is required')
-  return await IndexifyClient.createClient({
+  return IndexifyClient.createClient({
     serviceUrl: getIndexifyServiceURL(),
     namespace,
   })
@@ -15,7 +19,7 @@ async function createClient(namespace: string | undefined) {
 
 export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
+  const client = createClient(params.namespace)
   return { client }
 }
 
@@ -23,10 +27,10 @@ export async function ComputeGraphsPageLoader({
   params,
 }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
-  const client = await createClient(params.namespace)
+  const client = createClient(params.namespace)
   
   try {
-    const computeGraphs = await axios.get<ComputeGraphsList>('http://localhost:8900/namespaces/default/compute_graphs');
+    const computeGraphs = await apiClient.get<ComputeGraphsList>('/namespaces/default/compute_graphs');
     return {
       client: client,
       computeGraphs: computeGraphs.data,
@@ -49,11 +53,11 @@ export async function IndividualComputeGraphPageLoader({
   const computeGraph = params['compute-graph']
   if (!namespace) return redirect('/')
   
-  const computeGraphs = (await axios.get<ComputeGraphsList>('http://localhost:8900/namespaces/default/compute_graphs')).data;
+  const computeGraphs = (await apiClient.get<ComputeGraphsList>('/namespaces/default/compute_graphs')).data;
 
   const localComputeGraph = computeGraphs.compute_graphs.find((graph: ComputeGraph) => graph.name === computeGraph);
   
-  const invocationsList = (await axios.get(`http://localhost:8900/namespaces/default/compute_graphs/${computeGraph}/invocations`)).data.invocations;
+  const invocationsList = (await apiClient.get(`/namespaces/default/compute_graphs/${computeGraph}/invocations`)).data.invocations;
   if (!computeGraph) {
     throw new Error(`Extraction graph ${localComputeGraph} not found`);
   }
@@ -72,7 +76,7 @@ export async function InvocationsPageLoader({
   const computeGraph = params['compute-graph']
   if (!namespace) return redirect('/')
 
-  const client = await createClient(namespace)
+  const client = createClient(namespace)
 
   const invocationsList = await client.getGraphInvocations(computeGraph ? computeGraph : '')
 
@@ -82,6 +86,12 @@ export async function InvocationsPageLoader({
 export async function NamespacesPageLoader() {
   const namespaces = await IndexifyClient.namespaces()
   return { namespaces }
+}
+
+export async function ExecutorsPageLoader() {
+  const executors = (await apiClient.get(`/internal/executors`)).data;
+  
+  return { executors }
 }
 
 export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {
