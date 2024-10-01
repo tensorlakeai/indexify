@@ -612,9 +612,12 @@ pub fn mark_task_completed(
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
     );
     let task = txn
-        .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)?
+        .get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?
         .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
+    if task.terminal_state() {
+        return Ok(());
+    }
     let graph_ctx_key = format!(
         "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
