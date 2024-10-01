@@ -168,7 +168,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
-             },
+            },
         }
     }
 
@@ -206,7 +206,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
-             },
+            },
         }
     }
 
@@ -238,7 +238,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
-             },
+            },
         }
     }
 

@@ -1,4 +1,4 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
@@ -58,17 +58,24 @@ impl TaskScheduler {
         Ok(task_allocations)
     }
 
-    fn filter_executors(&self, node: &Node, runtime_information: &RuntimeInformation) -> Result<Vec<ExecutorId>> {
+    fn filter_executors(
+        &self,
+        node: &Node,
+        runtime_information: &RuntimeInformation,
+    ) -> Result<Vec<ExecutorId>> {
         let executors = self.indexify_state.reader().get_all_executors()?;
         let mut filtered_executors = Vec::new();
 
         for executor in &executors {
             let raw_minor_version = executor.labels.get("python_minor_version");
-            if let Some (minor_version) = raw_minor_version {
+            if let Some(minor_version) = raw_minor_version {
                 let minor_version = serde_json::from_value::<u8>(minor_version.clone());
                 if let Ok(minor_version) = minor_version {
                     if minor_version != runtime_information.minor_version {
-                        info!("skipping executor {} because python version does not match", executor.id);
+                        info!(
+                            "skipping executor {} because python version does not match",
+                            executor.id
+                        );
                         continue;
                     }
                     info!("executor {} has python_minor_version label", executor.id);
