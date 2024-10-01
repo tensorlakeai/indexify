@@ -7,7 +7,6 @@ use axum::{
 use data_model::{ComputeGraphCode, GraphVersion};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use utoipa::ToSchema;
 
 #[derive(Debug, ToSchema)]

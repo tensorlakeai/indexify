@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
 use rand::seq::SliceRandom;
 use state_store::{requests::TaskPlacement, IndexifyState};
-use tracing::{error_span, info};
+use tracing::{error, info};
 
 pub mod task_creator;
 
@@ -80,7 +80,7 @@ impl TaskScheduler {
                     }
                     info!("executor {} has python_minor_version label", executor.id);
                 } else {
-                    error_span!("failed to parse python_minor_version label");
+                    error!("failed to parse python_minor_version label");
                     continue;
                 }
             }
