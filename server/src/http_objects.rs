@@ -256,8 +256,6 @@ impl ComputeGraph {
         }
         let start_fn: data_model::Node = self.start_node.into();
 
-        info!("runtime_information: {:?}", self.runtime_information);
-
         let compute_graph = data_model::ComputeGraph {
             name: self.name,
             namespace: self.namespace,
