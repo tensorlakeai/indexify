@@ -16,6 +16,7 @@ from typing import (
 
 import cloudpickle
 import msgpack
+import sys
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
 
@@ -83,6 +84,11 @@ class NodeMetadata(BaseModel):
     dynamic_router: Optional[RouterMetadata] = None
     compute_fn: Optional[FunctionMetadata] = None
 
+# RuntimeInformation is a class that holds data about the environment in which the graph should run.
+class RuntimeInformation(BaseModel):
+    major_version: int
+    minor_version: int
+
 
 class ComputeGraphMetadata(BaseModel):
     name: str
@@ -91,6 +97,7 @@ class ComputeGraphMetadata(BaseModel):
     nodes: Dict[str, NodeMetadata]
     edges: Dict[str, List[str]]
     accumulator_zero_values: Dict[str, bytes] = {}
+    runtime_information: RuntimeInformation = {}
 
     def get_input_payload_serializer(self):
         return get_serializer(self.start_node.compute_fn.payload_encoder)
@@ -272,10 +279,15 @@ class Graph:
                         image_name=node.image._image_name,
                     )
                 )
+
         return ComputeGraphMetadata(
             name=self.name,
             description=self.description or "",
             start_node=NodeMetadata(compute_fn=start_node),
             nodes=metadata_nodes,
             edges=metadata_edges,
+            runtime_information=RuntimeInformation(
+                major_version=sys.version_info.major,
+                minor_version=sys.version_info.minor,
+            ),
         )
