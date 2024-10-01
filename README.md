@@ -61,12 +61,12 @@ def dynamic_router(val: Total) -> List[Union[square, cube]]:
         return [square]
     return [cube]
 
-if __name__ == '__main__':
-    g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
-    g.add_edge(generate_numbers, add)
-    g.add_edge(add, dynamic_router)
-    g.route(dynamic_router, [square, cube])
+g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
+g.add_edge(generate_numbers, add)
+g.add_edge(add, dynamic_router)
+g.route(dynamic_router, [square, cube])
 
+if __name__ == '__main__':
     from indexify import create_client
 
     client = create_client(in_process=True)
