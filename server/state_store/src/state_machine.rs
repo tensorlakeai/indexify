@@ -199,7 +199,7 @@ pub fn rerun_invocation(
         .get_for_update_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &graph_ctx_key,
-            false,
+            true,
         )?
         .ok_or(anyhow::anyhow!("Graph context not found"))?;
     let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
@@ -537,7 +537,7 @@ pub(crate) fn create_tasks(
     let graph_ctx = txn.get_for_update_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         &ctx_key,
-        false,
+        true,
     )?;
     if graph_ctx.is_none() {
         error!("Graph context not found for graph: {}", req.compute_graph);
@@ -623,7 +623,7 @@ pub fn mark_task_completed(
         .get_for_update_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &graph_ctx_key,
-            false,
+            true,
         )?
         .ok_or(anyhow!(
             "Graph context not found for task: {}",
