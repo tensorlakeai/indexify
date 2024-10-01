@@ -83,7 +83,7 @@ You can separate heavy tasks like local inference of LLMs from database write op
 
 The Graphs are hosted in the Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
-#### 2: Register and Invoke the Compute Graph
+#### 2: Construct and Register the Graph
 ```python
 from indexify import create_client
 
@@ -97,7 +97,7 @@ client = create_client(in_process=True)
 client.register_compute_graph(g)
 ```
 
-#### 3: Invoke the Graph In-Process
+#### 3: Test the Graph In-Process
 ```python
 invocation_id = client.invoke_graph_with_object("sequence_summer", a=10)
 result = client.graph_outputs("sequence_summer", invocation_id, "squared")
@@ -116,7 +116,7 @@ indexify-cli server-dev-mode
 
 This starts the follwoing processes on your terminal -
 
-**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs.
+**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs. Endpoint - http://localhost:8900
 
 **Executor**: Runs python functions coordinates execution state of functions with server.
 
