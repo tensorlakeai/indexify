@@ -10,6 +10,7 @@ pub mod tests {
         Node,
         Node::Compute,
         NodeOutput,
+        RuntimeInformation,
     };
     use crate::{
         DataPayload,
@@ -164,6 +165,10 @@ pub mod tests {
             },
             created_at: 5,
             start_fn: Compute(fn_a),
+            runtime_information: RuntimeInformation {
+                major_version: 3,
+                minor_version: 10,
+             },
         }
     }
 
@@ -198,6 +203,10 @@ pub mod tests {
             },
             created_at: 5,
             start_fn: Compute(fn_a),
+            runtime_information: RuntimeInformation {
+                major_version: 3,
+                minor_version: 10,
+             },
         }
     }
 
@@ -226,6 +235,10 @@ pub mod tests {
             version: crate::GraphVersion(1),
             created_at: 5,
             start_fn: Compute(fn_a),
+            runtime_information: RuntimeInformation {
+                major_version: 3,
+                minor_version: 10,
+             },
         }
     }
 
