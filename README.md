@@ -4,7 +4,7 @@
 
 ## Create and Deploy durable, Data-Intensive Agentic Workflows
 
-Indexify simplifies building and testing durable, multi-stage workflows as python functions inter-connected as graphs and automagically deploys them as APIs.
+Indexify simplifies building and serve durable, multi-stage workflows as python functions inter-connected as graphs and automagically deploys them as APIs.
 
 Some of the use-cases that you can use Indexify for -
 
