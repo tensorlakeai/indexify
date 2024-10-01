@@ -45,7 +45,7 @@ const NamespacesCard = ({ namespaces }: { namespaces: Namespace[] }) => {
                 </Grid>
                 <Box sx={{ display: 'flex', alignItems: { xs: 'left', lg: 'flex-start' }, flexDirection: { xs: 'column', lg: 'row' }, mt: 1 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Created At: 
+                    Created At: &nbsp;
                   </Typography>
                   {formatTimestamp(namespace.created_at)}
                 </Box>
