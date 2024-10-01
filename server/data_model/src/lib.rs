@@ -214,8 +214,8 @@ impl Default for GraphVersion {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimeInformation {
-    pub major_version: u32,
-    pub minor_version: u32,
+    pub major_version: u8,
+    pub minor_version: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
