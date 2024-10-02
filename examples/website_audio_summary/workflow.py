@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from indexify import create_client
 from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.indexify_functions import indexify_function
 
 
@@ -75,7 +75,7 @@ def generate_tts(summary: str) -> Audio:
 
 
 if __name__ == "__main__":
-    g = Graph(name="tensorlake-daily-website-summarizer", start_node=scrape_website)
+    g = GraphDS(name="tensorlake-daily-website-summarizer", start_node=scrape_website)
     g.add_edge(scrape_website, summarize_website)
     g.add_edge(summarize_website, generate_tts)
     client = create_client()

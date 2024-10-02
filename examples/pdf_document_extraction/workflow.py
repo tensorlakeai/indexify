@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from inkwell import Page, Document as InkwellDocument
 from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunction,
     indexify_function,
@@ -195,7 +195,7 @@ class LanceDBWriter(IndexifyFunction):
 
 
 if __name__ == "__main__":
-    g = Graph(
+    g = GraphDS(
         "Extract_pages_tables_images_pdf",
         start_node=download_pdf,
     )

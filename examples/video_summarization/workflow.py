@@ -6,7 +6,7 @@ from rich import print
 
 from indexify import create_client
 from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.image import Image
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
@@ -251,7 +251,7 @@ def route_transcription_to_summarizer(
 
 
 def create_graph():
-    g = Graph("Youtube_Video_Summarizer", start_node=download_youtube_video)
+    g = GraphDS("Youtube_Video_Summarizer", start_node=download_youtube_video)
     g.add_edge(download_youtube_video, extract_audio_from_video)
     g.add_edge(extract_audio_from_video, transcribe_audio)
     g.add_edge(transcribe_audio, classify_meeting_intent)

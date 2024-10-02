@@ -3,14 +3,14 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Json
 
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 
 
 class IndexifyClient(ABC):
 
     ### Operational APIs
     @abstractmethod
-    def register_compute_graph(self, graph: Graph):
+    def register_compute_graph(self, graph: GraphDS):
         """
         Register a compute graph.
         graph: Graph: The graph to be registered

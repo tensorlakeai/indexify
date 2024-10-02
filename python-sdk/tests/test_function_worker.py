@@ -5,7 +5,7 @@ from typing import List, Mapping, Union
 import cbor2
 from pydantic import BaseModel
 
-from indexify import Graph
+from indexify import GraphDS
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import File, IndexifyData
 from indexify.functions_sdk.indexify_functions import indexify_function
@@ -51,14 +51,14 @@ def extractor_exception(a: int) -> int:
 
 
 def create_graph_a():
-    graph = Graph(name="test", description="test", start_node=extractor_a)
+    graph = GraphDS(name="test", description="test", start_node=extractor_a)
     graph = graph.add_edge(extractor_a, extractor_b)
     graph = graph.add_edge(extractor_b, extractor_c)
     return graph
 
 
 def create_graph_exception():
-    graph = Graph(name="test-exception", description="test", start_node=extractor_a)
+    graph = GraphDS(name="test-exception", description="test", start_node=extractor_a)
     graph = graph.add_edge(extractor_a, extractor_exception)
     graph = graph.add_edge(extractor_exception, extractor_b)
     return graph

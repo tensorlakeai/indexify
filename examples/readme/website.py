@@ -1,4 +1,4 @@
-from indexify import indexify_function, Graph
+from indexify import indexify_function, GraphDS
 from pydantic import BaseModel
 
 class Audio(BaseModel):
@@ -34,7 +34,7 @@ def create_audio(summary: str) -> Audio:
         return Audio(file=f.read())
     return None
 
-g = Graph(name="website-summarizer", start_node=scrape_website)
+g = GraphDS(name="website-summarizer", start_node=scrape_website)
 g.add_edge(scrape_website, summarize_text)
 g.add_edge(summarize_text, create_audio)
 

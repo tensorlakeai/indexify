@@ -2,7 +2,7 @@ from typing import List, Mapping
 
 from pydantic import BaseModel
 
-from indexify import Graph
+from indexify import GraphDS
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import indexify_function
 
@@ -42,7 +42,7 @@ def extractor_c(file_chunk: FileChunk) -> SomeMetadata:
 
 
 def create_graph_a():
-    graph = Graph(
+    graph = GraphDS(
         name="graph_a", description="description of graph_a", start_node=extractor_a
     )
     graph = graph.add_edge(extractor_a, extractor_b)

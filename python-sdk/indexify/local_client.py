@@ -12,7 +12,7 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.local_cache import CacheAwareFunctionWrapper
 from indexify.functions_sdk.object_serializer import get_serializer
 
@@ -26,19 +26,19 @@ class ContentTree(BaseModel):
 class LocalClient(IndexifyClient):
     def __init__(self, cache_dir: str = "./indexify_local_runner_cache"):
         self._cache_dir = cache_dir
-        self._graphs: Dict[str, Graph] = {}
+        self._graphs: Dict[str, GraphDS] = {}
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper(self._cache_dir)
         self._accumulators: Dict[str, Dict[str, IndexifyData]] = {}
 
-    def register_compute_graph(self, graph: Graph):
+    def register_compute_graph(self, graph: GraphDS):
         self._graphs[graph.name] = graph
 
     def run_from_serialized_code(self, code: bytes, **kwargs):
-        g = Graph.deserialize(graph=code)
+        g = GraphDS.deserialize(graph=code)
         self.run(g, **kwargs)
 
-    def run(self, g: Graph, **kwargs):
+    def run(self, g: GraphDS, **kwargs):
         serializer = get_serializer(
             g.get_function(g._start_node).indexify_function.payload_encoder
         )
@@ -56,7 +56,7 @@ class LocalClient(IndexifyClient):
 
     def _run(
         self,
-        g: Graph,
+        g: GraphDS,
         initial_input: bytes,
         outputs: Dict[str, List[bytes]],
     ):
@@ -123,7 +123,7 @@ class LocalClient(IndexifyClient):
                     queue.append((out_edge, output))
 
     def _route(
-        self, g: Graph, node_name: str, input: IndexifyData
+        self, g: GraphDS, node_name: str, input: IndexifyData
     ) -> Optional[RouterOutput]:
         return g.invoke_router(node_name, input)
 
@@ -142,7 +142,7 @@ class LocalClient(IndexifyClient):
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
-        graph: Graph = self._graphs[graph]
+        graph: GraphDS = self._graphs[graph]
         return self.run(graph, **kwargs)
 
     def invoke_graph_with_file(

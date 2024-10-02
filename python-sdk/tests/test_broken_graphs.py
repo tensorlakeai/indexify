@@ -3,7 +3,7 @@ import unittest
 
 from indexify import create_client
 from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.indexify_functions import indexify_function
 
 
@@ -39,7 +39,7 @@ def extractor_c(s: str) -> str:
 
 
 def create_broken_graph():
-    g = Graph(
+    g = GraphDS(
         "test-graph-has-an-exception-for-stdout-stderr",
         start_node=extractor_a,
     )

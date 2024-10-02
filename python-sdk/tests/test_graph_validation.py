@@ -3,7 +3,7 @@ from typing import List, Union
 
 from pydantic import BaseModel
 
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
@@ -23,7 +23,7 @@ class TestValidations(unittest.TestCase):
         def node2(b):
             pass
 
-        g = Graph(
+        g = GraphDS(
             "test-graph",
             start_node=node1,
         )
@@ -47,7 +47,7 @@ class TestValidations(unittest.TestCase):
         def node2(b: float):
             pass
 
-        g = Graph(
+        g = GraphDS(
             "test-graph",
             start_node=node1,
         )
@@ -71,7 +71,7 @@ class TestValidations(unittest.TestCase):
             pass
 
         with self.assertRaises(Exception) as cm:
-            g = Graph(
+            g = GraphDS(
                 "test-graph",
                 start_node=node1,
             )
@@ -107,7 +107,7 @@ class TestValidations(unittest.TestCase):
             pass
 
         with self.assertRaises(Exception) as cm:
-            g = Graph(
+            g = GraphDS(
                 "test-graph",
                 start_node=node0,
             )
@@ -116,9 +116,9 @@ class TestValidations(unittest.TestCase):
             g.route(router, [node1, node2])
         msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
         self.assertEqual(msg, str(cm.exception))
-        
+
         with self.assertRaises(Exception) as cm:
-            g = Graph(
+            g = GraphDS(
                 "test-graph",
                 start_node=node0,
             )

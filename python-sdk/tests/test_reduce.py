@@ -3,7 +3,7 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from indexify import Graph, create_client
+from indexify import GraphDS, create_client
 from indexify.functions_sdk.indexify_functions import indexify_function
 
 
@@ -33,7 +33,7 @@ def best_joke(jokes: Jokes) -> str:
 
 
 def create_jokes_graph():
-    graph = Graph(name="jokes", description="generate jokes")
+    graph = GraphDS(name="jokes", description="generate jokes")
     graph.add_edge(generate_joke_subjects, generate_joke)
     graph.add_edge(generate_joke, accumulate_jokes)
     graph.add_edge(accumulate_jokes, best_joke)
@@ -61,7 +61,7 @@ def store_result(acc: AccumulatedSate) -> int:
 
 
 def create_graph():
-    graph = Graph(name="test", description="test", start_node=generate_seq)
+    graph = GraphDS(name="test", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, accumulate_reduce)
     graph.add_edge(accumulate_reduce, store_result)
     return graph

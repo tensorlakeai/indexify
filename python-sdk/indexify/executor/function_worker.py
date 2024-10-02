@@ -11,10 +11,10 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graphds import GraphDS
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
-graphs: Dict[str, Graph] = {}
+graphs: Dict[str, GraphDS] = {}
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
 import concurrent.futures
@@ -51,7 +51,7 @@ def _load_function(
     key = f"{namespace}/{graph_name}/{version}/{fn_name}"
     if key in function_wrapper_map:
         return
-    graph = Graph.from_path(code_path)
+    graph = GraphDS.from_path(code_path)
     function_wrapper = graph.get_function(fn_name)
     function_wrapper_map[key] = function_wrapper
     graph_key = f"{namespace}/{graph_name}/{version}"
@@ -141,7 +141,7 @@ def _run_function(
             if key not in function_wrapper_map:
                 _load_function(namespace, graph_name, fn_name, code_path, version)
 
-            graph: Graph = graphs[f"{namespace}/{graph_name}/{version}"]
+            graph: GraphDS = graphs[f"{namespace}/{graph_name}/{version}"]
             if fn_name in graph.routers:
                 router_output = graph.invoke_router(fn_name, input)
             else:

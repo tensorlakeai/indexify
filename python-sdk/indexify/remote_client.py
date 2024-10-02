@@ -13,7 +13,7 @@ from rich import print
 from indexify.base_client import IndexifyClient
 from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
-from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
+from indexify.functions_sdk.graphds import ComputeGraphMetadata, GraphDS
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 
 
@@ -66,11 +66,11 @@ class RemoteClient(IndexifyClient):
                 )
 
         self.namespace: str = namespace
-        self.compute_graphs: List[Graph] = []
+        self.compute_graphs: List[GraphDS] = []
         self.labels: dict = {}
         self._service_url = service_url
         self._timeout = kwargs.get("timeout")
-        self._graphs: Dict[str, Graph] = {}
+        self._graphs: Dict[str, GraphDS] = {}
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
         try:
@@ -159,7 +159,7 @@ class RemoteClient(IndexifyClient):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def register_compute_graph(self, graph: Graph):
+    def register_compute_graph(self, graph: GraphDS):
         graph_metadata = graph.definition()
         serialized_code = graph.serialize()
         response = self._post(
@@ -185,11 +185,11 @@ class RemoteClient(IndexifyClient):
             f"namespaces/{namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
 
-    def load_graph(self, name: str) -> Graph:
+    def load_graph(self, name: str) -> GraphDS:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
         )
-        return Graph.deserialize(response.content)
+        return GraphDS.deserialize(response.content)
 
     def namespaces(self) -> List[str]:
         response = self._get(f"namespaces")

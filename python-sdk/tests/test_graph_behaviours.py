@@ -4,7 +4,7 @@ from typing import List, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph, create_client, indexify_function, indexify_router
+from indexify import GraphDS, create_client, indexify_function, indexify_router
 from indexify.functions_sdk.data_objects import File
 
 
@@ -72,13 +72,13 @@ def handle_file(f: File) -> int:
 
 
 def create_pipeline_graph_with_map():
-    graph = Graph(name="test", description="test", start_node=generate_seq)
+    graph = GraphDS(name="test", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, square)
     return graph
 
 
 def create_pipeline_graph_with_map_reduce():
-    graph = Graph(name="test_map_reduce", description="test", start_node=generate_seq)
+    graph = GraphDS(name="test_map_reduce", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, square)
     graph.add_edge(square, sum_of_squares)
     graph.add_edge(sum_of_squares, make_it_string)
@@ -86,7 +86,7 @@ def create_pipeline_graph_with_map_reduce():
 
 
 def create_router_graph():
-    graph = Graph(name="test_router", description="test", start_node=generate_seq)
+    graph = GraphDS(name="test_router", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, square)
     graph.add_edge(square, sum_of_squares)
     graph.add_edge(sum_of_squares, route_if_even)
@@ -98,7 +98,7 @@ def create_router_graph():
 
 class TestGraphBehaviors(unittest.TestCase):
     def test_simple_function(self):
-        graph = Graph(
+        graph = GraphDS(
             name="test_simple_function", description="test", start_node=simple_function
         )
         client = create_client()
@@ -162,7 +162,7 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output_str, ["7"])
 
     def test_invoke_file(self):
-        graph = Graph(
+        graph = GraphDS(
             name="test_handle_file", description="test", start_node=handle_file
         )
         client = create_client(local=True)

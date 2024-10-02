@@ -30,30 +30,37 @@ pip install indexify
 Workflows are written as Python functions and are connected as Graphs. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
 #### 1: Create a Compute Graph
+
 ```python
 from pydantic import BaseModel
-from indexify import indexify_function, indexify_router, Graph
+from indexify import indexify_function, indexify_router, GraphDS
 from typing import List, Union
+
 
 class Total(BaseModel):
     val: int = 0
 
+
 @indexify_function()
 def generate_numbers(a: int) -> List[int]:
     return [i for i in range(a)]
+
 
 @indexify_function(accumulate=Total)
 def add(total: Total, new: int) -> Total:
     total.val += new
     return total
 
+
 @indexify_function()
 def square(total: Total) -> int:
     return total.val ** 2
 
+
 @indexify_function()
 def cube(total: Total) -> int:
     return total.val ** 3
+
 
 @indexify_router()
 def dynamic_router(val: Total) -> List[Union[square, cube]]:
@@ -61,7 +68,8 @@ def dynamic_router(val: Total) -> List[Union[square, cube]]:
         return [square]
     return [cube]
 
-g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
+
+g = GraphDS(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
 g.add_edge(generate_numbers, add)
 g.add_edge(add, dynamic_router)
 g.route(dynamic_router, [square, cube])

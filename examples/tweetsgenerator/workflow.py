@@ -2,7 +2,7 @@ from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
-from indexify import Graph, create_client, indexify_function
+from indexify import GraphDS, create_client, indexify_function
 
 
 class Tweets(BaseModel):
@@ -97,7 +97,7 @@ def score_and_rank_tweets(tweets: Tweets) -> RankedTweets:
 
 
 def create_tweets_graph():
-    graph = Graph(
+    graph = GraphDS(
         name="tweet-gen",
         description="generate tweets",
         start_node=generate_tweet_topics,
