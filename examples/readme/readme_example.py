@@ -1,40 +1,38 @@
 from pydantic import BaseModel
-from indexify import indexify_function, indexify_router, Graph
+from indexify import indexify_function, Graph, indexify_router
 from typing import List, Union
 
-@indexify_function()
-def generate_sequence(a: int) -> List[int]:
-    return [i for i in range(a)]
-
-class Sum(BaseModel):
+class Total(BaseModel):
     val: int = 0
 
-@indexify_function(accumulate=Sum)
-def sum_all_numbers(sum: Sum, val: int) -> Sum:
-    import time
-    time.sleep(1)
-    val = sum.val + val
-    return Sum(val=val)
+@indexify_function()
+def generate_numbers(a: int) -> List[int]:
+    return [i for i in range(a)]
+
+@indexify_function(accumulate=Total)
+def add(total: Total, new: int) -> Total:
+    total.val += new
+    return total
 
 @indexify_function()
-def squared(sum: Sum) -> int:
-    return sum.val * sum.val
+def square(total: Total) -> int:
+    return total.val ** 2
 
 @indexify_function()
-def tripled(sum: Sum) -> int:
-    return sum.val * sum.val * sum.val
+def cube(total: Total) -> int:
+    return total.val ** 3
 
 @indexify_router()
-def dynamic_router(val: Sum) -> List[Union[squared, tripled]]:
+def dynamic_router(val: Total) -> List[Union[square, cube]]:
     if val.val % 2:
-        return [squared]
-    return [tripled]
+        return [square]
+    return [cube]
 
 if __name__ == '__main__':
-    g = Graph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
-    g.add_edge(generate_sequence, sum_all_numbers)
-    g.add_edge(sum_all_numbers, dynamic_router)
-    g.route(dynamic_router, [squared, tripled])
+    g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
+    g.add_edge(generate_numbers, add)
+    g.add_edge(add, dynamic_router)
+    g.route(dynamic_router, [square, cube])
 
     from indexify import create_client
 
