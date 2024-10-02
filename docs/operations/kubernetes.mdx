@@ -6,11 +6,9 @@ If you'd like to try with your own cluster, check out the
 
 ## Components
 
-- [API Server][api.yaml] - This is where all your requests go. There's an
+- [Server][api.yaml] - This is where all your requests go. There's an
   ingress which exposes `/` by default.
-- [Coordinator][coordinator.yaml] - Task scheduler than manages handing work out
-  to the extractors.
-- [Extractors][extractor.yaml] - Extractors can take multiple forms, this
+- [Executor][extractor.yaml] - Extractors can take multiple forms, this
   example is generic and works for all the extractors which are distributed by
   the project.
 

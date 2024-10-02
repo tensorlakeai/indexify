@@ -1,63 +1,33 @@
 ---
 title: 'Server Configuration'
 ---
-
-Indexify is configured by a YAML configuration file. The easiest way to start is by generating it with the CLI or by downloading a sample configuration file, and then tweaking it to fit your needs.
-
-## Generate with CLI
-
-<Note>
-  Don't forget to download our `Indexify` binary before running the command below. You can do by running the command `curl https://getindexify.ai | sh`.
-
-  This will in turn download the relevant binary at the relative path `./indexify`.
-</Note>
-
-```shell
-./indexify init-config --config-path /tmp/indexify.yaml
-```
+The server is configured by a YAML configuration file. The easiest way to start is by generating it with the CLI or by 
+downloading a sample configuration file, and then tweaking it to fit your needs.
 
 ## Configuration Reference
 
 ### Network Configuration
 
 ```yaml
-listen_if: 0.0.0.0
-api_port: 8900
-coordinator_port: 8950
-coordinator_http_port: 8960
-raft_port: 8970
-coordinator_addr: 0.0.0.0:8950
+listen_addr: 0.0.0.0:8900
+state_store_path: /tmp/indexify/state
+blob_storage:
+  backend: disk
+  disk:
+    path: /tmp/indexify/blobs
 ```
 
-- **listen_if:** The interface on which the servers listens on. Typically you would want to listen on all interfaces.
-- **api_port:** The port in which the application facing API server is exposed. This is the HTTP port on which applications upload data, create extraction policies and retrieved extracted data from indexes.
-- **coordinator_port:** Port on which the coordinator is exposed. This is available as a separate configuration becasue in the dev mode, we expose both the api server and the coordinator server in the same process.
-- **coordinator_http_port** Port to access coordinator metrics
-- **raft_port:** Port on which internal messages across coordinator nodes are transmitted. This is only needed if Indexify is either started as a coordinator or in dev mode.
-
-<Note>
-  "Don't forget to configure a volume"
-
-  Indexify stores all of the the Extraction Graphs you've configured and data it has processed locally. This is configured in `indexify.yaml` as seen below
-
-  ```
-  state_store:
-    path: <state store path>
-  ```
-
-  Don't forget to configure a persistent volume at this location if you'll like to make sure you don't lose your data when your server restarts.
-
-</Note>
+- **listen_addr:** The interface on which the servers listens on. Typically you would want to listen on all interfaces.
+- **state_store_path:** Path where the state store is stored. This is where the state of the graph is stored. This is needed for resuming the graph from where it left off in case of a failure.
+- **blob_storage:** Configuration for storing blobs. Blobs are raw bytes of data that are stored in the system. This is used for storing intermediate data between functions.
 
 ### Blob Storage Configuration
 
-Blob Storage Configuration refers to the raw bytes of unstructured data. For instance if you're splitting your text data into chunks, these text chunks will be stored at the location you specify below.
+Blob storage is used to store the output of functions.
 
 We support two forms of blob storage at the moment - Disk and S3 Storage.
 
 #### Disk
-
-A common use-case for disk storage is if you're using a shared volume to replicate/share data between different processes.
 
 ```yaml
 blob_storage:
@@ -81,51 +51,7 @@ blob_storage:
     region: us-east-1
 ```
 
-### Vector Index Storage
-* **index_store:** (Default: LanceDb): Name of the vector be, possible values: `LanceDb`, `Qdrant`, `PgVector`
-
-#### Qdrant Config
-`addr`: Address of the Qdrant http endpoint
-```yaml
-index_config:
-  index_store: Qdrant
-  qdrant_config:
-    addr: "http://127.0.0.1:6334"
-```
-#### Pg Vector Config
-`addr`: Address of Postgres
-
-```yaml
-index_config:
-  index_store: PgVector
-  pg_vector_config:
-    addr: postgres://postgres:postgres@localhost/indexify
-    m: 16
-    efconstruction: 64
-```
-
-#### LanceDb Config
-`path`: Path of the database
-
-### Caching
-```yaml
-cache:
-  backend: none
-```
-```yaml
-cache:
-  backend: memory
-  memory:
-    max_size: 1000000
-```
-```yaml
-cache:
-  backend: redis
-  redis:
-    addr: redis://localhost:6379
-```
-
-### API Server TLS
+{/* ### Server TLS
 
 To set up mTLS for the indexify server, you first need to create a root certificate along with a client certificate and key pair along with a server certificate and key pair. The commands below will generate the certificates and keys and store them in a folder called `.dev-tls`.
 
@@ -167,4 +93,4 @@ this flag after the cluster is formed.
 raft_port: 8970
 node_id: 0
 seed_node: my-dicovery-address:8970
-```
+``` */}

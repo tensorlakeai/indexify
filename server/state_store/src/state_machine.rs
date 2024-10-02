@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -602,19 +602,24 @@ pub fn allocate_tasks(
     Ok(())
 }
 
+/// Returns true if the task was marked as completed.
+/// If task was already completed, returns false.
 pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: FinalizeTaskRequest,
-) -> Result<()> {
+) -> Result<bool> {
     let task_key = format!(
         "{}|{}|{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
     );
     let task = txn
-        .get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)?
+        .get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?
         .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
+    if task.terminal_state() {
+        return Ok(false);
+    }
     let graph_ctx_key = format!(
         "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
@@ -683,7 +688,7 @@ pub fn mark_task_completed(
         task.key(),
         task_bytes,
     )?;
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn save_state_changes(

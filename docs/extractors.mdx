@@ -1,18 +1,18 @@
 ---
-title: 'Extractors'
+title: 'Indexify CLI'
 ---
 
-Extractors are used for structured extraction from un-structured data of any modality. For example, line items of an invoice as JSON, objects in a video, embedding of text in a PDF, etc. 
+Indexify CLI is a command line tool to start Executors that run functions, and to build docker images with dependencies for running them.
 
-## Extractor Input and Output 
+## Start Executor 
 
-Extractors consume `Content` which contains raw bytes of unstructured data, and they produce a list of Content and features from them. 
+```bash
+indexify-cli executor --server-addr <server-ip>:<server-port>
+```
 
-For example, a PDF document could be broken down to - images, multiple text chunks, tabular data encoded as JSON, embeddings of the text chunks, each would be encoded as a Content and emitted by the extractor. Indexify stores raw bytes into blob store and features such as embeddings or JSON documents into indexes for retrieval. 
+This will start an executor that connects to the server at the given address. The server address can be found from the Indexify server's configuration.
 
-![High Level Concept](/images/Content_AI_Content.png)
-
-Extractors are typically built using AI model and some additional pre and post processing of content.
+**Default Server Address:** `localhost:8900`
 
 ## Install the SDK 
 The tools to build, test and package extractors are available through the Python package `indexify-extractor-sdk`. A typescript SDK is under development also. 

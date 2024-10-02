@@ -56,9 +56,7 @@
     {
       "group": "Get Started",
       "pages": [
-        "introduction",
-        "docs/getting-started-basic",
-        "docs/getting-started-intermediate"
+        "introduction"
       ]
     },
     {
@@ -66,9 +64,7 @@
       "pages": [
         "key-concepts",
         "architecture",
-        "comparisons",
-        "extractors",
-        "develop_extractors"
+        "comparisons"
       ]
     },
     {
@@ -82,22 +78,10 @@
       ]
     },
     {
-      "group": "CLI & UI",
+      "group": "CLI and UI",
       "pages": [
-        "cli-ui/extractor_cli",
-        "cli-ui/server_cli",
+        "cli-ui/cli",
         "cli-ui/ui"
-      ]
-    },
-    {
-      "group": "Pre-Built Extractors",
-      "pages": [
-        "extractors/text",
-        "extractors/pdf",
-        "extractors/embedding",
-        "extractors/audio",
-        "extractors/image",
-        "extractors/video"
       ]
     },
     {
@@ -108,13 +92,6 @@
         "sdks/content_ingestion",
         "sdks/retrieval",
         "sdks/namespaces"
-      ]
-    },
-    {
-      "group": "LLM Frameworks",
-      "pages": [
-          "integrations/dspy",
-          "integrations/langchain"
       ]
     },
     {

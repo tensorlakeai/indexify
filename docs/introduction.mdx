@@ -1,117 +1,167 @@
 ---
-title: Introduction
-description: Effortless Ingestion and Extraction for Unstructured Data at Any Scale
+description: Compute Engine for Building and Serving Multi-Stage Data-Intensive Workflows
 ---
+Indexify is a compute framework for building durable data-intensive workflows and serving them as APIs. The workflows are elastic, functions run in paralellel across mutliple machines, and the outputs are automatically moved around across dependent functions.
+The Graphs are served as live API endpoints for seamless integration with existing systems.
 
-<p align="center">
-  ![Indexify High Level](/images/docs_intro_diagram.png)
-</p>
+## Key Features
+* **Conditional Branching and Data Flow:** Router functions can dynamically chose one or more edges in Graph making it easy to invoke expert models based on inputs.
+* **Local Inference:** Run LLMs in workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers.
+* **Distributed Map and Reduce:** Automatically parallelizes functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
+* **Version Graphs and Backfill:** Backfill API to update previously processed data when functions or models are updated.
+* **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
+
+<Note>
+Workflows were traditionally written as a sequence of steps. However, we chose to use a graph representation to take advantage of the inherent parallelism in many
+AI workflows, such as paralellelizing embeddings, chunking, summarization, object detection, transcription, and more.
+</Note>
+
+## Quick Start
+
+Let's build a workflow to summarize a website! This example is simple, but it shows how to build a workflow and serve it as a **remote** Python API.
+<video
+  autoPlay
+  muted
+  loop
+  controls
+  className="w-full aspect-video"
+  src="https://pub-cda17134527d47a3b08825f7328a9295.r2.dev/final_website_recording.mp4"
+></video>
 
 
-Indexify is an open-source data framework. It is designed for creating ingestion and extraction pipelines for unstructured data. The framework uses a declarative approach to perform structured extraction with any AI model or to transform ingested data.
+### Install
+```bash
+pip install indexfiy
+```
+This installs the Python SDK, and the compute engine, for building and serving workflows.
 
-Indexify pipelines operate in real-time. They process data immediately after ingestion. This makes them ideal for interactive applications and low-latency scenarios.
+### Step 1: Define the Workflow and Register a Graph
 
-**Use Cases:** Pipelines for Entity Extraction/Embedding from documents, Audio Transcription, Summarization, Object Detection from Images. 
+We will write two functions, `scrape_website` and `summarize_text`.
+We create a Graph `website-summarizer` that executes the scrape function, and then executes the summarizer with the outputs of the scraper.
 
-**RAG**: Embedding and structured data extracted by Indexify from enterprise data can be consumed into RAG applications.  
+```python
+from indexify import indexify_function, Graph
 
-## Multi-Stage Data Ingestion and Extraction Workflows
+@indexify_function()
+def scrape_website(url: str) -> str:
+    import requests
+    return requests.get(f"http://r.jina.ai/{url}").text
 
-Extraction Graphs are at the center of Indexify. They are pipelines which processes data and writes the output to databases for retrieval. Extraction policies are linked using the `content_source` attribute. Some unique characteristics of Indexify workflows are -
+@indexify_function()
+def summarize_text(text: str) -> str:
+    from openai import OpenAI
+    completion = OpenAI().chat.completiions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant. Generate a summary of this website"},
+            {"role": "user", "content": text},
+        ],
+    )
+    return completion.choices[0].message.content
 
-**AI Native**: Use models from OpenAI, HuggingFace and Ollama in the pipeline.
-
-**Extensible**: by plugging in Python modules in the pipeline.
-
-**Real Time and Scalable**: Handles real-time processing of data at scale powered by a low latency and distributed scheduler.
-
-**APIs**: Pipelines are exposed as HTTP APIs, making them accessible from applications written in TypeScript, Java, Python, Go, etc.
-
-```yaml graph.yaml
-name: 'pdf-ingestion-pipeline'
-extraction_policies:
-- extractor: 'tensorlake/marker'
-  name: 'pdf_to_markdown'
-- extractor: 'tensorlake/ner'
-  name: 'entity_extractor'
-  content_source: 'pdf_to_markdown'
-- extractor: 'tensorlake/minilm-l6'
-  name: 'embedding'
-  content_source: 'pdf_to_markdown'
+g = Graph(name="website-summarizer", start_node=scrape_website)
+g.add_edge(scrape_website, summarize_text)
 ```
 
-<CodeGroup>
-    ```bash cURL
-    curl -X 'POST' \
-    'http://localhost:8900/namespaces/default/extraction_graphs' \
-    -H 'Content-Type: application/x-yaml' \
-    --data-binary @graph.yaml
-    ```
-    ```python Python
-    from indexify import IndexifyClient, ExtractionGraph
-    graph = ExtractionGraph.from_yaml_file("graph.yaml")
-    client = IndexifyClient()
-    client.create_extraction_graph(graph)
-    ```
-</CodeGroup>
+### Step 2: Test the Graph In-Process
+The graph can be run as-is, this is useful for testing.
 
-### Continuous Data Ingestion
+```python
+g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors", block_until_done=True)
+```
 
-<CodeGroup>
-    ```bash cURL
-    curl -X 'POST' \
-    'http://localhost:8900/namespaces/default/extraction_graphs/pdf-ingestion-pipeline/extract' \
-    -H 'Content-Type: multipart/form-data' \
-    -F 'file=@file.pdf;type=application/pdf' \
-    -F 'labels={"source":"arxiv"}'
-    ```
-    ```python
-    client = IndexifyClient()
+### Step 3.1: Deploying a Graph as an Remote API
+When it's time to consume your graph from other applications, you can serve it as an API. You can run the server in production in many ways, but here we run this in our laptop to show how it works.
 
-    files = ["file1.pdf", .... "file100.pdf"]
-    for file in files:
-    client.upload_file("pdf-ingestion-pipeline", file)
-    ```
-</CodeGroup>
+```bash
+indexify-cli server-dev-mode
+```
 
-### Retrieve Extracted Data
+This starts the following processes -
+* A server to orchestrate the functions in the graph, store state across functions, and to host the Remote Graph APIs.
+* An executor which runs the individual functions in the graph. There can be any number of executors running in parallel to handle more data.
 
-Retrieve extracted named entities 
+Once the server is ready, you can deploy the graph -
+```python
+g.deploy(server_url="http://localhost:8900")
+```
 
-<CodeGroup>
-    ```bash cURL
-    curl -X 'GET' \
-    'http://localhost:8900/namespaces/:namespace/extraction_graphs/pdf-ingestion-pipeline/content/585ebafdbc9dbbbe/extraction_policies/entity_extractor' \
-    ```
-    ```python Python
-    content_ids = [content.id for content in client.list_content("pdf-ingestion-pipeline")]
+### Step 3.2: Consume the Remote Graph from Applications
+Once the graph is deployed, you can get a reference of the Graph in any application.
+```python
+g = Graph.from_server(server_url="http://localhost:8900", name="website-summarizer")
+```
 
-    markdown = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "pdf_to_markdown")
-    named_entities = client.get_extracted_content(content_ids[0], "pdf-ingestion-pipeline", "entity_extractor")
-    ```
-</CodeGroup>
+You can now call the graph as a remote API.
+```python
+g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors", blocking_until_done=True)
+```
 
-Search vector indexes populated by embeddings
+### Step 4: Building Executor Container images for Functions
 
-<CodeGroup>
-    ```bash cURL
-    curl -X 'POST' \
-    'http://localhost:8900/namespaces/default/indexes/pdf-ingestion-pipeline.embedding.embedding/search' \
-    -H 'Content-Type: application/json' \
-    -d '{
-        "filters": [],
-        "include_content": true,
-        "k": 3,
-        "query": "wework"
-    }'
-    ```
-    ```python
-    results = client.search("pdf-ingestion-pipeline.embedding.embedding","Who won the 2017 NBA finals?", k=3)
-    ```
-</CodeGroup>
+Most often than not you will require using custom Python packages in your function. You can build a docker image, with any python and system dependencies.
+
+Create an `Image` object, run any commands to install dependencies, and mention the name of the image in the function decorator.
+
+```python
+from indexify import indexify_function, Image
+
+image = (
+    Image()
+    .name("my-custom-image")
+    .base_image("python:3.10.15-slim-bookworm")
+    .tag("latest")
+    .run("pip install indexify")
+)
+
+@indexify_function(image=image)
+def func_a(x: int) -> str:
+    ...
+```
+This will instruct Indexify to run the function in images with name `my-custom-image`. Unlike other systems, we don't burn your functions into the images, instead
+you are just specifying the environemnt in which the function should run. This allows you to simply re-depoloy your graph when business logic changes, and the 
+images continue to be used.
+
+## Deployment
+
+### Docker Compose
+
+You can run the server and executors in a single machine using Docker Compose.
+
+Copy the `docker-compose.yml` file from the [GitHub repository](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml)
+
+```bash
+docker-compose up
+```
+This starts up Indexify server and 2 replicas of executors in a single machine. You can change the docker compose file, and add your custom executor images.
+
+### Kubernetes
+
+The most complex deployment option is Kubernetes. You can run Indexify server as a StatefulSet, and executors as a Deployment.
+Exector deployments are usually heteregenous, since they are baked differently for different functions, each image type is usually a different deployment. 
+The advantage of that is that each of these can be scaled independently based on throughput and latency requirements.
+
+You can find our Helm chart in the [GitHub repository](https://github.com/tensorlakeai/indexify/tree/main/operations/k8s). 
+You can start from here and customize it based on your requirements.
 
 To understand usage of indexify for various use cases we recommend the following starting points.
+
+### Bare Metal
+
+Indexify doesn't depend on Kubernetes or Docker, you can run the server and executors in any machine. You can run the server in a machine, and executors in multiple machines.
+
+#### Start Server
+Start the server on one machine. Read the configuration reference to understand how to customize the server to use blob stores for storing function outputs.
+```bash
+indexify-server
+```
+
+#### Start Executor
+Start as many executors you want in different machines.
+```bash
+indexify-cli executor --server-addr <server-ip>:<server-port>
+```
 
 <Card title="Basic Tutorial" icon="link" href="docs/getting-started-basic">
   A Wikipedia ingestion and indexing pipeline. The tutorial teaches the basics of Indexify.
@@ -121,23 +171,6 @@ To understand usage of indexify for various use cases we recommend the following
   A tax document processing and Q&A system. The tutorial covers text extraction from PDF and building a RAG pipeline.
 </Card>
 <Card title="Multi-Modal RAG" icon="link" href="https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/indexing_and_rag">
-  A detailed example of text, table and image extraction from PDF. It also covers building image and text indexes and doing 
+  A detailed example of text, table and image extraction from PDF. It also covers building image and text indexes and doing
   cross-modal retrieval, re-ranking, and reciproal rank fusion.
 </Card>
-
-## Why Use Indexify?
-
-Indexify is for continuous ingestion and extraction from unstructured data in a streaming fashion. If you are building LLM Application that need structured data from any unstructured data sources, Indexify is the tool for you.
-
-While there lies a divide in tools for prototyping and for deploying to production, Indexify runs locally on laptops for rapid prototyping, but you can also deploy a scaled up version in production for high availability and reliability.
-
-You should use Indexify if you care about -
-
-* Processing Multi-Modal Data such as PDFs, Videos, Images, and Audio
-* High Availability and Fault Tolerance
-* Local Experience for rapid prototyping
-* Automatically updating indexes whenever upstream data sources are updated
-* Incremental Extraction and Selective Deletion
-* Compatibility with Various LLM Frameworks (Langchain, DSPy, etc.)
-* Integration with any database, blob store or vector store.
-* Owning your data infrastructure and being able to deploy on any cloud.

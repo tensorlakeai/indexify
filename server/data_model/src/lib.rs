@@ -213,6 +213,12 @@ impl Default for GraphVersion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RuntimeInformation {
+    pub major_version: u8,
+    pub minor_version: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
@@ -223,6 +229,7 @@ pub struct ComputeGraph {
     pub start_fn: Node,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
+    pub runtime_information: RuntimeInformation,
 }
 
 impl ComputeGraph {

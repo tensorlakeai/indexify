@@ -221,8 +221,15 @@ impl IndexifyState {
                 state_changes
             }
             requests::RequestPayload::FinalizeTask(finalize_task) => {
-                let state_changes = self.finalize_task(&finalize_task).await?;
-                state_machine::mark_task_completed(self.db.clone(), &txn, finalize_task.clone())?;
+                let state_changes = if state_machine::mark_task_completed(
+                    self.db.clone(),
+                    &txn,
+                    finalize_task.clone(),
+                )? {
+                    self.finalize_task(&finalize_task).await?
+                } else {
+                    Vec::new()
+                };
                 tasks_finalized
                     .entry(finalize_task.executor_id.clone())
                     .or_default()
