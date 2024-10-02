@@ -40,10 +40,6 @@ helm install local helm -f helm/local.yaml -n indexify --create-namespace
 The chart is configured to run in a local environment. To run in a production
 environment, you'll want to make sure to configure the following:
 
-- High Availability - by default, the coordinator starts up with a single
-  replica. To run in HA mode, set the replicas to an odd number via
-  `coordinator.replicas`.
-
 - Blob Store - We're using minio for local development via the [official
   chart][minio]. `local.yaml` configures it to run without persistence. To use
   S3, set `minio.enabled=false` and make sure IAM has added the correct
