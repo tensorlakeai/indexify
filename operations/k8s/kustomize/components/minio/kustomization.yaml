@@ -9,9 +9,4 @@ resources:
   - blob-store.yaml
 
 patches:
-  - path: config.yaml
-  - path: api.yaml
-  - target:
-      kind: Deployment
-      labelSelector: app.kubernetes.io/component=extractor
-    path: extractor.yaml
+  - path: server.yaml
