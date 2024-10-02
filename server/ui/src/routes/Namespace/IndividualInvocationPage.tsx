@@ -12,12 +12,14 @@ import InvocationOutputTable from '../../components/tables/InvocationOutputTable
 import InvocationTasksTable from '../../components/tables/InvocationTasksTable';
 
 const IndividualInvocationPage = () => {
-  const { 
+  const {
+    indexifyServiceURL, 
     invocationId,
     computeGraph,
     namespace
    } =
     useLoaderData() as {
+      indexifyServiceURL: string
       invocationId: string,
       computeGraph: string,
       namespace: string
@@ -48,9 +50,9 @@ const IndividualInvocationPage = () => {
               Invocation - {invocationId} <CopyText text={invocationId} />
             </Typography>
           </div>
-          <InvocationOutputTable invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
+          <InvocationOutputTable indexifyServiceURL={indexifyServiceURL} invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
         </Box>
-        <InvocationTasksTable invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
+        <InvocationTasksTable indexifyServiceURL={indexifyServiceURL} invocationId={invocationId} namespace={namespace} computeGraph={computeGraph} />
       </Box>
     </Stack>
   );

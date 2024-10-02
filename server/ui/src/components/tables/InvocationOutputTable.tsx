@@ -19,18 +19,19 @@ interface Output {
 }
 
 interface InvocationOutputTableProps {
+  indexifyServiceURL: string;
   invocationId: string;
   namespace: string;
   computeGraph: string;
 }
 
-const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ invocationId, namespace, computeGraph }) => {
+const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
   const [outputs, setOutputs] = useState<Output[]>([]);
 
   useEffect(() => {
     const fetchOutputs = async () => {
       try {
-        const url = `http://localhost:8900/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/outputs`;
+        const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/outputs`;
         const response = await axios.get<{ outputs: Output[] }>(url, {
           headers: {
             'accept': 'application/json'
@@ -43,6 +44,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ invocatio
     };
 
     fetchOutputs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invocationId, namespace, computeGraph]);
 
   if (!outputs || outputs.length === 0) {

@@ -25,18 +25,19 @@ interface Task {
 }
 
 interface InvocationTasksTableProps {
+  indexifyServiceURL: string
   invocationId: string;
   namespace: string;
   computeGraph: string;
 }
 
-const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ invocationId, namespace, computeGraph }) => {
+const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
     const fetchTasks = async () => {
       try {
-        const url = `http://localhost:8900/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/tasks`;
+        const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/tasks`;
         const response = await axios.get<{ tasks: Task[] }>(url, {
           headers: {
             'accept': 'application/json'
@@ -49,6 +50,7 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ invocationI
     };
 
     fetchTasks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invocationId, namespace, computeGraph]);
 
   if (!tasks || tasks.length === 0) {
