@@ -39,7 +39,7 @@ if __name__ == '__main__':
     client = create_client(in_process=True)
     client.register_compute_graph(g)
 
-    invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=3)
+    invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=4)
     result = client.graph_outputs("sequence_summer", invocation_id, "squared")
     print(result)
     result = client.graph_outputs("sequence_summer", invocation_id, "tripled")
