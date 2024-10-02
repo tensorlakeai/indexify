@@ -2,7 +2,7 @@
 title: Indexify
 description: Compute Engine for Building and Serving Multi-Stage Data-Intensive Workflows
 ---
-Indexify is a compute framework for building durable data-intensive workflows and serving them as APIs. Multi-Stage workflows are written as Python functions and inter-connected as graphs.
+Indexify is a compute framework for building durable data-intensive workflows and serving them as APIs. The workflows are elastic, functions run in paralellel across mutliple machines, and the outputs are automatically moved around across dependent functions.
 The Graphs are served as live API endpoints for seamless integration with existing systems.
 
 ## Key Features
@@ -22,6 +22,7 @@ AI workflows, such as paralellelizing embeddings, chunking, summarization, objec
 Let's build a workflow to summarize a website! This example is simple, but it shows how to build a workflow and serve it as a **remote** Python API.
 <video
   autoPlay
+  muted
   loop
   controls
   className="w-full aspect-video"
@@ -123,7 +124,7 @@ This will instruct Indexify to run the function in images with name `my-custom-i
 you are just specifying the environemnt in which the function should run. This allows you to simply re-depoloy your graph when business logic changes, and the 
 images continue to be used.
 
-## Deployment: Kubernetes, Docker Compose, or even Bare Metal.
+## Deployment
 
 ### Docker Compose
 
@@ -146,6 +147,22 @@ You can find our Helm chart in the [GitHub repository](https://github.com/tensor
 You can start from here and customize it based on your requirements.
 
 To understand usage of indexify for various use cases we recommend the following starting points.
+
+### Bare Metal
+
+Indexify doesn't depend on Kubernetes or Docker, you can run the server and executors in any machine. You can run the server in a machine, and executors in multiple machines.
+
+#### Start Server
+Start the server on one machine. Read the configuration reference to understand how to customize the server to use blob stores for storing function outputs.
+```bash
+indexify-server
+```
+
+#### Start Executor
+Start as many executors you want in different machines.
+```bash
+indexify-cli executor --server-addr <server-ip>:<server-port>
+```
 
 <Card title="Basic Tutorial" icon="link" href="docs/getting-started-basic">
   A Wikipedia ingestion and indexing pipeline. The tutorial teaches the basics of Indexify.
