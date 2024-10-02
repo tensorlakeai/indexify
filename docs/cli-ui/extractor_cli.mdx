@@ -1,57 +1,31 @@
 ---
-title: Extractors
+title: 'Indexify CLI'
 ---
 
-Extractors are managed by the `indexify-extractor` cli.
+Indexify CLI is a command line tool to start Executors that run functions, and to build docker images with dependencies for running them.
 
-## Indexify Extractor CLI
-
-Download the indexify-extractor cli by
+## Start Executor 
 
 ```bash
-pip install indexify-extractor-sdk
+indexify-cli executor --server-addr <server-ip>:<server-port>
 ```
 
-### List Available Extractors
+This will start an executor that connects to the server at the given address. The server address can be found from the Indexify server's configuration.
 
-```python
-indexify-extractor list
-```
+**Default Server Address:** `localhost:8900`
 
-![Extractor List Photo](/images/extractors_list.png)
-
-### Download Extractors
-The extractors has to be downloaded before they can be used locally or in production. For ex, you can download the PDF extractor like this - 
+## Build Function Images
 
 ```bash
-indexify-extractor download tensorlake/pdfextractor
+indexify-cli build-image /path/to/workflow/file.py function_name
 ```
 
-### Test Extractors Locally 
-You can test extractors locally without running them with the server in a production setting.
-Let's say we want to test the PDF extractor 
+The file name is the path to the file that contains the function for which the image has to be built.
+
+## Build Default Image
+
+This is rarely needed but can be used to build the default image that is used by the executor to run functions.
 
 ```bash
-indexify-extractor run-local pdfextractor.pdf_extractor:PDFExtractor --file /path/to/pdf
+indexify-cli build-default-image
 ```
-
-##### Options
-
-- `--file` to pass in a file to the extractor
-- `--text` to pass in text to the extractor
-
-### Join the Extractor to the Server 
-You can join the extractor to the server to start extracting data ingested by the server
-
-```bash
-indexify-extractor join-server
-```
-
-##### Options
-- `--coordinator-addr` - Address of the coordinator. Default: `localhost:8950`
-- `--ingestion-addr` - Address of the ingestion server. Default: `localhost:8900`
-- `--listen-port` - The port on which the extractor listens of on-demand extraction
-- `--advertise-addr` - The address that is advertized to the ingestion server. This should be reachable by the server for embedding lookups to work if this is an embedding extractor.
-- `--workers` - Number of workers that the extractor spawns
-
-These configurations are printed in log when the extractor starts up

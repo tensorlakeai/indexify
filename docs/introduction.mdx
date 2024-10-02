@@ -98,6 +98,53 @@ You can now call the graph as a remote API.
 g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors", blocking_until_done=True)
 ```
 
+### Step 4: Building Executor Container images for Functions
+
+Most often than not you will require using custom Python packages in your function. You can build a docker image, with any python and system dependencies.
+
+Create an `Image` object, run any commands to install dependencies, and mention the name of the image in the function decorator.
+
+```python
+from indexify import indexify_function, Image
+
+image = (
+    Image()
+    .name("my-custom-image")
+    .base_image("python:3.10.15-slim-bookworm")
+    .tag("latest")
+    .run("pip install indexify")
+)
+
+@indexify_function(image=image)
+def func_a(x: int) -> str:
+    ...
+```
+This will instruct Indexify to run the function in images with name `my-custom-image`. Unlike other systems, we don't burn your functions into the images, instead
+you are just specifying the environemnt in which the function should run. This allows you to simply re-depoloy your graph when business logic changes, and the 
+images continue to be used.
+
+## Deployment: Kubernetes, Docker Compose, or even Bare Metal.
+
+### Docker Compose
+
+You can run the server and executors in a single machine using Docker Compose.
+
+Copy the `docker-compose.yml` file from the [GitHub repository](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml)
+
+```bash
+docker-compose up
+```
+This starts up Indexify server and 2 replicas of executors in a single machine. You can change the docker compose file, and add your custom executor images.
+
+### Kubernetes
+
+The most complex deployment option is Kubernetes. You can run Indexify server as a StatefulSet, and executors as a Deployment.
+Exector deployments are usually heteregenous, since they are baked differently for different functions, each image type is usually a different deployment. 
+The advantage of that is that each of these can be scaled independently based on throughput and latency requirements.
+
+You can find our Helm chart in the [GitHub repository](https://github.com/tensorlakeai/indexify/tree/main/operations/k8s). 
+You can start from here and customize it based on your requirements.
+
 To understand usage of indexify for various use cases we recommend the following starting points.
 
 <Card title="Basic Tutorial" icon="link" href="docs/getting-started-basic">
