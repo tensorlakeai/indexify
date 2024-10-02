@@ -99,8 +99,10 @@ export async function IndividualInvocationPageLoader({ params }: LoaderFunctionA
   const { namespace } = params
   const computeGraph = params['compute-graph']
   const invocationId = params['invocation-id']
+  const indexifyServiceURL = getIndexifyServiceURL();
 
   return {
+    indexifyServiceURL,
     invocationId,
     computeGraph,
     namespace: namespace,
