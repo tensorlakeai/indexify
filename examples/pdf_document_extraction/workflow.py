@@ -65,14 +65,19 @@ def extract_chunks(document: Document) -> List[TextChunk]:
     for page in document.pages:
         page_text = ""
         for fragment in page.page_fragments:
-            if fragment.fragment_type == PageFragmentType.TEXT:
+            # Add the table or figure as a separate chunk, with the text extracted from OCR
+            if fragment.fragment_type == PageFragmentType.TABLE or fragment.fragment_type == PageFragmentType.FIGURE:
+                chunks.append(TextChunk(chunk=fragment.content.text, page_number=page.page_number))
+
+            # Add all the text from the page to the page text, and chunk them later.
+            elif fragment.fragment_type == PageFragmentType.TEXT:
                 page_text += fragment.content.text
+
+
         texts = text_splitter.split_text(page_text)
         for text in texts:
-            print(text)
             chunk = TextChunk(chunk=text, page_number=page.page_number)
             chunks.append(chunk)
-
     return chunks
 
 
@@ -112,7 +117,6 @@ class ImageEmbeddingExtractor(IndexifyFunction):
         self.model = None
 
     def run(self, document: Document) -> List[ImageWithEmbedding]:
-        from PIL import Image
         from inkwell import PageFragmentType
         from sentence_transformers import SentenceTransformer
 
@@ -122,8 +126,8 @@ class ImageEmbeddingExtractor(IndexifyFunction):
         embedding = []
         for page in document.pages:
             for fragment in page.page_fragments:
-                if fragment.fragment_type == PageFragmentType.FIGURE:
-                    image = Image.fromarray(fragment.content.image)
+                if fragment.fragment_type == PageFragmentType.FIGURE or fragment.fragment_type == PageFragmentType.TABLE:
+                    image = fragment.content.image
                     img_emb = self.model.encode(image)
                     embedding.append(
                         ImageWithEmbedding(
