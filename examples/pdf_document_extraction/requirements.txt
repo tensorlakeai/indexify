@@ -1,8 +1,7 @@
 httpx
 pydantic
---extra-index-url https://miropsota.github.io/torch_packages_builder
-detectron2
 langchain_text_splitters
-py-inkwell
 lancedb
 pyarrow
+sentence_transformers
+indexify

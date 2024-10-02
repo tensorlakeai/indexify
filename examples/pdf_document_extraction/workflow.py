@@ -123,7 +123,7 @@ class ImageEmbeddingExtractor(IndexifyFunction):
         for page in document.pages:
             for fragment in page.page_fragments:
                 if fragment.fragment_type == PageFragmentType.FIGURE:
-                    image = Image.fromarray(fragment.content.image)
+                    image = fragment.content.image
                     img_emb = self.model.encode(image)
                     embedding.append(
                         ImageWithEmbedding(
@@ -216,6 +216,9 @@ if __name__ == "__main__":
         g.name, block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf"
     )
     print(f"Invocation ID: {invocation_id}")
+
+    
+
 
     ## After extraction, lets test retreival
 
