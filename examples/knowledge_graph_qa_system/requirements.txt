@@ -1,0 +1,3 @@
+indexify
+neo4j
+google-generativeai

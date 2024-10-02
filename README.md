@@ -11,6 +11,8 @@ Some of the use-cases that you can use Indexify for -
 * [Scraping and Summarizing websites](examples/website_audio_summary/)
 * [PDF Documents Extraction and Indexing](examples/pdf_document_extraction/)
 * [Transcribing audio and summarization](examples/website_audio_summary/)
+* [Knowledge Graph RAG Pipeline](examples/knowledge_graph_generation/)
+* [Knowledge Graph QA System](examples/knowledge_graph_qa_system/)
 
 ### Key Features
 * **Conditional Branching and Data Flow:** Router functions can conditionaly chose one or more edges in Graph making it easy to invoke expert models based on inputs.
