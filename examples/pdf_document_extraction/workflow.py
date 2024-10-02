@@ -221,9 +221,6 @@ if __name__ == "__main__":
     )
     print(f"Invocation ID: {invocation_id}")
 
-    
-
-
     ## After extraction, lets test retreival
 
     import lancedb
