@@ -103,6 +103,7 @@ class ComputeGraphMetadata(BaseModel):
         return get_serializer(self.start_node.compute_fn.payload_encoder)
 
 
+# class GraphDS
 class Graph:
     def __init__(
         self, name: str, start_node: IndexifyFunction, description: Optional[str] = None

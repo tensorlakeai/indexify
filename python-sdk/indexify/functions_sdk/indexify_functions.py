@@ -37,7 +37,7 @@ class IndexifyFunction(ABC):
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE
     placement_constraints: List[PlacementConstraints] = []
-    accumulate: Optional[Type[Any]] = None
+    accumulate: Optional[Type[Any]] = None  # TODO should this be base type
     payload_encoder: Optional[str] = "cloudpickle"
 
     @abstractmethod

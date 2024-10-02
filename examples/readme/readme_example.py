@@ -2,6 +2,9 @@ from pydantic import BaseModel
 from indexify import indexify_function, Graph, indexify_router
 from typing import List, Union
 
+from indexify.functions_sdk.sup_graph import SupGraph
+
+
 class Total(BaseModel):
     val: int = 0
 
@@ -28,19 +31,67 @@ def dynamic_router(val: Total) -> List[Union[square, cube]]:
         return [square]
     return [cube]
 
-if __name__ == '__main__':
-    g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
+
+def run_local(graph_name, a, fn):
+    g = SupGraph(
+        name=graph_name,
+        start_node=generate_numbers,
+        description="Simple Sequence Summer",
+    )
     g.add_edge(generate_numbers, add)
     g.add_edge(add, dynamic_router)
     g.route(dynamic_router, [square, cube])
 
-    from indexify import create_client
-
-    client = create_client(in_process=True)
-    client.register_compute_graph(g)
-
-    invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=3)
-    result = client.graph_outputs("sequence_summer", invocation_id, "squared")
+    invocation_id = g.run(a=a, block_until_done=True)
+    result = g.graph_outputs(invocation_id, fn)
     print(result)
-    result = client.graph_outputs("sequence_summer", invocation_id, "tripled")
+
+
+def run_remote(graph_name, a, fn):
+    g = SupGraph(
+        name=graph_name,
+        start_node=generate_numbers,
+        description="Simple Sequence Summer",
+        server_url="http://localhost:8900",
+    )
+    g.add_edge(generate_numbers, add)
+    g.add_edge(add, dynamic_router)
+    g.route(dynamic_router, [square, cube])
+
+    invocation_id = g.run(a=a, block_until_done=True)
+    result = g.graph_outputs(invocation_id, fn)
     print(result)
+
+def register_remote_graph(graph_name):
+    g = SupGraph(
+        name=graph_name,
+        start_node=generate_numbers,
+        description="Simple Sequence Summer",
+        server_url="http://localhost:8900",
+    )
+    g.add_edge(generate_numbers, add)
+    g.add_edge(add, dynamic_router)
+    g.route(dynamic_router, [square, cube])
+
+    g.register_remote()
+
+
+if __name__ == '__main__':
+    pass
+
+    ### Test locally
+    # graph_name = "sequence_summer"
+    # run_local(graph_name=graph_name, a=5, fn="cube")
+
+    ### Test remote
+    # graph_name = "sequence_summer"
+    # run_remote(graph_name=graph_name, a=6, fn="square")
+
+    ### Test the graph with a remote run, make sure to register it first
+    # graph_name = "sequence-summer"
+    # register_remote_graph(graph_name=graph_name)
+    #
+    # g = SupGraph.from_server(server_url="http://localhost:8900", namespace="default", name=graph_name)
+    # invocation_id = g.run(a=6, block_until_done=True)
+    # result = g.graph_outputs(invocation_id, "square")
+    # print(result)

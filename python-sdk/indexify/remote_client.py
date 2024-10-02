@@ -179,6 +179,12 @@ class RemoteClient(IndexifyClient):
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
 
+    def get_graph(self, namespace: str, name: str) -> ComputeGraphMetadata:
+        # Same method as `graph` but doesn't need namespace from self.
+        response = self._get(
+            f"namespaces/{namespace}/compute_graphs/{name}")
+        return ComputeGraphMetadata(**response.json())
+
     def load_graph(self, name: str) -> Graph:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
