@@ -1,0 +1,83 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexify-server
+  labels:
+    app.kubernetes.io/component: indexify-server
+spec:
+  ports:
+    - port: 8900
+  selector:
+    app.kubernetes.io/component: indexify-server
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: indexify-server
+  labels:
+    app.kubernetes.io/component: indexify-server
+spec:
+  serviceName: indexify-server
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: indexify-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: indexify-server
+    spec:
+      containers:
+        - name: indexify-server
+          image: tensorlake/indexify-server:latest
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8900
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8900
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          env: []
+            # This is the env var required to work with something other than
+            # AWS' hosted S3. They're injected by components/minio to show how a
+            # all-local solution would work.
+            # - name: AWS_ENDPOINT
+            #   value: http://blob-store:9000
+            # - name: AWS_ALLOW_HTTP
+            #   value: "true"
+
+            # - name: AWS_ACCESS_KEY_ID
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: blob-store
+            #       key: AWS_ACCESS_KEY_ID
+            # - name: AWS_SECRET_ACCESS_KEY
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: blob-store
+            #       key: AWS_SECRET_ACCESS_KEY
+
+          volumeMounts:
+            - mountPath: /tmp/indexify-blob-storage
+              name: data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/component: indexify-server
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 1Gi
+
