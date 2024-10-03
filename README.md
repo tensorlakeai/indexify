@@ -76,7 +76,7 @@ result = g.get_outputs(invocation_id, "squared")
 print(result)
 ```
 
-You have built and ran a multi-stage workflow in-process! While running them in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
+Running Graph's in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
 
 #### 3: Test your Graph as an API locally
 
