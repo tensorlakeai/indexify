@@ -541,6 +541,10 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
         .or_default()
         .subscribe();
         loop {
+            // Copy the task_ids_sent before reading the tasks.
+            // The update thread modifies tasks first and then updates task_ids_sent,
+            // this thread does the opposite. This avoids sending the same task multiple times.
+            let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
             match state
                 .reader()
                 .get_tasks_by_executor(&executor, limit)
@@ -552,7 +556,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
                             let executor_s = executor_state.get_mut(&executor).unwrap();
                             let mut filtered_tasks = vec![];
                             for task in &tasks {
-                                if !executor_s.task_ids_sent.contains(&task.id) {
+                                if !task_ids_sent.contains(&task.id) {
                                     filtered_tasks.push(task.clone());
                                     executor_s.added(&vec![task.id.clone()]);
                                 }
