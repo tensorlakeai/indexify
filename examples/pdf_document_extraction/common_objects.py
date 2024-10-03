@@ -7,3 +7,9 @@ class TextChunk(BaseModel):
     chunk: str
     page_number: Optional[int] = None
     embeddings: Optional[List[float]] = None
+
+
+class ImageWithEmbedding(BaseModel):
+    embedding: List[float]
+    page_number: int
+    figure_number: int

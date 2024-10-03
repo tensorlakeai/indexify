@@ -78,7 +78,6 @@ impl TaskScheduler {
                         );
                         continue;
                     }
-                    info!("executor {} has python_minor_version label", executor.id);
                 } else {
                     error!("failed to parse python_minor_version label");
                     continue;

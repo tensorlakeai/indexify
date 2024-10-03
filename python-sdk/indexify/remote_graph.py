@@ -34,18 +34,21 @@ class RemoteGraph:
         )
 
     @classmethod
-    def deploy(cls, g: Graph, server_url: Optional[str] = "http://localhost:8090"):
+    def deploy(cls, g: Graph, additional_modules=[], server_url: Optional[str] = "http://localhost:8900"):
         """
         Create a new RemoteGraph from a local Graph object.
         :param g: The local Graph object.
         :param server_url: The URL of the server where the graph will be registered.
         """
+        import cloudpickle
+        for module in additional_modules:
+            cloudpickle.register_pickle_by_value(module)
         client = IndexifyClient(service_url=server_url)
         client.register_compute_graph(g)
         return cls(name=g.name, server_url=server_url)
 
     @classmethod
-    def by_name(cls, name: str, server_url: Optional[str] = "http://localhost:8090"):
+    def by_name(cls, name: str, server_url: Optional[str] = "http://localhost:8900"):
         """
         Create a handle to call a RemoteGraph by name.
         :param name: The name of the graph.

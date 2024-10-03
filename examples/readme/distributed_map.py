@@ -14,12 +14,9 @@ if __name__ == '__main__':
     g = Graph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
     g.add_edge(generate_sequence, squared)
 
-    from indexify import create_client
+    from indexify import RemoteGraph
+    graph = RemoteGraph.deploy(g)
 
-    client = create_client()
-    client.register_compute_graph(g)
-
-    invocation_id = client.invoke_graph_with_object("sequence_summer",
-            block_until_done=True, a=90)
-    result = client.graph_outputs("sequence_summer", invocation_id, "squared")
+    invocation_id = g.run(block_until_done=True, a=90)
+    result = g.get_output(invocation_id, "squared")
     print(result)

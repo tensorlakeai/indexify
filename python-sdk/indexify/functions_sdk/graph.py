@@ -132,8 +132,22 @@ class Graph:
             self.add_node(node)
             self.routers[from_node.name].append(node.name)
         return self
+    
+    
+    def _register_cloudpickle(self):
+        # Get all unique modules from nodes and edges
+        modules = set()
+        for node in self.nodes.values():
+            modules.add(node.__module__)
+
+        # Register each module with cloudpickle
+        for module_name in modules:
+            module = sys.modules[module_name]
+            cloudpickle.register_pickle_by_value(module)
+
 
     def serialize(self):
+        self._register_cloudpickle()
         return cloudpickle.dumps(self)
 
     @staticmethod

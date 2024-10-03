@@ -3,8 +3,7 @@ from typing import List
 from indexify import indexify_function
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from inkwell import Document as InkwellDocument
-from inkwell import Page
+from inkwell import Document, Page
 from pydantic import BaseModel
 
 from common_objects import TextChunk
@@ -25,7 +24,7 @@ class PDFParser(IndexifyFunction):
 
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
             f.write(input.data)
-            document: InkwellDocument = self._pipeline.process(f.name)
+            document: Document = self._pipeline.process(f.name)
         return Document(pages=document.pages)
 
 

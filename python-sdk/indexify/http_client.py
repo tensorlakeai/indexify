@@ -85,7 +85,7 @@ class IndexifyClient:
             message = (
                 f"Make sure the server is running and accesible at {self._service_url}"
             )
-            ex = ApiException(status="ConnectionError", message=message)
+            ex = ApiException(message=message)
             print(ex)
             raise ex
         return response

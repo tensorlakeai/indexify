@@ -1,8 +1,9 @@
 from typing import Union
 
+from indexify.functions_sdk.indexify_functions import IndexifyFunction
 from lancedb.pydantic import LanceModel, Vector
 
-from pdf_document_extraction.common_objects import TextChunk
+from common_objects import ImageWithEmbedding, TextChunk
 
 
 class ImageEmbeddingTable(LanceModel):

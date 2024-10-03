@@ -6,7 +6,7 @@ from inkwell import Document
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
-from pdf_document_extraction.common_objects import TextChunk
+from common_objects import ImageWithEmbedding, TextChunk
 
 image = Image().name("pdf-blueprint-st").run("pip install sentence-transformers")
 
@@ -31,12 +31,6 @@ class TextEmbeddingExtractor(IndexifyFunction):
         embeddings = self.model.encode(input.chunk)
         input.embeddings = embeddings.tolist()
         return input
-
-
-class ImageWithEmbedding(BaseModel):
-    embedding: List[float]
-    page_number: int
-    figure_number: int
 
 
 class ImageEmbeddingExtractor(IndexifyFunction):
