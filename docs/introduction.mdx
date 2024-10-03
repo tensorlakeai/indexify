@@ -68,7 +68,7 @@ g.add_edge(scrape_website, summarize_text)
 The graph can be run as-is, this is useful for testing.
 
 ```python
-g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors", block_until_done=True)
+g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
 ```
 
 ### Step 3.1: Deploying a Graph as an Remote API
@@ -84,18 +84,25 @@ This starts the following processes -
 
 Once the server is ready, you can deploy the graph -
 ```python
-g.deploy(server_url="http://localhost:8900")
+from indexify import RemoteGraph
+RemoteGraph.deploy(g, server_url="http://localhost:8900")
 ```
 
 ### Step 3.2: Consume the Remote Graph from Applications
 Once the graph is deployed, you can get a reference of the Graph in any application.
 ```python
-g = Graph.from_server(server_url="http://localhost:8900", name="website-summarizer")
+graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
 ```
 
 You can now call the graph as a remote API.
 ```python
-g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors", blocking_until_done=True)
+invocation_id = graph.run(blocking_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+```
+
+### Step 3.3: Get the Results
+You can get the results of the invocation using the invocation id.
+```python
+results = graph.get_output(invocation_id)
 ```
 
 ### Step 4: Building Executor Container images for Functions

@@ -40,14 +40,13 @@ g.add_edge(summarize_text, create_audio)
 
 
 if __name__ == "__main__":
-    from indexify import create_client
-
-    client = create_client()
-    client.register_compute_graph(g)
-
-    invocation_id = client.invoke_graph_with_object("website-summarizer", block_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
-    result = client.graph_outputs("website-summarizer", invocation_id, "summarize_text")
-    print(result[0])
-    audio: Audio = client.graph_outputs("website-summarizer", invocation_id, "create_audio")
+    #g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    from indexify import RemoteGraph
+    RemoteGraph.deploy(g, server_url="http://localhost:8900")
+    graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
+    invocation_id = graph.run(block_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    summary = graph.get_output(invocation_id, "summarize_text")
+    print(summary)
+    audio = graph.get_output(invocation_id, "create_audio")
     from elevenlabs import play
     play(audio[0].file)
