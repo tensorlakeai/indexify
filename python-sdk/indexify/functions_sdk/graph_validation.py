@@ -42,25 +42,30 @@ def validate_route(
 
     if signature.return_annotation == inspect.Signature.empty:
         raise Exception(f"Function {from_node.name} has empty return type annotation")
-    
+
     return_annotation = signature.return_annotation
 
-    if hasattr(return_annotation, '__origin__') and return_annotation.__origin__ is Union:
+    if (
+        hasattr(return_annotation, "__origin__")
+        and return_annotation.__origin__ is Union
+    ):
         for arg in return_annotation.__args__:
-            if hasattr(arg, 'name'):
+            if hasattr(arg, "name"):
                 if arg not in to_nodes:
                     raise Exception(
                         f"Unable to find {arg.name} in to_nodes {[node.name for node in to_nodes]}"
                     )
 
-    if hasattr(return_annotation, '__origin__') and return_annotation.__origin__ is list:
+    if (
+        hasattr(return_annotation, "__origin__")
+        and return_annotation.__origin__ is list
+    ):
         union_args = return_annotation.__args__[0].__args__
         for arg in union_args:
-            if hasattr(arg, 'name'):
+            if hasattr(arg, "name"):
                 if arg not in to_nodes:
                     raise Exception(
                         f"Unable to find {arg.name} in to_nodes {[node.name for node in to_nodes]}"
                     )
     else:
         raise Exception(f"Return type of {from_node.name} is not a Union")
-

@@ -116,7 +116,7 @@ class TestValidations(unittest.TestCase):
             g.route(router, [node1, node2])
         msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
         self.assertEqual(msg, str(cm.exception))
-        
+
         with self.assertRaises(Exception) as cm:
             g = Graph(
                 "test-graph",
@@ -127,8 +127,6 @@ class TestValidations(unittest.TestCase):
             g.route(router2, [node1, node2])
         msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
         self.assertEqual(msg, str(cm.exception))
-
-
 
 
 if __name__ == "__main__":

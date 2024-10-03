@@ -65,77 +65,50 @@ g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simp
 g.add_edge(generate_numbers, add)
 g.add_edge(add, dynamic_router)
 g.route(dynamic_router, [square, cube])
-
-if __name__ == '__main__':
-    from indexify import create_client
-
-    client = create_client(in_process=True)
-    client.register_compute_graph(g)
-
-    invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=3)
-    result = client.graph_outputs("sequence_summer", invocation_id, "squared")
-    print(result)
-    result = client.graph_outputs("sequence_summer", invocation_id, "tripled")
-    print(result)
 ```
 
 You can separate heavy tasks like local inference of LLMs from database write operations to prevent reprocessing data if a write fails. Indexify caches each function's output, so when you retry downstream processes, previous steps aren't repeated.
 
-The Graphs are hosted in the Indexify Server and API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
-
-#### 2: Construct and Register the Graph
+#### 2: Test the Graph In-Process
 ```python
-from indexify import create_client
-
-g = Graph(name="sequence_summer", start_node=generate_sequence, description="Simple Sequence Summer")
-g.add_edge(generate_sequence, sum_all_numbers)
-g.add_edge(sum_all_numbers, dynamic_router)
-g.route(dynamic_router, [squared, tripled])
-
-
-client = create_client(in_process=True)
-client.register_compute_graph(g)
-```
-
-#### 3: Test the Graph In-Process
-```python
-invocation_id = client.invoke_graph_with_object("sequence_summer", a=10)
-result = client.graph_outputs("sequence_summer", invocation_id, "squared")
+invocation_id = g.run(a=10)
+result = g.get_outputs(invocation_id, "squared")
 print(result)
 ```
 
 You have built and ran a multi-stage workflow in-process! While running them in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
 
-#### 4: Test your Graph as an API locally
+#### 3: Test your Graph as an API locally
 
 Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+
+API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
 
 ```bash
 indexify-cli server-dev-mode
 ```
 
-This starts the follwoing processes on your terminal -
+This starts the following processes on your terminal -
 
 **Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs. Endpoint - http://localhost:8900
 
-**Executor**: Runs python functions coordinates execution state of functions with server.
+**Executor**: Runs python functions and coordinates execution state of functions with server.
 
 Change the code above to deploy the graph as an API -
 
 ```python
-client = create_client() # Remove in_process=True
-client.register_compute_graph(g) # Same as above
+from indexify import RemoteGraph
 
-invocation_id = client.invoke_graph_with_object("sequence_summer", block_until_done=True, a=10)
-result = client.graph_outputs("sequence_summer", invocation_id, "squared")
+graph = RemoteGraph.new(g)
+invocation_id = graph.run(block_until_done=True, a=10)
+result = graph.get_outputs(invocation_id, "squared")
 print(result)
 ```
 
 This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
-
 Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs!
 
-#### 5: Deploying Graph Endpoints using Docker Compose
+#### 4: Deploying Graph Endpoints using Docker Compose
 You can spin up the server and executor using docker compose, and deploy and run in a production-like environment. Copy the [docker-compose.yaml file from here](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml).
 
 ```bash
@@ -146,7 +119,7 @@ This starts the server and two replicas of the exeuctor in separate containers. 
 
 This uses a default executor container based on Debian and a vanilla Python installation.
 
-#### 6: Building Executor Images with Custom Dependencies
+#### 5: Building Executor Images with Custom Dependencies
 
 You can build custom images for functions that require additional Python or System dependencies.
 

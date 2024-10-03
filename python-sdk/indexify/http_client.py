@@ -10,7 +10,6 @@ from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
 
-from indexify.base_client import IndexifyClient
 from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
@@ -39,7 +38,7 @@ class GraphOutputs(BaseModel):
     outputs: List[GraphOutputMetadata]
 
 
-class RemoteClient(IndexifyClient):
+class IndexifyClient:
     def __init__(
         self,
         service_url: str = DEFAULT_SERVICE_URL,
@@ -167,7 +166,6 @@ class RemoteClient(IndexifyClient):
             files={"code": serialized_code},
             data={"compute_graph": graph_metadata.model_dump_json(exclude_none=True)},
         )
-        print(response.content.decode("utf-8"))
         response.raise_for_status()
         self._graphs[graph.name] = graph
 

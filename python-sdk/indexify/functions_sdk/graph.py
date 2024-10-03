@@ -1,5 +1,7 @@
 import inspect
+import sys
 from collections import defaultdict
+from queue import deque
 from typing import (
     Annotated,
     Any,
@@ -7,7 +9,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    Set,
     Type,
     Union,
     get_args,
@@ -16,17 +17,25 @@ from typing import (
 
 import cloudpickle
 import msgpack
-import sys
+from nanoid import generate
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
 
 from .data_objects import IndexifyData, RouterOutput
+from .graph_definition import (
+    ComputeGraphMetadata,
+    FunctionMetadata,
+    NodeMetadata,
+    RouterMetadata,
+    RuntimeInformation,
+)
 from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
     IndexifyFunction,
     IndexifyFunctionWrapper,
     IndexifyRouter,
 )
+from .local_cache import CacheAwareFunctionWrapper
 from .object_serializer import CloudPickleSerializer, get_serializer
 
 RouterFn = Annotated[
@@ -62,47 +71,6 @@ def is_pydantic_model_from_annotation(type_annotation):
     return False
 
 
-class FunctionMetadata(BaseModel):
-    name: str
-    fn_name: str
-    description: str
-    reducer: bool = False
-    image_name: str
-    payload_encoder: str = "cloudpickle"
-
-
-class RouterMetadata(BaseModel):
-    name: str
-    description: str
-    source_fn: str
-    target_fns: List[str]
-    image_name: str
-    payload_encoder: str = "cloudpickle"
-
-
-class NodeMetadata(BaseModel):
-    dynamic_router: Optional[RouterMetadata] = None
-    compute_fn: Optional[FunctionMetadata] = None
-
-# RuntimeInformation is a class that holds data about the environment in which the graph should run.
-class RuntimeInformation(BaseModel):
-    major_version: int
-    minor_version: int
-
-
-class ComputeGraphMetadata(BaseModel):
-    name: str
-    description: str
-    start_node: NodeMetadata
-    nodes: Dict[str, NodeMetadata]
-    edges: Dict[str, List[str]]
-    accumulator_zero_values: Dict[str, bytes] = {}
-    runtime_information: RuntimeInformation
-
-    def get_input_payload_serializer(self):
-        return get_serializer(self.start_node.compute_fn.payload_encoder)
-
-
 class Graph:
     def __init__(
         self, name: str, start_node: IndexifyFunction, description: Optional[str] = None
@@ -116,6 +84,11 @@ class Graph:
 
         self.add_node(start_node)
         self._start_node: str = start_node.name
+
+        # Storage for local execution
+        self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
+        self._cache = CacheAwareFunctionWrapper("./indexify_local_runner_cache")
+        self._accumulator_values: Dict[str, Dict[str, IndexifyData]] = {}
 
     def get_function(self, name: str) -> IndexifyFunctionWrapper:
         if name not in self.nodes:
@@ -291,3 +264,111 @@ class Graph:
                 minor_version=sys.version_info.minor,
             ),
         )
+
+    def run(self, block_until_done: bool = False, **kwargs) -> str:
+        start_node = self.nodes[self._start_node]
+        serializer = get_serializer(start_node.payload_encoder)
+        input = IndexifyData(id=generate(), payload=serializer.serialize(kwargs))
+        print(f"[bold] Invoking {self._start_node}[/bold]")
+        outputs = defaultdict(list)
+        self._accumulator_values[input.id] = {}
+        for k, v in self.accumulator_zero_values.items():
+            node = self.nodes[k]
+            serializer = get_serializer(node.payload_encoder)
+            self._accumulator_values[input.id] = {
+                k: IndexifyData(payload=serializer.serialize(v))
+            }
+        self._results[input.id] = outputs
+        self._run(input, outputs)
+        return input.id
+
+    def _run(
+        self,
+        initial_input: IndexifyData,
+        outputs: Dict[str, List[bytes]],
+    ):
+        accumulator_values = self._accumulator_values[initial_input.id]
+        queue = deque([(self._start_node, initial_input)])
+        while queue:
+            node_name, input = queue.popleft()
+            node = self.nodes[node_name]
+            serializer = get_serializer(node.payload_encoder)
+            input_bytes = serializer.serialize(input)
+            cached_output_bytes: Optional[bytes] = self._cache.get(
+                self.name, node_name, input_bytes
+            )
+            if cached_output_bytes is not None:
+                print(
+                    f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
+                )
+                function_outputs: List[IndexifyData] = []
+                cached_output_list = serializer.deserialize_list(cached_output_bytes)
+                if accumulator_values.get(node_name, None) is not None:
+                    accumulator_values[node_name] = cached_output_list[-1].model_copy()
+                    outputs[node_name] = []
+                function_outputs.extend(cached_output_list)
+                outputs[node_name].extend(cached_output_list)
+            else:
+                function_outputs: List[IndexifyData] = self.invoke_fn_ser(
+                    node_name, input, accumulator_values.get(node_name, None)
+                )
+                print(f"ran {node_name}: num outputs: {len(function_outputs)}")
+                if accumulator_values.get(node_name, None) is not None:
+                    accumulator_values[node_name] = function_outputs[-1].model_copy()
+                    outputs[node_name] = []
+                outputs[node_name].extend(function_outputs)
+                function_outputs_bytes: List[bytes] = [
+                    serializer.serialize_list(function_outputs)
+                ]
+                self._cache.set(
+                    self.name,
+                    node_name,
+                    input_bytes,
+                    function_outputs_bytes,
+                )
+            if accumulator_values.get(node_name, None) is not None and queue:
+                print(
+                    f"accumulator not none for {node_name}, continuing, len queue: {len(queue)}"
+                )
+                continue
+
+            out_edges = self.edges.get(node_name, [])
+            # Figure out if there are any routers for this node
+            for i, edge in enumerate(out_edges):
+                if edge in self.routers:
+                    out_edges.remove(edge)
+                    for output in function_outputs:
+                        dynamic_edges = self._route(edge, output) or []
+                        for dynamic_edge in dynamic_edges.edges:
+                            if dynamic_edge in self.nodes:
+                                print(
+                                    f"[bold]dynamic router returned node: {dynamic_edge}[/bold]"
+                                )
+                                out_edges.append(dynamic_edge)
+            for out_edge in out_edges:
+                for output in function_outputs:
+                    queue.append((out_edge, output))
+
+    def _route(self, node_name: str, input: IndexifyData) -> Optional[RouterOutput]:
+        return self.invoke_router(node_name, input)
+
+    def get_output(
+        self,
+        invocation_id: str,
+        fn_name: str,
+    ) -> List[Any]:
+        results = self._results[invocation_id]
+        if fn_name not in results:
+            raise ValueError(f"no results found for fn {fn_name} on graph {self.name}")
+        fn = self.nodes[fn_name]
+        fn_model = self.get_function(fn_name).get_output_model()
+        serializer = get_serializer(fn.payload_encoder)
+        outputs = []
+        for result in results[fn_name]:
+            payload_dict = serializer.deserialize(result.payload)
+            if issubclass(fn_model, BaseModel) and isinstance(payload_dict, dict):
+                payload = fn_model.model_validate(payload_dict)
+            else:
+                payload = payload_dict
+            outputs.append(payload)
+        return outputs

@@ -4,7 +4,7 @@ from typing import List, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph, create_client, indexify_function, indexify_router
+from indexify import Graph, RemoteGraph, indexify_function, indexify_router
 from indexify.functions_sdk.data_objects import File
 
 
@@ -101,84 +101,62 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_simple_function", description="test", start_node=simple_function
         )
-        client = create_client()
-        client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(
-            graph.name, block_until_done=True, x=MyObject(x="a")
-        )
-        output_str = client.graph_outputs(graph.name, invocation_id, "simple_function")
-        self.assertEqual(output_str, [MyObject(x="ab")])
+        graph = RemoteGraph.new(graph)
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output = graph.get_output(invocation_id, "simple_function")
+        self.assertEqual(output, [MyObject(x="ab")])
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
-        client = create_client()
-        client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(
-            graph.name, block_until_done=True, x=3
-        )
-
-        output_seq = client.graph_outputs(graph.name, invocation_id, "generate_seq")
+        graph = RemoteGraph.new(graph)
+        invocation_id = graph.run(block_until_done=True, x=3)
+        output_seq = graph.get_output(invocation_id, "generate_seq")
         self.assertEqual(sorted(output_seq), [0, 1, 2])
-
-        output_sq = client.graph_outputs(graph.name, invocation_id, "square")
+        output_sq = graph.get_output(invocation_id, "square")
         self.assertEqual(sorted(output_sq), [0, 1, 4])
 
     def test_map_reduce_operation(self):
         graph = create_pipeline_graph_with_map_reduce()
-        client = create_client()
-        client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(
-            graph.name, block_until_done=True, x=3
-        )
+        graph = RemoteGraph.new(graph)
 
-        output_sum_sq = client.graph_outputs(
-            graph.name, invocation_id, "sum_of_squares"
-        )
+        invocation_id = graph.run(block_until_done=True, x=3)
+        output_sum_sq = graph.get_output(invocation_id, "sum_of_squares")
         self.assertEqual(output_sum_sq, [Sum(val=5)])
-
-        output_str = client.graph_outputs(graph.name, invocation_id, "make_it_string")
+        output_str = graph.get_output(invocation_id, "make_it_string")
         self.assertEqual(output_str, ["5"])
 
     def test_router_graph_behavior(self):
-        graph = create_router_graph()
-        client = create_client()
-        client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(
-            graph.name, block_until_done=True, x=3
-        )
+        graph = RemoteGraph.new(create_router_graph())
+        invocation_id = graph.run(block_until_done=True, x=3)
 
-        output_add_two = client.graph_outputs(graph.name, invocation_id, "add_two")
+        output_add_two = graph.get_output(invocation_id, "add_two")
         self.assertEqual(output_add_two, [7])
         try:
-            client.graph_outputs(graph.name, invocation_id, "add_three")
+            graph.get_output(invocation_id, "add_three")
         except Exception as e:
             self.assertEqual(
                 str(e), "no results found for fn add_three on graph test_router"
             )
 
-        output_str = client.graph_outputs(
-            graph.name, invocation_id, "make_it_string_from_int"
-        )
+        output_str = graph.get_output(invocation_id, "make_it_string_from_int")
         self.assertEqual(output_str, ["7"])
 
     def test_invoke_file(self):
         graph = Graph(
             name="test_handle_file", description="test", start_node=handle_file
         )
-        client = create_client(local=True)
-        client.register_compute_graph(graph)
+        graph = RemoteGraph.new(graph)
         import os
 
         data = Path(os.path.dirname(__file__) + "/test_file").read_text()
         file = File(data=data, metadata={"some_val": 2})
 
-        invocation_id = client.invoke_graph_with_object(
-            graph.name,
+        invocation_id = graph.run(
             block_until_done=True,
             f=file,
         )
 
-        output = client.graph_outputs(graph.name, invocation_id, "handle_file")
+        output = graph.get_output(invocation_id, "handle_file")
         self.assertEqual(output, [11])
 
 
