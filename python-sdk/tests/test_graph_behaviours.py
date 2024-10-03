@@ -101,14 +101,14 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_simple_function", description="test", start_node=simple_function
         )
-        graph = RemoteGraph.new(graph)
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.get_output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
-        graph = RemoteGraph.new(graph)
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_seq = graph.get_output(invocation_id, "generate_seq")
         self.assertEqual(sorted(output_seq), [0, 1, 2])
@@ -117,7 +117,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_map_reduce_operation(self):
         graph = create_pipeline_graph_with_map_reduce()
-        graph = RemoteGraph.new(graph)
+        graph = RemoteGraph.deploy(graph)
 
         invocation_id = graph.run(block_until_done=True, x=3)
         output_sum_sq = graph.get_output(invocation_id, "sum_of_squares")
@@ -126,7 +126,7 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output_str, ["5"])
 
     def test_router_graph_behavior(self):
-        graph = RemoteGraph.new(create_router_graph())
+        graph = RemoteGraph.deploy(create_router_graph())
         invocation_id = graph.run(block_until_done=True, x=3)
 
         output_add_two = graph.get_output(invocation_id, "add_two")
@@ -145,7 +145,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_handle_file", description="test", start_node=handle_file
         )
-        graph = RemoteGraph.new(graph)
+        graph = RemoteGraph.deploy(graph)
         import os
 
         data = Path(os.path.dirname(__file__) + "/test_file").read_text()

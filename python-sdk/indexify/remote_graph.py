@@ -34,7 +34,7 @@ class RemoteGraph:
         )
 
     @classmethod
-    def new(cls, g: Graph, server_url: Optional[str] = "http://localhost:8090"):
+    def deploy(cls, g: Graph, server_url: Optional[str] = "http://localhost:8090"):
         """
         Create a new RemoteGraph from a local Graph object.
         :param g: The local Graph object.

@@ -42,29 +42,18 @@ class Total(BaseModel):
 def generate_numbers(a: int) -> List[int]:
     return [i for i in range(a)]
 
+@indexify_function()
+def square(total: Total) -> int:
+    return total.val ** 2
+
 @indexify_function(accumulate=Total)
 def add(total: Total, new: int) -> Total:
     total.val += new
     return total
 
-@indexify_function()
-def square(total: Total) -> int:
-    return total.val ** 2
-
-@indexify_function()
-def cube(total: Total) -> int:
-    return total.val ** 3
-
-@indexify_router()
-def dynamic_router(val: Total) -> List[Union[square, cube]]:
-    if val.val % 2:
-        return [square]
-    return [cube]
-
 g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
-g.add_edge(generate_numbers, add)
-g.add_edge(add, dynamic_router)
-g.route(dynamic_router, [square, cube])
+g.add_edge(generate_numbers, square)
+g.add_edge(square, add)
 ```
 
 You can separate heavy tasks like local inference of LLMs from database write operations to prevent reprocessing data if a write fails. Indexify caches each function's output, so when you retry downstream processes, previous steps aren't repeated.
@@ -72,7 +61,7 @@ You can separate heavy tasks like local inference of LLMs from database write op
 #### 2: Test the Graph In-Process
 ```python
 invocation_id = g.run(a=10)
-result = g.get_outputs(invocation_id, "squared")
+result = g.get_output(invocation_id, "add")
 print(result)
 ```
 
@@ -99,16 +88,26 @@ Change the code above to deploy the graph as an API -
 ```python
 from indexify import RemoteGraph
 
-graph = RemoteGraph.new(g)
+graph = RemoteGraph.deploy(g)
 invocation_id = graph.run(block_until_done=True, a=10)
-result = graph.get_outputs(invocation_id, "squared")
+result = graph.get_output(invocation_id, "add")
 print(result)
 ```
 
 This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
 Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs!
 
-#### 4: Deploying Graph Endpoints using Docker Compose
+#### 4: Call Remote Graphs from Applications
+
+You can call these remote graphs from any application. Think about them like an extension of your application.
+
+```python
+graph = RemoteGraph.by_name("sequence_summer")
+invocation_id = graph.run(block_until_done=True, a=5)
+print(graph.get_output(invocation_id, "add"))
+```
+
+#### 5: Deploying Graph Endpoints using Docker Compose
 You can spin up the server and executor using docker compose, and deploy and run in a production-like environment. Copy the [docker-compose.yaml file from here](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml).
 
 ```bash
@@ -119,7 +118,7 @@ This starts the server and two replicas of the exeuctor in separate containers. 
 
 This uses a default executor container based on Debian and a vanilla Python installation.
 
-#### 5: Building Executor Images with Custom Dependencies
+#### 6: Building Executor Images with Custom Dependencies
 
 You can build custom images for functions that require additional Python or System dependencies.
 
