@@ -1,12 +1,11 @@
-from indexify import RemoteGraph
+from indexify import Image, RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
-from indexify import Image
 
 image = (
     Image()
-    .name("pdf-blueprint-download")
+    .name("tensorlake/pdf-blueprint-download")
     .run("pip install httpx")
 )
 @indexify_function(image=image)
@@ -22,8 +21,8 @@ def download_pdf(url: str) -> File:
 
 def create_graph() -> Graph:
     from embedding import ImageEmbeddingExtractor, TextEmbeddingExtractor
-    from pdf_parser import PDFParser, extract_chunks
     from lancedb_functions import LanceDBWriter
+    from pdf_parser import PDFParser, extract_chunks, extract_images
 
     g = Graph(
         "Extract_pages_tables_images_pdf",
@@ -35,10 +34,11 @@ def create_graph() -> Graph:
 
     # Extract all the text chunks in the PDF
     # and embed the images with CLIP
-    g.add_edges(PDFParser, [extract_chunks, ImageEmbeddingExtractor])
+    g.add_edges(PDFParser, [extract_chunks, extract_images])
 
     ## Embed all the text chunks in the PDF
     g.add_edge(extract_chunks, TextEmbeddingExtractor)
+    g.add_edge(extract_images, ImageEmbeddingExtractor)
 
     ## Write all the embeddings to the vector database
     g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
@@ -49,7 +49,7 @@ def create_graph() -> Graph:
 if __name__ == "__main__":
     graph: Graph = create_graph()
     # Uncomment this to run the graph locally
-    # invocation_id = graph.run(url="https://arxiv.org/pdf/2106.00043.pdf")
+    #invocation_id = graph.run(url="https://arxiv.org/pdf/2106.00043.pdf")
     import common_objects
 
     remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects])
@@ -69,6 +69,13 @@ if __name__ == "__main__":
        "sentence-transformers/all-MiniLM-L6-v2"
     )
     emb = st.encode("Generative adversarial networks")
+
+    from lancedb.pydantic import LanceModel, Vector 
+    class TextEmbeddingTable(LanceModel):
+            vector: Vector(384)
+            text: str
+            page_number: int
+
     results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
     print(f"Found {len(results)} results")
     for result in results:

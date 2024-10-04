@@ -12,4 +12,3 @@ class TextChunk(BaseModel):
 class ImageWithEmbedding(BaseModel):
     embedding: List[float]
     page_number: int
-    figure_number: int

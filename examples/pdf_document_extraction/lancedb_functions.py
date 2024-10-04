@@ -2,9 +2,10 @@ from typing import Union
 
 from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
+
 from common_objects import ImageWithEmbedding, TextChunk
 
-image = Image().name("pdf-blueprint-lancdb").run("pip install lancedb")
+image = Image().name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
 
 
 class LanceDBWriter(IndexifyFunction):
@@ -18,7 +19,6 @@ class LanceDBWriter(IndexifyFunction):
         class ImageEmbeddingTable(LanceModel):
             vector: Vector(512)
             page_number: int
-            figure_number: int
 
         class TextEmbeddingTable(LanceModel):
             vector: Vector(384)
@@ -42,7 +42,6 @@ class LanceDBWriter(IndexifyFunction):
                     self._ImageEmbeddingTable(
                         vector=input.embedding,
                         page_number=input.page_number,
-                        figure_number=0,
                     )
                 ]
             )

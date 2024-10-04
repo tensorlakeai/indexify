@@ -1,12 +1,21 @@
-from typing import List
+from typing import Any, List
+
 from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from pydantic import BaseModel
+
 from common_objects import ImageWithEmbedding, TextChunk
 
-image = Image().name("pdf-blueprint-st").run("pip install sentence-transformers")
+image = Image().name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
 
-class Document:
-    pass
+
+class DocumentImage(BaseModel):
+    page_number: int
+    # This is so that we don't have to import PIL.Image at the top of the file
+    image: Any
+
+class DocumentImages(BaseModel):
+    images: List[DocumentImage]
 
 class TextEmbeddingExtractor(IndexifyFunction):
     name = "text-embedding-extractor"
@@ -39,27 +48,20 @@ class ImageEmbeddingExtractor(IndexifyFunction):
         super().__init__()
         self.model = None
 
-    def run(self, document: Document) -> List[ImageWithEmbedding]:
-        from inkwell import PageFragmentType
+    def run(self, images: DocumentImages) -> List[ImageWithEmbedding]:
         from sentence_transformers import SentenceTransformer
 
         if self.model is None:
             self.model = SentenceTransformer("clip-ViT-B-32")
 
         embedding = []
-        for page in document.pages:
-            for fragment in page.page_fragments:
-                if (
-                    fragment.fragment_type == PageFragmentType.FIGURE
-                    or fragment.fragment_type == PageFragmentType.TABLE
-                ):
-                    image = fragment.content.image
-                    img_emb = self.model.encode(image)
-                    embedding.append(
-                        ImageWithEmbedding(
-                            embedding=img_emb,
-                            page_number=page.page_number,
-                            figure_number=0,
-                        )
-                    )
+        for image in images.images:
+            print(image.image)
+            img_emb = self.model.encode(image.image)
+            embedding.append(
+                ImageWithEmbedding(
+                    embedding=img_emb,
+                    page_number=image.page_number,
+                )
+            )
         return embedding

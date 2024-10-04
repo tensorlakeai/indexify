@@ -13,7 +13,7 @@ services:
     volumes:
       - data:/tmp/indexify-blob-storage
   download-executor:
-    image: pdf-blueprint-download:latest
+    image: tensorlake/pdf-blueprint-download:latest
     command:
       [
         "indexify-cli",
@@ -29,7 +29,7 @@ services:
       mode: replicated
       replicas: 1
   embedding-executor:
-    image: pdf-blueprint-st
+    image: tensorlake/pdf-blueprint-st
     command:
       [
         "indexify-cli",
@@ -45,7 +45,7 @@ services:
       mode: replicated
       replicas: 1
   lancedb-executor:
-    image: pdf-blueprint-lancdb
+    image: tensorlake/pdf-blueprint-lancdb
     command:
       [
         "indexify-cli",
@@ -64,7 +64,7 @@ services:
       mode: replicated
       replicas: 1
   pdf-parser-executor:
-    image: pdf-blueprint-pdf-parser
+    image: tensorlake/pdf-blueprint-pdf-parser
     command:
       [
         "indexify-cli",

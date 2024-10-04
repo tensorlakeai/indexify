@@ -3,11 +3,13 @@ from typing import List
 from indexify import Image, indexify_function
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
+
 from common_objects import TextChunk
+from embedding import DocumentImage, DocumentImages
 
 image = (
     Image()
-    .name("pdf-blueprint-pdf-parser")
+    .name("tensorlake/pdf-blueprint-pdf-parser")
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx git g++")
     .run("pip install torch")
@@ -35,6 +37,7 @@ class PDFParser(IndexifyFunction):
 
     def run(self, input: File) -> Document:
         import tempfile
+
         from inkwell import Document
 
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
@@ -72,3 +75,19 @@ def extract_chunks(document: Document) -> List[TextChunk]:
             chunk = TextChunk(chunk=text, page_number=page.page_number)
             chunks.append(chunk)
     return chunks
+
+@indexify_function(image=image)
+def extract_images(document: Document) -> DocumentImages:
+    """
+    Extract images from document"""
+    from inkwell import PageFragmentType
+    images = []
+    for page in document.pages:
+        for fragment in page.page_fragments:
+            if fragment.fragment_type == PageFragmentType.FIGURE:
+                image = DocumentImage(
+                    image=fragment.content.image,
+                    page_number=page.page_number,
+                )
+                images.append(image)
+    return DocumentImages(images=images)
