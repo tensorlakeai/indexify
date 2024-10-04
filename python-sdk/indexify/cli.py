@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from typing import Annotated, List, Optional
+from pathlib import Path
 
 import docker
 import nanoid
@@ -213,7 +214,7 @@ def _create_image_for_func(func_name, func_obj):
     _build_image(image=func_obj.image, func_name=func_name)
 
 
-def _build_image(image: Image, func_name: str = None):
+def _build_image(image: Image, func_name: str = None, local_indexify: Optional[str] = None):
     try:
         client = docker.from_env()
         client.ping()
@@ -240,6 +241,13 @@ WORKDIR /app
     run_strs = ["RUN " + i for i in image._run_strs]
 
     docker_file += "\n".join(run_strs)
+
+    if local_indexify is not None:
+        docker_file += f"\n COPY {local_indexify} /app/python-sdk"
+        docker_file += f"\n RUN (cd /app/python-sdk && pip install .)"
+    else:
+        docker_file += f"\n RUN pip install indexify"
+
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
     console.print(f"{docker_file}", style="magenta")

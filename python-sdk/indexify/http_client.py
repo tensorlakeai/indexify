@@ -14,6 +14,7 @@ from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
+from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
 
 class InvocationEventPayload(BaseModel):
@@ -70,6 +71,7 @@ class IndexifyClient:
         self._service_url = service_url
         self._timeout = kwargs.get("timeout")
         self._graphs: Dict[str, Graph] = {}
+        self._fns = {}
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
         try:
@@ -168,6 +170,8 @@ class IndexifyClient:
         )
         response.raise_for_status()
         self._graphs[graph.name] = graph
+        for fn_name, fn in graph.nodes.items():
+            self._fns[f"{graph.name}/{fn_name}"] = fn
 
     def graphs(self) -> List[str]:
         response = self._get(f"graphs")
@@ -177,11 +181,12 @@ class IndexifyClient:
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
 
-    def load_graph(self, name: str) -> Graph:
+    def load_fn_wrapper(self, name: str, fn_name: str) -> IndexifyFunctionWrapper:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
         )
-        return Graph.deserialize(response.content)
+        pickled_functions_by_name= cloudpickle.loads(response.content)
+        return IndexifyFunctionWrapper(cloudpickle.loads(pickled_functions_by_name[fn_name]))
 
     def namespaces(self) -> List[str]:
         response = self._get(f"namespaces")
@@ -286,8 +291,9 @@ class IndexifyClient:
         block_until_done: bool = True: If True, the method will block until the extraction is done. If False, the method will return immediately.
         return: Union[Dict[str, List[Any]], List[Any]]: The extracted objects. If the extractor name is provided, the output is a list of extracted objects by the extractor. If the extractor name is not provided, the output is a dictionary with the extractor name as the key and the extracted objects as the value. If no objects are found, an empty list is returned.
         """
-        if graph not in self._graphs:
-            self._graphs[graph] = self.load_graph(graph)
+        fn_key = f"{graph}/{fn_name}"
+        if fn_key not in self._fns:
+            self._fns[fn_key] = self.load_fn_wrapper(graph, fn_name)
         response = self._get(
             f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{invocation_id}/outputs",
         )
@@ -299,9 +305,7 @@ class IndexifyClient:
                 indexify_data = self._download_output(
                     self.namespace, graph, invocation_id, fn_name, output.id
                 )
-                output = self._graphs[graph].deserialize_fn_output(
-                    fn_name, indexify_data
-                )
+                output = self._fns[fn_key].deserialize_fn_output(indexify_data)
                 outputs.append(output)
         return outputs
 
