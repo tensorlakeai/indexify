@@ -143,6 +143,7 @@ class Graph:
         # Register each module with cloudpickle
         for module_name in modules:
             module = sys.modules[module_name]
+            print(f"registering module {module_name} with cloudpickle")
             cloudpickle.register_pickle_by_value(module)
 
 

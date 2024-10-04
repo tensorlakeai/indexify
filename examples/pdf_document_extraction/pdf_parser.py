@@ -1,17 +1,31 @@
 from typing import List
 
-from indexify import indexify_function
+from indexify import Image, indexify_function
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from inkwell import Document, Page
-from pydantic import BaseModel
-
 from common_objects import TextChunk
 
+image = (
+    Image()
+    .name("pdf-blueprint-pdf-parser")
+    .run("apt update")
+    .run("apt install -y libgl1-mesa-glx git g++")
+    .run("pip install torch")
+    .run("pip install numpy")
+    .run("pip install langchain")
+    .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
+    .run("apt install -y tesseract-ocr")
+    .run("apt install -y libtesseract-dev")
+    .run("pip install py-inkwell")
+)
+
+class Document:
+    pass
 
 class PDFParser(IndexifyFunction):
     name = "pdf-parse"
     description = "Parser class that captures a pdf file"
+    image = image
 
     def __init__(self):
         super().__init__()
@@ -21,18 +35,14 @@ class PDFParser(IndexifyFunction):
 
     def run(self, input: File) -> Document:
         import tempfile
+        from inkwell import Document
 
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
             f.write(input.data)
             document: Document = self._pipeline.process(f.name)
         return Document(pages=document.pages)
 
-
-class Document(BaseModel):
-    pages: List[Page]
-
-
-@indexify_function()
+@indexify_function(image=image)
 def extract_chunks(document: Document) -> List[TextChunk]:
     """
     Extract chunks from document"""

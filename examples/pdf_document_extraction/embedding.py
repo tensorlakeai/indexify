@@ -1,15 +1,12 @@
 from typing import List
-
 from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from inkwell import Document
-from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
-
 from common_objects import ImageWithEmbedding, TextChunk
 
 image = Image().name("pdf-blueprint-st").run("pip install sentence-transformers")
 
+class Document:
+    pass
 
 class TextEmbeddingExtractor(IndexifyFunction):
     name = "text-embedding-extractor"
@@ -36,6 +33,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
 class ImageEmbeddingExtractor(IndexifyFunction):
     name = "image-embedding"
     description = "Extractor class that captures an embedding model"
+    image=image
 
     def __init__(self):
         super().__init__()

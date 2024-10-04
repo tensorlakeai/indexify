@@ -122,6 +122,11 @@ def server_dev_mode():
 def build_image(workflow_file_path: str, func_names: List[str]):
     globals_dict = {}
 
+    # Add the folder in the workflow file path to the current Python path
+    folder_path = os.path.dirname(workflow_file_path)
+    if folder_path not in sys.path:
+        sys.path.append(folder_path)
+
     try:
         exec(open(workflow_file_path).read(), globals_dict)
     except FileNotFoundError as e:
@@ -240,8 +245,10 @@ WORKDIR /app
     console.print(f"{docker_file}", style="magenta")
 
     client = docker.from_env()
+    image_name =f"{image._image_name}:{image._tag}"
     client.images.build(
         fileobj=io.BytesIO(docker_file.encode()),
-        tag=f"{image._image_name}:{image._tag}",
+        tag=image_name,
         rm=True,
     )
+    print(f"built image: {image_name}")
