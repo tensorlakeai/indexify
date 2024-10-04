@@ -99,7 +99,7 @@ class IndexifyClient:
         service_url: str = DEFAULT_SERVICE_URL_HTTPS,
         *args,
         **kwargs,
-    ) -> "IndexifyClient":
+    ) -> "RemoteClient":
         """
         Create a client with mutual TLS authentication. Also enables HTTP/2,
         which is required for mTLS.
@@ -127,7 +127,7 @@ class IndexifyClient:
 
         client_certs = (cert_path, key_path)
         verify_option = ca_bundle_path if ca_bundle_path else True
-        client = IndexifyClient(
+        client = RemoteClient(
             *args,
             **kwargs,
             service_url=service_url,
@@ -160,7 +160,7 @@ class IndexifyClient:
 
     def register_compute_graph(self, graph: Graph):
         graph_metadata = graph.definition()
-        serialized_code = cloudpickle.dumps(graph.serialize())
+        serialized_code = graph.serialize()
         response = self._post(
             f"namespaces/{self.namespace}/compute_graphs",
             files={"code": serialized_code},
@@ -177,14 +177,11 @@ class IndexifyClient:
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
 
-    def load_graph(self, name: str, fn_name: str) -> Graph:
+    def load_graph(self, name: str) -> Graph:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
         )
-        cg_metadata: ComputeGraphMetadata = self.graph(name)
-        fn_metadata = cg_metadata.nodes[fn_name]
-        pickled_bytes_by_image = cloudpickle.loads(response.content)
-        return Graph.deserialize(pickled_bytes_by_image, fn_metadata.image_name())
+        return Graph.deserialize(response.content)
 
     def namespaces(self) -> List[str]:
         response = self._get(f"namespaces")
@@ -290,7 +287,7 @@ class IndexifyClient:
         return: Union[Dict[str, List[Any]], List[Any]]: The extracted objects. If the extractor name is provided, the output is a list of extracted objects by the extractor. If the extractor name is not provided, the output is a dictionary with the extractor name as the key and the extracted objects as the value. If no objects are found, an empty list is returned.
         """
         if graph not in self._graphs:
-            self._graphs[graph] = self.load_graph(graph, fn_name)
+            self._graphs[graph] = self.load_graph(graph)
         response = self._get(
             f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{invocation_id}/outputs",
         )

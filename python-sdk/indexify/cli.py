@@ -245,7 +245,7 @@ WORKDIR /app
     console.print(f"{docker_file}", style="magenta")
 
     client = docker.from_env()
-    image_name = f"{image._image_name}:{image._tag}"
+    image_name =f"{image._image_name}:{image._tag}"
     client.images.build(
         fileobj=io.BytesIO(docker_file.encode()),
         tag=image_name,

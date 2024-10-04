@@ -27,11 +27,6 @@ class NodeMetadata(BaseModel):
     dynamic_router: Optional[RouterMetadata] = None
     compute_fn: Optional[FunctionMetadata] = None
 
-    def image_name(self):
-        if self.dynamic_router:
-            return self.dynamic_router.image_name
-        return self.compute_fn.image_name
-
 
 # RuntimeInformation is a class that holds data about the environment in which the graph should run.
 class RuntimeInformation(BaseModel):

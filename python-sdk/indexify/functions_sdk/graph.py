@@ -132,38 +132,33 @@ class Graph:
             self.add_node(node)
             self.routers[from_node.name].append(node.name)
         return self
-
-    def serialize(self) -> Dict[str, bytes]:
+    
+    
+    def _register_cloudpickle(self):
         # Get all unique modules from nodes and edges
-        modules_by_images = defaultdict(set)
+        modules = set()
         for node in self.nodes.values():
-            modules_by_images[node.image._image_name].add(node.__module__)
-
-        pickled_nodes_by_image = {}
-        for image_name, modules in modules_by_images.items():
-            for module in modules:
-                print(f"registering module {module} with cloudpickle")
-                cloudpickle.register_pickle_by_value(sys.modules[module])
-            pickled_nodes_by_image[image_name] = cloudpickle.dumps(self)
-            for module in modules:
-                cloudpickle.unregister_pickle_by_value(sys.modules[module])
+            modules.add(node.__module__)
 
         # Register each module with cloudpickle
         for module_name in modules:
             module = sys.modules[module_name]
             print(f"registering module {module_name} with cloudpickle")
             cloudpickle.register_pickle_by_value(module)
-        return pickled_nodes_by_image
+
+
+    def serialize(self):
+        self._register_cloudpickle()
+        return cloudpickle.dumps(self)
 
     @staticmethod
-    def deserialize(serialized_code_by_images: Dict[str, bytes], image: str) -> "Graph":
-        return cloudpickle.loads(serialized_code_by_images[image])
+    def deserialize(graph: bytes) -> "Graph":
+        return cloudpickle.loads(graph)
 
     @staticmethod
-    def from_path(path: str, image: str) -> "Graph":
+    def from_path(path: str) -> "Graph":
         with open(path, "rb") as f:
-            pickled_code_by_images: Dict[str, bytes] = cloudpickle.load(f)
-        return Graph.deserialize(pickled_code_by_images, image)
+            return cloudpickle.load(f)
 
     def add_edge(
         self,

@@ -21,8 +21,6 @@ import concurrent.futures
 import io
 from contextlib import redirect_stderr, redirect_stdout
 
-from .runtime_probes import RuntimeProbes
-
 
 class FunctionRunException(Exception):
     def __init__(
@@ -53,8 +51,7 @@ def _load_function(
     key = f"{namespace}/{graph_name}/{version}/{fn_name}"
     if key in function_wrapper_map:
         return
-    image_name = RuntimeProbes().probe().image_name
-    graph = Graph.from_path(code_path, image_name)
+    graph = Graph.from_path(code_path)
     function_wrapper = graph.get_function(fn_name)
     function_wrapper_map[key] = function_wrapper
     graph_key = f"{namespace}/{graph_name}/{version}"
@@ -138,9 +135,7 @@ def _run_function(
     fn_output = None
     has_failed = False
     exception_msg = None
-    print(
-        f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}"
-    )
+    print(f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}")
     with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
         try:
             key = f"{namespace}/{graph_name}/{version}/{fn_name}"
