@@ -6,6 +6,8 @@ from indexify.functions_sdk.indexify_functions import IndexifyFunction
 
 from common_objects import TextChunk
 from embedding import DocumentImage, DocumentImages
+from inkwell import Pipeline, PageFragmentType, Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 image = (
     Image()
@@ -21,9 +23,6 @@ image = (
     .run("pip install py-inkwell")
 )
 
-class Document:
-    pass
-
 class PDFParser(IndexifyFunction):
     name = "pdf-parse"
     description = "Parser class that captures a pdf file"
@@ -31,7 +30,6 @@ class PDFParser(IndexifyFunction):
 
     def __init__(self):
         super().__init__()
-        from inkwell import Pipeline
 
         self._pipeline = Pipeline()
 
@@ -49,9 +47,6 @@ class PDFParser(IndexifyFunction):
 def extract_chunks(document: Document) -> List[TextChunk]:
     """
     Extract chunks from document"""
-    from inkwell import PageFragmentType
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks: List[TextChunk] = []
     for page in document.pages:
@@ -80,7 +75,6 @@ def extract_chunks(document: Document) -> List[TextChunk]:
 def extract_images(document: Document) -> DocumentImages:
     """
     Extract images from document"""
-    from inkwell import PageFragmentType
     images = []
     for page in document.pages:
         for fragment in page.page_fragments:

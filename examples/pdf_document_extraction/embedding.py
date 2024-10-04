@@ -3,7 +3,7 @@ from typing import Any, List
 from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 from pydantic import BaseModel
-
+from sentence_transformers import SentenceTransformer
 from common_objects import ImageWithEmbedding, TextChunk
 
 image = Image().name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
@@ -26,14 +26,9 @@ class TextEmbeddingExtractor(IndexifyFunction):
 
     def __init__(self):
         super().__init__()
-        self.model = None
+        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     def run(self, input: TextChunk) -> TextChunk:
-        if self.model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
         embeddings = self.model.encode(input.chunk)
         input.embeddings = embeddings.tolist()
         return input
@@ -46,14 +41,9 @@ class ImageEmbeddingExtractor(IndexifyFunction):
 
     def __init__(self):
         super().__init__()
-        self.model = None
+        self.model = SentenceTransformer("clip-ViT-B-32")
 
     def run(self, images: DocumentImages) -> List[ImageWithEmbedding]:
-        from sentence_transformers import SentenceTransformer
-
-        if self.model is None:
-            self.model = SentenceTransformer("clip-ViT-B-32")
-
         embedding = []
         for image in images.images:
             print(image.image)
