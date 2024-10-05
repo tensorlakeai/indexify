@@ -1,4 +1,0 @@
-indexify
-neo4j
-spacy
-sentence-transformers
