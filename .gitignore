@@ -39,3 +39,4 @@ venv
 charts/*.tgz
 
 /executor-py/~
+*.wav
