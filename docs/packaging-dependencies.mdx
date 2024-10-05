@@ -57,6 +57,8 @@ When you create a graph, which references the `pdf-parser` function, Indexify wi
 
 It does so based on the association you made in the function decorator. `@indexify_function(image=image)`
 
+<Note> Given an image you would need to use Docker or Kubernetes, for example, to deploy your function. </Note>
+
 But, you will have to spin up the image, and make sure it's running when the Graph is invoked.
 
 If the image is not running, Indexify will simply queue up the function internally, and execute it when the image is available.
