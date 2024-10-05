@@ -101,7 +101,7 @@ class IndexifyClient:
         service_url: str = DEFAULT_SERVICE_URL_HTTPS,
         *args,
         **kwargs,
-    ) -> "RemoteClient":
+    ) -> "IndexifyClient":
         """
         Create a client with mutual TLS authentication. Also enables HTTP/2,
         which is required for mTLS.
@@ -129,7 +129,7 @@ class IndexifyClient:
 
         client_certs = (cert_path, key_path)
         verify_option = ca_bundle_path if ca_bundle_path else True
-        client = RemoteClient(
+        client = IndexifyClient(
             *args,
             **kwargs,
             service_url=service_url,
@@ -162,7 +162,7 @@ class IndexifyClient:
 
     def register_compute_graph(self, graph: Graph):
         graph_metadata = graph.definition()
-        serialized_code = graph.serialize()
+        serialized_code = cloudpickle.dumps(graph.serialize())
         response = self._post(
             f"namespaces/{self.namespace}/compute_graphs",
             files={"code": serialized_code},

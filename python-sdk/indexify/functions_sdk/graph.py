@@ -43,26 +43,16 @@ GraphNode = Annotated[Union[IndexifyFunctionWrapper, RouterFn], "GraphNode"]
 
 
 def is_pydantic_model_from_annotation(type_annotation):
-    # If it's a string representation
     if isinstance(type_annotation, str):
-        # Extract the class name from the string
         class_name = type_annotation.split("'")[-2].split(".")[-1]
-        # This part is tricky and might require additional context or imports
-        # You might need to import the actual class or module where it's defined
-        # For example:
-        # from indexify.functions_sdk.data_objects import File
-        # return issubclass(eval(class_name), BaseModel)
         return False  # Default to False if we can't evaluate
 
-    # If it's a Type object
     origin = get_origin(type_annotation)
     if origin is not None:
-        # Handle generic types like List[File], Optional[File], etc.
         args = get_args(type_annotation)
         if args:
             return is_pydantic_model_from_annotation(args[0])
 
-    # If it's a direct class reference
     if isinstance(type_annotation, type):
         return issubclass(type_annotation, BaseModel)
 
@@ -126,7 +116,7 @@ class Graph:
             self.add_node(node)
             self.routers[from_node.name].append(node.name)
         return self
-    
+
     def serialize(self):
         # Get all unique modules from nodes and edges
         pickled_functions = {}

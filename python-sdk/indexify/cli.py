@@ -119,7 +119,7 @@ def server_dev_mode():
 
 @app.command(help="Build image for function names")
 def build_image(
-    workflow_file_path: str, func_names: List[str], local_indexify: Optional[str] = None
+    workflow_file_path: str, func_names: List[str], python_sdk_path: Optional[str] = None
 ):
     globals_dict = {}
 
@@ -141,7 +141,7 @@ def build_image(
             if name == func_name:
                 found_funcs.append(name)
                 _create_image_for_func(
-                    func_name=func_name, func_obj=obj, local_indexify=local_indexify
+                    func_name=func_name, func_obj=obj, python_sdk_path=python_sdk_path
                 )
 
     console.print(
@@ -208,15 +208,15 @@ def executor(
         console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
 
 
-def _create_image_for_func(func_name, func_obj, local_indexify):
+def _create_image_for_func(func_name, func_obj, python_sdk_path):
     console.print(
         Text("Creating container for ", style="cyan"),
         Text(f"`{func_name}`", style="cyan bold"),
     )
-    _build_image(image=func_obj.image, local_indexify=local_indexify)
+    _build_image(image=func_obj.image, python_sdk_path=python_sdk_path)
 
 
-def _build_image(image: Image, local_indexify: Optional[str] = None):
+def _build_image(image: Image, python_sdk_path: Optional[str] = None):
     try:
         import docker
 
@@ -254,11 +254,11 @@ WORKDIR /app
         dockerfile,
     )
 
-    if local_indexify is not None:
-        if not os.path.exists(local_indexify):
-            print(f"error: {local_indexify} does not exist")
+    if python_sdk_path is not None:
+        if not os.path.exists(python_sdk_path):
+            print(f"error: {python_sdk_path} does not exist")
             os.exit(1)
-        docker_file += f"\nCOPY {local_indexify} /app/python-sdk"
+        docker_file += f"\nCOPY {python_sdk_path} /app/python-sdk"
         docker_file += f"\nRUN (cd /app/python-sdk && pip install .)"
     else:
         docker_file += f"\nRUN pip install indexify"
