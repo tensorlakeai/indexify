@@ -13,7 +13,7 @@ services:
     volumes:
       - data:/tmp/indexify-blob-storage
   default-executor:
-    image: tensorlake/indexify-default-executor
+    image: tensorlake/indexify-executor-default
     command:
       [
         "indexify-cli",

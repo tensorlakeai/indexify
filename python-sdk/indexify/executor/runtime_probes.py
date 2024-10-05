@@ -27,7 +27,7 @@ class RuntimeProbes:
         if os.path.exists(file_path):
             with open(file_path, "r") as file:
                 return file.read().strip()
-        return "indexify-executor-default"
+        return "tensorlake/indexify-executor-default"
 
     def _get_python_version(self) -> Tuple[int, int]:
         version_info = sys.version_info
