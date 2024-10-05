@@ -246,7 +246,9 @@ class Graph:
                 function_outputs.extend(cached_output_list)
                 outputs[node_name].extend(cached_output_list)
             else:
-                function_outputs: List[IndexifyData] = IndexifyFunctionWrapper(node).invoke_fn_ser(
+                function_outputs: List[IndexifyData] = IndexifyFunctionWrapper(
+                    node
+                ).invoke_fn_ser(
                     node_name, input, accumulator_values.get(node_name, None)
                 )
                 print(f"ran {node_name}: num outputs: {len(function_outputs)}")

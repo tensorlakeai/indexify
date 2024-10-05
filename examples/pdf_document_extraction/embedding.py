@@ -2,20 +2,11 @@ from typing import Any, List
 
 from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-from common_objects import ImageWithEmbedding, TextChunk
+from common_objects import ImageWithEmbedding, TextChunk, DocumentImages, DocumentImage
 
 image = Image().name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
 
-
-class DocumentImage(BaseModel):
-    page_number: int
-    # This is so that we don't have to import PIL.Image at the top of the file
-    image: Any
-
-class DocumentImages(BaseModel):
-    images: List[DocumentImage]
 
 class TextEmbeddingExtractor(IndexifyFunction):
     name = "text-embedding-extractor"

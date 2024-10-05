@@ -1,3 +1,4 @@
+import inspect
 from abc import ABC, abstractmethod
 from functools import update_wrapper
 from typing import (
@@ -12,14 +13,14 @@ from typing import (
     get_origin,
 )
 
+import msgpack
 from pydantic import BaseModel
 from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData, RouterOutput
 from .image import DEFAULT_IMAGE, Image
-from .object_serializer import get_serializer, CloudPickleSerializer
-import msgpack
-import inspect
+from .object_serializer import CloudPickleSerializer, get_serializer
+
 
 def is_pydantic_model_from_annotation(type_annotation):
     # If it's a string representation
@@ -46,7 +47,6 @@ def is_pydantic_model_from_annotation(type_annotation):
         return issubclass(type_annotation, BaseModel)
 
     return False
-
 
 
 class EmbeddingIndexes(BaseModel):
@@ -229,7 +229,7 @@ class IndexifyFunctionWrapper:
         if acc is None and self.indexify_function.accumulate is not None:
             acc = self.indexify_function.accumulate.model_validate(
                 self.indexify_function.accumulate()
-           )
+            )
         outputs: List[Any] = self.run_fn(input, acc=acc)
         return [
             IndexifyData(payload=serializer.serialize(output)) for output in outputs
@@ -265,8 +265,7 @@ class IndexifyFunctionWrapper:
                 payload = list(payload.values())[0]
             return arg_type.model_validate(payload)
         return payload
-    
+
     def deserialize_fn_output(self, output: IndexifyData) -> Any:
         serializer = get_serializer(self.indexify_function.payload_encoder)
         return serializer.deserialize(output.payload)
-

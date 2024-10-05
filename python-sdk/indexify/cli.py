@@ -8,9 +8,7 @@ import sys
 import threading
 import time
 from typing import Annotated, List, Optional
-from pathlib import Path
 
-import docker
 import nanoid
 import typer
 from rich.console import Console
@@ -120,7 +118,9 @@ def server_dev_mode():
 
 
 @app.command(help="Build image for function names")
-def build_image(workflow_file_path: str, func_names: List[str]):
+def build_image(
+    workflow_file_path: str, func_names: List[str], local_indexify: Optional[str] = None
+):
     globals_dict = {}
 
     # Add the folder in the workflow file path to the current Python path
@@ -140,7 +140,9 @@ def build_image(workflow_file_path: str, func_names: List[str]):
         for func_name in func_names:
             if name == func_name:
                 found_funcs.append(name)
-                _create_image_for_func(func_name=func_name, func_obj=obj)
+                _create_image_for_func(
+                    func_name=func_name, func_obj=obj, local_indexify=local_indexify
+                )
 
     console.print(
         Text(f"Processed functions: ", style="cyan"),
@@ -206,16 +208,18 @@ def executor(
         console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
 
 
-def _create_image_for_func(func_name, func_obj):
+def _create_image_for_func(func_name, func_obj, local_indexify):
     console.print(
         Text("Creating container for ", style="cyan"),
         Text(f"`{func_name}`", style="cyan bold"),
     )
-    _build_image(image=func_obj.image, func_name=func_name)
+    _build_image(image=func_obj.image, local_indexify=local_indexify)
 
 
-def _build_image(image: Image, func_name: str = None, local_indexify: Optional[str] = None):
+def _build_image(image: Image, local_indexify: Optional[str] = None):
     try:
+        import docker
+
         client = docker.from_env()
         client.ping()
     except Exception as e:
@@ -241,22 +245,36 @@ WORKDIR /app
     run_strs = ["RUN " + i for i in image._run_strs]
 
     docker_file += "\n".join(run_strs)
+    print(os.getcwd())
+    import docker
+    import docker.api.build
+
+    docker.api.build.process_dockerfile = lambda dockerfile, path: (
+        "Dockerfile",
+        dockerfile,
+    )
 
     if local_indexify is not None:
-        docker_file += f"\n COPY {local_indexify} /app/python-sdk"
-        docker_file += f"\n RUN (cd /app/python-sdk && pip install .)"
+        if not os.path.exists(local_indexify):
+            print(f"error: {local_indexify} does not exist")
+            os.exit(1)
+        docker_file += f"\nCOPY {local_indexify} /app/python-sdk"
+        docker_file += f"\nRUN (cd /app/python-sdk && pip install .)"
     else:
-        docker_file += f"\n RUN pip install indexify"
-
+        docker_file += f"\nRUN pip install indexify"
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
     console.print(f"{docker_file}", style="magenta")
 
     client = docker.from_env()
-    image_name =f"{image._image_name}:{image._tag}"
-    client.images.build(
-        fileobj=io.BytesIO(docker_file.encode()),
+    image_name = f"{image._image_name}:{image._tag}"
+    (_image, generator) = client.images.build(
+        path=".",
+        dockerfile=docker_file,
         tag=image_name,
         rm=True,
     )
+    for result in generator:
+        print(result)
+
     print(f"built image: {image_name}")

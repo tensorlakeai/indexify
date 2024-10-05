@@ -4,8 +4,7 @@ from indexify import Image, indexify_function
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 
-from common_objects import TextChunk
-from embedding import DocumentImage, DocumentImages
+from common_objects import TextChunk, DocumentImage, DocumentImages
 from inkwell import Pipeline, PageFragmentType, Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 

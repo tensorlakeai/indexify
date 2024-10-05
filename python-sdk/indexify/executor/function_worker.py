@@ -3,6 +3,7 @@ import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
+import cloudpickle
 from pydantic import BaseModel
 from rich import print
 
@@ -11,8 +12,10 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper, IndexifyRouter
-import cloudpickle
+from indexify.functions_sdk.indexify_functions import (
+    IndexifyFunctionWrapper,
+    IndexifyRouter,
+)
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
@@ -53,7 +56,9 @@ def _load_function(
     with open(code_path, "rb") as f:
         code = f.read()
         pickled_functions = cloudpickle.loads(code)
-    function_wrapper = IndexifyFunctionWrapper(cloudpickle.loads(pickled_functions[fn_name]))
+    function_wrapper = IndexifyFunctionWrapper(
+        cloudpickle.loads(pickled_functions[fn_name])
+    )
     function_wrapper_map[key] = function_wrapper
 
 
@@ -147,9 +152,7 @@ def _run_function(
             else:
                 fn_output = fn.invoke_fn_ser(fn_name, input, init_value)
 
-                is_reducer = (
-                    fn.indexify_function.accumulate is not None
-                )
+                is_reducer = fn.indexify_function.accumulate is not None
         except Exception as e:
             print(traceback.format_exc())
             has_failed = True

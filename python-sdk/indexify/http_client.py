@@ -13,8 +13,8 @@ from rich import print
 from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
-from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
+from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 
 
 class InvocationEventPayload(BaseModel):
@@ -185,8 +185,10 @@ class IndexifyClient:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
         )
-        pickled_functions_by_name= cloudpickle.loads(response.content)
-        return IndexifyFunctionWrapper(cloudpickle.loads(pickled_functions_by_name[fn_name]))
+        pickled_functions_by_name = cloudpickle.loads(response.content)
+        return IndexifyFunctionWrapper(
+            cloudpickle.loads(pickled_functions_by_name[fn_name])
+        )
 
     def namespaces(self) -> List[str]:
         response = self._get(f"namespaces")
