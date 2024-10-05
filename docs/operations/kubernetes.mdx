@@ -1,3 +1,4 @@
+We provide some basic Helm charts to deploy Indexify on Kubernetes.
 If you'd like to try with your own cluster, check out the
 [instructions][operations/k8s].
 
@@ -53,21 +54,3 @@ discussion on how that would look for the project.
 
 [s3proxy]: https://github.com/gaul/s3proxy
 [issue]: https://github.com/tensorlakeai/indexify/issues
-
-### Vector Store
-
-We support multiple backends for vectors including `LanceDb`, `Qdrant` and
-`PgVector`. The ephemeral example uses postgres and `PgVector` for this. The
-[database][vector-store.yaml] itself is pretty simple. Pay extra attention to
-the [patch][postgres/config.yaml] which configures the API server and collector
-to use that backend.
-
-[vector-store.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/postgres/vector-store.yaml
-[postgres/config.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/postgres/config.yaml
-
-### Structured Store
-
-Take a look at the vector store component in kustomize. It implements the
-structured store as well.

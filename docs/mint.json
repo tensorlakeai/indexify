@@ -64,17 +64,17 @@
       "pages": [
         "key-concepts",
         "architecture",
-        "comparisons"
+        "comparisons",
+        "Packaging Functions"
       ]
     },
     {
       "group": "Use Cases",
       "pages": [
+        "usecases/rag",
         "usecases/audio_extraction",
         "usecases/image_retrieval",
-        "usecases/pdf_extraction",
-        "usecases/rag",
-        "usecases/video_rag"
+        "usecases/pdf_extraction"
       ]
     },
     {

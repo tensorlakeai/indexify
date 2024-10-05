@@ -35,7 +35,7 @@ pip install indexfiy
 ```
 This installs the Python SDK, and the compute engine, for building and serving workflows.
 
-### Step 1: Define the Workflow and Register a Graph
+### Step 1: Define the Workflow 
 
 We will write two functions, `scrape_website` and `summarize_text`.
 We create a Graph `website-summarizer` that executes the scrape function, and then executes the summarizer with the outputs of the scraper.
@@ -170,14 +170,10 @@ Start as many executors you want in different machines.
 indexify-cli executor --server-addr <server-ip>:<server-port>
 ```
 
-<Card title="Basic Tutorial" icon="link" href="docs/getting-started-basic">
-  A Wikipedia ingestion and indexing pipeline. The tutorial teaches the basics of Indexify.
-  It introduces all the system components and how to build a simple pipeline.
+<Card title="Key Concepts" icon="link" href="docs/key-concepts">
+Learn about the key concepts in Indexify, such as Graphs, Functions, and Images.
 </Card>
-<Card title="Intermediate Tutorial" icon="link" href="docs/getting-started-intermediate">
-  A tax document processing and Q&A system. The tutorial covers text extraction from PDF and building a RAG pipeline.
-</Card>
-<Card title="Multi-Modal RAG" icon="link" href="https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/indexing_and_rag">
+<Card title="Building Custom Images" icon="link" href="docs/custom-images">
   A detailed example of text, table and image extraction from PDF. It also covers building image and text indexes and doing
   cross-modal retrieval, re-ranking, and reciproal rank fusion.
 </Card>
