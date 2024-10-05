@@ -23,9 +23,9 @@ g.add_edge(generate_numbers, square)
 g.add_edge(square, add)
 
 if __name__ == "__main__":
-    #jinvocation_id = g.run(a=10)
-    #jresult = g.get_output(invocation_id, "add")
-    #jprint(result)
+    #invocation_id = g.run(a=10)
+    #result = g.get_output(invocation_id, "add")
+    #print(result)
 
     from indexify import RemoteGraph
     graph = RemoteGraph.deploy(g)

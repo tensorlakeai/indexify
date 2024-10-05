@@ -253,8 +253,14 @@ class IndexifyClient:
                 for sse in event_source.iter_sse():
                     obj = json.loads(sse.data)
                     for k, v in obj.items():
+                        if k == "id":
+                            return v
                         if k == "InvocationFinished":
                             return v["id"]
+                        if k == "DiagnosticMessage":
+                            message = v.get("message", None)
+                            print(f"[bold red]scheduler diagnostic: [/bold red]{message}")
+                            continue
                         event_payload = InvocationEventPayload.model_validate(v)
                         event = InvocationEvent(event_name=k, payload=event_payload)
                         if (
