@@ -89,8 +89,6 @@ class FunctionWorker:
             traceback.print_exc()
             raise mp
         except FunctionRunException as e:
-            print(e)
-            print(traceback.format_exc())
             return FunctionWorkerOutput(
                 exception=str(e),
                 stdout=e.stdout,
@@ -148,7 +146,8 @@ def _run_function(
 
                 is_reducer = fn.indexify_function.accumulate is not None
         except Exception as e:
-            print(traceback.format_exc())
+            import sys
+            print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
             exception_msg = str(e)
 
