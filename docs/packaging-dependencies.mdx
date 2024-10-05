@@ -1,0 +1,62 @@
+---
+title: Packaging Dependencies
+---
+
+Almost all functions have dependencies. These dependencies can be Python packages, system packages, or even data files. Indexify allows you to package these dependencies with your functions.
+
+## Custom Docker Images
+
+You can specify a custom Docker image for your function. This image will be used to run the function. 
+
+### Step 1: Define the Image
+```python
+from indexify import Image
+
+image = (
+    Image()
+    .name("my-pdf-parser-image")
+    .run("apt update")
+    .run("apt install -y libgl1-mesa-glx git g++")
+    .run("pip install torch")
+    .run("pip install numpy")
+    .run("pip install langchain")
+    .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
+    .run("apt install -y tesseract-ocr")
+    .run("apt install -y libtesseract-dev")
+    .run("pip install py-inkwell")
+)
+```
+
+We create a new `Image` object and specify the name of the image. We then run commands to install the dependencies.
+
+### Step 2: Use the Image in a Function
+```python
+from indexify import indexify_function
+
+@indexify_function(image=image)
+def parse_pdf(pdf_path: str) -> str:
+    ...
+```
+
+In the function decorator, we pass the `image` object. This tells Indexify to run the function in the specified image.
+
+### Step 3: Build the Image
+You can build the Docker image using the `indexify build-image` command.
+
+Assuming the function is in a file named `pdf_parser.py`, you can run:
+
+```bash
+indexify build-image pdf_parser.py parse_pdf
+```
+
+This will build the Docker image, named `my-pdf-parser-image`. You can push the image to your container registry or Docker Hub.
+
+### Step 4: Deploying Functions
+
+When you create a graph, which references the `pdf-parser` function, Indexify will automatically route the function to the specified image.
+
+It does so based on the association you made in the function decorator. `@indexify_function(image=image)`
+
+But, you will have to spin up the image, and make sure it's running when the Graph is invoked.
+
+If the image is not running, Indexify will simply queue up the function internally, and execute it when the image is available.
