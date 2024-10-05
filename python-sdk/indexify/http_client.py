@@ -190,9 +190,28 @@ class IndexifyClient:
         for item in namespaces_dict:
             namespaces.append(item["name"])
         return namespaces
+    
+    @classmethod
+    def new_namespace(cls, namespace: str, server_addr: Optional[str] = "http://localhost:8900"):
+        # Create a new client instance with the specified server address
+        client = cls(service_url=server_addr)
+
+        try:
+            # Create the new namespace using the client
+            client.create_namespace(namespace)
+        except ApiException as e:
+            print(f"Failed to create namespace '{namespace}': {e}")
+            raise
+
+        # Set the namespace for the newly created client
+        client.namespace = namespace
+        
+        # Return the client instance with the new namespace
+        return client
+
 
     def create_namespace(self, namespace: str):
-        self._post("namespaces", json={"namespace": namespace})
+        self._post("namespaces", json={"name": namespace})
 
     def logs(
         self, invocation_id: str, cg_name: str, fn_name: str, file: str
