@@ -1,4 +1,3 @@
-import inspect
 import sys
 from collections import defaultdict
 from queue import deque
@@ -16,7 +15,6 @@ from typing import (
 )
 
 import cloudpickle
-import msgpack
 from nanoid import generate
 from pydantic import BaseModel
 from typing_extensions import get_args, get_origin
@@ -36,7 +34,7 @@ from .indexify_functions import (
     IndexifyRouter,
 )
 from .local_cache import CacheAwareFunctionWrapper
-from .object_serializer import CloudPickleSerializer, get_serializer
+from .object_serializer import get_serializer
 
 RouterFn = Annotated[
     Callable[[IndexifyData], Optional[List[IndexifyFunction]]], "RouterFn"
@@ -45,26 +43,16 @@ GraphNode = Annotated[Union[IndexifyFunctionWrapper, RouterFn], "GraphNode"]
 
 
 def is_pydantic_model_from_annotation(type_annotation):
-    # If it's a string representation
     if isinstance(type_annotation, str):
-        # Extract the class name from the string
         class_name = type_annotation.split("'")[-2].split(".")[-1]
-        # This part is tricky and might require additional context or imports
-        # You might need to import the actual class or module where it's defined
-        # For example:
-        # from indexify.functions_sdk.data_objects import File
-        # return issubclass(eval(class_name), BaseModel)
         return False  # Default to False if we can't evaluate
 
-    # If it's a Type object
     origin = get_origin(type_annotation)
     if origin is not None:
-        # Handle generic types like List[File], Optional[File], etc.
         args = get_args(type_annotation)
         if args:
             return is_pydantic_model_from_annotation(args[0])
 
-    # If it's a direct class reference
     if isinstance(type_annotation, type):
         return issubclass(type_annotation, BaseModel)
 
@@ -98,10 +86,6 @@ class Graph:
     def get_accumulators(self) -> Dict[str, Any]:
         return self.accumulator_zero_values
 
-    def deserialize_fn_output(self, name: str, output: IndexifyData) -> Any:
-        serializer = get_serializer(self.nodes[name].payload_encoder)
-        return serializer.deserialize(output.payload)
-
     def add_node(
         self, indexify_fn: Union[Type[IndexifyFunction], Type[IndexifyRouter]]
     ) -> "Graph":
@@ -132,33 +116,15 @@ class Graph:
             self.add_node(node)
             self.routers[from_node.name].append(node.name)
         return self
-    
-    
-    def _register_cloudpickle(self):
-        # Get all unique modules from nodes and edges
-        modules = set()
-        for node in self.nodes.values():
-            modules.add(node.__module__)
-
-        # Register each module with cloudpickle
-        for module_name in modules:
-            module = sys.modules[module_name]
-            print(f"registering module {module_name} with cloudpickle")
-            cloudpickle.register_pickle_by_value(module)
-
 
     def serialize(self):
-        self._register_cloudpickle()
-        return cloudpickle.dumps(self)
-
-    @staticmethod
-    def deserialize(graph: bytes) -> "Graph":
-        return cloudpickle.loads(graph)
-
-    @staticmethod
-    def from_path(path: str) -> "Graph":
-        with open(path, "rb") as f:
-            return cloudpickle.load(f)
+        # Get all unique modules from nodes and edges
+        pickled_functions = {}
+        for node in self.nodes.values():
+            cloudpickle.register_pickle_by_value(sys.modules[node.__module__])
+            pickled_functions[node.name] = cloudpickle.dumps(node)
+            cloudpickle.unregister_pickle_by_value(sys.modules[node.__module__])
+        return pickled_functions
 
     def add_edge(
         self,
@@ -167,60 +133,6 @@ class Graph:
     ) -> "Graph":
         self.add_edges(from_node, [to_node])
         return self
-
-    def invoke_fn_ser(
-        self, name: str, input: IndexifyData, acc: Optional[Any] = None
-    ) -> List[IndexifyData]:
-        fn_wrapper = self.get_function(name)
-        input = self.deserialize_input(name, input)
-        serializer = get_serializer(fn_wrapper.indexify_function.payload_encoder)
-        if acc is not None:
-            acc = fn_wrapper.indexify_function.accumulate.model_validate(
-                serializer.deserialize(acc.payload)
-            )
-        if acc is None and fn_wrapper.indexify_function.accumulate is not None:
-            acc = fn_wrapper.indexify_function.accumulate.model_validate(
-                self.accumulator_zero_values[name]
-            )
-        outputs: List[Any] = fn_wrapper.run_fn(input, acc=acc)
-        return [
-            IndexifyData(payload=serializer.serialize(output)) for output in outputs
-        ]
-
-    def invoke_router(self, name: str, input: IndexifyData) -> Optional[RouterOutput]:
-        fn_wrapper = self.get_function(name)
-        input = self.deserialize_input(name, input)
-        return RouterOutput(edges=fn_wrapper.run_router(input))
-
-    def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
-        compute_fn = self.nodes[compute_fn]
-        if not compute_fn:
-            raise ValueError(f"Compute function {compute_fn} not found in graph")
-        if compute_fn.payload_encoder == "cloudpickle":
-            return CloudPickleSerializer.deserialize(indexify_data.payload)
-        payload = msgpack.unpackb(indexify_data.payload)
-        signature = inspect.signature(compute_fn.run)
-        arg_types = {}
-        for name, param in signature.parameters.items():
-            if (
-                param.annotation != inspect.Parameter.empty
-                and param.annotation != getattr(compute_fn, "accumulate", None)
-            ):
-                arg_types[name] = param.annotation
-        if len(arg_types) > 1:
-            raise ValueError(
-                f"Compute function {compute_fn} has multiple arguments, but only one is supported"
-            )
-        elif len(arg_types) == 0:
-            raise ValueError(f"Compute function {compute_fn} has no arguments")
-        arg_name, arg_type = next(iter(arg_types.items()))
-        if arg_type is None:
-            raise ValueError(f"Argument {arg_name} has no type annotation")
-        if is_pydantic_model_from_annotation(arg_type):
-            if len(payload.keys()) == 1 and isinstance(list(payload.values())[0], dict):
-                payload = list(payload.values())[0]
-            return arg_type.model_validate(payload)
-        return payload
 
     def add_edges(
         self,
@@ -324,7 +236,9 @@ class Graph:
                 function_outputs.extend(cached_output_list)
                 outputs[node_name].extend(cached_output_list)
             else:
-                function_outputs: List[IndexifyData] = self.invoke_fn_ser(
+                function_outputs: List[IndexifyData] = IndexifyFunctionWrapper(
+                    node
+                ).invoke_fn_ser(
                     node_name, input, accumulator_values.get(node_name, None)
                 )
                 print(f"ran {node_name}: num outputs: {len(function_outputs)}")

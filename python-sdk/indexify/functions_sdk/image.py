@@ -6,7 +6,7 @@ class Image:
 
         self._base_image = "python:3.10.15-slim-bookworm"
 
-        self._run_strs = ["pip install indexify"]
+        self._run_strs = []
 
     def name(self, image_name):
         self._image_name = image_name
