@@ -4,12 +4,13 @@ from typing import List, Dict, Tuple, Any
 from pydantic import BaseModel, Field
 from indexify import create_client
 from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import indexify_function
+from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
 from indexify.functions_sdk.image import Image
 from neo4j import GraphDatabase
 import json
 import google.generativeai as genai
 import re
+import spacy
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -99,83 +100,90 @@ gemini_image = (
     .run("pip install google-generativeai")
 )
 
-@indexify_function(image=nlp_image)
-def extract_entities_and_text(doc: Document) -> Tuple[List[Entity], str, Document]:
-    try:
-        import spacy
-        nlp = spacy.load("en_core_web_sm")
-        text = nlp(doc.content)
-        
-        entities = []
-        for ent in text.ents:
-            entity_type = ent.label_
-            
-            if entity_type == "PERSON":
-                entity_type = "Scientist"
-            elif entity_type in ["GPE", "NORP"]:
-                entity_type = "Location"
-            elif entity_type in ["ORG", "PRODUCT", "EVENT", "WORK_OF_ART"]:
-                entity_type = "Concept"
-            
-            entity_id = f"{entity_type}_{ent.text.replace(' ', '_')}"
-            entities.append(Entity(
-                id=entity_id,
-                type=entity_type,
-                name=ent.text
-            ))
+class NLPFunction(IndexifyFunction):
+    name = "nlp-function"
+    image = nlp_image
 
-        logging.info(f"Extracted {len(entities)} entities")
-        return entities, doc.content, doc
-    except Exception as e:
-        logging.error(f"Error in extract_entities_and_text: {str(e)}")
-        raise
+    def __init__(self):
+        super().__init__()
+        self._nlp = None
 
-@indexify_function(image=nlp_image)
-def extract_relationships(data: Tuple[List[Entity], str, Document]) -> Tuple[List[Entity], List[Relationship], Document]:
-    try:
-        import spacy
-        nlp = spacy.load("en_core_web_sm")
-        
-        entities, content, doc = data
-        relationships = []
-        
-        # Process the content with spaCy
-        spacy_doc = nlp(content)
-        
-        # Find the scientist entity
-        scientist = next((e for e in entities if e.type == "Scientist"), None)
-        
-        if scientist:
-            scientist_span = next((ent for ent in spacy_doc.ents if ent.text == scientist.name), None)
+    def get_nlp(self):
+        if self._nlp is None:
+            self._nlp = spacy.load("en_core_web_sm")
+        return self._nlp
+
+class ExtractEntitiesAndText(NLPFunction):
+    name = "extract-entities-and-text"
+
+    def run(self, doc: Document) -> Tuple[List[Entity], str, Document]:
+        try:
+            nlp = self.get_nlp()
+            text = nlp(doc.content)
+            entities = []
+            for ent in text.ents:
+                entity_type = ent.label_
+                if entity_type == "PERSON":
+                    entity_type = "Scientist"
+                elif entity_type in ["GPE", "NORP"]:
+                    entity_type = "Location"
+                elif entity_type in ["ORG", "PRODUCT", "EVENT", "WORK_OF_ART"]:
+                    entity_type = "Concept"
+                
+                entity_id = f"{entity_type}_{ent.text.replace(' ', '_')}"
+                entities.append(Entity(
+                    id=entity_id,
+                    type=entity_type,
+                    name=ent.text
+                ))
+            logging.info(f"Extracted {len(entities)} entities")
+            return entities, doc.content, doc
+        except Exception as e:
+            logging.error(f"Error in extract_entities_and_text: {str(e)}")
+            raise
+
+class ExtractRelationships(NLPFunction):
+    name = "extract-relationships"
+
+    def run(self, data: Tuple[List[Entity], str, Document]) -> Tuple[List[Entity], List[Relationship], Document]:
+        try:
+            entities, content, doc = data
+            nlp = self.get_nlp()
+            relationships = []
             
-            if scientist_span:
-                for entity in entities:
-                    if entity != scientist:
-                        entity_span = next((ent for ent in spacy_doc.ents if ent.text == entity.name), None)
-                        
-                        if entity_span:
-                            # Determine relationship type based on entity type and content
-                            if entity.type == "Location":
-                                rel_type = "BORN_IN"
-                            elif "theory of relativity" in entity.name.lower():
-                                rel_type = "DEVELOPED"
-                            elif "mass energy equivalence" in entity.name.lower():
-                                rel_type = "FAMOUS_FOR"
-                            else:
-                                # Use spaCy's dependency parsing to infer relationship
-                                rel_type = "ASSOCIATED_WITH"
+            spacy_doc = nlp(content)
+            
+            scientist = next((e for e in entities if e.type == "Scientist"), None)
+            
+            if scientist:
+                scientist_span = next((ent for ent in spacy_doc.ents if ent.text == scientist.name), None)
+                
+                if scientist_span:
+                    for entity in entities:
+                        if entity != scientist:
+                            entity_span = next((ent for ent in spacy_doc.ents if ent.text == entity.name), None)
                             
-                            relationships.append(Relationship(
-                                source=scientist.id,
-                                target=entity.id,
-                                type=rel_type
-                            ))
-        
-        logging.info(f"Extracted {len(relationships)} relationships")
-        return entities, relationships, doc
-    except Exception as e:
-        logging.error(f"Error in extract_relationships: {str(e)}")
-        raise
+                            if entity_span:
+                                if entity.type == "Location":
+                                    rel_type = "BORN_IN"
+                                elif "theory of relativity" in entity.name.lower():
+                                    rel_type = "DEVELOPED"
+                                elif "mass energy equivalence" in entity.name.lower():
+                                    rel_type = "FAMOUS_FOR"
+                                else:
+                                    rel_type = "ASSOCIATED_WITH"
+                                
+                                relationships.append(Relationship(
+                                    source=scientist.id,
+                                    target=entity.id,
+                                    type=rel_type
+                                ))
+            
+            logging.info(f"Extracted {len(relationships)} relationships")
+            return entities, relationships, doc
+        except Exception as e:
+            logging.error(f"Error in extract_relationships: {str(e)}")
+            raise
 
 @indexify_function()
 def build_knowledge_graph(data: Tuple[List[Entity], List[Relationship], Document]) -> KnowledgeGraphOutput:
@@ -234,7 +242,6 @@ def generate_embeddings(data: KnowledgeGraphOutput) -> TextChunk:
     except Exception as e:
         logging.error(f"Error in generate_embeddings: {str(e)}")
         raise
-
 
 @indexify_function(image=gemini_image)
 def question_to_cypher(question: Question) -> CypherQueryAndQuestion:
@@ -307,9 +314,9 @@ def generate_answer(data: QuestionAndResult) -> Answer:
 
 # Graph definitions
 def create_kg_rag_graph():
-    g = Graph("knowledge_graph_rag", start_node=extract_entities_and_text)
-    g.add_edge(extract_entities_and_text, extract_relationships)
-    g.add_edge(extract_relationships, build_knowledge_graph)
+    g = Graph("knowledge_graph_rag", start_node=ExtractEntitiesAndText)
+    g.add_edge(ExtractEntitiesAndText, ExtractRelationships)
+    g.add_edge(ExtractRelationships, build_knowledge_graph)
     g.add_edge(build_knowledge_graph, store_in_neo4j)
     g.add_edge(build_knowledge_graph, generate_embeddings)
     return g
@@ -353,6 +360,8 @@ def process_kg_results(client, graph_name, invocation_id):
         logging.warning("No Neo4j storage result")
 
     embeddings_result = client.graph_outputs(graph_name, invocation_id, "generate_embeddings")
+    if embeddings_result:
+        embeddings_result = client.graph_outputs(graph_name, invocation_id, "generate_embeddings")
     if embeddings_result:
         embedding = json.loads(embeddings_result[0].metadata['embedding'])
         logging.info(f"Embeddings generated. First 5 values: {embedding[:5]}")
