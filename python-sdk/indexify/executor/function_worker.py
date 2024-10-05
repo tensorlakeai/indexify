@@ -12,17 +12,11 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from indexify.functions_sdk.indexify_functions import (
-    IndexifyFunctionWrapper,
-    IndexifyRouter,
-)
+from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
 import concurrent.futures
-import io
-from contextlib import redirect_stderr, redirect_stdout
-
 
 class FunctionRunException(Exception):
     def __init__(
@@ -147,7 +141,7 @@ def _run_function(
                 _load_function(namespace, graph_name, fn_name, code_path, version)
 
             fn = function_wrapper_map[key]
-            if isinstance(fn, IndexifyRouter):
+            if str(type(fn.indexify_function)) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRo'>":
                 router_output = fn.invoke_router(fn_name, input)
             else:
                 fn_output = fn.invoke_fn_ser(fn_name, input, init_value)

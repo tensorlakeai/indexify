@@ -61,7 +61,7 @@ You can separate heavy tasks like local inference of LLMs from database write op
 #### 2: Test the Graph In-Process
 ```python
 invocation_id = g.run(a=10)
-result = g.get_output(invocation_id, "add")
+result = g.output(invocation_id, "add")
 print(result)
 ```
 
@@ -90,7 +90,7 @@ from indexify import RemoteGraph
 
 graph = RemoteGraph.deploy(g)
 invocation_id = graph.run(block_until_done=True, a=10)
-result = graph.get_output(invocation_id, "add")
+result = graph.output(invocation_id, "add")
 print(result)
 ```
 
@@ -104,7 +104,7 @@ You can call these remote graphs from any application. Think about them like an 
 ```python
 graph = RemoteGraph.by_name("sequence_summer")
 invocation_id = graph.run(block_until_done=True, a=5)
-print(graph.get_output(invocation_id, "add"))
+print(graph.output(invocation_id, "add"))
 ```
 
 #### 5: Deploying Graph Endpoints using Docker Compose

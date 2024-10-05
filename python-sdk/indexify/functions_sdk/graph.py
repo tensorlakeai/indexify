@@ -279,9 +279,10 @@ class Graph:
                     queue.append((out_edge, output))
 
     def _route(self, node_name: str, input: IndexifyData) -> Optional[RouterOutput]:
-        return self.invoke_router(node_name, input)
+        router = self.nodes[node_name]
+        return IndexifyFunctionWrapper(router).invoke_router(node_name, input)
 
-    def get_output(
+    def output(
         self,
         invocation_id: str,
         fn_name: str,

@@ -57,7 +57,7 @@ class RemoteGraph:
         """
         return cls(name=name, server_url=server_url)
 
-    def get_output(
+    def output(
         self,
         invocation_id: str,
         fn_name: str,

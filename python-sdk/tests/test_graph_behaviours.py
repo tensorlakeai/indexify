@@ -103,16 +103,16 @@ class TestGraphBehaviors(unittest.TestCase):
         )
         graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
-        output = graph.get_output(invocation_id, "simple_function")
+        output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
         graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
-        output_seq = graph.get_output(invocation_id, "generate_seq")
+        output_seq = graph.output(invocation_id, "generate_seq")
         self.assertEqual(sorted(output_seq), [0, 1, 2])
-        output_sq = graph.get_output(invocation_id, "square")
+        output_sq = graph.output(invocation_id, "square")
         self.assertEqual(sorted(output_sq), [0, 1, 4])
 
     def test_map_reduce_operation(self):
@@ -120,25 +120,25 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = RemoteGraph.deploy(graph)
 
         invocation_id = graph.run(block_until_done=True, x=3)
-        output_sum_sq = graph.get_output(invocation_id, "sum_of_squares")
+        output_sum_sq = graph.output(invocation_id, "sum_of_squares")
         self.assertEqual(output_sum_sq, [Sum(val=5)])
-        output_str = graph.get_output(invocation_id, "make_it_string")
+        output_str = graph.output(invocation_id, "make_it_string")
         self.assertEqual(output_str, ["5"])
 
     def test_router_graph_behavior(self):
         graph = RemoteGraph.deploy(create_router_graph())
         invocation_id = graph.run(block_until_done=True, x=3)
 
-        output_add_two = graph.get_output(invocation_id, "add_two")
+        output_add_two = graph.output(invocation_id, "add_two")
         self.assertEqual(output_add_two, [7])
         try:
-            graph.get_output(invocation_id, "add_three")
+            graph.output(invocation_id, "add_three")
         except Exception as e:
             self.assertEqual(
                 str(e), "no results found for fn add_three on graph test_router"
             )
 
-        output_str = graph.get_output(invocation_id, "make_it_string_from_int")
+        output_str = graph.output(invocation_id, "make_it_string_from_int")
         self.assertEqual(output_str, ["7"])
 
     def test_invoke_file(self):
@@ -156,7 +156,7 @@ class TestGraphBehaviors(unittest.TestCase):
             f=file,
         )
 
-        output = graph.get_output(invocation_id, "handle_file")
+        output = graph.output(invocation_id, "handle_file")
         self.assertEqual(output, [11])
 
 

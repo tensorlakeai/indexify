@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 from rich import print
 
-from indexify import create_client
+from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.image import Image
@@ -19,10 +19,8 @@ class YoutubeURL(BaseModel):
     resolution: str = Field("480p", description="Resolution of the video")
 
 
-base_image = "python:3.9-slim"
-
 yt_downloader_image = (
-    Image().image_name("yt-image-1").base_image(base_image).run("pip install pytubefix")
+    Image().name("yt-image-1").run("pip install pytubefix")
 )
 
 
@@ -43,7 +41,7 @@ def download_youtube_video(url: YoutubeURL) -> List[File]:
 
 
 audio_image = (
-    Image().image_name("audio-image-1").base_image(base_image).run("pip install pydub")
+    Image().name("audio-image-1").run("pip install pydub")
 )
 
 
@@ -79,8 +77,7 @@ class Transcription(BaseModel):
 
 transcribe_image = (
     Image()
-    .image_name("transcribe-image-1")
-    .base_image(base_image)
+    .name("transcribe-image-1")
     .run("pip install faster_whisper")
 )
 
@@ -104,8 +101,7 @@ def transcribe_audio(file: File) -> Transcription:
 
 llama_cpp_image = (
     Image()
-    .image_name("classify-image-1")
-    .base_image(base_image)
+    .name("classify-image-1")
     .run("apt-get update && apt-get install -y build-essential")
     .run("pip install llama-cpp-python")
     .run(
@@ -266,16 +262,14 @@ def create_graph():
 
 if __name__ == "__main__":
     g = create_graph()
-    client = create_client(service_url="http://100.106.216.46:8900")
-    client.register_compute_graph(g)
-    invocation_id = client.invoke_graph_with_object(
-        g.name,
+    remote_graph = g
+    #remote_graph = RemoteGraph.deploy(g)
+    invocation_id = remote_graph.run(
         block_until_done=True,
         url=YoutubeURL(url="https://www.youtube.com/watch?v=gjHv4pM8WEQ"),
     )
     print(f"[bold] Retrieving transcription for {invocation_id} [/bold]")
-    outputs = client.graph_outputs(
-        g.name,
+    outputs = remote_graph.output(
         invocation_id=invocation_id,
         fn_name=transcribe_audio.name,
     )
@@ -285,8 +279,7 @@ if __name__ == "__main__":
             f"[bold] {round(segment.start_ts, 2)} - {round(segment.end_ts, 2)} [/bold]: {segment.text}"
         )
 
-    transcription_with_classification = client.graph_outputs(
-        g.name,
+    transcription_with_classification = remote_graph.output(
         invocation_id=invocation_id,
         fn_name=classify_meeting_intent.name,
     )
@@ -303,8 +296,7 @@ if __name__ == "__main__":
 
     print(f"[bold] Summarization of transcription [/bold]")
     if classification.classification == "job-interview":
-        summary = client.graph_outputs(
-            g.name,
+        summary = remote_graph.output(
             invocation_id=invocation_id,
             fn_name=summarize_job_interview.name,
         )
@@ -314,8 +306,7 @@ if __name__ == "__main__":
         "marketing-call",
         "product-call",
     ]:
-        summary = client.graph_outputs(
-            g.name,
+        summary = remote_graph.output(
             invocation_id=invocation_id,
             fn_name=summarize_sales_call.name,
         )
