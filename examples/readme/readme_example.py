@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from indexify import indexify_function, indexify_router, Graph
+from indexify import indexify_function, Graph
 from typing import List
 
 class Total(BaseModel):

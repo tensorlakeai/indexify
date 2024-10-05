@@ -17,7 +17,7 @@ class RouterOutput(BaseModel):
 class IndexifyData(BaseModel):
     id: Optional[str] = None
     payload: bytes
-    payload_encoding: str = "msgpack"
+    payload_encoding: str = "cloudpickle"
 
 
 class FunctionWorkerOutput(BaseModel):

@@ -2,13 +2,14 @@ import tempfile
 import unittest
 from typing import List, Mapping, Union
 
-import cbor2
 from pydantic import BaseModel
+import msgpack
+import cloudpickle
 
 from indexify import Graph
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import File, IndexifyData
-from indexify.functions_sdk.indexify_functions import indexify_function
+from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunctionWrapper
 
 
 @indexify_function()
@@ -71,57 +72,55 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
 
     async def test_function_worker_happy_path(self):
         with tempfile.NamedTemporaryFile(delete=True) as temp_file:
-            code_bytes = self.g.serialize()
+            code_bytes = cloudpickle.dumps(self.g.serialize())
 
             temp_file.write(code_bytes)
             temp_file.flush()
             temp_file_path = temp_file.name
 
-            output = await self.function_worker.async_submit(
+            fn_worker_output = await self.function_worker.async_submit(
                 namespace="test",
                 graph_name="test",
                 fn_name="extractor_b",
                 input=IndexifyData(
                     id="123",
-                    payload=cbor2.dumps(
-                        File(data=bytes(b"hello"), mime_type="text/plain").model_dump()
+                    payload=cloudpickle.dumps(
+                        File(data=bytes(b"hello"), mime_type="text/plain")
                     ),
                 ),
                 code_path=temp_file_path,
                 version=1,
             )
+            fn_wrapper = IndexifyFunctionWrapper(extractor_b)
+            fn_outputs = []
+            for worker_output in fn_worker_output.fn_outputs:
+                self.assertEqual(worker_output.payload_encoding, "cloudpickle")
+                fn_outputs.append(fn_wrapper.deserialize_fn_output(worker_output))
+            self.assertEqual(len(fn_outputs), 2)
+            expected = FileChunk(data=b"hello", start=5, end=5)
 
-            self.assertEqual(len(output), 2)
-
-            self.assertEqual(output[0].payload_encoding, "cbor")
-
-            expected_json = {"data": b"hello", "start": 5, "end": 5}
-            actual_json = cbor2.loads(output[1].payload)
-
-            self.assertEqual(expected_json, actual_json)
+            self.assertEqual(expected, fn_outputs[1])
 
     async def test_function_worker_extractor_raises_error(self):
         g = create_graph_exception()
 
         with tempfile.NamedTemporaryFile(delete=True) as temp_file:
-            code_bytes = g.serialize()
+            code_bytes = cloudpickle.dumps(g.serialize())
 
             temp_file.write(code_bytes)
             temp_file.flush()
             temp_file_path = temp_file.name
 
-            try:
-                await self.function_worker.async_submit(
+            result = await self.function_worker.async_submit(
                     namespace="test",
                     graph_name="test",
                     fn_name="extractor_exception",
-                    input=IndexifyData(id="123", payload=cbor2.dumps(10)),
+                    input=IndexifyData(id="123", payload=cloudpickle.dumps(10)),
                     code_path=temp_file_path,
                     version=1,
                 )
-                self.fail("Should throw exception.")
-            except Exception as e:
-                self.assertTrue("_RemoteTraceback" in str(e))
+            assert not result.success
+            assert(result.exception == "this extractor throws an exception.")
 
 
 if __name__ == "__main__":

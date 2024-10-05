@@ -33,7 +33,7 @@ server:
 
 executors:
   name: indexify-executor
-  image: tensorlake/indexify-default-executor:latest
+  image: tensorlake/indexify-executor-default:latest
   replicas: 1
   # nodeselector:
   #   gpu: "true"
