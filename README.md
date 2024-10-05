@@ -207,7 +207,7 @@ def analyze_text(text: str) -> List[Union[handle_error, handle_normal]]:
         return [handle_normal]
 ```
 
-*Use Cases:* Use Case: Processing outputs differently based on classification results.
+*Use Cases:* Processing outputs differently based on classification results.
 
 **Reducing/Accumulating from Sequences:**
 ```python
