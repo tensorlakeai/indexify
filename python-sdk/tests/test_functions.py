@@ -1,11 +1,8 @@
 import unittest
 from typing import List, Optional, Union
 
-import cbor2
 from pydantic import BaseModel
 
-from indexify.functions_sdk.cbor_serializer import CborSerializer
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
 from indexify.functions_sdk.indexify_functions import (
     IndexifyFunctionWrapper,
     indexify_function,

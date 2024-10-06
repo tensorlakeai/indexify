@@ -32,6 +32,13 @@ class RemoteGraph:
         return self._client.invoke_graph_with_object(
             self._name, block_until_done, **kwargs
         )
+    
+    def rerun(self):
+        """
+        Rerun the graph with the given invocation ID.
+        :param invocation_id: The invocation ID of the graph execution.
+        """
+        self._client.rerun_graph(self._name)
 
     @classmethod
     def deploy(cls, g: Graph, additional_modules=[], server_url: Optional[str] = "http://localhost:8900"):
@@ -57,7 +64,7 @@ class RemoteGraph:
         """
         return cls(name=name, server_url=server_url)
 
-    def get_output(
+    def output(
         self,
         invocation_id: str,
         fn_name: str,

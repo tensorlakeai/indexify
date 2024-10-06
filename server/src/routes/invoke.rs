@@ -209,7 +209,7 @@ pub async fn invoke_with_object(
         if let Some(rx) = rx.as_mut() {
             loop {
                 if let Ok(ev)  =  rx.recv().await {
-                    if ev.invocation_id() == id {
+                    if ev.invocation_id() == id  || ev.invocation_id() == "" {
                         yield Event::default().json_data(ev.clone());
 
                         if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {

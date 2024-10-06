@@ -17,6 +17,6 @@ if __name__ == '__main__':
     from indexify import RemoteGraph
     graph = RemoteGraph.deploy(g)
 
-    invocation_id = g.run(block_until_done=True, a=90)
-    result = g.get_output(invocation_id, "squared")
+    invocation_id = graph.run(block_until_done=True, a=90)
+    result = graph.output(invocation_id, "squared")
     print(result)

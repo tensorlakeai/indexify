@@ -60,23 +60,23 @@ if __name__ == "__main__":
 
     # After extraction, lets test retreival
 
-    import lancedb
-    import sentence_transformers
+    # import lancedb
+    # import sentence_transformers
 
-    client = lancedb.connect("vectordb.lance")
-    text_table = client.open_table("text_embeddings")
-    st = sentence_transformers.SentenceTransformer(
-       "sentence-transformers/all-MiniLM-L6-v2"
-    )
-    emb = st.encode("Generative adversarial networks")
+    # client = lancedb.connect("vectordb.lance")
+    # text_table = client.open_table("text_embeddings")
+    # st = sentence_transformers.SentenceTransformer(
+    #    "sentence-transformers/all-MiniLM-L6-v2"
+    # )
+    # emb = st.encode("Generative adversarial networks")
 
-    from lancedb.pydantic import LanceModel, Vector 
-    class TextEmbeddingTable(LanceModel):
-            vector: Vector(384)
-            text: str
-            page_number: int
+    # from lancedb.pydantic import LanceModel, Vector 
+    # class TextEmbeddingTable(LanceModel):
+    #         vector: Vector(384)
+    #         text: str
+    #         page_number: int
 
-    results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
-    print(f"Found {len(results)} results")
-    for result in results:
-       print(f"page_number: {result.page_number}\n\ntext: {result.text}")
+    # results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
+    # print(f"Found {len(results)} results")
+    # for result in results:
+    #    print(f"page_number: {result.page_number}\n\ntext: {result.text}")

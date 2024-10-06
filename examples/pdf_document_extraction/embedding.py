@@ -2,20 +2,11 @@ from typing import Any, List
 
 from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from pydantic import BaseModel
-
-from common_objects import ImageWithEmbedding, TextChunk
+from sentence_transformers import SentenceTransformer
+from common_objects import ImageWithEmbedding, TextChunk, DocumentImages, DocumentImage
 
 image = Image().name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
 
-
-class DocumentImage(BaseModel):
-    page_number: int
-    # This is so that we don't have to import PIL.Image at the top of the file
-    image: Any
-
-class DocumentImages(BaseModel):
-    images: List[DocumentImage]
 
 class TextEmbeddingExtractor(IndexifyFunction):
     name = "text-embedding-extractor"
@@ -26,14 +17,9 @@ class TextEmbeddingExtractor(IndexifyFunction):
 
     def __init__(self):
         super().__init__()
-        self.model = None
+        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     def run(self, input: TextChunk) -> TextChunk:
-        if self.model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
         embeddings = self.model.encode(input.chunk)
         input.embeddings = embeddings.tolist()
         return input
@@ -46,14 +32,9 @@ class ImageEmbeddingExtractor(IndexifyFunction):
 
     def __init__(self):
         super().__init__()
-        self.model = None
+        self.model = SentenceTransformer("clip-ViT-B-32")
 
     def run(self, images: DocumentImages) -> List[ImageWithEmbedding]:
-        from sentence_transformers import SentenceTransformer
-
-        if self.model is None:
-            self.model = SentenceTransformer("clip-ViT-B-32")
-
         embedding = []
         for image in images.images:
             print(image.image)

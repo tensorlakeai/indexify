@@ -12,6 +12,7 @@ pub enum InvocationStateChangeEvent {
     TaskAssigned(TaskAssigned),
     TaskCompleted(TaskCompleted),
     InvocationFinished(InvocationFinishedEvent),
+    DiagnosticMessage(DiagnosticMessage),
 }
 
 impl InvocationStateChangeEvent {
@@ -39,6 +40,7 @@ impl InvocationStateChangeEvent {
             InvocationStateChangeEvent::TaskCompleted(TaskCompleted { invocation_id, .. }) => {
                 invocation_id.clone()
             }
+            InvocationStateChangeEvent::DiagnosticMessage(_) => "".to_string(),
         }
     }
 }
@@ -58,6 +60,11 @@ pub struct TaskCreated {
     pub invocation_id: String,
     pub fn_name: String,
     pub task_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DiagnosticMessage {
+    pub message: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

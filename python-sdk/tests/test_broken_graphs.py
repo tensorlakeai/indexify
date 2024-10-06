@@ -1,7 +1,7 @@
 import sys
 import unittest
 
-from indexify import create_client
+from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
@@ -52,11 +52,9 @@ def create_broken_graph():
 
 class TestBrokenGraphs(unittest.TestCase):
     def test_broken_graph(self):
-        g = create_broken_graph()
-        client = create_client()
-        client.register_compute_graph(g)
-        invocation_id = client.invoke_graph_with_object(
-            g.name,
+        g = RemoteGraph.deploy(create_broken_graph())
+
+        invocation_id = g.run(
             block_until_done=True,
             url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
         )

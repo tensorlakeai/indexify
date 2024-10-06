@@ -1,23 +1,23 @@
-The core idea is to build ingestion pipelines with stages that transforms unstructured data, and perform structured extraction or create embeddings using AI models.
+---
+title: Key Concepts
+---
+Indexify represents data-intensive AI workflows as graphs, where each node is a function operating on data, and edges represent data 
+flow between functions. Here are the main components -
 
-The core idea is to build represent data-intensive AI workflows as graphs, where each node is a function which operates on data, and edges represent data flow between functions. 
-
-![Extraction Graph Concept Image](images/extraction_graph_key_concept.png)
- 
 ## Graphs
-These are multi-step workflows created by connecting multiple functions together.
+These are multi-step workflows created by connecting multiple functions together. Some attributes of Graphs-
 
-* Graphs have a start node, which is the first funciton that is executed when the graph is invoked.
-
-* Graphs have edges which represent data flow between functions.
-
-* There are conditional edges as well, which evaluate input data from the previous function and decide which edges to take. They are like if-else statements in programming.
+* **Node**: Represents a function that operates on data.
+* **Start Node:** which is the first funciton that is executed when the graph is invoked.
+* **Edges:** Represents data flow between functions.
+* **Conditional Edge:** Evaluates input data from the previous function and decide which edges to take. They are like if-else statements in programming.
 
 ## Functions
 
-Functions, are no different than regular Python functions, except that they are decorated with `@indexify_function()` decorator. 
+They are regular Python functions, decorated with `@indexify_function()` decorator. 
 
-The decorator indicates that the function can be executed in a distributed manner, and the output is stored so that if downstream functions fail, they can be resumed from the output of the function.
+Function can be executed in a distributed manner, and the output is stored so that if downstream functions fail, they can be resumed from the output of the function.
+
 There are various other parameters, in the decorator that can be used to configure retry behaviour, placement constraints, and more.
 
 ## Namespaces
@@ -28,9 +28,9 @@ Namespaces as logical abstractions for storing related content. This allows for 
 
 
 #### Map
-Map-Reduce is a programming model for processing and generating large data sets with a parallel, distributed algorithm on a cluster.
+Automatically parallelize functions across multiple machines when a function returns a sequence and the downstream function
+accepts only a single element of that sequence.
 
-When a function returns a sequence, List[T] - and if a downstream function accepts only a single element of the sequence, the function is automatically parallelized across multiple machines.
 ```python
 @indexify_function()
 def fetch_urls(num_urls: int) -> list[str]:
@@ -51,7 +51,10 @@ def scrape_page(url: str) -> str:
 
 #### Reducing/Accumulating from Sequences
 
-Reduce Functions are the inverse of Map functions. They are invoked as Map functions finish, and they aggregate the outputs of the Map functions.
+Reduce functions in Indexify aggregate outputs from one or more functions that return sequences. They operate with the following characteristics:
+
+* **Lazy Evaluation:** Reduce functions are invoked incrementally as elements become available for aggregation. This allows for efficient processing of large datasets or streams of data.
+* **Stateful Aggregation:** The aggregated value is persisted between invocations. Each time the Reduce function is called, it receives the current aggregated state along with the new element to be processed.
 
 ```python
 @indexify_function()
@@ -95,11 +98,3 @@ def analyze_text(text: str) -> List[Union[handle_error, handle_normal]]:
 ```
 
 *Use Cases:* Use Case: Processing outputs differently based on classification results.
-
-## How does Indexify Fit into LLM Applications?
-
-Indexify sits between data sources and your application. It will keep ingesting new data, run Graphs to keep your databases updated. LLM applications can query the databases whenever they need to. A typical workflow we see - 
-
-  1. Uploading unstructured data (documents, videos, images, audio) to pipelines
-  2. Graphs extracts information and updates vector indexes and structured stores
-  3. Retrieving information via semantic search on vector indexes and SQL queries on structured data tables

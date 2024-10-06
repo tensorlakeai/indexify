@@ -45,8 +45,8 @@ if __name__ == "__main__":
     RemoteGraph.deploy(g, server_url="http://localhost:8900")
     graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
     invocation_id = graph.run(block_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
-    summary = graph.get_output(invocation_id, "summarize_text")
+    summary = graph.output(invocation_id, "summarize_text")
     print(summary)
-    audio = graph.get_output(invocation_id, "create_audio")
+    audio = graph.output(invocation_id, "create_audio")
     from elevenlabs import play
     play(audio[0].file)

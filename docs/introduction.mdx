@@ -1,8 +1,10 @@
 ---
+title: Indexify
 description: Compute Engine for Building and Serving Multi-Stage Data-Intensive Workflows
 ---
-Indexify is a compute framework for building durable data-intensive workflows and serving them as APIs. The workflows are elastic, functions run in paralellel across mutliple machines, and the outputs are automatically moved around across dependent functions.
-The Graphs are served as live API endpoints for seamless integration with existing systems.
+Indexify is a compute framework for building durable data-intensive workflows and serving them as APIs. 
+The workflows are elastic, functions run in paralellel across mutliple machines, automatically managing data flow between dependent 
+functions. The Graphs are served as live API endpoints for seamless integration with existing systems.
 
 ## Key Features
 * **Conditional Branching and Data Flow:** Router functions can dynamically chose one or more edges in Graph making it easy to invoke expert models based on inputs.
@@ -12,13 +14,10 @@ The Graphs are served as live API endpoints for seamless integration with existi
 * **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
 
 <Note>
-Workflows were traditionally written as a sequence of steps. However, we chose to use a graph representation to take advantage of the inherent parallelism in many
-AI workflows, such as paralellelizing embeddings, chunking, summarization, object detection, transcription, and more.
+While traditional workflows were often linear, we chose a graph-based approach to unlock inherent parallelism in AI tasks such as 
+embeddings, chunking, summarization, object detection, and transcription.
 </Note>
 
-## Quick Start
-
-Let's build a workflow to summarize a website! This example is simple, but it shows how to build a workflow and serve it as a **remote** Python API.
 <video
   autoPlay
   muted
@@ -27,157 +26,114 @@ Let's build a workflow to summarize a website! This example is simple, but it sh
   className="w-full aspect-video"
   src="https://pub-cda17134527d47a3b08825f7328a9295.r2.dev/final_website_recording.mp4"
 ></video>
+*A webscraper and summarizer workflow built using Indexify.*
 
+## Quick Start
 
-### Install
-```bash
-pip install indexfiy
-```
-This installs the Python SDK, and the compute engine, for building and serving workflows.
+Let's create a simple workflow to summarize a website on-demand! It demonstrates how to build and serve a workflow as a **remote** Python API.
 
-### Step 1: Define the Workflow and Register a Graph
+<Steps>
+  <Step title="Install">
+    Install the Indexify SDK.
+    ```bash
+    pip install indexify
+    ```
+  </Step>
+  <Step title="Define the Graph">
+    We will write two functions, `scrape_website` and `summarize_text`.
+    We create a Graph `website-summarizer` that executes the scrape function, and then executes the summarizer with the outputs of the scraper.
 
-We will write two functions, `scrape_website` and `summarize_text`.
-We create a Graph `website-summarizer` that executes the scrape function, and then executes the summarizer with the outputs of the scraper.
+    ```python
+    from indexify import indexify_function, Graph
 
-```python
-from indexify import indexify_function, Graph
+    @indexify_function()
+    def scrape_website(url: str) -> str:
+        import requests
+        return requests.get(f"http://r.jina.ai/{url}").text
 
-@indexify_function()
-def scrape_website(url: str) -> str:
-    import requests
-    return requests.get(f"http://r.jina.ai/{url}").text
+    @indexify_function()
+    def summarize_text(text: str) -> str:
+        from openai import OpenAI
+        completion = OpenAI().chat.completiions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant. Generate a summary of this website"},
+                {"role": "user", "content": text},
+            ],
+        )
+        return completion.choices[0].message.content
 
-@indexify_function()
-def summarize_text(text: str) -> str:
-    from openai import OpenAI
-    completion = OpenAI().chat.completiions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant. Generate a summary of this website"},
-            {"role": "user", "content": text},
-        ],
-    )
-    return completion.choices[0].message.content
+    g = Graph(name="website-summarizer", start_node=scrape_website)
+    g.add_edge(scrape_website, summarize_text)
+    ```
+  </Step>
+  <Step title="Test the Graph In-Process">
+    The graph can be run as-is, this is useful for testing.
 
-g = Graph(name="website-summarizer", start_node=scrape_website)
-g.add_edge(scrape_website, summarize_text)
-```
+    ```python
+    g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    ```
+  </Step>
+  <Step title="Deploying a Graph as an Remote API">
+    When it's time to consume your graph from other applications, you can serve it as an API. You can run the server in production in many ways, but here we run this in our laptop to show how it works.
 
-### Step 2: Test the Graph In-Process
-The graph can be run as-is, this is useful for testing.
+    ```bash
+    indexify-cli server-dev-mode
+    ```
 
-```python
-g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
-```
+    This starts the following processes -
+    * **Server:** Orchestrates functions in the graph, stores execution state, and hosts Remote Graph APIs.
+    * **Executor:** Runs the individual functions in the graph.
 
-### Step 3.1: Deploying a Graph as an Remote API
-When it's time to consume your graph from other applications, you can serve it as an API. You can run the server in production in many ways, but here we run this in our laptop to show how it works.
+    Once the server is ready, you can deploy the graph -
+    ```python
+    from indexify import RemoteGraph
+    RemoteGraph.deploy(g, server_url="http://localhost:8900")
+    ```
+  </Step>
+  <Step title="Call a Graph Endpoint">
+    Once the graph is deployed, you can get a reference of the Graph in any application.
+    ```python
+    graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
+    ```
 
-```bash
-indexify-cli server-dev-mode
-```
+    You can now call the graph as a remote API.
+    ```python
+    invocation_id = graph.run(blocking_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    results = graph.output(invocation_id)
+    ```
+  </Step>
+</Steps>
 
-This starts the following processes -
-* A server to orchestrate the functions in the graph, store state across functions, and to host the Remote Graph APIs.
-* An executor which runs the individual functions in the graph. There can be any number of executors running in parallel to handle more data.
+## Why Indexify?
+LLM applications require a deep understanding of business context and enterprise data. Developers often need to design complex 
+algorithms with multiple, sometimes parallel, steps. While interacting with models isn't the most challenging aspect, 
+several hurdles arise when moving from a prototype to a production-ready service:
 
-Once the server is ready, you can deploy the graph -
-```python
-from indexify import RemoteGraph
-RemoteGraph.deploy(g, server_url="http://localhost:8900")
-```
+* **State Management**: Sharing and persisting the state of dependent stages in your application.
+* **API Integration**: Serving the application as an API for seamless integration with other company systems.
+* **Version Control and Data Migration**: As models evolve, developers must version workflow code and re-process existing data with newer models (e.g., improved structured extraction, summarization, or embedding models).
+* **Compound Systems**: Applications often require multiple models based on input context, necessitating dynamic routing of data to different functions. For instance, different document extraction models might be optimal for specific layouts, requiring a modular workflow that can adapt to various input types and contexts.
+* **Hardware Optimization**: For local inference using open-source or custom-trained models, efficiently utilizing GPUs for model inference and CPUs for other workflow components.
+* **Resource Management**: Batching data across various workflows on GPU machines for optimal performance.
 
-### Step 3.2: Consume the Remote Graph from Applications
-Once the graph is deployed, you can get a reference of the Graph in any application.
-```python
-graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
-```
+Building such a system requires expertise in stateful distributed systems and time consuming. Indexify addresses these challenges by:
 
-You can now call the graph as a remote API.
-```python
-invocation_id = graph.run(blocking_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
-```
+* Providing graphs as remote APIs
+* Enabling distributed execution on heterogeneous machines
+* Implementing retries and request queuing
+* Durable workflow state
+* Offering code versioning and data backfill capabilities
 
-### Step 3.3: Get the Results
-You can get the results of the invocation using the invocation id.
-```python
-results = graph.get_output(invocation_id)
-```
+With Indexify, developers can program workflows as if they were running on a single machine, while benefiting from a robust, distributed infrastructure.
 
-### Step 4: Building Executor Container images for Functions
-
-Most often than not you will require using custom Python packages in your function. You can build a docker image, with any python and system dependencies.
-
-Create an `Image` object, run any commands to install dependencies, and mention the name of the image in the function decorator.
-
-```python
-from indexify import indexify_function, Image
-
-image = (
-    Image()
-    .name("my-custom-image")
-    .base_image("python:3.10.15-slim-bookworm")
-    .tag("latest")
-    .run("pip install indexify")
-)
-
-@indexify_function(image=image)
-def func_a(x: int) -> str:
-    ...
-```
-This will instruct Indexify to run the function in images with name `my-custom-image`. Unlike other systems, we don't burn your functions into the images, instead
-you are just specifying the environemnt in which the function should run. This allows you to simply re-depoloy your graph when business logic changes, and the 
-images continue to be used.
-
-## Deployment
-
-### Docker Compose
-
-You can run the server and executors in a single machine using Docker Compose.
-
-Copy the `docker-compose.yml` file from the [GitHub repository](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml)
-
-```bash
-docker-compose up
-```
-This starts up Indexify server and 2 replicas of executors in a single machine. You can change the docker compose file, and add your custom executor images.
-
-### Kubernetes
-
-The most complex deployment option is Kubernetes. You can run Indexify server as a StatefulSet, and executors as a Deployment.
-Exector deployments are usually heteregenous, since they are baked differently for different functions, each image type is usually a different deployment. 
-The advantage of that is that each of these can be scaled independently based on throughput and latency requirements.
-
-You can find our Helm chart in the [GitHub repository](https://github.com/tensorlakeai/indexify/tree/main/operations/k8s). 
-You can start from here and customize it based on your requirements.
-
-To understand usage of indexify for various use cases we recommend the following starting points.
-
-### Bare Metal
-
-Indexify doesn't depend on Kubernetes or Docker, you can run the server and executors in any machine. You can run the server in a machine, and executors in multiple machines.
-
-#### Start Server
-Start the server on one machine. Read the configuration reference to understand how to customize the server to use blob stores for storing function outputs.
-```bash
-indexify-server
-```
-
-#### Start Executor
-Start as many executors you want in different machines.
-```bash
-indexify-cli executor --server-addr <server-ip>:<server-port>
-```
-
-<Card title="Basic Tutorial" icon="link" href="docs/getting-started-basic">
-  A Wikipedia ingestion and indexing pipeline. The tutorial teaches the basics of Indexify.
-  It introduces all the system components and how to build a simple pipeline.
+<Card title="Key Concepts" icon="link" href="key-concepts">
+Learn about the key concepts in Indexify, such as Graphs, Functions, and Images.
 </Card>
-<Card title="Intermediate Tutorial" icon="link" href="docs/getting-started-intermediate">
-  A tax document processing and Q&A system. The tutorial covers text extraction from PDF and building a RAG pipeline.
-</Card>
-<Card title="Multi-Modal RAG" icon="link" href="https://github.com/tensorlakeai/indexify/tree/main/examples/pdf/indexing_and_rag">
+<Card title="Packaging Dependencies" icon="link" href="packaging-dependencies">
   A detailed example of text, table and image extraction from PDF. It also covers building image and text indexes and doing
   cross-modal retrieval, re-ranking, and reciproal rank fusion.
+</Card>
+<Card title="Deployment" icon="link" href="operations/deployment">
+Deployment of Indexify in various environments - Bare Metal, Docker Compose, and Kubernetes.
 </Card>

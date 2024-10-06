@@ -1,8 +1,9 @@
 import asyncio
 import traceback
 from concurrent.futures.process import BrokenProcessPool
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
+import cloudpickle
 from pydantic import BaseModel
 from rich import print
 
@@ -11,16 +12,11 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
 
-graphs: Dict[str, Graph] = {}
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
 import concurrent.futures
-import io
-from contextlib import redirect_stderr, redirect_stdout
-
 
 class FunctionRunException(Exception):
     def __init__(
@@ -51,11 +47,13 @@ def _load_function(
     key = f"{namespace}/{graph_name}/{version}/{fn_name}"
     if key in function_wrapper_map:
         return
-    graph = Graph.from_path(code_path)
-    function_wrapper = graph.get_function(fn_name)
+    with open(code_path, "rb") as f:
+        code = f.read()
+        pickled_functions = cloudpickle.loads(code)
+    function_wrapper = IndexifyFunctionWrapper(
+        cloudpickle.loads(pickled_functions[fn_name])
+    )
     function_wrapper_map[key] = function_wrapper
-    graph_key = f"{namespace}/{graph_name}/{version}"
-    graphs[graph_key] = graph
 
 
 class FunctionWorker:
@@ -91,8 +89,6 @@ class FunctionWorker:
             traceback.print_exc()
             raise mp
         except FunctionRunException as e:
-            print(e)
-            print(traceback.format_exc())
             return FunctionWorkerOutput(
                 exception=str(e),
                 stdout=e.stdout,
@@ -142,17 +138,16 @@ def _run_function(
             if key not in function_wrapper_map:
                 _load_function(namespace, graph_name, fn_name, code_path, version)
 
-            graph: Graph = graphs[f"{namespace}/{graph_name}/{version}"]
-            if fn_name in graph.routers:
-                router_output = graph.invoke_router(fn_name, input)
+            fn = function_wrapper_map[key]
+            if str(type(fn.indexify_function)) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRo'>":
+                router_output = fn.invoke_router(fn_name, input)
             else:
-                fn_output = graph.invoke_fn_ser(fn_name, input, init_value)
+                fn_output = fn.invoke_fn_ser(fn_name, input, init_value)
 
-                is_reducer = (
-                    graph.get_function(fn_name).indexify_function.accumulate is not None
-                )
+                is_reducer = fn.indexify_function.accumulate is not None
         except Exception as e:
-            print(traceback.format_exc())
+            import sys
+            print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
             exception_msg = str(e)
 

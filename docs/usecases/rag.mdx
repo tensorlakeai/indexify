@@ -1,114 +1,32 @@
 ---
-title: 'Basic RAG'
+title: 'Multi-Modal RAG'
 ---
 
-Here we show an example of building a basic RAG application with Indexify. We are going to upload content about Kevin Durant from Wikipedia and ask questions about KD's career.
+Retrieval-Augmented Generation (RAG) makes general purpose LLMs access your private data sources. Many LLM use-cases RAG
+under the hood to ground the LLMs on accurate and up-to-date data. 
 
-### Install the Indexify Extractor SDK, Indexify Langchain and the Indexify Client
-```bash
-pip install indexify-extractor-sdk indexify indexify-langchain
-```
+RAG is usually comprised of the following stages -
+1. **Indexing** - The process of loading your data from various sources, convert them into forms that can be queried easily by LLM applications.
+2. **Querying and Generation** - The process of querying the indexed data and generating responses. The querying part is usually done by a retriever that retrieves the most relevant data from the indexed data.
 
-### Start the Indexify Server
-```bash
-indexify server -d
-```
+<Note>
+    Indexing and Querying in the real world is usually done in parallel and continously. This means that beyond the core RAG algorithms,
+    you need to build a system that can continously and reliably index and query data.
+</Note>
 
-### Download an Embedding Extractor
-On another terminal start the embedding extractor which we will use to index text from the Wikipedia page.
+### RAG using Indexify
 
-<CodeGroup>
-    ```shell Shell
-    indexify-extractor download tensorlake/minilm-l6
-    indexify-extractor join-server
-    ```
-    ```shell Docker
-    docker run -d -v /tmp/indexify-blob-storage:/tmp/indexify-blob-storage -p 9500:9500 tensorlake/minilm-l6 join-server --coordinator-addr=host.docker.internal:8950 --ingestion-addr=host.docker.internal:8900 --advertise-addr=0.0.0.0:9500
-    ```
-</CodeGroup>
+You can perform data loading, impelement indexing and other data transformation algorithms as workflows. Indexify makes it easy to build and operationalize pipelines that can process
+and index data continously.
 
-### Initialize Client
-We will use the langchain wikipedia loader to download content from wikipedia and upload to Indexify. We will also use langchain to prompt OpenAI for the RAG application.
+You can migrate from one RAG algorithm to another, re-index already processed data if you migrate embedding models by running data migrations. Create namespaces for different 
+security sensitive data, and manage access control.
 
-```python
-pip install --upgrade --quiet  wikipedia langchain_openai langchain-community
-```
+You have full control over how you want to index and query data. Which one you choose depends on your use-case, data and LLMs you use for generation.
 
-Instantiate the Indexify Client 
-```python
-from indexify import IndexifyClient
-client = IndexifyClient()
-```
+### Example RAG Algorithms
+We show some examples of RAG algorithms that can be implemented using Indexify.
 
-### Create an Extraction Graph 
-```python
-extraction_graph_spec = """
-name: 'wikipediaknowledgebase'
-extraction_policies:
-   - extractor: 'tensorlake/minilm-l6'
-     name: 'wiki-embedding'
-"""
-extraction_graph = ExtractionGraph.from_yaml(extraction_graph_spec)
-client.create_extraction_graph(extraction_graph)
-# display indexes
-print(client.indexes())
-```
-
-### Add Docs
-
-Now download some pages from Wikipedia and upload them to Indexify
-```python
-from langchain_community.document_loaders import WikipediaLoader
-docs = WikipediaLoader(query="Kevin Durant", load_max_docs=10).load()
-```
-
-```python
-for doc in docs:
-    client.add_documents("wikipediaknowledgebase", doc.page_content)
-```
-
-### Perform RAG
-
-Create a retriever to feed in data from Indexify. 
-
-```python
-from indexify_langchain import IndexifyRetriever
-params = {"name": "wikipediaknowledgebase.wiki-embedding.embedding", "top_k": 20}
-retriever = IndexifyRetriever(client=client, params=params)
-```
-
-Initialize the Langchain Retriever, create a chain to prompt OpenAI with data retrieved from Indexify to create a simple Q and A bot
-```python
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_openai import ChatOpenAI
-```
-
-```python
-template = """Answer the question based only on the following context:
-{context}
-
-Question: {question}
-"""
-prompt = ChatPromptTemplate.from_template(template)
-
-model = ChatOpenAI()
-
-chain = (
-    {"context": retriever, "question": RunnablePassthrough()}
-    | prompt
-    | model
-    | StrOutputParser()
-)
-```
-Now ask any question about KD -
-```python
-chain.invoke("When and where did KD win his championships?")
-```
-
-```bash
-'Kevin Durant won his championships with the Golden State Warriors in 2017 and 2018.'
-```
-
+* Adaptive RAG 
+* Contextual RAG
 

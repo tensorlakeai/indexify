@@ -2,8 +2,9 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Docs",
   "logo": {
-    "dark": "/images/logo/dark.svg",
-    "light": "/images/logo/light.svg"
+    "dark": "/images/logo/TL-Dark.svg",
+    "light": "/images/logo/TL-Color.svg",
+    "href": "https://tensorlake.ai"
   },
   "favicon": "/images/logo/favicon.png",
   "colors": {
@@ -15,6 +16,12 @@
       "to": "#3296FE"
     }
   },
+  "topbarLinks": [
+    {
+      "name": "Community",
+      "url": "https://dub.sh/tensorlake-discord"
+    }
+  ],
   "topbarCtaButton": {
     "name": "Get in Touch",
     "url": "https://dub.sh/diptanu-calendly"
@@ -42,11 +49,6 @@
   ],
   "anchors": [
     {
-      "name": "Community",
-      "icon": "discord",
-      "url": "https://dub.sh/tensorlake-discord"
-    },
-    {
       "name": "GitHub",
       "icon": "github",
       "url": "https://dub.sh/indexify-github"
@@ -56,29 +58,25 @@
     {
       "group": "Get Started",
       "pages": [
-        "introduction"
-      ]
-    },
-    {
-      "group": "Overview",
-      "pages": [
+        "introduction",
         "key-concepts",
         "architecture",
-        "comparisons"
+        "comparisons",
+        "packaging-dependencies",
+        "operations/configuration"
       ]
     },
     {
       "group": "Use Cases",
       "pages": [
+        "usecases/rag",
         "usecases/audio_extraction",
         "usecases/image_retrieval",
-        "usecases/pdf_extraction",
-        "usecases/rag",
-        "usecases/video_rag"
+        "usecases/pdf_extraction"
       ]
     },
     {
-      "group": "CLI and UI",
+      "group": "Guides",
       "pages": [
         "cli-ui/cli",
         "cli-ui/ui"
@@ -95,19 +93,12 @@
       ]
     },
     {
-      "group": "Deployment and Operation",
+      "group": "Deployment",
       "pages": [
-        "operations/configuration",
-        "operations/develop",
+        "operations/deployment",
+        "operations/metrics",
         "operations/gpu-deployment",
-        "operations/kubernetes",
-        "operations/metrics"
-      ]
-    },
-    {
-      "group": "Examples",
-      "pages": [
-        "examples/index"
+        "operations/kubernetes"
       ]
     },
     {

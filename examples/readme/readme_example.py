@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from indexify import indexify_function, indexify_router, Graph
+from indexify import indexify_function, Graph
 from typing import List
 
 class Total(BaseModel):
@@ -23,16 +23,16 @@ g.add_edge(generate_numbers, square)
 g.add_edge(square, add)
 
 if __name__ == "__main__":
-    invocation_id = g.run(a=10)
-    result = g.get_output(invocation_id, "add")
-    print(result)
+    #invocation_id = g.run(a=10)
+    #result = g.get_output(invocation_id, "add")
+    #print(result)
 
     from indexify import RemoteGraph
     graph = RemoteGraph.deploy(g)
     invocation_id = graph.run(block_until_done=True, a=10)
-    result = graph.get_output(invocation_id, "add")
+    result = graph.output(invocation_id, "add")
     print(result)
 
     graph = RemoteGraph.by_name("sequence_summer")
     invocation_id = graph.run(block_until_done=True, a=5)
-    print(graph.get_output(invocation_id, "add"))
+    print(graph.output(invocation_id, "add"))
