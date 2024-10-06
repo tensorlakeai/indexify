@@ -2,7 +2,7 @@ import logging
 import os
 from typing import List, Dict, Tuple, Any
 from pydantic import BaseModel, Field
-from indexify import create_client
+from indexify import RemoteGraph
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
 from indexify.functions_sdk.image import Image
@@ -68,7 +68,7 @@ class QuestionAndResult(BaseModel):
     question: Question
     query_result: QueryResult
 
-# Indexify function definitions
+# Indexify image definitions
 base_image = "python:3.9-slim"
 
 nlp_image = (
@@ -327,21 +327,20 @@ def create_qa_graph():
     g.add_edge(execute_cypher_query, generate_answer)
     return g
 
-def process_document(client, doc: Document):
+def process_document(doc: Document):
     graph = create_kg_rag_graph()
-    client.register_compute_graph(graph)
+    #remote_graph = RemoteGraph.deploy(graph)  # Uncomment to deploy remotely
     
     logging.info("Invoking the KG RAG graph")
-    invocation_id = client.invoke_graph_with_object(
-        graph.name,
+    invocation_id = graph.run(
         block_until_done=True,
         doc=doc
     )
     
-    process_kg_results(client, graph.name, invocation_id)
+    process_kg_results(graph, invocation_id)
 
-def process_kg_results(client, graph_name, invocation_id):
-    kg_result = client.graph_outputs(graph_name, invocation_id, "build_knowledge_graph")
+def process_kg_results(graph: Graph, invocation_id: str):
+    kg_result = graph.output(invocation_id, "build_knowledge_graph")
     if kg_result:
         logging.info("Knowledge Graph created:")
         logging.info(f"Entities: {len(kg_result[0].knowledge_graph.entities)}")
@@ -353,33 +352,30 @@ def process_kg_results(client, graph_name, invocation_id):
     else:
         logging.warning("No Knowledge Graph result")
 
-    neo4j_result = client.graph_outputs(graph_name, invocation_id, "store_in_neo4j")
+    neo4j_result = graph.output(invocation_id, "store_in_neo4j")
     if neo4j_result:
         logging.info(f"Stored in Neo4j: {neo4j_result[0]}")
     else:
         logging.warning("No Neo4j storage result")
 
-    embeddings_result = client.graph_outputs(graph_name, invocation_id, "generate_embeddings")
-    if embeddings_result:
-        embeddings_result = client.graph_outputs(graph_name, invocation_id, "generate_embeddings")
+    embeddings_result = graph.output(invocation_id, "generate_embeddings")
     if embeddings_result:
         embedding = json.loads(embeddings_result[0].metadata['embedding'])
         logging.info(f"Embeddings generated. First 5 values: {embedding[:5]}")
     else:
         logging.warning("No embeddings result")
 
-def answer_question(client, question: Question):
+def answer_question(question: Question):
     graph = create_qa_graph()
-    client.register_compute_graph(graph)
+    # remote_graph = RemoteGraph.deploy(graph)  # Uncomment to deploy remotely
     
     logging.info(f"Invoking the QA graph with question: {question.text}")
-    invocation_id = client.invoke_graph_with_object(
-        graph.name,
+    invocation_id = graph.run(
         block_until_done=True,
         question=question
     )
     
-    answer_result = client.graph_outputs(graph.name, invocation_id, "generate_answer")
+    answer_result = graph.output(invocation_id, "generate_answer")
     if answer_result:
         answer = answer_result[0]
         logging.info(f"Generated Answer: {answer.text}")
@@ -390,14 +386,12 @@ def answer_question(client, question: Question):
 
 def main():
     try:
-        client = create_client(in_process=True)
-        
         sample_doc = Document(
             content="Albert Einstein was a theoretical physicist born in Germany who developed the Theory of Relativity. "
                     "He is best known for the Mass Energy Equivalence Formula.",
             metadata={"source": "wikipedia"}
         )
-        process_document(client, sample_doc)
+        process_document(sample_doc)
         
         questions = [
             Question(text="Where was Albert Einstein born?"),
@@ -406,7 +400,7 @@ def main():
         ]
         
         for question in questions:
-            answer = answer_question(client, question)
+            answer = answer_question(question)
             print(f"\nQuestion: {question.text}")
             print(f"Answer: {answer}")
         

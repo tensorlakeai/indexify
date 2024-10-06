@@ -8,14 +8,11 @@ from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.image import Image
-from indexify.functions_sdk.indexify_functions import (
-    indexify_function,
-    indexify_router,
-)
+from indexify.functions_sdk.indexify_functions import indexify_function, indexify_router
 
 # Data Models
 class YoutubeURL(BaseModel):
-    url: str = Field(..., description="URL of the youtube video")
+    url: str = Field(..., description="URL of the YouTube video")
     resolution: str = Field("480p", description="Resolution of the video")
 
 class SpeechSegment(BaseModel):
@@ -36,12 +33,12 @@ class Summary(BaseModel):
     summary: str
 
 # Image Definitions
-yt_downloader_image = Image().name("yt-image-1").run("pip install pytubefix")
-audio_image = Image().name("audio-image-1").run("pip install pydub")
-transcribe_image = Image().name("transcribe-image-1").run("pip install faster_whisper")
+yt_downloader_image = Image().name("yt-downloader").run("pip install pytubefix")
+audio_image = Image().name("audio-processor").run("pip install pydub")
+transcribe_image = Image().name("transcriber").run("pip install faster_whisper")
 llama_cpp_image = (
     Image()
-    .name("classify-image-1")
+    .name("llama-cpp")
     .run("apt-get update && apt-get install -y build-essential")
     .run("pip install llama-cpp-python")
     .run("apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*")
@@ -50,7 +47,7 @@ llama_cpp_image = (
 # Indexify Functions
 @indexify_function(image=yt_downloader_image)
 def download_youtube_video(url: YoutubeURL) -> List[File]:
-    """Download the youtube video from the url."""
+    """Download the YouTube video from the URL."""
     from pytubefix import YouTube
     yt = YouTube(url.url)
     print("Downloading video...")
@@ -104,9 +101,9 @@ def classify_meeting_intent(speech: Transcription) -> Transcription:
     print(f"response: {response}")
     intent = response.split(":")[-1].strip()
     if intent in ["job-interview", "sales-call", "customer-support-call", "technical-support-call", "marketing-call", "product-call", "financial-call"]:
-        speech.classification = SpeechClassification(classification=intent, confidence=0)
+        speech.classification = SpeechClassification(classification=intent, confidence=0.8)
     else:
-        speech.classification = SpeechClassification(classification="unknown", confidence=0)
+        speech.classification = SpeechClassification(classification="unknown", confidence=0.5)
     return speech
 
 @indexify_function(image=llama_cpp_image)
@@ -163,10 +160,10 @@ def summarize_sales_call(speech: Transcription) -> Summary:
 def route_transcription_to_summarizer(speech: Transcription) -> List[Union[summarize_job_interview, summarize_sales_call]]:
     """Route the transcription to the appropriate summarizer based on the classification."""
     if speech.classification.classification == "job-interview":
-        return summarize_job_interview
+        return [summarize_job_interview]
     elif speech.classification.classification in ["sales-call", "marketing-call", "product-call"]:
-        return summarize_sales_call
-    return None
+        return [summarize_sales_call]
+    return []
 
 def create_graph():
     g = Graph("Youtube_Video_Summarizer", start_node=download_youtube_video)
@@ -178,26 +175,25 @@ def create_graph():
     return g
 
 def main():
-    g = create_graph()
-    remote_graph = g  # For local execution
-    # remote_graph = RemoteGraph.deploy(g)  # For remote execution
+    graph = create_graph()
+    # remote_graph = RemoteGraph.deploy(g)  # uncomment to deploy remotely
 
     youtube_url = "https://www.youtube.com/watch?v=gjHv4pM8WEQ"
-    invocation_id = remote_graph.run(block_until_done=True, url=YoutubeURL(url=youtube_url))
+    invocation_id = graph.run(block_until_done=True, url=YoutubeURL(url=youtube_url))
     
     print(f"[bold]Retrieving transcription for {invocation_id}[/bold]")
-    transcription = remote_graph.output(invocation_id=invocation_id, fn_name=transcribe_audio.name)[0]
+    transcription = graph.output(invocation_id=invocation_id, fn_name=transcribe_audio.name)[0]
     for segment in transcription.segments:
         print(f"[bold]{round(segment.start_ts, 2)} - {round(segment.end_ts, 2)}[/bold]: {segment.text}")
 
-    classification = remote_graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)[0].classification
+    classification = graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)[0].classification
     print(f"[bold]Transcription Classification: {classification.classification}[/bold]")
 
     print("[bold]Summarization of transcription[/bold]")
     if classification.classification == "job-interview":
-        summary = remote_graph.output(invocation_id=invocation_id, fn_name=summarize_job_interview.name)[0]
+        summary = graph.output(invocation_id=invocation_id, fn_name=summarize_job_interview.name)[0]
     elif classification.classification in ["sales-call", "marketing-call", "product-call"]:
-        summary = remote_graph.output(invocation_id=invocation_id, fn_name=summarize_sales_call.name)[0]
+        summary = graph.output(invocation_id=invocation_id, fn_name=summarize_sales_call.name)[0]
     else:
         print("No suitable summarization found for the classification.")
         return

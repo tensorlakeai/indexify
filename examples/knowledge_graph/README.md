@@ -1,6 +1,6 @@
 # Knowledge Graph RAG and Question Answering with Indexify
 
-This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Generation (RAG) pipeline and a Question Answering system using Indexify. The pipeline extracts entities and relationships from text, builds a knowledge graph, stores it in Neo4j, generates embeddings, and answers questions based on the stored knowledge.
+This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Generation (RAG) pipeline and a Question Answering system using Indexify.
 
 ## Features
 
@@ -13,11 +13,12 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
 ## Prerequisites
 
 - Python 3.9+
-- Neo4j database
 - Google Cloud account with Gemini API access
-- Indexify library
+- Docker and Docker Compose (for containerized setup)
 
-## Installation
+## Installation and Usage
+
+### Option 1: Local Installation
 
 1. Clone this repository:
    ```
@@ -25,13 +26,20 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
    cd indexify/examples/knowledge_graph
    ```
 
-2. Install the required dependencies:
+2. Create a virtual environment and activate it:
    ```
-   pip install -r requirements.txt
-   python -m spacy download en_core_web_sm
+   python -m venv venv
+   source venv/bin/activate
    ```
 
-3. Set up environment variables:
+3. Install the required dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+4. Install and start a Neo4j database locally.
+
+5. Set up environment variables:
    ```
    export NEO4J_URI=bolt://localhost:7687
    export NEO4J_USER=neo4j
@@ -39,16 +47,32 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
    export GOOGLE_API_KEY=your_google_api_key
    ```
 
-## Usage
-
-1. Ensure your Neo4j database is running and accessible.
-
-2. Run the main script:
+6. Run the main script:
    ```
    python kg_rag_qa_pipeline.py
    ```
 
-3. The script will process a sample document about Albert Einstein, create a knowledge graph, store it in Neo4j, generate embeddings, and then answer sample questions.
+### Option 2: Using Docker Compose
+
+1. Clone this repository:
+   ```
+   git clone https://github.com/tensorlakeai/indexify
+   cd indexify/examples/knowledge_graph
+   ```
+
+2. Ensure Docker and Docker Compose are installed on your system.
+
+3. Create a `.env` file in the project directory and add your Google API key:
+   ```
+   GOOGLE_API_KEY=your_google_api_key_here
+   ```
+
+4. Build and start the services:
+   ```
+   docker-compose up --build --exit-code-from app
+   ```
+
+   This command will build the application image, start the Neo4j service, and run the knowledge graph RAG QA pipeline.
 
 ## How it Works
 
@@ -64,13 +88,6 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
    - Query Execution: Executes the Cypher query on the Neo4j database.
    - Answer Generation: Uses Gemini AI to generate a natural language answer based on the query results.
 
-## Customization
-
-- Modify the `sample_doc` in the `main()` function to process different texts.
-- Adjust the relationship extraction logic in `extract_relationships()` for more sophisticated relationship identification.
-- Change the embedding model in `generate_embeddings()` to use different pre-trained models.
-- Fine-tune the prompts in `question_to_cypher()` and `generate_answer()` functions for better results.
-
 ## Indexify Graph Structure
 
 The project uses two Indexify graphs:
@@ -85,3 +102,10 @@ The project uses two Indexify graphs:
    ```
    question_to_cypher -> execute_cypher_query -> generate_answer
    ```
+
+## Customization
+
+- Modify the `sample_doc` in the `main()` function of `kg_rag_qa_pipeline.py` to process different texts.
+- Adjust the relationship extraction logic in `extract_relationships()` for more sophisticated relationship identification.
+- Change the embedding model in `generate_embeddings()` to use different pre-trained models.
+- Fine-tune the prompts in `question_to_cypher()` and `generate_answer()` functions for better results.
