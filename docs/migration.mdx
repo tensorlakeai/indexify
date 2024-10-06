@@ -19,7 +19,10 @@ def myapp(docs: List[str]) -> List[List[float]]:
     return embeddings
 ```
 
-## Indexify Graph
+## Migration Steps
+
+We will create a **remote** API that accepts a document, and chunks and returns the embeddings. 
+It will be callable from any application code.
 
 ### Decorate functions which are units of work
     
