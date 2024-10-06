@@ -16,6 +16,12 @@
       "to": "#3296FE"
     }
   },
+  "topbarLinks": [
+    {
+      "name": "Community",
+      "url": "https://dub.sh/tensorlake-discord"
+    }
+  ],
   "topbarCtaButton": {
     "name": "Get in Touch",
     "url": "https://dub.sh/diptanu-calendly"
@@ -42,11 +48,6 @@
     }
   ],
   "anchors": [
-    {
-      "name": "Community",
-      "icon": "discord",
-      "url": "https://dub.sh/tensorlake-discord"
-    },
     {
       "name": "GitHub",
       "icon": "github",
