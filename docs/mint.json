@@ -80,7 +80,8 @@
       "group": "Guides",
       "pages": [
         "cli-ui/cli",
-        "cli-ui/ui"
+        "cli-ui/ui",
+        "migration"
       ]
     },
     {

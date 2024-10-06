@@ -34,23 +34,27 @@ embeddings, chunking, summarization, object detection, and transcription.
 
 
 ## Why Indexify?
-LLM applications require a deep understanding of business context and enterprise data. Developers often need to design complex 
-algorithms with multiple, sometimes parallel, steps. While interacting with models isn't the most challenging aspect, 
-several hurdles arise when moving from a prototype to a production-ready service:
+Interacting with models isn't the most challenging aspect of building Gen AI applications. However, developing these applications require
+constant tweaking prompts, update models when better ones are available, etc.
+
+Indexify ensures that it doesn't come in your way while you are iterating. You can write software as you would normally.
+
+Further, sveral hurdles arise when moving from a prototype to a production-ready service:
 
 * **State Management**: Sharing and persisting the state of dependent stages in your application.
-* **API Integration**: Serving the application as an API for seamless integration with other company systems.
 * **Version Control and Data Migration**: As models evolve, developers must version workflow code and re-process existing data with newer models (e.g., improved structured extraction, summarization, or embedding models).
 * **Compound Systems**: Applications often require multiple models based on input context, necessitating dynamic routing of data to different functions. For instance, different document extraction models might be optimal for specific layouts, requiring a modular workflow that can adapt to various input types and contexts.
 * **Hardware Optimization**: For local inference using open-source or custom-trained models, efficiently utilizing GPUs for model inference and CPUs for other workflow components.
-* **Resource Management**: Batching data across various workflows on GPU machines for optimal performance.
 
-Building such a system requires expertise in stateful distributed systems and time consuming. Indexify addresses these challenges by:
+Once you start using Indexify you don't have to worry about -
+* Handling state between functions.
+* Distributing functions across multiple machines for paralellism.
+* Building APIs to integrate with other systems.
+* Developing scripts for versioning and backfilling data.
 
-* Providing graphs as remote APIs
-* Enabling distributed execution on heterogeneous machines
-* Implementing retries and request queuing
-* Durable workflow state
-* Offering code versioning and data backfill capabilities
+You can program workflows as if they were running on a single machine, while benefiting from a 
+robust, distributed infrastructure.
 
-With Indexify, developers can program workflows as if they were running on a single machine, while benefiting from a robust, distributed infrastructure.
+<Card title="Migrating to Indexify" href="migration">
+You can incrementally adopt Indexify, the section below provides a high-level overview of the steps.
+</Card>
