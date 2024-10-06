@@ -45,8 +45,8 @@ def generate_numbers(a: int) -> List[int]:
     return [i for i in range(a)]
 
 @indexify_function()
-def square(total: Total) -> int:
-    return total.val ** 2
+def square(i: int) -> int:
+    return i ** 2
 
 @indexify_function(accumulate=Total)
 def add(total: Total, new: int) -> Total:
