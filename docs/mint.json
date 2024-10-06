@@ -2,8 +2,9 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Docs",
   "logo": {
-    "dark": "/images/logo/dark.svg",
-    "light": "/images/logo/light.svg"
+    "dark": "/images/logo/TL-Dark.svg",
+    "light": "/images/logo/TL-Color.svg",
+    "href": "https://tensorlake.ai"
   },
   "favicon": "/images/logo/favicon.png",
   "colors": {
