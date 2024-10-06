@@ -61,6 +61,7 @@
         "introduction",
         "quick-start",
         "key-concepts",
+        "migration",
         "architecture",
         "comparisons",
         "packaging-dependencies",
@@ -80,8 +81,7 @@
       "group": "Guides",
       "pages": [
         "cli-ui/cli",
-        "cli-ui/ui",
-        "migration"
+        "cli-ui/ui"
       ]
     },
     {
