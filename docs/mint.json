@@ -100,12 +100,6 @@
       ]
     },
     {
-      "group": "Examples",
-      "pages": [
-        "examples/index"
-      ]
-    },
-    {
       "group": "Install",
       "pages": [
         "download/index"
