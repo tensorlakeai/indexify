@@ -91,7 +91,7 @@ Let's build a workflow to summarize a website! This example is simple, but it sh
     RemoteGraph.deploy(g, server_url="http://localhost:8900")
     ```
   </Step>
-  <Step>
+  <Step title="Call a Graph Endpoint">
     Once the graph is deployed, you can get a reference of the Graph in any application.
     ```python
     graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
