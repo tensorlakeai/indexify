@@ -79,7 +79,7 @@ indexify-cli server-dev-mode
 
 This starts the following processes on your terminal -
 
-**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs. Endpoint - http://localhost:8900
+**Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs. Endpoint - http://localhost:8900
 
 **Executor**: Runs python functions and coordinates execution state of functions with server.
 
