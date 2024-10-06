@@ -59,6 +59,7 @@
       "group": "Get Started",
       "pages": [
         "introduction",
+        "quick-start",
         "key-concepts",
         "architecture",
         "comparisons",

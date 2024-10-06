@@ -1,0 +1,89 @@
+---
+title: Quick Start
+---
+
+Let's create a simple workflow to summarize a website on-demand! It demonstrates how to build and serve a workflow as a **remote** Python API.
+
+<Steps>
+  <Step title="Install">
+    Install the Indexify SDK.
+    ```bash
+    pip install indexify
+    ```
+  </Step>
+  <Step title="Define the Graph">
+    We will write two functions, `scrape_website` and `summarize_text`.
+    We create a Graph `website-summarizer` that executes the scrape function, and then executes the summarizer with the outputs of the scraper.
+
+    ```python
+    from indexify import indexify_function, Graph
+
+    @indexify_function()
+    def scrape_website(url: str) -> str:
+        import requests
+        return requests.get(f"http://r.jina.ai/{url}").text
+
+    @indexify_function()
+    def summarize_text(text: str) -> str:
+        from openai import OpenAI
+        completion = OpenAI().chat.completiions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant. Generate a summary of this website"},
+                {"role": "user", "content": text},
+            ],
+        )
+        return completion.choices[0].message.content
+
+    g = Graph(name="website-summarizer", start_node=scrape_website)
+    g.add_edge(scrape_website, summarize_text)
+    ```
+  </Step>
+  <Step title="Test the Graph In-Process">
+    The graph can be run as-is, this is useful for testing.
+
+    ```python
+    g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    ```
+  </Step>
+  <Step title="Deploying a Graph as an Remote API">
+    When it's time to consume your graph from other applications, you can serve it as an API. You can run the server in production in many ways, but here we run this in our laptop to show how it works.
+
+    ```bash
+    indexify-cli server-dev-mode
+    ```
+
+    This starts the following processes -
+    * **Server:** Orchestrates functions in the graph, stores execution state, and hosts Remote Graph APIs.
+    * **Executor:** Runs the individual functions in the graph.
+
+    Once the server is ready, you can deploy the graph -
+    ```python
+    from indexify import RemoteGraph
+    RemoteGraph.deploy(g, server_url="http://localhost:8900")
+    ```
+  </Step>
+  <Step title="Call a Graph Endpoint">
+    Once the graph is deployed, you can get a reference of the Graph in any application.
+    ```python
+    graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
+    ```
+
+    You can now call the graph as a remote API.
+    ```python
+    invocation_id = graph.run(blocking_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    results = graph.output(invocation_id)
+    ```
+  </Step>
+</Steps>
+
+<Card title="Key Concepts" icon="link" href="key-concepts" horizontal>
+Learn about the key concepts in Indexify, such as Graphs, Functions, and Images.
+</Card>
+<Card title="Packaging Dependencies" icon="link" href="packaging-dependencies" horizontal>
+  A detailed example of text, table and image extraction from PDF. It also covers building image and text indexes and doing
+  cross-modal retrieval, re-ranking, and reciproal rank fusion.
+</Card>
+<Card title="Deployment" icon="link" href="operations/deployment" horizontal>
+Deployment of Indexify in various environments - Bare Metal, Docker Compose, and Kubernetes.
+</Card>
