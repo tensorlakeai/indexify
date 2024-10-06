@@ -6,6 +6,29 @@ Indexify can be deployed in the following ways -
 * Docker Compose
 * Kubernetes (or any other container orchestrator)
 
+### Bare Metal
+
+Indexify doesn't depend on Kubernetes or Docker, you can run the server and executors on any VM or
+bare metal machines.
+
+#### Start Server
+Start the server on one machine. Read the configuration reference to understand how to customize the server to use blob stores for storing function outputs.
+```bash
+indexify-server
+```
+<Note>
+We have a replicated mode for the server, based on Raft consensus protocol. It's not public yet because
+we are still figuring out how to make it easy to configure, operate and use by developers. 
+If you are interested in using it, please reach out to us.
+</Note>
+
+#### Start Executor
+Start as many executors you want in different machines.
+```bash
+indexify-cli executor --server-addr <server-ip>:<server-port>
+```
+
+
 ### Docker Compose
 You can spin up the server and executor using docker compose, and deploy and run in a production-like environment. Copy the [docker-compose.yaml file from here](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml).
 
