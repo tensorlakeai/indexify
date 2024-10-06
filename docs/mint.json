@@ -60,7 +60,8 @@
         "key-concepts",
         "architecture",
         "comparisons",
-        "packaging-dependencies"
+        "packaging-dependencies",
+        "operations/configuration"
       ]
     },
     {
@@ -90,13 +91,11 @@
       ]
     },
     {
-      "group": "Deployment and Operation",
+      "group": "Deployment",
       "pages": [
-        "operations/configuration",
-        "operations/develop",
-        "operations/gpu-deployment",
-        "operations/kubernetes",
-        "operations/metrics"
+        "operations/deployment",
+        "operations/metrics",
+        "operations/gpu-deployment"
       ]
     },
     {

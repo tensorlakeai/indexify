@@ -1,3 +1,26 @@
+---
+title: Deployment
+---
+Indexify can be deployed in the following ways - 
+* Bare Metal and VMs
+* Docker Compose
+* Kubernetes (or any other container orchestrator)
+
+### Docker Compose
+You can spin up the server and executor using docker compose, and deploy and run in a production-like environment. Copy the [docker-compose.yaml file from here](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml).
+
+```bash
+docker compose up
+```
+
+This starts the server and two replicas of the exeuctor in separate containers. 
+Change the `replicas` field for the executor in docker compose to add more executors (i.e parallelism) to the workflow.
+
+This uses a default executor container based on Debian and a vanilla Python installation.
+We generally provide docker compose files for local testing of every example project in the repository.
+
+### Kubernetes
+
 We provide some basic Helm charts to deploy Indexify on Kubernetes.
 If you'd like to try with your own cluster, check out the
 [instructions][operations/k8s].
