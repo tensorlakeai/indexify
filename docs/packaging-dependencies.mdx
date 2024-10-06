@@ -2,11 +2,13 @@
 title: Packaging Dependencies
 ---
 
-Almost all functions have dependencies. These dependencies can be Python packages, system packages, or even data files. Indexify allows you to package these dependencies with your functions.
+Python and System dependencies of functions can be packaged into images. 
 
 ## Custom Docker Images
 
-You can specify a custom Docker image for your function. This image will be used to run the function. 
+Specify the commands to install dependencies in a custom Docker image. You can chose any base image, and install any system or python dependencies.
+
+An image can be used to run multiple functions. You can specify the image name in the function decorator.
 
 ### Step 1: Define the Image
 ```python
@@ -15,6 +17,7 @@ from indexify import Image
 image = (
     Image()
     .name("my-pdf-parser-image")
+    .base_image("ubuntu:22.04")
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx git g++")
     .run("pip install torch")
@@ -27,7 +30,12 @@ image = (
 )
 ```
 
-We create a new `Image` object and specify the name of the image. We then run commands to install the dependencies.
+This defines an `Image` object and specify the name of the image. We then run commands to install the dependencies.
+You can use any base image, the default being `python:3.10.15-slim-bookworm`.
+<Note>
+The Indexify `executor` process is automatically installed in the image. You don't need to install it manually. The executor is responsible
+for running the functions in the image.
+</Note>
 
 ### Step 2: Use the Image in a Function
 ```python
@@ -57,8 +65,8 @@ When you create a graph, which references the `pdf-parser` function, Indexify wi
 
 It does so based on the association you made in the function decorator. `@indexify_function(image=image)`
 
-<Note> Given an image you would need to use Docker or Kubernetes, for example, to deploy your function. </Note>
-
-But, you will have to spin up the image, and make sure it's running when the Graph is invoked.
-
-If the image is not running, Indexify will simply queue up the function internally, and execute it when the image is available.
+<Note>
+You would need to use Kubernetes, ECR, or any other container orchestration engine to deploy your images.
+If the image is not running, Indexify will simply queue up the function internally, and execute it when an executor container 
+with the image is available.
+</Note>
