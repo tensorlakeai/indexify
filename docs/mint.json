@@ -73,7 +73,7 @@
       ]
     },
     {
-      "group": "CLI and UI",
+      "group": "Guides",
       "pages": [
         "cli-ui/cli",
         "cli-ui/ui"
