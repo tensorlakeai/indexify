@@ -1,0 +1,88 @@
+---
+title: 'Kubernetes'
+---
+Deployment on Kubernetes is done using Helm charts. We provide a Helm chart to deploy the Indexify server and executor on Kubernetes.
+
+The Helm chart is very lightweight and is meant to be a starting point for deploying Indexify on Kubernetes.
+It is not meant to be a one-size-fits-all solution, and you may need to customize it to fit your needs. But we are
+always open to contributions and feedback to make it more useful for everyone!
+
+## Components
+
+- [Server][server.yaml] - The API server which manages the graph and orchestrates
+  the execution of functions. It is deployed as a StatefulSet; the server is a stateful
+  application, and it requires a persistent volume to store the state of the execution graph.
+  The server requires a blob store to store the output of functions.
+
+- [Executor][executor.yaml] - Executors are the workers that execute the functions in the graph.
+They are deployed as a Deployment.
+
+- Blob Store - The blob store is used to store the output of functions.
+We require using an S3 like service for the blob store. The credentials are stored as a Kubernetes
+secret and mounted as environment variables in the server.
+
+[server.yaml]:
+  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/helm/templates/server.yaml
+[executor.yaml]:
+  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/helm/templates/executor.yaml
+
+## Values
+
+The Helm chart is parameterized with the following values:
+
+### Required
+
+#### Blob Store
+
+- `blobStore.endpoint` - The endpoint for the blob store.
+- `blobStore.config.s3.accessKey` - The access key for the blob store.
+- `blobStore.config.s3.secretKey` - The secret key for the blob store.
+- `blobStore.allowHTTP` - Whether to allow HTTP connections to the blob store.
+
+#### Server
+
+- `server.persistance.size` - The size of the persistent volume for the server.
+- `server.persistance.storageClass` - The storage class for the persistent volume. This will
+depend on the cloud provider you are using. For example, `standard` for GCP, `gp2` for AWS, etc.
+
+### Optional
+
+#### Server
+
+- `server.image` - The Docker image for the Indexify server.
+- `server.ingress.enabled` - Whether to create an Ingress resource for the server.
+
+#### Executor
+
+- `executors.replicas` - The number of replicas for the executor. 1 by default.
+- `executors.image` - The Docker image for the Indexify executor.
+- `executors.name` - The name of the executor. `indexify-executor` by default.
+
+## Dependencies
+
+### Blob Store
+
+We recommend using an S3 like service for the blob store. Our [local][helm/local.yaml] helm
+values override uses minio for this. See the [environment variable
+patch][minio/api.yaml] for how this gets configured.
+
+[helm/local.yaml]:
+  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/helm/local.yaml
+
+#### GCP
+
+- You'll want to create a [HMAC key][gcp-hmac] to use as `AWS_ACCESS_KEY_ID` and
+  `AWS_SECRET_ACCESS_KEY`.
+- Set `AWS_ENDPOINT_URL` to `https://storage.googleapis.com/`
+
+[gcp-hmac]: https://cloud.google.com/storage/docs/authentication/hmackeys
+
+#### Other Clouds
+
+Not all clouds expose a S3 interface. For those that don't check out the
+[s3proxy][s3proxy] project. However, we'd love help implementing your native
+blob storage of choice! Please open an [issue][issue] so that we can have a
+discussion on how that would look for the project.
+
+[s3proxy]: https://github.com/gaul/s3proxy
+[issue]: https://github.com/tensorlakeai/indexify/issues
