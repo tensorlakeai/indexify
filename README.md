@@ -79,8 +79,8 @@ indexify-cli server-dev-mode
 
 This starts the following processes on your terminal -
 
-**Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs. Endpoint - http://localhost:8900
-
+**Server**: Manages state of graphs, orchestrates functions, and stores function outputs.<br> 
+API URL - http://localhost:8900 <br>
 **Executor**: Runs python functions and coordinates execution state of functions with server.
 
 Change the code above to deploy the graph as an API -
