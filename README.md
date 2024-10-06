@@ -69,7 +69,7 @@ print(result)
 
 Running Graph's in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
 
-#### 3: Deploy your Graph as an API locally
+#### 3: Deploy your Graph as an API
 
 Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
 
