@@ -1,14 +1,18 @@
-from typing import List, Union
+import os
+from typing import List
 
 import anthropic
 import lancedb
-from lancedb.pydantic import LanceModel, Vector
+from lancedb.pydantic import LanceModel
 from sentence_transformers import SentenceTransformer
 from pydantic import BaseModel
 
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.image import Image
 from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
+
+# TODO User set this
+os.environ["ANTHROPIC_API_KEY"] = ""
 
 contextual_retrieval_prompt = """
 Here is the chunk we want to situate within the whole document
@@ -29,7 +33,8 @@ class ChunkContext(BaseModel):
 def generate_chunk_contexts(doc: str) -> ChunkContext:
     chunks = '.'.split(doc)
 
-    output = ChunkContext()
+    chunks_list = []
+    chunks_context_list = []
 
     client = anthropic.Anthropic()
 
@@ -56,10 +61,15 @@ def generate_chunk_contexts(doc: str) -> ChunkContext:
             ],
         )
 
-        chunk_context = response.content
+        chunk_context = response.content # [TextBlock[text, type]]
 
-        output.chunks.append(chunk)
-        output.chunk_context.append(chunk_context)
+        chunks_list.append(chunk)
+        chunks_context_list.append(chunk_context[0].text)
+
+    output = ChunkContext(
+        chunks=chunks_list,
+        chunk_contexts=chunks_context_list,
+    )
 
     return output
 
@@ -67,9 +77,9 @@ def generate_chunk_contexts(doc: str) -> ChunkContext:
 text_embedding_image = Image().name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
 
 class TextChunk(BaseModel):
-    embedding: Vector(384)
-    chunk: str
-    chunk_with_context: str
+    embeddings: List[List[float]]
+    chunk: List[str]
+    chunk_with_context: List[str]
 
 class TextEmbeddingExtractor(IndexifyFunction):
     name = "text-embedding-extractor"
@@ -83,22 +93,29 @@ class TextEmbeddingExtractor(IndexifyFunction):
         self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     def run(self, input: ChunkContext) -> TextChunk:
-        output = TextChunk
+        embeddings = []
+        chunks = []
+        chunk_with_contexts = []
+
         for chunk, context in zip(input.chunks, input.chunk_contexts):
-            chunk_with_context = chunk + '\n' + context
-            embeddings = self.model.encode(chunk_with_context)
+            embedding = self.model.encode(context)
 
-            output.embedding = embeddings.tolist()
-            output.chunk = chunk
-            output.context = context
+            embeddings.append(embedding.tolist())
+            chunks.append(chunk)
+            chunk_with_contexts.append(context)
 
-        return output
+        return TextChunk(
+            embeddings=embeddings,
+            chunk=chunks,
+            chunk_with_context=chunk_with_contexts,
+        )
+
 
 lance_db_image = Image().name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
 
 
 class TextEmbeddingTable(LanceModel):
-    vector: Vector(384)
+    vector: List[float]
     chunk: str
     chunk_with_context: str
 
@@ -114,22 +131,30 @@ class LanceDBWriter(IndexifyFunction):
         )
 
     def run(self, input: TextChunk) -> bool:
-        self._text_table.add(
-            [
-                TextEmbeddingTable(
-                    vector=input.embedding,
-                    chunk=input.chunk,
-                    chunk_with_context=input.chunk_with_context,
-                )
-            ]
-        )
+        for embedding, chunk, context in zip(input.embeddings, input.chunk, input.chunk_with_context):
+            self._text_table.add(
+                [
+                    TextEmbeddingTable(
+                        vector=embedding,
+                        chunk=chunk,
+                        chunk_with_context=context,
+                    )
+                ]
+            )
 
         return True
 
 
 if __name__ == '__main__':
-    graph: Graph = Graph("test", start_node=generate_chunk_contexts)
+    g: Graph = Graph("test", start_node=generate_chunk_contexts)
 
-    graph.add_edge(generate_chunk_contexts, TextEmbeddingExtractor)
-    graph.add_edge(TextEmbeddingExtractor, LanceDBWriter)
+    g.add_edge(generate_chunk_contexts, TextEmbeddingExtractor)
+    g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
 
+    # TODO User replace this with the document you are dealing with.
+    doc = """
+    this is a test.
+    it might be a test.
+    who knows if it is a test."""
+
+    g.run(block_until_done=True, doc=doc)
