@@ -95,7 +95,8 @@
       "pages": [
         "operations/deployment",
         "operations/metrics",
-        "operations/gpu-deployment"
+        "operations/gpu-deployment",
+        "operations/kubernetes"
       ]
     },
     {

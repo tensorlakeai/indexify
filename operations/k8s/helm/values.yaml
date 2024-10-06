@@ -1,24 +1,13 @@
-dbURL: # db_url: postgres://postgres:indexify@vector-store/indexify
-indexConfig:
-  # index_store: PgVector
-  # pg_vector_config:
-  #   addr: postgres://postgres:indexify@vector-store/indexify
-  #   m: 16
-  #   efconstruction: 64
-  #   efsearch: 40
-metadataStorage:
-  # metadata_store: postgres
-  # conn_url: postgres://postgres:indexify@vector-store/indexify
-
 blobStore:
   # allowHTTP: true
   # endpoint: http://blob-store:9000
-  # credentialSecret: blob-store
+  credentialSecret: blob-store
   config:
-    # backend: s3
-    # s3:
-    #   bucket: indexify
-    #   region: us-east-1
+    backend: s3
+    s3: {}
+    #  accessKey: null
+    #  secretKey: null
+
 
 server:
   image: tensorlake/indexify-server:latest
@@ -28,20 +17,10 @@ server:
     # storageClassName: 'local-path'
     # size: 1Gi
 
-  #   nodeselector:
-  #     gpu: "true"
-
 executors:
   name: indexify-executor
   image: tensorlake/indexify-executor-default:latest
   replicas: 1
-  # nodeselector:
-  #   gpu: "true"
-
-extraObjects:
 
 minio:
-  enabled: false
-
-postgresql:
   enabled: false
