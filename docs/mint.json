@@ -56,12 +56,7 @@
     {
       "group": "Get Started",
       "pages": [
-        "introduction"
-      ]
-    },
-    {
-      "group": "Overview",
-      "pages": [
+        "introduction",
         "key-concepts",
         "architecture",
         "comparisons",
