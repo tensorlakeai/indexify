@@ -9,6 +9,10 @@ RAG is usually comprised of the following stages -
 1. **Indexing** - The process of loading your data from various sources, convert them into forms that can be queried easily by LLM applications.
 2. **Querying and Generation** - The process of querying the indexed data and generating responses. The querying part is usually done by a retriever that retrieves the most relevant data from the indexed data.
 
+!!! note
+    Indexing and Querying in the real world is usually done in parallel and continously. This means that beyond the core RAG algorithms,
+    you need to build a system that can continously and reliably index and query data.
+
 ### RAG using Indexify
 
 You can perform data loading, impelement indexing and other data transformation algorithms as workflows. Indexify makes it easy to build and operationalize pipelines that can process
