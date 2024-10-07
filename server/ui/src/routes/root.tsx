@@ -114,13 +114,13 @@ export default function Dashboard() {
             >
               <List sx={{ flexGrow: 1 }}>
                 <ListItemButton
-                  to={`/executors`}
+                  to={`/${namespace}/compute-graphs`}
                   component={Link}
-                  selected={location.pathname.startsWith(`/executors`)}
-                  className={location.pathname.startsWith(`/executors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+                  selected={location.pathname.startsWith(`/${namespace}/compute-graphs`)}
+                  className={location.pathname.startsWith(`/${namespace}/compute-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
                 >
-                  <Setting4 size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Executors'} />
+                  <Cpu size="20" className="drawer-logo" variant="Outline" />
+                  <ListItemText primary={'Compute Graphs'} />
                 </ListItemButton>
                 <ListItemButton
                   to={`/namespaces`}
@@ -132,13 +132,13 @@ export default function Dashboard() {
                   <ListItemText primary={'Namespaces'} />
                 </ListItemButton>
                 <ListItemButton
-                  to={`/${namespace}/compute-graphs`}
+                  to={`/executors`}
                   component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/compute-graphs`)}
-                  className={location.pathname.startsWith(`/${namespace}/compute-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+                  selected={location.pathname.startsWith(`/executors`)}
+                  className={location.pathname.startsWith(`/executors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
                 >
-                  <Cpu size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Compute Graphs'} />
+                  <Setting4 size="20" className="drawer-logo" variant="Outline" />
+                  <ListItemText primary={'Executors'} />
                 </ListItemButton>
               </List>
               <Box sx={{ mt: 'auto', pb: 1 }}>
