@@ -1,7 +1,7 @@
 import { Box } from '@mui/material'
 import { useLoaderData } from 'react-router-dom'
 import ExecutorsCard from '../../components/cards/ExecutorsCard'
-import { ExecutorMetadata } from 'getindexify'
+import { ExecutorMetadata } from '../../types'
 
 const ExecutorsPage = () => {
   const {

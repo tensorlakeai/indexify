@@ -1,7 +1,8 @@
-import { ComputeGraph, ComputeGraphsList, IndexifyClient } from 'getindexify'
+import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import { getIndexifyServiceURL } from './helpers'
 import axios from 'axios';
+import { ComputeGraph, ComputeGraphsList } from '../types';
 
 const indexifyServiceURL = getIndexifyServiceURL();
 
