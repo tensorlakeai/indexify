@@ -1,8 +1,8 @@
 import { Alert, IconButton, Typography, Paper, Grid } from '@mui/material';
 import { Box, Stack } from '@mui/system';
-import { Namespace } from 'getindexify';
 import { TableDocument, InfoCircle } from 'iconsax-react';
 import { formatTimestamp } from '../../utils/helpers';
+import { Namespace } from '../../types';
 
 const NamespacesCard = ({ namespaces }: { namespaces: Namespace[] }) => {
   const renderContent = () => {

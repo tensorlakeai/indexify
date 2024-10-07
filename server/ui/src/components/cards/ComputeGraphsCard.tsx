@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ComputeGraph, ComputeGraphsList, IndexifyClient } from 'getindexify'
+import { IndexifyClient } from 'getindexify'
 import { Alert, Card, CardContent, Grid, IconButton, Typography } from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import CopyText from '../CopyText'
@@ -7,6 +7,7 @@ import { Cpu, InfoCircle } from 'iconsax-react'
 import { Link } from 'react-router-dom'
 import DeleteIcon from '@mui/icons-material/Delete';
 import TruncatedText from '../TruncatedText'
+import { ComputeGraph, ComputeGraphsList } from '../../types';
 
 const ComputeGraphsCard = ({
   client,

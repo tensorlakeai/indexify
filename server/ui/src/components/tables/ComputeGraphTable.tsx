@@ -1,7 +1,7 @@
 import React from 'react';
 import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Box, Chip } from '@mui/material';
 import CopyText from '../CopyText';
-import { ComputeGraph } from 'getindexify';
+import { ComputeGraph } from '../../types';
 
 interface ComputeGraphTableProps {
   graphData: ComputeGraph;
