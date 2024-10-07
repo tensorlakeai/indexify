@@ -83,7 +83,7 @@ export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
 }
 
 export async function NamespacesPageLoader() {
-  const namespaces = (await apiClient.get(`/namespaces`)).data
+  const namespaces = (await apiClient.get(`/namespaces`)).data.namespaces;
   return { namespaces }
 }
 
