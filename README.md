@@ -15,7 +15,7 @@ Some of the use-cases that you can use Indexify for -
 * [Knowledge Graph QA System](examples/knowledge_graph_qa_system/)
 
 ### Key Features
-* **Conditional Branching and Data Flow:** Router functions can conditionaly chose one or more edges in Graph making it easy to invoke expert models based on inputs.
+* **Conditional Branching and Data Flow:** Router functions can conditionally chose one or more edges in Graph making it easy to invoke expert models based on inputs.
 * **Local Inference:** Run LLMs in workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers.
 * **Distributed Map and Reduce:** Automatically parallelizes functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
 * **Version Graphs and Backfill:** Backfill API to update previously processed data when functions or models are updated.
