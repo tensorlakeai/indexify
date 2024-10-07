@@ -3,4 +3,3 @@ export { default as ComputeGraphsPage } from "./ComputeGraphsPage";
 export { default as IndividualComputeGraphPage } from "./IndividualComputeGraphPage";
 export { default as IndividualInvocationPage } from "./IndividualInvocationPage";
 export { default as ExecutorsPage } from "./ExecutorsPage";
-export { default as LogsPage } from "./LogsPage";

@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const indexifyServiceURL = getIndexifyServiceURL();
 
-const apiClient = axios.create({
+export const apiClient = axios.create({
   baseURL: indexifyServiceURL,
 });
 
@@ -93,18 +93,6 @@ export async function ExecutorsPageLoader() {
 }
 
 export async function IndividualInvocationPageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const { namespace, 'compute-graph': computeGraph, 'invocation-id': invocationId } = params
-
-  return {
-    indexifyServiceURL,
-    invocationId,
-    computeGraph,
-    namespace,
-  }
-}
-
-export async function LogsPageLoader({ params }: LoaderFunctionArgs) {
   if (!params.namespace) return redirect('/')
   const { namespace, 'compute-graph': computeGraph, 'invocation-id': invocationId } = params
 
