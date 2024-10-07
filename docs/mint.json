@@ -88,9 +88,8 @@
       "group": "Language SDKs",
       "pages": [
         "sdks/index",
-        "sdks/extraction_graphs",
-        "sdks/content_ingestion",
-        "sdks/retrieval",
+        "sdks/functions",
+        "sdks/compute_graphs",
         "sdks/namespaces"
       ]
     },
