@@ -5,6 +5,7 @@ Migrating to Indexify is easy! Pretty much every multi-stage application code ca
 Here is an example of incremental adoption of Indexify in your codebase -
 
 ## Original Code 
+This following code reads a list of documents, chunks them, embeds the chunks and writes the embeddings to a database.
 ```python
 def chunk(doc: str) -> list[str]:
     return doc.split("\n")
@@ -21,7 +22,6 @@ def myapp(docs: List[str]) -> None:
         vectordb.write(chunk, embeddings)
 ```
 
-This code reads a list of documents, chunks them, embeds the chunks and writes the embeddings to a database.
 This is a typical pattern in many applications. While this works in notebooks and in prototypes, it has the following limitations -
 
 1. The code is synchronous and runs on a single machine. It can't scale to large datasets.
