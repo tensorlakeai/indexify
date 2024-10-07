@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
   Accordion,
@@ -15,8 +15,11 @@ import {
   Box,
   Alert,
   Button,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import SearchIcon from '@mui/icons-material/Search';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -34,6 +37,9 @@ interface InvocationOutputTableProps {
 
 const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
   const [outputs, setOutputs] = useState<Output[]>([]);
+  const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
+  const [filteredOutputs, setFilteredOutputs] = useState<Record<string, Output[]>>({});
+  const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchOutputs = async () => {
@@ -53,6 +59,39 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
 
     fetchOutputs();
   }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
+
+  const handleSearch = useCallback((computeFn: string, term: string) => {
+    const filtered = outputs.filter(output => 
+      output.compute_fn === computeFn && output.id.toLowerCase().includes(term.toLowerCase())
+    );
+    setFilteredOutputs(prev => ({ ...prev, [computeFn]: filtered }));
+  }, [outputs]);
+
+  useEffect(() => {
+    const grouped = outputs.reduce((acc, output) => {
+      if (!acc[output.compute_fn]) {
+        acc[output.compute_fn] = [];
+      }
+      acc[output.compute_fn].push(output);
+      return acc;
+    }, {} as Record<string, Output[]>);
+
+    setFilteredOutputs(grouped);
+
+    // Initialize all panels as expanded
+    const initialExpandedState = Object.keys(grouped).reduce((acc, key) => {
+      acc[key] = true;
+      return acc;
+    }, {} as Record<string, boolean>);
+    setExpandedPanels(initialExpandedState);
+  }, [outputs]);
+
+  useEffect(() => {
+    // Perform search for each compute function when searchTerms change
+    Object.entries(searchTerms).forEach(([computeFn, term]) => {
+      handleSearch(computeFn, term);
+    });
+  }, [searchTerms, handleSearch]);
 
   const downloadLogs = async (fnName: string, logType: 'stdout' | 'stderr') => {
     try {
@@ -86,6 +125,15 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
     }
   };
 
+  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
+    // Check if the click target is the expand icon
+    const target = event.target as HTMLElement;
+    if (target.classList.contains('MuiAccordionSummary-expandIconWrapper') || 
+        target.closest('.MuiAccordionSummary-expandIconWrapper')) {
+      setExpandedPanels(prev => ({ ...prev, [panel]: isExpanded }));
+    }
+  };
+
   if (!outputs || outputs.length === 0) {
     return (
       <Box mt={2} mb={2}>
@@ -97,25 +145,41 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
     );
   }
 
-  const groupedOutputs = outputs.reduce((acc, output) => {
-    if (!acc[output.compute_fn]) {
-      acc[output.compute_fn] = [];
-    }
-    acc[output.compute_fn].push(output);
-    return acc;
-  }, {} as Record<string, Output[]>);
-
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
       <Typography variant="h6" gutterBottom>Outputs for Invocation</Typography>
-      {Object.entries(groupedOutputs).map(([computeFn, outputs], index) => (
-        <Accordion key={index} defaultExpanded>
+      {Object.entries(filteredOutputs).map(([computeFn, outputs], index) => (
+        <Accordion 
+          key={index} 
+          expanded={expandedPanels[computeFn]}
+          onChange={handleAccordionChange(computeFn)}
+        >
           <AccordionSummary
             expandIcon={<ExpandMoreIcon />}
             aria-controls={`panel${index}-content`}
             id={`panel${index}-header`}
           >
-            <Typography>Compute Function - {computeFn} ({outputs.length} outputs)</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+              <Typography>Compute Function - {computeFn} ({outputs.length} outputs)</Typography>
+              <Box 
+                sx={{ display: 'flex', alignItems: 'center' }}
+                onClick={(e) => e.stopPropagation()} // Prevent accordion from toggling
+              >
+                <TextField
+                  size="small"
+                  placeholder="Search by ID"
+                  value={searchTerms[computeFn] || ''}
+                  onChange={(e) => setSearchTerms(prev => ({ ...prev, [computeFn]: e.target.value }))}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+            </Box>
           </AccordionSummary>
           <AccordionDetails>
             <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}} elevation={0}>
