@@ -5,25 +5,13 @@ Namespaces are used to isolate content uploaded by applications.
 </Note>
     
 
-## Create or Update a Namespace
+## Create a Namespace
 A namespace can be created by specifying a unique name, and any additional labels or extraction policies.
 
-<CodeGroup>
-  ```python Python
-  from indexify import IndexifyClient, ExtractionPolicy
+```python Python
+from indexify import IndexifyClient
 
-  IndexifyClient.create_namespace(
-      name="research",
-      labels={"sensitive": "true"},
-  )
-  ```
-</CodeGroup>
-    
-
-## List Namespaces
-
-<CodeGroup>
-  ```python Python
-  namespaces = IndexifyClient.namespaces()
-  ```
-</CodeGroup>
+IndexifyClient.create_namespace(
+    name="research",
+)
+```    

@@ -2,8 +2,9 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Docs",
   "logo": {
-    "dark": "/images/logo/dark.svg",
-    "light": "/images/logo/light.svg"
+    "dark": "/images/logo/TL-Dark.svg",
+    "light": "/images/logo/TL-Color.svg",
+    "href": "https://tensorlake.ai"
   },
   "favicon": "/images/logo/favicon.png",
   "colors": {
@@ -15,6 +16,12 @@
       "to": "#3296FE"
     }
   },
+  "topbarLinks": [
+    {
+      "name": "Community",
+      "url": "https://dub.sh/tensorlake-discord"
+    }
+  ],
   "topbarCtaButton": {
     "name": "Get in Touch",
     "url": "https://dub.sh/diptanu-calendly"
@@ -42,11 +49,6 @@
   ],
   "anchors": [
     {
-      "name": "Community",
-      "icon": "discord",
-      "url": "https://dub.sh/tensorlake-discord"
-    },
-    {
       "name": "GitHub",
       "icon": "github",
       "url": "https://dub.sh/indexify-github"
@@ -57,7 +59,9 @@
       "group": "Get Started",
       "pages": [
         "introduction",
+        "quick-start",
         "key-concepts",
+        "inc-adoption",
         "architecture",
         "comparisons",
         "packaging-dependencies",
@@ -84,9 +88,8 @@
       "group": "Language SDKs",
       "pages": [
         "sdks/index",
-        "sdks/extraction_graphs",
-        "sdks/content_ingestion",
-        "sdks/retrieval",
+        "sdks/functions",
+        "sdks/compute_graphs",
         "sdks/namespaces"
       ]
     },
@@ -95,7 +98,8 @@
       "pages": [
         "operations/deployment",
         "operations/metrics",
-        "operations/gpu-deployment"
+        "operations/gpu-deployment",
+        "operations/kubernetes"
       ]
     },
     {

@@ -1,43 +1,63 @@
-target
+# IDE and editor files
 .vscode
-*.db
-*.pdf
-ve
-site
+.idea
+
+# Python-related files
+__pycache__
 *.pyc
-sdk-py/dist
+*.egg-info
+.venv
+venv
+ve
+
+# JavaScript and TypeScript-related files
+node_modules
 sdk-typescript/node_modules
 sdk-typescript/lib
-node_modules
 ui/node_modules
+
+# Build and distribution directories
+dist
+build
+site
+sdk-py/dist
+charts/*.tgz
+
+# Local development and cache directories
 indexify_storage
 indexify_local_runner_cache
 server/indexify_storage
-dist
-*.tgz
-.venv
-.idea
 local_cache
-build
-upload.pdf
-indexify_extractor_sdk.egg-info
-extractors/indexify_extractors.egg-info/
-data/
 .dev-tls
 src/state/store/snapshots/*
 .ipynb_checkpoints/
-.DS_Store
-docs/docs/example_code/
-local_server_config_*.yaml
-indexify-extractor/**/*
-rag/**/*
+
+# Data and media files
+*.db
+*.pdf
 *.mp4
 *.mp3
+data/
+upload.pdf
+*.wav
+*.tgz
+
+# MacOS-specific files
+.DS_Store
+
+# Specific project files and directories
+target
+indexify-server
+indexify-extractor/**/*
+rag/**/*
+docs/docs/example_code/
+local_server_config_*.yaml
 sqlite*
 *.trace
-venv
-charts/*.tgz
 
-/executor-py/~
-*.wav
+# logs
 *.log
+
+# Miscellaneous
+/executor-py/~
+

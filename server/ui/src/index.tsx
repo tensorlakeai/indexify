@@ -23,7 +23,7 @@ import {
   NamespacesPage,
   IndividualComputeGraphPage,
   IndividualInvocationPage,
-  ExecutorsPage
+  ExecutorsPage,
 } from "./routes/Namespace";
 
 function RedirectToComputeGraphs() {

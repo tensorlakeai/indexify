@@ -12,11 +12,11 @@ import {
   IconButton
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { DataObject } from 'getindexify';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import CopyText from '../CopyText';
 import { getIndexifyServiceURL } from '../../utils/helpers';
+import { DataObject } from '../../types';
 
 interface InvocationsTableProps {
   invocationsList: DataObject[];

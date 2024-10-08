@@ -2,7 +2,7 @@ import React from 'react';
 import { Alert, IconButton, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip } from '@mui/material';
 import { Box, Stack } from '@mui/system';
 import { Setting4, InfoCircle } from 'iconsax-react';
-import { ExecutorMetadata } from 'getindexify';
+import { ExecutorMetadata } from '../../types';
 
 const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
   const renderContent = () => {
