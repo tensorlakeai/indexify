@@ -40,3 +40,4 @@ charts/*.tgz
 
 /executor-py/~
 *.wav
+*.log
