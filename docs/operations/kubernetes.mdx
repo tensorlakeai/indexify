@@ -15,7 +15,8 @@ always open to contributions and feedback to make it more useful for everyone!
   The server requires a blob store to store the output of functions.
 
 - [Executor][executor.yaml] - Executors are the workers that execute the functions in the graph.
-They are deployed as a Deployment.
+They are deployed as a Deployment. The helm chart deploys the default executor by default, but you can
+customize it to deploy many executors with the same Indexify server.
 
 - Blob Store - The blob store is used to store the output of functions.
 We require using an S3 like service for the blob store. The credentials are stored as a Kubernetes
@@ -52,11 +53,34 @@ depend on the cloud provider you are using. For example, `standard` for GCP, `gp
 - `server.image` - The Docker image for the Indexify server.
 - `server.ingress.enabled` - Whether to create an Ingress resource for the server.
 
-#### Executor
+#### Executors
 
 - `executors.replicas` - The number of replicas for the executor. 1 by default.
 - `executors.image` - The Docker image for the Indexify executor.
 - `executors.name` - The name of the executor. `indexify-executor` by default.
+
+##### Adding additional executors
+
+You can add additional executors by adding a new key under `executors` in the values file.
+For example, to add a new executor with the name `indexify-executor-2`, you can add the following:
+
+```yaml
+executors:
+  - name: indexify-pdf-blueprint-downloader
+    image: tensorlake/pdf-blueprint-download:latest
+    replicas: 1
+  - name: indexify-pdf-blueprint-parser
+    image: tensorlake/pdf-blueprint-pdf-parser:latest
+    replicas: 1
+  - name: indexify-pdf-blueprint-lancdb
+    image: tensorlake/pdf-blueprint-lancdb
+    replicas: 1
+  - name: indexify-pdf-blueprint-st
+    image: tensorlake/pdf-blueprint-st:latest
+    replicas: 1
+```
+
+In each executor, one has to specify the `name`, `image`, and `replicas` of the executor.
 
 ## Dependencies
 

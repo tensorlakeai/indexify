@@ -18,9 +18,10 @@ server:
     # size: 1Gi
 
 executors:
-  name: indexify-executor
-  image: tensorlake/indexify-executor-default:latest
-  replicas: 1
+  # Executors is 
+  - name: indexify-executor
+    image: tensorlake/indexify-executor-default:latest
+    replicas: 1
 
 minio:
   enabled: false
