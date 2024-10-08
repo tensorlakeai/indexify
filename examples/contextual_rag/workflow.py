@@ -2,9 +2,10 @@ import json
 import os
 from typing import List
 
-import anthropic
 import lancedb
+import openai
 from lancedb.pydantic import LanceModel, Vector
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rich import print
 from rich.console import Console
 from sentence_transformers import SentenceTransformer
@@ -15,7 +16,7 @@ from indexify.functions_sdk.image import Image
 from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
 
 # TODO User set this
-os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
 
 contextual_retrieval_prompt = """
 Here is the chunk we want to situate within the whole document
@@ -28,53 +29,51 @@ Answer only with the succinct context and nothing else.
 """
 
 
+image = (
+    Image().name("tensorlake/contextual-rag")
+    .run("pip install indexify")
+    .run("pip install sentence-transformers")
+    .run("pip install lancedb")
+    .run("pip install openai")
+    .run("pip install langchain")
+)
+
+
 class ChunkContext(BaseModel):
     chunks: List[str]
     chunk_contexts: List[str]
 
-@indexify_function()
+@indexify_function(image=image)
 def generate_chunk_contexts(doc: str) -> ChunkContext:
-    # Let's do a simple chunking strategy.
-    paras = doc.split('\n')
-    # Filter empty paras
-    doc = [i for i in paras if len(i) > 0]
-    # Just take the first 10 for this example
-    chunks = doc[:30]
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=750,
+        chunk_overlap=75,
+        length_function=len,
+        is_separator_regex=False,
+    )
+
+    chunks = text_splitter.split_text(doc)
 
     chunks_list = []
     chunks_context_list = []
 
-    client = anthropic.Anthropic()
+    client = openai.OpenAI()
 
     for i, chunk in enumerate(chunks):
-        print(f"Processing chunk {i} with size {len(chunk)}")
-        response = client.beta.prompt_caching.messages.create(
-            # model="claude-3-5-sonnet-20240620",
-            model="claude-3-haiku-20240307",
-            max_tokens=1024,
-            system=[
-                {
-                    "type": "text",
-                    "text": "You are an AI assistant tasked with analyzing documents and chunks of text from the document.",
-                },
-                {
-                    "type": "text",
-                    "text": "<document> {doc_content} </document>".format(doc_content=doc),
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+        print(f"Processing chunk {i} of {len(chunks)} with size {len(chunk)}")
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "user",
-                    "content": contextual_retrieval_prompt.format(chunk_content=chunk)
-                }
-            ],
+                {"role": "system", "content": "You are a helpful assistant. Answer precisely."},
+                {"role": "system", "content": f"Answer using the contents of this document <document> {doc} </document>"},
+                {"role": "user", "content": contextual_retrieval_prompt.format(chunk_content=chunk)}
+            ]
         )
 
-        chunk_context = response.content # [TextBlock[text, type]]
+        print(f'oai prompt read from cache {response.usage}')
 
         chunks_list.append(chunk)
-        chunks_context_list.append(chunk_context[0].text)
+        chunks_context_list.append(response.choices[0].message.content)
 
     output = ChunkContext(
         chunks=chunks_list,
@@ -83,8 +82,6 @@ def generate_chunk_contexts(doc: str) -> ChunkContext:
 
     return output
 
-
-text_embedding_image = Image().name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
 
 class TextChunk(BaseModel):
     context_embeddings: List[List[float]]
@@ -98,7 +95,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
     description = "Extractor class that captures an embedding model"
     system_dependencies = []
     input_mime_types = ["text"]
-    image = text_embedding_image
+    image = image
 
     def __init__(self):
         super().__init__()
@@ -112,7 +109,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
         chunk_with_contexts = []
 
         for chunk, context in zip(input.chunks, input.chunk_contexts):
-            context_embedding = self.model.encode(context)
+            context_embedding = self.model.encode(chunk + '-\n' + context)
             chunk_embedding = self.model.encode(chunk)
 
             context_embeddings.append(context_embedding.tolist())
@@ -129,11 +126,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
         )
 
 
-lance_db_image = Image().name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
-
-
 class ContextualChunkEmbeddingTable(LanceModel):
-    # vector: List[float]
     vector: Vector(384)
     chunk: str
     chunk_with_context: str
@@ -146,7 +139,7 @@ class ChunkEmbeddingTable(LanceModel):
 
 class LanceDBWriter(IndexifyFunction):
     name = "lancedb_writer_context_rag"
-    image = lance_db_image
+    image = image
 
     def __init__(self):
         super().__init__()
@@ -179,22 +172,16 @@ class LanceDBWriter(IndexifyFunction):
 
 
 def rag_call(payload):
-    client = anthropic.Anthropic()
-    response = client.beta.prompt_caching.messages.create(
-        model="claude-3-haiku-20240307",
-        max_tokens=1024,
-        system=[
-            {
-                "type": "text",
-                "text": "You are an AI assistant tasked with analyzing documents and answering questions about them.",
-            },
-        ],
+    client = openai.OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         messages=[
-            { "role": "user", "content": payload, }
-        ],
+            {"role": "system", "content": "You are an AI assistant tasked with analyzing documents and answering questions about them."},
+            {"role": "user", "content": payload}
+        ]
     )
 
-    return response.content
+    return response.choices[0].message.content, response.usage
 
 
 if __name__ == '__main__':
@@ -205,7 +192,7 @@ if __name__ == '__main__':
     #
     # # TODO User replace this with the document you are dealing with.
     # # replace with GET, replce with github raw
-    # with open('pg-essay.txt') as f:
+    # with open('nvda.txt') as f:
     #     doc = f.read()
     #
     # g.run(block_until_done=True, doc=doc)
@@ -218,10 +205,9 @@ if __name__ == '__main__':
 
     model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-
     l_client = lancedb.connect("vectordb.lance")
 
-    question = "what did paul do when he was a kid"
+    question = "Where will Nvidia see the most growth in the near-term?"
     console.print("Asking Question -- " + f"`[bold red]{question}[/]`\n")
     question_embd = model.encode(question)
 
@@ -230,11 +216,27 @@ if __name__ == '__main__':
     console.print("\nRAG Output", style="bold red")
 
     chunks = l_client.open_table("chunk-embeddings").search(question_embd).limit(5).to_list()
+    d = []
+    for ii, i in enumerate(chunks):
+        d.append('chunk_id: ' + str(ii))
+        d.append('chunk: ' + i['chunk'])
+    p = '\n'.join(d)
+
     regular_prompt = f"""
-Given the following chunks and chunk_ids can you answer this question `{question}`? Please
-keep the answer concise and to the point. Only use the chunk data to answer the question. Please also
-return the chunk_id that was used to answer the question.
-    {chunks}
+    You are presented with information from a recent SEC10K document. The document has been chunked, and we are providing the chunks and the chunk id. The information is presented in the form:
+
+        chunk_id: <chunk_id>
+        chunk: <Text>
+        chunk_id: <chunk_id>
+        chunk: <Text>
+
+    Answer the question, by grounding your responses to only the information provided in the chunks. Cite the chunk ids at the end of the response in the format -
+        Answer: <Answer>
+        Citation: <Chunk ID>
+
+    Question: {question}
+
+        {p}
 """
 
     for ii, i in enumerate(chunks):
@@ -245,15 +247,35 @@ return the chunk_id that was used to answer the question.
     console.print(rag_call(regular_prompt), style="bold red")
 
     console.print('----')
+    console.print('----')
+
+    console.print("\nContextual RAG Output", style="bold red")
 
     chunks = l_client.open_table("contextual-chunk-embeddings").search(question_embd).limit(5).to_list()
-    _chunks = json.dumps([{'chunk': i['chunk'], 'context': i['chunk_with_context']} for i in chunks])
+    d = []
+    for ii, i in enumerate(chunks):
+        d.append('chunk_id: ' + str(ii))
+        d.append('chunk: ' + i['chunk'])
+        d.append('chunk_context: ' + i['chunk_with_context'])
+    p = '\n'.join(d)
 
     contextual_prompt = f"""
-Given the following contextual chunks and chunk_ids can you answer this question `{question}`? Please
-keep the answer concise and to the point. Only use the chunk data to answer the question. Please also
-return the chunk_id that was used to answer the question.
-    {_chunks}
+    You are presented with information from a recent SEC10K document. The document has been chunked, and we are providing the chunks, context of the chunk and the chunk id. The information is presented in the form:
+        chunk_id: <chunk_id>
+        chunk: <Text>
+        chunk_context: <Text>
+        chunk_id: <chunk_id>
+        chunk: <Text>
+        chunk_context: <Text>
+
+    Answer the questions, by grounding your responses to only the information provided in the chunks. Cite the chunk ids at the end of the response in the format -
+        Answer: <Answer>
+        Citation: <Chunk ID>
+
+    Question: {question}
+
+        {p}
+
 """
     # print(chunks[0])
     for ii, i in enumerate(chunks):
