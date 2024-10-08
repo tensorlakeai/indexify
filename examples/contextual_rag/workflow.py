@@ -1,7 +1,9 @@
 import json
 import os
+import tempfile
 from typing import List
 
+import httpx
 import lancedb
 import openai
 from lancedb.pydantic import LanceModel, Vector
@@ -185,17 +187,22 @@ def rag_call(payload):
 
 
 if __name__ == '__main__':
-    # g: Graph = Graph("test", start_node=generate_chunk_contexts)
-    #
-    # g.add_edge(generate_chunk_contexts, TextEmbeddingExtractor)
-    # g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
-    #
-    # # TODO User replace this with the document you are dealing with.
-    # # replace with GET, replce with github raw
-    # with open('nvda.txt') as f:
-    #     doc = f.read()
-    #
-    # g.run(block_until_done=True, doc=doc)
+    g: Graph = Graph("test", start_node=generate_chunk_contexts)
+
+    g.add_edge(generate_chunk_contexts, TextEmbeddingExtractor)
+    g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
+
+    # TODO User replace this with the document you are dealing with.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_file_path = os.path.join(temp_dir, 'nvda.txt')
+        resp = httpx.get('https://gist.githubusercontent.com/stangirala/ce5ce8b12075542e366ea4c0429e7b69/raw')
+        with open(temp_file_path, 'w') as f:
+            f.write(resp.content.decode())
+
+        with open(temp_file_path) as f:
+                doc = f.read()
+
+    g.run(block_until_done=True, doc=doc)
 
 
     # ----
@@ -217,8 +224,8 @@ if __name__ == '__main__':
 
     chunks = l_client.open_table("chunk-embeddings").search(question_embd).limit(5).to_list()
     d = []
-    for ii, i in enumerate(chunks):
-        d.append('chunk_id: ' + str(ii))
+    for chunk_id, i in enumerate(chunks):
+        d.append('chunk_id: ' + str(chunk_id))
         d.append('chunk: ' + i['chunk'])
     p = '\n'.join(d)
 
@@ -239,10 +246,11 @@ if __name__ == '__main__':
         {p}
 """
 
-    for ii, i in enumerate(chunks):
-        print(f'chunk_id : {ii} \n')
-        print(i['chunk'])
-        print('\n')
+    # TODO User uncomment this to debug the output
+    # for chunk_id, i in enumerate(chunks):
+    #     print(f'chunk_id : {chunk_id} \n')
+    #     print(i['chunk'])
+    #     print('\n')
 
     console.print(rag_call(regular_prompt), style="bold red")
 
@@ -253,8 +261,8 @@ if __name__ == '__main__':
 
     chunks = l_client.open_table("contextual-chunk-embeddings").search(question_embd).limit(5).to_list()
     d = []
-    for ii, i in enumerate(chunks):
-        d.append('chunk_id: ' + str(ii))
+    for chunk_id, i in enumerate(chunks):
+        d.append('chunk_id: ' + str(chunk_id))
         d.append('chunk: ' + i['chunk'])
         d.append('chunk_context: ' + i['chunk_with_context'])
     p = '\n'.join(d)
@@ -278,11 +286,13 @@ if __name__ == '__main__':
 
 """
     # print(chunks[0])
-    for ii, i in enumerate(chunks):
-        print(f'chunk_id : {ii} \n')
-        print(i['chunk'])
-        print('            -   ')
-        print(i['chunk_with_context'])
-        print('\n')
+    # print(chunks[0])
+    # TODO User uncomment this to debug the output
+    # for chunk_id, i in enumerate(chunks):
+    #     print(f'chunk_id : {chunk_id} \n')
+    #     print(i['chunk'])
+    #     print('            -   ')
+    #     print(i['chunk_with_context'])
+    #     print('\n')
 
     console.print(rag_call(contextual_prompt), style="bold red")
