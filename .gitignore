@@ -39,6 +39,8 @@ src/state/store/snapshots/*
 *.mp3
 data/
 upload.pdf
+*.wav
+*.tgz
 
 # MacOS-specific files
 .DS_Store
@@ -53,6 +55,9 @@ local_server_config_*.yaml
 sqlite*
 *.trace
 
+# logs
+*.log
+
 # Miscellaneous
-*.tgz
 /executor-py/~
+

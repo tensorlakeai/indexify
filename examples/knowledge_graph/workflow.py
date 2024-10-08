@@ -2,7 +2,7 @@ import logging
 import os
 from typing import List, Dict, Tuple, Any
 from pydantic import BaseModel, Field
-from indexify import create_client
+from indexify import RemoteGraph
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
 from indexify.functions_sdk.image import Image
@@ -46,7 +46,7 @@ class TextChunk(BaseModel):
 
 class KnowledgeGraphOutput(BaseModel):
     knowledge_graph: KnowledgeGraph
-    document: Document
+    document: Any
 
 class Question(BaseModel):
     text: str = Field(..., description="The user's question")
@@ -62,47 +62,49 @@ class Answer(BaseModel):
 
 class CypherQueryAndQuestion(BaseModel):
     cypher_query: CypherQuery
-    question: Question
+    question: Any
 
 class QuestionAndResult(BaseModel):
-    question: Question
+    question: Any
     query_result: QueryResult
 
-# Indexify function definitions
-base_image = "python:3.9-slim"
+# Indexify image definitions
+
+base_image = (
+    Image()
+    .name("tensorlake/base-image")
+)
 
 nlp_image = (
     Image()
-    .name("nlp-image")
-    .base_image(base_image)
+    .name("tensorlake/nlp-image")
+    .run("apt-get update && apt-get install -y build-essential gcc && rm -rf /var/lib/apt/lists/*")
     .run("pip install spacy")
     .run("python -m spacy download en_core_web_sm")
 )
 
 embedding_image = (
     Image()
-    .name("embedding-image")
-    .base_image(base_image)
+    .name("tensorlake/embedding-image")
     .run("pip install sentence-transformers")
 )
 
 neo4j_image = (
     Image()
-    .name("neo4j-image")
-    .base_image(base_image)
+    .name("tensorlake/neo4j-image")
     .run("pip install neo4j")
 )
 
 gemini_image = (
     Image()
-    .name("gemini-image")
-    .base_image(base_image)
+    .name("tensorlake/gemini-image")
     .run("pip install google-generativeai")
 )
 
 class NLPFunction(IndexifyFunction):
     name = "nlp-function"
     image = nlp_image
+    fn_name = "nlp"
 
     def __init__(self):
         super().__init__()
@@ -185,15 +187,16 @@ class ExtractRelationships(NLPFunction):
             logging.error(f"Error in extract_relationships: {str(e)}")
             raise
 
-@indexify_function()
+@indexify_function(image=base_image)
 def build_knowledge_graph(data: Tuple[List[Entity], List[Relationship], Document]) -> KnowledgeGraphOutput:
     try:
         entities, relationships, doc = data
         kg = KnowledgeGraph(entities=entities, relationships=relationships)
         logging.info(f"Built Knowledge Graph with {len(kg.entities)} entities and {len(kg.relationships)} relationships")
-        return KnowledgeGraphOutput(knowledge_graph=kg, document=doc)
+        knowledge_graph_output = KnowledgeGraphOutput(knowledge_graph=kg, document=doc)
+        return knowledge_graph_output
     except Exception as e:
-        logging.error(f"Error in build_knowledge_graph: {str(e)}")
+        logging.error(f"Error in build_knowledge_graph: {str(e)}", "knowledge_graph_output --->")
         raise
 
 @indexify_function(image=neo4j_image)
@@ -327,21 +330,16 @@ def create_qa_graph():
     g.add_edge(execute_cypher_query, generate_answer)
     return g
 
-def process_document(client, doc: Document):
-    graph = create_kg_rag_graph()
-    client.register_compute_graph(graph)
-    
+def process_document(graph, doc: Document):
     logging.info("Invoking the KG RAG graph")
-    invocation_id = client.invoke_graph_with_object(
-        graph.name,
+    invocation_id = graph.run(
         block_until_done=True,
         doc=doc
     )
-    
-    process_kg_results(client, graph.name, invocation_id)
+    return process_kg_results(graph, invocation_id)
 
-def process_kg_results(client, graph_name, invocation_id):
-    kg_result = client.graph_outputs(graph_name, invocation_id, "build_knowledge_graph")
+def process_kg_results(graph, invocation_id: str):
+    kg_result = graph.output(invocation_id, "build_knowledge_graph")
     if kg_result:
         logging.info("Knowledge Graph created:")
         logging.info(f"Entities: {len(kg_result[0].knowledge_graph.entities)}")
@@ -353,33 +351,29 @@ def process_kg_results(client, graph_name, invocation_id):
     else:
         logging.warning("No Knowledge Graph result")
 
-    neo4j_result = client.graph_outputs(graph_name, invocation_id, "store_in_neo4j")
+    neo4j_result = graph.output(invocation_id, "store_in_neo4j")
     if neo4j_result:
         logging.info(f"Stored in Neo4j: {neo4j_result[0]}")
     else:
         logging.warning("No Neo4j storage result")
 
-    embeddings_result = client.graph_outputs(graph_name, invocation_id, "generate_embeddings")
-    if embeddings_result:
-        embeddings_result = client.graph_outputs(graph_name, invocation_id, "generate_embeddings")
+    embeddings_result = graph.output(invocation_id, "generate_embeddings")
     if embeddings_result:
         embedding = json.loads(embeddings_result[0].metadata['embedding'])
         logging.info(f"Embeddings generated. First 5 values: {embedding[:5]}")
     else:
         logging.warning("No embeddings result")
 
-def answer_question(client, question: Question):
-    graph = create_qa_graph()
-    client.register_compute_graph(graph)
-    
+    return kg_result, neo4j_result, embeddings_result
+
+def answer_question(graph, question: Question):
     logging.info(f"Invoking the QA graph with question: {question.text}")
-    invocation_id = client.invoke_graph_with_object(
-        graph.name,
+    invocation_id = graph.run(
         block_until_done=True,
         question=question
     )
     
-    answer_result = client.graph_outputs(graph.name, invocation_id, "generate_answer")
+    answer_result = graph.output(invocation_id, "generate_answer")
     if answer_result:
         answer = answer_result[0]
         logging.info(f"Generated Answer: {answer.text}")
@@ -388,31 +382,58 @@ def answer_question(client, question: Question):
         logging.warning("No answer generated")
         return "Sorry, I couldn't generate an answer to your question."
 
-def main():
-    try:
-        client = create_client(in_process=True)
-        
-        sample_doc = Document(
-            content="Albert Einstein was a theoretical physicist born in Germany who developed the Theory of Relativity. "
-                    "He is best known for the Mass Energy Equivalence Formula.",
-            metadata={"source": "wikipedia"}
-        )
-        process_document(client, sample_doc)
-        
-        questions = [
-            Question(text="Where was Albert Einstein born?"),
-            Question(text="What scientific theory did Einstein develop?"),
-            Question(text="What is Einstein's most famous formula?")
-        ]
-        
-        for question in questions:
-            answer = answer_question(client, question)
-            print(f"\nQuestion: {question.text}")
-            print(f"Answer: {answer}")
-        
-        logging.info("Workflow completed successfully!")
-    except Exception as e:
-        logging.error(f"An error occurred during execution: {str(e)}")
+def deploy_graphs(server_url: str):
+    kg_rag_graph = create_kg_rag_graph()
+    qa_graph = create_qa_graph()
+
+    RemoteGraph.deploy(kg_rag_graph, server_url=server_url)
+    RemoteGraph.deploy(qa_graph, server_url=server_url)
+
+    logging.info("Graphs deployed successfully")
+
+def run_workflow(mode: str, server_url: str = 'http://localhost:8900'):
+    if mode == 'in-process-run':
+        kg_rag_graph = create_kg_rag_graph()
+        qa_graph = create_qa_graph()
+    elif mode == 'remote-run':
+        kg_rag_graph = RemoteGraph.by_name("knowledge_graph_rag", server_url=server_url)
+        qa_graph = RemoteGraph.by_name("knowledge_graph_qa", server_url=server_url)
+    else:
+        raise ValueError("Invalid mode. Choose 'in-process' or 'remote'.")
+
+    sample_doc = Document(
+        content="Albert Einstein was a theoretical physicist born in Germany who developed the Theory of Relativity. "
+                "He is best known for the Mass Energy Equivalence Formula.",
+        metadata={"source": "wikipedia"}
+    )
+    kg_result, neo4j_result, embeddings_result = process_document(kg_rag_graph, sample_doc)
+    
+    questions = [
+        Question(text="Where was Albert Einstein born?"),
+        Question(text="What scientific theory did Einstein develop?"),
+        Question(text="What is Einstein's most famous formula?")
+    ]
+    
+    for question in questions:
+        answer = answer_question(qa_graph, question)
+        print(f"\nQuestion: {question.text}")
+        print(f"Answer: {answer}")
+
+    return kg_result, neo4j_result, embeddings_result
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run Knowledge Graph RAG example")
+    parser.add_argument('--mode', choices=['in-process-run', 'remote-deploy', 'remote-run'], required=True, 
+                        help='Mode of operation: in-process-run, remote-deploy, or remote-run')
+    parser.add_argument('--server-url', default='http://localhost:8900', help='Indexify server URL for remote mode or deployment')
+    args = parser.parse_args()
+
+    try:
+        if args.mode == 'remote-deploy':
+            deploy_graphs(args.server_url)
+        elif args.mode in ['in-process-run', 'remote-run']:
+            run_workflow(args.mode, args.server_url)
+        logging.info("Operation completed successfully!")
+    except Exception as e:
+        logging.error(f"An error occurred during execution: {str(e)}")

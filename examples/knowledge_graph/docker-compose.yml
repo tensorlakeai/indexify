@@ -1,0 +1,123 @@
+networks:
+  server:
+services:
+  indexify:
+    image: tensorlake/indexify-server
+    ports:
+      - 8900:8900
+    networks:
+      server:
+        aliases:
+          - indexify-server
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
+  nlp-executor:
+    image: tensorlake/nlp-image:latest
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  embedding-executor:
+    image: tensorlake/embedding-image:latest
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  neo4j-executor:
+    image: tensorlake/neo4j-image:latest
+    environment:
+      - NEO4J_URI=bolt://neo4j-server:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=indexify
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  gemini-executor:
+    image: tensorlake/gemini-image:latest
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+  
+  base-executor:
+    image: tensorlake/base-image:latest
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  neo4j-server:
+    image: neo4j:4.4
+    environment:
+      - NEO4J_AUTH=neo4j/indexify
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+
+volumes:
+  data:
+  neo4j_data:
