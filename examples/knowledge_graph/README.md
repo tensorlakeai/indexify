@@ -18,7 +18,7 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
 
 ## Installation and Usage
 
-### Option 1: Local Installation
+### Option 1: Local Installation - In Process
 
 1. Clone this repository:
    ```
@@ -49,10 +49,10 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
 
 6. Run the main script:
    ```
-   python kg_rag_qa_pipeline.py
+   python workflow.py --mode in-process-run
    ```
 
-### Option 2: Using Docker Compose
+### Option 2: Using Docker Compose - deployed graph
 
 1. Clone this repository:
    ```
@@ -60,19 +60,39 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
    cd indexify/examples/knowledge_graph
    ```
 
-2. Ensure Docker and Docker Compose are installed on your system.
+2. Create a virtual environment and activate it:
+   ```
+   python -m venv venv
+   source venv/bin/activate
+   ```
 
-3. Create a `.env` file in the project directory and add your Google API key:
+3. Install indexify:
+   ```
+   pip install indexify
+   ```
+
+4. Ensure Docker and Docker Compose are installed on your system.
+
+5. Create a `.env` file in the project directory and add your Google API key:
    ```
    GOOGLE_API_KEY=your_google_api_key_here
    ```
 
 4. Build and start the services:
    ```
-   docker-compose up --build --exit-code-from app
+   indexify-cli build-image workflow.py NLPFunction
+   indexify-cli build-image workflow.py generate_embeddings
+   indexify-cli build-image workflow.py build_knowledge_graph
+   indexify-cli build-image workflow.py store_in_neo4j
+   indexify-cli build-image workflow.py generate_answer
+   docker-compose up --build
    ```
 
-   This command will build the application image, start the Neo4j service, and run the knowledge graph RAG QA pipeline.
+5. Run the main script:
+   ```
+   python workflow.py --mode remote-deploy
+   python workflow.py --mode remote-run
+   ```
 
 ## How it Works
 

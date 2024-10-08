@@ -7,7 +7,7 @@ This project demonstrates how to build a YouTube video summarization pipeline us
 - YouTube video download
 - Audio extraction from video
 - Speech-to-text transcription using Faster Whisper
-- Content classification using Llama.cpp (e.g. job interview, sales call)
+- Content classification using Llama.cpp (e.g., job interview, sales call)
 - Generate summaries based on conversation type
 
 ## Prerequisites
@@ -17,7 +17,7 @@ This project demonstrates how to build a YouTube video summarization pipeline us
 
 ## Installation and Usage
 
-### Option 1: Local Installation
+### Option 1: Local Installation - In Process
 
 1. Clone this repository:
    ```
@@ -38,10 +38,10 @@ This project demonstrates how to build a YouTube video summarization pipeline us
 
 4. Run the main script:
    ```
-   python workflow.py
+   python workflow.py --mode in-process-run
    ```
 
-### Option 2: Using Docker Compose
+### Option 2: Using Docker Compose - Deployed Graph
 
 1. Clone this repository:
    ```
@@ -51,17 +51,35 @@ This project demonstrates how to build a YouTube video summarization pipeline us
 
 2. Ensure Docker and Docker Compose are installed on your system.
 
-3. Build and start the services:
+3. Build the Docker images:
+   ```
+   indexify-cli build-image workflow.py download_youtube_video
+   indexify-cli build-image workflow.py extract_audio_from_video
+   indexify-cli build-image workflow.py transcribe_audio
+   indexify-cli build-image workflow.py classify_meeting_intent
+   indexify-cli build-image workflow.py summarize_job_interview
+   indexify-cli build-image workflow.py summarize_sales_call
+   ```
+
+4. Start the services:
    ```
    docker-compose up --build
    ```
 
-   This command will build the application image and run the YouTube video summarizer pipeline.
+5. Deploy the graph:
+   ```
+   python workflow.py --mode remote-deploy
+   ```
+
+6. Run the workflow:
+   ```
+   python workflow.py --mode remote-run
+   ```
 
 ## How it Works
 
 1. **Video Processing:**
-   - Video Download: Uses `pytube` to download the YouTube video.
+   - Video Download: Uses `pytubefix` to download the YouTube video.
    - Audio Extraction: Extracts audio from the video using `pydub`.
    - Transcription: Converts speech to text using Faster Whisper.
 
@@ -80,7 +98,7 @@ download_youtube_video -> extract_audio_from_video -> transcribe_audio -> classi
 
 ## Customization
 
-- Modify the `youtube_url` in the `main()` function to process different videos.
+- Modify the `youtube_url` in the `run_workflow()` function to process different videos.
 - Adjust the classification logic in `classify_meeting_intent()` to handle more content types.
 - Fine-tune the prompts in the summarization functions for better results.
 - Experiment with different Llama model variants for improved performance.

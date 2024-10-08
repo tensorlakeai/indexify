@@ -1,13 +1,56 @@
-version: '3.8'
-
+networks:
+  server:
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  indexify:
+    image: tensorlake/indexify-server
+    ports:
+      - 8900:8900
+    networks:
+      server:
+        aliases:
+          - indexify-server
     volumes:
-      - ./:/app
-    command: python workflow.py
+      - data:/app
+
+  yt-downloader:
+    image: tensorlake/yt-downloader:latest
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/app
+
+  audio-processor:
+    image: tensorlake/audio-processor:latest
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/app
+
+  transcriber:
+    image: tensorlake/transcriber:latest
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/app
+
+  llama-cpp:
+    image: tensorlake/llama-cpp:latest
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/app
+      
+  router:
+    image: tensorlake/base-image:latest
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/app
 
 volumes:
-  indexify_data:
+  data:

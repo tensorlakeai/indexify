@@ -1,14 +1,16 @@
 import io
 from typing import List, Optional, Union
+import logging
 
 from pydantic import BaseModel, Field
-from rich import print
-
 from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.image import Image
 from indexify.functions_sdk.indexify_functions import indexify_function, indexify_router
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Data Models
 class YoutubeURL(BaseModel):
@@ -33,14 +35,25 @@ class Summary(BaseModel):
     summary: str
 
 # Image Definitions
-yt_downloader_image = Image().name("yt-downloader").run("pip install pytubefix")
-audio_image = Image().name("audio-processor").run("pip install pydub")
-transcribe_image = Image().name("transcriber").run("pip install faster_whisper")
+
+base_image = (
+    Image()
+    .name("tensorlake/base-image")
+)
+
+yt_downloader_image = Image().name("tensorlake/yt-downloader").run("pip install pytubefix")
+audio_image = (
+    Image()
+    .name("tensorlake/audio-processor")
+    .run("apt-get update && apt-get install -y ffmpeg")
+    .run("pip install pydub")
+)
+transcribe_image = Image().name("tensorlake/transcriber").run("pip install faster_whisper")
 llama_cpp_image = (
     Image()
-    .name("llama-cpp")
-    .run("apt-get update && apt-get install -y build-essential")
-    .run("pip install llama-cpp-python")
+    .name("tensorlake/llama-cpp")
+    .run("apt-get update && apt-get install -y build-essential libgomp1")
+    .run("pip install llama-cpp-python huggingface_hub")
     .run("apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*")
 )
 
@@ -50,9 +63,9 @@ def download_youtube_video(url: YoutubeURL) -> List[File]:
     """Download the YouTube video from the URL."""
     from pytubefix import YouTube
     yt = YouTube(url.url)
-    print("Downloading video...")
+    logging.info("Downloading video...")
     content = yt.streams.first().download()
-    print("Video downloaded")
+    logging.info("Video downloaded")
     return [File(data=content, mime_type="video/mp4")]
 
 @indexify_function(image=audio_image)
@@ -73,38 +86,43 @@ def transcribe_audio(file: File) -> Transcription:
 
 @indexify_function(image=llama_cpp_image)
 def classify_meeting_intent(speech: Transcription) -> Transcription:
-    """Classify the intent of the audio."""
-    from llama_cpp import Llama
-    model = Llama.from_pretrained(
-        repo_id="NousResearch/Hermes-3-Llama-3.1-8B-GGUF",
-        filename="*Q8_0.gguf",
-        verbose=True,
-        n_ctx=60000,
-    )
-    transcription_text = "\n".join([segment.text for segment in speech.segments])
-    prompt = f"""
-    Classify the intent of the audio. Possible intents:
-    - job-interview
-    - sales-call
-    - customer-support-call
-    - technical-support-call
-    - marketing-call
-    - product-call
-    - financial-call
-    Format: intent: <intent>
+    try:
+        """Classify the intent of the audio."""
+        from llama_cpp import Llama
+        model = Llama.from_pretrained(
+            repo_id="NousResearch/Hermes-3-Llama-3.1-8B-GGUF",
+            filename="*Q8_0.gguf",
+            verbose=True,
+            n_ctx=60000,
+        )
+        transcription_text = "\n".join([segment.text for segment in speech.segments])
+        prompt = f"""
+        Classify the intent of the audio. Possible intents:
+        - job-interview
+        - sales-call
+        - customer-support-call
+        - technical-support-call
+        - marketing-call
+        - product-call
+        - financial-call
+        Format: intent: <intent>
 
-    Transcription:
-    {transcription_text}
-    """
-    output = model(prompt=prompt, max_tokens=50, stop=["\n"])
-    response = output["choices"][0]["text"]
-    print(f"response: {response}")
-    intent = response.split(":")[-1].strip()
-    if intent in ["job-interview", "sales-call", "customer-support-call", "technical-support-call", "marketing-call", "product-call", "financial-call"]:
-        speech.classification = SpeechClassification(classification=intent, confidence=0.8)
-    else:
+        Transcription:
+        {transcription_text}
+        """
+        output = model(prompt=prompt, max_tokens=50, stop=["\n"])
+        response = output["choices"][0]["text"]
+        print(f"response: {response}")
+        intent = response.split(":")[-1].strip()
+        if intent in ["job-interview", "sales-call", "customer-support-call", "technical-support-call", "marketing-call", "product-call", "financial-call"]:
+            speech.classification = SpeechClassification(classification=intent, confidence=0.8)
+        else:
+            speech.classification = SpeechClassification(classification="unknown", confidence=0.5)
+        return speech
+    except Exception as e:
+        logging.error(f"Error classifying meeting intent: {e}")
         speech.classification = SpeechClassification(classification="unknown", confidence=0.5)
-    return speech
+        return speech
 
 @indexify_function(image=llama_cpp_image)
 def summarize_job_interview(speech: Transcription) -> Summary:
@@ -156,7 +174,7 @@ def summarize_sales_call(speech: Transcription) -> Summary:
     output = model(prompt=prompt, max_tokens=30000, stop=["\n"])
     return Summary(summary=output["choices"][0]["text"])
 
-@indexify_router()
+@indexify_router(image=base_image)
 def route_transcription_to_summarizer(speech: Transcription) -> List[Union[summarize_job_interview, summarize_sales_call]]:
     """Route the transcription to the appropriate summarizer based on the classification."""
     if speech.classification.classification == "job-interview":
@@ -174,31 +192,57 @@ def create_graph():
     g.route(route_transcription_to_summarizer, [summarize_job_interview, summarize_sales_call])
     return g
 
-def main():
+def deploy_graphs(server_url: str):
     graph = create_graph()
-    # remote_graph = RemoteGraph.deploy(g)  # uncomment to deploy remotely
+    RemoteGraph.deploy(graph, server_url=server_url)
+    logging.info("Graph deployed successfully")
+
+def run_workflow(mode: str, server_url: str = 'http://localhost:8900'):
+    if mode == 'in-process-run':
+        graph = create_graph()
+    elif mode == 'remote-run':
+        graph = RemoteGraph.by_name("Youtube_Video_Summarizer", server_url=server_url)
+    else:
+        raise ValueError("Invalid mode. Choose 'in-process-run' or 'remote-run'.")
 
     youtube_url = "https://www.youtube.com/watch?v=gjHv4pM8WEQ"
     invocation_id = graph.run(block_until_done=True, url=YoutubeURL(url=youtube_url))
     
-    print(f"[bold]Retrieving transcription for {invocation_id}[/bold]")
+    logging.info(f"Retrieving transcription for {invocation_id}")
     transcription = graph.output(invocation_id=invocation_id, fn_name=transcribe_audio.name)[0]
     for segment in transcription.segments:
-        print(f"[bold]{round(segment.start_ts, 2)} - {round(segment.end_ts, 2)}[/bold]: {segment.text}")
+        logging.info(f"{round(segment.start_ts, 2)} - {round(segment.end_ts, 2)}: {segment.text}")
 
-    classification = graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)[0].classification
-    print(f"[bold]Transcription Classification: {classification.classification}[/bold]")
+    try:
+        classification = graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)[0].classification
+        logging.info(f"Transcription Classification: {classification.classification}")
 
-    print("[bold]Summarization of transcription[/bold]")
-    if classification.classification == "job-interview":
-        summary = graph.output(invocation_id=invocation_id, fn_name=summarize_job_interview.name)[0]
-    elif classification.classification in ["sales-call", "marketing-call", "product-call"]:
-        summary = graph.output(invocation_id=invocation_id, fn_name=summarize_sales_call.name)[0]
-    else:
-        print("No suitable summarization found for the classification.")
-        return
+        if classification.classification == "job-interview":
+            summary = graph.output(invocation_id=invocation_id, fn_name=summarize_job_interview.name)[0]
+        elif classification.classification in ["sales-call", "marketing-call", "product-call"]:
+            summary = graph.output(invocation_id=invocation_id, fn_name=summarize_sales_call.name)[0]
+        else:
+            logging.warning(f"No suitable summarization found for the classification: {classification.classification}")
+            return
 
-    print(summary.summary)
+        logging.info(summary.summary)
+    except Exception as e:
+        logging.error(f"Error in workflow execution: {str(e)}")
+        logging.error(f"Graph output for classify_meeting_intent: {graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)}")
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run YouTube Video Summarizer")
+    parser.add_argument('--mode', choices=['in-process-run', 'remote-deploy', 'remote-run'], required=True, 
+                        help='Mode of operation: in-process-run, remote-deploy, or remote-run')
+    parser.add_argument('--server-url', default='http://localhost:8900', help='Indexify server URL for remote mode or deployment')
+    args = parser.parse_args()
+
+    try:
+        if args.mode == 'remote-deploy':
+            deploy_graphs(args.server_url)
+        elif args.mode in ['in-process-run', 'remote-run']:
+            run_workflow(args.mode, args.server_url)
+        logging.info("Operation completed successfully!")
+    except Exception as e:
+        logging.error(f"An error occurred during execution: {str(e)}")

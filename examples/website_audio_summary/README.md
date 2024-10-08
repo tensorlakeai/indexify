@@ -36,10 +36,9 @@ This project demonstrates how to build a pipeline that scrapes a website, summar
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file in the project directory with your API keys:
+4. Set up environment variables:
    ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+   export OPENAI_API_KEY=your_openai_api_key
    ```
 
 5. Run the main script:
