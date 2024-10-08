@@ -2,8 +2,8 @@
 
 This example demonstrates setting up a Contextual RAG pipeline, introduced in [this](https://www.anthropic.com/news/contextual-retrieval) Anthropic blogpost.
 
-We will be building a simple contextual chunker which uses the Prompt Caching feature supported by Anthropic's Claude API, and write the data for querying
-to a local lancedb vector store.
+We will be building a simple contextual chunker which uses the Prompt Caching feature supported by Anthropic's Claude
+(and OpenAI's) APIs, and write the data, for querying, to a local lancedb vector store.
 
 This pipeline can be run locally for quick testing and the lancedb vector store can be queried from any application.
 
