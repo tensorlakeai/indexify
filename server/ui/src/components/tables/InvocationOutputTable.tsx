@@ -147,15 +147,6 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
     }
   };
 
-  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
-    // Check if the click target is the expand icon
-    const target = event.target as HTMLElement;
-    if (target.classList.contains('MuiAccordionSummary-expandIconWrapper') || 
-        target.closest('.MuiAccordionSummary-expandIconWrapper')) {
-      setExpandedPanels(prev => ({ ...prev, [panel]: isExpanded }));
-    }
-  };
-
   if (!outputs || outputs.length === 0) {
     return (
       <Box mt={2} mb={2}>
