@@ -160,9 +160,9 @@ class IndexifyClient:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def register_compute_graph(self, graph: Graph):
+    def register_compute_graph(self, graph: Graph, additional_modules):
         graph_metadata = graph.definition()
-        serialized_code = cloudpickle.dumps(graph.serialize())
+        serialized_code = cloudpickle.dumps(graph.serialize(additional_modules))
         response = self._post(
             f"namespaces/{self.namespace}/compute_graphs",
             files={"code": serialized_code},
@@ -197,9 +197,11 @@ class IndexifyClient:
         for item in namespaces_dict:
             namespaces.append(item["name"])
         return namespaces
-    
+
     @classmethod
-    def new_namespace(cls, namespace: str, server_addr: Optional[str] = "http://localhost:8900"):
+    def new_namespace(
+        cls, namespace: str, server_addr: Optional[str] = "http://localhost:8900"
+    ):
         # Create a new client instance with the specified server address
         client = cls(service_url=server_addr)
 
@@ -212,10 +214,9 @@ class IndexifyClient:
 
         # Set the namespace for the newly created client
         client.namespace = namespace
-        
+
         # Return the client instance with the new namespace
         return client
-
 
     def create_namespace(self, namespace: str):
         self._post("namespaces", json={"name": namespace})
@@ -259,7 +260,9 @@ class IndexifyClient:
                             return v["id"]
                         if k == "DiagnosticMessage":
                             message = v.get("message", None)
-                            print(f"[bold red]scheduler diagnostic: [/bold red]{message}")
+                            print(
+                                f"[bold red]scheduler diagnostic: [/bold red]{message}"
+                            )
                             continue
                         event_payload = InvocationEventPayload.model_validate(v)
                         event = InvocationEvent(event_name=k, payload=event_payload)

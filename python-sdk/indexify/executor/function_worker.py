@@ -18,6 +18,7 @@ function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
 import concurrent.futures
 
+
 class FunctionRunException(Exception):
     def __init__(
         self, exception: Exception, stdout: str, stderr: str, is_reducer: bool
@@ -131,7 +132,9 @@ def _run_function(
     fn_output = None
     has_failed = False
     exception_msg = None
-    print(f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}")
+    print(
+        f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}"
+    )
     with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
         try:
             key = f"{namespace}/{graph_name}/{version}/{fn_name}"
@@ -139,7 +142,10 @@ def _run_function(
                 _load_function(namespace, graph_name, fn_name, code_path, version)
 
             fn = function_wrapper_map[key]
-            if str(type(fn.indexify_function)) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRo'>":
+            if (
+                str(type(fn.indexify_function))
+                == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRo'>"
+            ):
                 router_output = fn.invoke_router(fn_name, input)
             else:
                 fn_output = fn.invoke_fn_ser(fn_name, input, init_value)
@@ -147,6 +153,7 @@ def _run_function(
                 is_reducer = fn.indexify_function.accumulate is not None
         except Exception as e:
             import sys
+
             print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
             exception_msg = str(e)
