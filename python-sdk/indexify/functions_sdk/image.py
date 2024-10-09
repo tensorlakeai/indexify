@@ -29,6 +29,14 @@ DEFAULT_IMAGE = (
     Image()
     .name("tensorlake/indexify-executor-default")
     .base_image("python:3.10.15-slim-bookworm")
-    .tag("latest")
+    .tag("3:10")
+    .run("pip install indexify")
+)
+
+DEFAULT_IMAGE_3_11 = (
+    Image()
+    .name("tensorlake/indexify-executor-default")
+    .base_image("python:3.11.10-slim-bookworm")
+    .tag("3:11")
     .run("pip install indexify")
 )
