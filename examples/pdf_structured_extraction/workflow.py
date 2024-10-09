@@ -1,11 +1,10 @@
-from inkwell.ocr import OCRType, OCRFactory
-from inkwell.io import read_pdf_as_images
 from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import date
 import tempfile
 from indexify.functions_sdk.data_objects import File
 from indexify import indexify_function, Graph, RemoteGraph, Image
+from typing import Optional
 
 image = (
     Image()
@@ -26,7 +25,7 @@ image = (
 class BillSchema(BaseModel):
     account_no: str = Field(..., description="Account number of the customer")
     address: str = Field(..., description="Address of the customer")
-    statement_date: date = Field(..., description="Date when the statement was issued")
+    statement_date: Optional[date] = Field(..., description="Date when the statement was issued")
     due_date: date = Field(..., description="Date by which the payment is due")
     total_amount_due: float = Field(..., description="Total amount due on the bill", ge=0)
     payment_received_since_last_statement: float = Field(..., description="Payment received since the last statement", ge=0)
@@ -41,6 +40,8 @@ class BillSchema(BaseModel):
 
 @indexify_function(image=image)
 def parse_pdf(file: File) -> BillSchema:
+    from inkwell.ocr import OCRType, OCRFactory
+    from inkwell.io import read_pdf_as_images
     schema = BillSchema.model_json_schema()
 
     USER_PROMPT = f"""Here is the image of a bill. Extract the data from the bill according to the schema provided.
@@ -58,6 +59,7 @@ def parse_pdf(file: File) -> BillSchema:
         )
         images = read_pdf_as_images(f.name)
         result = ocr.process(images[0], user_prompt=USER_PROMPT).replace("```json", "").replace("```", "")
+        print(result)
         return BillSchema.model_validate_json(result)
 
 @indexify_function(image=image)
@@ -70,7 +72,7 @@ def write_to_db(bill: BillSchema) -> None:
         id: Optional[int] = Field(default=None, primary_key=True)
         account_no: str = Field(..., description="Account number of the customer")
         address: str = Field(..., description="Address of the customer")
-        statement_date: date = Field(..., description="Date when the statement was issued")
+        statement_date: Optional[date] = Field(..., description="Date when the statement was issued")
         due_date: date = Field(..., description="Date by which the payment is due")
         total_amount_due: float = Field(..., description="Total amount due on the bill", ge=0)
         payment_received_since_last_statement: float = Field(..., description="Payment received since the last statement", ge=0)
@@ -91,9 +93,12 @@ def create_graph() -> Graph:
 
 if __name__ == "__main__":
     from pathlib import Path
-    data = Path("bill.pdf").read_bytes()
-    f = File(data=data)
     g = create_graph()
     import sys
-    graph = RemoteGraph.deploy(g, additional_modules=[sys.modules[__name__]])
-    graph.run(block_until_done=True,file=f)
+    graph = RemoteGraph.deploy(g, additional_modules=[sys.modules[__name__]], server_url="http://100.106.216.46:8900")
+    import httpx
+    response = httpx.get("https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/sample_bill.pdf")
+    f = File(data=response.content)
+    invocation_id = graph.run(block_until_done=True,file=f)
+    structured_data = graph.output(invocation_id, "parse_pdf")
+    print(structured_data)
