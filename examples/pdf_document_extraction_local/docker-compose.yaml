@@ -1,0 +1,83 @@
+version: "3"
+networks:
+  server:
+services:
+  indexify:
+    image: tensorlake/indexify-server
+    ports:
+      - 8900:8900
+    networks:
+      server:
+        aliases:
+          - indexify-server
+    volumes:
+      - data:/tmp/indexify-blob-storage
+  download-executor:
+    image: tensorlake/pdf-blueprint-download:latest
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+  embedding-executor:
+    image: tensorlake/pdf-blueprint-st
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+  lancedb-executor:
+    image: tensorlake/pdf-blueprint-lancdb
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+      - type: bind
+        source: ./vectordb.lance
+        target: /indexify/vectordb.lance
+    deploy:
+      mode: replicated
+      replicas: 1
+  pdf-parser-executor:
+    image: tensorlake/pdf-blueprint-pdf-parser
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+volumes:
+  data:
