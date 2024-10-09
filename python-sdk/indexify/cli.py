@@ -119,7 +119,9 @@ def server_dev_mode():
 
 @app.command(help="Build image for function names")
 def build_image(
-    workflow_file_path: str, func_names: List[str], python_sdk_path: Optional[str] = None
+    workflow_file_path: str,
+    func_names: List[str],
+    python_sdk_path: Optional[str] = None,
 ):
     globals_dict = {}
 

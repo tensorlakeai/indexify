@@ -117,13 +117,16 @@ class Graph:
             self.routers[from_node.name].append(node.name)
         return self
 
-    def serialize(self):
+    def serialize(self, additional_modules):
         # Get all unique modules from nodes and edges
         pickled_functions = {}
+        for module in additional_modules:
+            cloudpickle.register_pickle_by_value(module)
         for node in self.nodes.values():
             cloudpickle.register_pickle_by_value(sys.modules[node.__module__])
             pickled_functions[node.name] = cloudpickle.dumps(node)
-            cloudpickle.unregister_pickle_by_value(sys.modules[node.__module__])
+            if not sys.modules[node.__module__] in additional_modules:
+                cloudpickle.unregister_pickle_by_value(sys.modules[node.__module__])
         return pickled_functions
 
     def add_edge(
