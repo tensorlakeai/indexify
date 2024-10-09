@@ -2,6 +2,82 @@
 title: Compute Functions
 ---
 
+Functions are defined by - 
+1. Wrapping a Python function with a decorator `@indexify_function`
+2. Defining the runnable compute logic as a class if you have to initialize expensive values.
+
 #### Defining a Function with Decorators
 
+```python
+from indexify import indexify_function
+
+@indexify_function(name="my-funct", description="This is my function", image="my-image", accumulate=InitialValue, payload_encoder="cloudpickle")
+def my_funct(a: int) -> int:
+    return a + 1
+```
+
+Attributes:
+* **`name`(optional):** Name of the function. If not provided, the function name is used.
+* **`description`(optional):** Description of the function. If not provided, the doc string of a function is used as a description.
+* **`image`(optional):** Name of the image in which the function should run. If not provided, it's assumed the default image called `tensorlake/indexify-executor-default` is used.
+* **`accumulate`(optional):** Initial value for the accumulator. If not provided, the function is not an reducer. You can define any Pydantic object with default values. 
+* **`payload_encoder`(optional):** Serialization method to store the outputs of the function. If not provided, `cloudpickle` is used. Possible values: `cloudpickle`, `json`.
+
 #### Defining a Function as Class
+
+Sometimes you want to initialize some expensive objects before running the function. In such cases, you can define the function as a class.
+
+```python
+from indexify import IndexifyFunction
+
+class MyFunction(IndexifyFunction):
+    name: str = "my-funct"
+    description: str = "This is my function"
+    image: str = "my-image"
+    accumulate: InitialValue = InitialValue()
+
+    def __init__(self):
+        self.model = load_model()
+    
+    def run(self, a: int) -> int:
+        return self.model.predict(a)
+```
+
+The same attributes that are available for the decorator can be set as attributes of the class.
+
+
+#### Dynamic Routers
+
+Dynamic Routers enable routing data from an upstream function to one or more downstream functions
+by applying custom logic. 
+
+They are equivalent to if-else conditions in a programming language.
+
+```python
+from indexify import indexify_function, indexify_router
+
+@indexify_function()
+def print_even(a: int) -> str:
+    return f"{a} is even"
+
+@indexify_function()
+def print_odd(a: int) -> str:
+    return f"{a} is odd"
+
+@indexify_router()
+def even_odd_router(a: int) -> Union[print_even, print_odd]:
+    if a % 2 == 0:
+        return print_even
+    else:
+        return print_odd
+```
+In this example `even_odd_router` function routes the input to `print_even` if the input is even, otherwise to `print_odd`.
+
+They are added to the graphs as any other function and can be used to define complex workflows.
+
+```python
+g = Graph(name="even-odd-printer", start_node=even_odd_router, description="Prints even or odd numbers")
+g.route(event_odd_router, [print_even, print_odd])
+```
+
+The `print_even` and `print_odd` functions are added as downstream functions to the `even_odd_router` function
