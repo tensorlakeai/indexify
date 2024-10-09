@@ -22,6 +22,19 @@ image = (
     .run("pip install py-inkwell")
 )
 
+gpu_image = (
+    Image()
+    .name("tensorlake/pdf-blueprint-pdf-parser-gpu")
+    .base_image("pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime")
+    .run("apt update")
+    .run("apt install -y libgl1-mesa-glx git g++")
+    .run("pip install langchain")
+    .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
+    .run("apt install -y tesseract-ocr")
+    .run("apt install -y libtesseract-dev")
+    .run("pip install py-inkwell")
+)
+
 class PDFParser(IndexifyFunction):
     name = "pdf-parse"
     description = "Parser class that captures a pdf file"
