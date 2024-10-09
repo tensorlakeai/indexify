@@ -47,36 +47,36 @@ def create_graph() -> Graph:
 
 
 if __name__ == "__main__":
-    graph: Graph = create_graph()
-    # Uncomment this to run the graph locally
-    #invocation_id = graph.run(url="https://arxiv.org/pdf/2106.00043.pdf")
-    import common_objects
+    #graph: Graph = create_graph()
+    ## Uncomment this to run the graph locally
+    ##invocation_id = graph.run(url="https://arxiv.org/pdf/2106.00043.pdf")
+    #import common_objects
 
-    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects])
-    invocation_id = remote_graph.run(
-        block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf"
-    )
-    print(f"Invocation ID: {invocation_id}")
+    #remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects])
+    #invocation_id = remote_graph.run(
+    #    block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf"
+    #)
+    #print(f"Invocation ID: {invocation_id}")
 
     # After extraction, lets test retreival
 
-    # import lancedb
-    # import sentence_transformers
+    import lancedb
+    import sentence_transformers
 
-    # client = lancedb.connect("vectordb.lance")
-    # text_table = client.open_table("text_embeddings")
-    # st = sentence_transformers.SentenceTransformer(
-    #    "sentence-transformers/all-MiniLM-L6-v2"
-    # )
-    # emb = st.encode("Generative adversarial networks")
+    client = lancedb.connect("vectordb.lance")
+    text_table = client.open_table("text_embeddings")
+    st = sentence_transformers.SentenceTransformer(
+       "sentence-transformers/all-MiniLM-L6-v2"
+    )
+    emb = st.encode("Generative adversarial networks")
 
-    # from lancedb.pydantic import LanceModel, Vector 
-    # class TextEmbeddingTable(LanceModel):
-    #         vector: Vector(384)
-    #         text: str
-    #         page_number: int
+    from lancedb.pydantic import LanceModel, Vector
+    class TextEmbeddingTable(LanceModel):
+            vector: Vector(384)
+            text: str
+            page_number: int
 
-    # results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
-    # print(f"Found {len(results)} results")
-    # for result in results:
-    #    print(f"page_number: {result.page_number}\n\ntext: {result.text}")
+    results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
+    print(f"Found {len(results)} results")
+    for result in results:
+       print(f"page_number: {result.page_number}\n\ntext: {result.text}")
