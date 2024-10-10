@@ -61,7 +61,7 @@ def is_pydantic_model_from_annotation(type_annotation):
 
 class Graph:
     def __init__(
-        self, name: str, start_node: IndexifyFunction, description: Optional[str] = None
+        self, name: str, start_node: IndexifyFunction, description: Optional[str] = None,enable_cache: Optional[bool] = True
     ):
         self.name = name
         self.description = description
@@ -69,6 +69,7 @@ class Graph:
         self.routers: Dict[str, List[str]] = defaultdict(list)
         self.edges: Dict[str, List[str]] = defaultdict(list)
         self.accumulator_zero_values: Dict[str, Any] = {}
+        self.enable_cache = enable_cache
 
         self.add_node(start_node)
         self._start_node: str = start_node.name
@@ -227,7 +228,7 @@ class Graph:
             cached_output_bytes: Optional[bytes] = self._cache.get(
                 self.name, node_name, input_bytes
             )
-            if cached_output_bytes is not None:
+            if cached_output_bytes is not None and self.enable_cache:
                 print(
                     f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
                 )
