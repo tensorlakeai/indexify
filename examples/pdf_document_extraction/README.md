@@ -42,4 +42,4 @@ python workflow.py
 
 You have to make a couple of changes to use GPUs for PDF parsing.
 1. Uncomment the lines in the `pdf-parser-executor` block which mention uncommenting them would enable GPUs.
-2. Use the `gpu_image` in the `PDFParser` class so that the workflow routes the PDFParser into the GPU enabled image.
+2. Use the `gpu_image` in the `PDFParser`, `extract_chunks` and `extract_images` class/functions so that the workflow routes the PDFParser into the GPU enabled image.

@@ -38,6 +38,7 @@ gpu_image = (
 class PDFParser(IndexifyFunction):
     name = "pdf-parse"
     description = "Parser class that captures a pdf file"
+    # Change to gpu_image to use GPU
     image = image
 
     def __init__(self):
@@ -55,6 +56,7 @@ class PDFParser(IndexifyFunction):
             document: Document = self._pipeline.process(f.name)
         return Document(pages=document.pages)
 
+# Change to gpu_image to use GPU
 @indexify_function(image=image)
 def extract_chunks(document: Document) -> List[TextChunk]:
     """
@@ -83,6 +85,7 @@ def extract_chunks(document: Document) -> List[TextChunk]:
             chunks.append(chunk)
     return chunks
 
+# Change to gpu_image to use GPU
 @indexify_function(image=image)
 def extract_images(document: Document) -> DocumentImages:
     """
