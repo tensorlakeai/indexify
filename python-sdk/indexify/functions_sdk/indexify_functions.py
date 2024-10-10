@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData, RouterOutput
-from .image import DEFAULT_IMAGE, Image
+from .image import DEFAULT_IMAGE_3_10, Image
 from .object_serializer import CloudPickleSerializer, get_serializer
 
 
@@ -65,7 +65,7 @@ class PlacementConstraints(BaseModel):
 class IndexifyFunction(ABC):
     name: str = ""
     description: str = ""
-    image: Optional[Image] = DEFAULT_IMAGE
+    image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
     payload_encoder: Optional[str] = "cloudpickle"
@@ -83,7 +83,7 @@ class IndexifyFunction(ABC):
 class IndexifyRouter(ABC):
     name: str = ""
     description: str = ""
-    image: Optional[Image] = DEFAULT_IMAGE
+    image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     payload_encoder: Optional[str] = "cloudpickle"
 
@@ -95,7 +95,7 @@ class IndexifyRouter(ABC):
 def indexify_router(
     name: Optional[str] = None,
     description: Optional[str] = "",
-    image: Optional[Image] = DEFAULT_IMAGE,
+    image: Optional[Image] = DEFAULT_IMAGE_3_10,
     placement_constraints: List[PlacementConstraints] = [],
     payload_encoder: Optional[str] = "cloudpickle",
 ):
@@ -129,7 +129,7 @@ def indexify_router(
 def indexify_function(
     name: Optional[str] = None,
     description: Optional[str] = "",
-    image: Optional[Image] = DEFAULT_IMAGE,
+    image: Optional[Image] = DEFAULT_IMAGE_3_10,
     accumulate: Optional[Type[BaseModel]] = None,
     payload_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],

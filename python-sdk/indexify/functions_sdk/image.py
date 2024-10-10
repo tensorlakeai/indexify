@@ -25,7 +25,7 @@ class Image:
         return self
 
 
-DEFAULT_IMAGE = (
+DEFAULT_IMAGE_3_10 = (
     Image()
     .name("tensorlake/indexify-executor-default")
     .base_image("python:3.10.15-slim-bookworm")
