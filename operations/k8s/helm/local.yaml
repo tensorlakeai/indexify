@@ -1,6 +1,6 @@
 blobStore:
   allowHTTP: true
-  # endpoint: http://blob-store:9000
+  endpoint: http://blob-store:9000
   credentialSecret: blob-creds
   config:
     backend: s3
