@@ -31,7 +31,7 @@ image = (
 ```
 
 This defines an `Image` object and specify the name of the image. We then run commands to install the dependencies.
-You can use any base image, the default being `python:3.10.15-slim-bookworm`.
+You can use any base image, the default being `python:3.11.10-slim-bookworm`.
 <Note>
 The Indexify `executor` process is automatically installed in the image. You don't need to install it manually. The executor is responsible
 for running the functions in the image.
@@ -54,7 +54,7 @@ You can build the Docker image using the `indexify build-image` command.
 Assuming the function is in a file named `pdf_parser.py`, you can run:
 
 ```bash
-indexify build-image pdf_parser.py parse_pdf
+indexify build-image pdf_parser.py my-pdf-parser-image
 ```
 
 This will build the Docker image, named `my-pdf-parser-image`. You can push the image to your container registry or Docker Hub.
