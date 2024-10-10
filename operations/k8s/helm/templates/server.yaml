@@ -34,16 +34,12 @@ spec:
           command: ["indexify-server"]
           args: ["--config", "/indexify/config/config.yaml"]
 
-          {{- if  $.Values.blobStore }}
           volumeMounts:
             - name: config
               mountPath: /indexify/config
               readOnly: true
-            {{- if not $.Values.blobStore.config.s3 }}
             - name: data
-              mountPath: /tmp/indexify-blob-storage
-            {{- end }}
-          {{- end }}  
+              mountPath: /tmp/indexify/state
 
           env:
             {{- include "blobStore.env" $.Values | nindent 12 }}
@@ -61,7 +57,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: indexify
+            name: indexify-server
 
   {{- with .persistence }}
   volumeClaimTemplates:

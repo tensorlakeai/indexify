@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: indexify
+  name: indexify-server
   labels:
     {{- include "labels" (dict "name" "indexify" "component" "config" "global" $) | nindent 4 }}
 data:
