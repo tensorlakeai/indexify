@@ -78,7 +78,7 @@ This project demonstrates how to build a Knowledge Graph Retrieval-Augmented Gen
    GOOGLE_API_KEY=your_google_api_key_here
    ```
 
-4. Build and start the services:
+4. Build the images for the functions:
    ```
    indexify-cli build-image workflow.py NLPFunction
    indexify-cli build-image workflow.py generate_embeddings
