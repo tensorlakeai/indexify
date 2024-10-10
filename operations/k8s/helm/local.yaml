@@ -24,7 +24,7 @@ executors:
     replicas: 1
 
 minio:
-  enabled: false
+  enabled: true
   fullnameOverride: blob-store
   persistence:
     enabled: false
