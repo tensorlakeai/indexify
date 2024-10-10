@@ -4,7 +4,7 @@ class Image:
 
         self._tag = "latest"
 
-        self._base_image = "python:3.10.15-slim-bookworm"
+        self._base_image = "python:3.11.10-slim-bookworm"
 
         self._run_strs = []
 

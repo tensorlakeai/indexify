@@ -120,7 +120,7 @@ def server_dev_mode():
 @app.command(help="Build image for function names")
 def build_image(
     workflow_file_path: str,
-    func_names: List[str],
+    image_names: List[str],
     python_sdk_path: Optional[str] = None,
 ):
     globals_dict = {}
@@ -136,20 +136,9 @@ def build_image(
         raise Exception(
             f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
         )
-
-    found_funcs = []
     for name, obj in globals_dict.items():
-        for func_name in func_names:
-            if name == func_name:
-                found_funcs.append(name)
-                _create_image_for_func(
-                    func_name=func_name, func_obj=obj, python_sdk_path=python_sdk_path
-                )
-
-    console.print(
-        Text(f"Processed functions: ", style="cyan"),
-        Text(f"{found_funcs}", style="green"),
-    )
+        if type(obj) and isinstance(obj, Image) and obj._image_name in image_names:
+            _create_image(obj, python_sdk_path)
 
 
 @app.command(help="Build default image for indexify")
@@ -210,12 +199,12 @@ def executor(
         console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
 
 
-def _create_image_for_func(func_name, func_obj, python_sdk_path):
+def _create_image(image: Image, python_sdk_path):
     console.print(
         Text("Creating container for ", style="cyan"),
-        Text(f"`{func_name}`", style="cyan bold"),
+        Text(f"`{image._image_name}`", style="cyan bold"),
     )
-    _build_image(image=func_obj.image, python_sdk_path=python_sdk_path)
+    _build_image(image=image, python_sdk_path=python_sdk_path)
 
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
