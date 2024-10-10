@@ -14,7 +14,7 @@ server:
   image: tensorlake/indexify-server:latest
   ingress:
     enabled: true
-  persistance:
+  persistence:
     storageClassName: 'local-path'
     size: 1Gi
 
