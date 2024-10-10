@@ -18,7 +18,7 @@ from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
-from indexify.functions_sdk.image import DEFAULT_IMAGE, Image
+from indexify.functions_sdk.image import DEFAULT_IMAGE, DEFAULT_IMAGE_3_11, Image
 
 custom_theme = Theme(
     {
@@ -144,6 +144,7 @@ def build_image(
 @app.command(help="Build default image for indexify")
 def build_default_image():
     _build_image(image=DEFAULT_IMAGE)
+    _build_image(image=DEFAULT_IMAGE_3_11)
 
     console.print(
         Text(f"Built default indexify image", style="cyan"),

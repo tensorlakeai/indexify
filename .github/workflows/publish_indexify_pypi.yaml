@@ -100,15 +100,5 @@ jobs:
           sleep 15
           pip install indexify -U
           indexify-cli build-default-image 
-          docker push tensorlake/indexify-executor-default:latest
-          tag="";
-          for i in $(echo ${{ needs.extract-version.outputs.version }} | tr '.' '\n')
-          do
-            if [[ $tag == "" ]]; then
-              tag="$i";
-            else
-              tag="$tag.$i";
-            fi
-            docker tag tensorlake/indexify-executor-default:latest tensorlake/indexify-executor-default:$tag
-            docker push tensorlake/indexify-executor-default:$tag
-          done
+          docker push tensorlake/indexify-executor-default:3.10
+          docker push tensorlake/indexify-executor-default:3.11
