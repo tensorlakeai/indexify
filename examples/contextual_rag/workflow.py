@@ -18,8 +18,6 @@ from indexify.functions_sdk.image import Image
 from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
 
 # TODO User set this
-os.environ["OPENAI_API_KEY"] = ""
-
 contextual_retrieval_prompt = """
 Here is the chunk we want to situate within the whole document
 <chunk>
