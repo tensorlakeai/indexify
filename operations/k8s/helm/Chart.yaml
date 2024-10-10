@@ -4,8 +4,8 @@ description: Indexify
 type: application
 version: 0.1.0
 
-# dependencies:
-#   - name: minio
-#     repository: https://charts.min.io/
-#     condition: minio.enabled
-#     version: 5.2.0
+dependencies:
+  - name: minio
+    repository: https://charts.min.io/
+    condition: minio.enabled
+    version: 5.2.0
