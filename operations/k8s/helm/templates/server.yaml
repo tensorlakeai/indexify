@@ -15,6 +15,9 @@ metadata:
   name: indexify-server
   labels:
     {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 4 }}
+    {{- with .labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end}}
 spec:
   selector:
     matchLabels:
@@ -23,7 +26,9 @@ spec:
     metadata:
       labels:
         {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 8 }}
-
+        {{- with .pod.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end}}
     spec:
       {{- if .nodeSelector }}
       nodeSelector:
@@ -57,6 +62,9 @@ spec:
       name: data
       labels:
         {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 8 }}
+        {{- with .labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       accessModes: [ "ReadWriteOnce" ]
       storageClassName: {{ .storageClassName | default "standard" }}

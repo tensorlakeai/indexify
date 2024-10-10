@@ -11,15 +11,20 @@ blobStore:
 
 server:
   image: tensorlake/indexify-server:latest
+  labels: {}
   ingress:
     enabled: false
+  pod: {}
+    # labels: {}
   persistance: {}
+    # labels: {}
     # storageClassName: 'local-path'
     # size: 1Gi
 
 executors:
-  # Executors is 
+  # Executors is
   - name: indexify-executor
+    labels: {}
     image: tensorlake/indexify-executor-default:latest
     replicas: 1
 
