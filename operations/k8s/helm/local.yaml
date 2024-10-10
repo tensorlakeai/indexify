@@ -1,12 +1,14 @@
 blobStore:
   allowHTTP: true
-  endpoint: http://blob-store:9000
+  # endpoint: http://blob-store:9000
   credentialSecret: blob-creds
   config:
     backend: s3
     s3:
       bucket: indexify
       region: us-east-1
+      accessKey: 
+      secretKey: 
 
 server:
   image: tensorlake/indexify-server:latest
@@ -22,7 +24,7 @@ executors:
     replicas: 1
 
 minio:
-  enabled: true
+  enabled: false
   fullnameOverride: blob-store
   persistence:
     enabled: false
