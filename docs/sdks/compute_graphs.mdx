@@ -6,9 +6,76 @@ Compute Graphs are a way to define workflows in Indexify. They are a sequence of
 that are connected by edges. The output of a function is passed along the edge to the next function.
 
 ####  Defining a Graph
+Let's say we want to run four Indexify functions `fn1`, `fn2`, `fn3` and `fn4` one after the other. The first function
+takes in the input from the user's Graph invocation and then passes the output (or errors out) to the
+subsequent function, and so on. The definition for this graph would look like the following,
 
-#### Dynamic Routing 
+```python
+from indexify.functions_sdk.graph import Graph
+
+
+g: Graph = Graph(name="test", start_node=fn1, description="optional description")
+
+g.add_edge(from_node=fn1, to_node=fn2)
+g.add_edge(from_node=fn2, to_node=fn3)
+g.add_edge(from_node=fn3, to_node=fn4)
+```
+
+The Graph here is named `test` and specifies the `start_node` as `fn1` which is the first node to be
+run. The Graph then adds three edges, one edge from `fn1` to `fn2`, a second edge from `fn2` to `fn3` and
+finally an edge from `fn3` to `fn4`.
+
+#### Dynamic Routing
+Suppose in the Graph above we instead want to choose between `fn2` and `fn3` instead of execution them one
+after the other. To do this we would define a Dynamic Route,
+
+```python
+from indexify.functions_sdk.graph import Graph
+
+
+g: Graph = Graph(name="test", start_node=fn1, description="optional description")
+
+g.add_edge(from_node=fn1, to_node=fn2_fn3_router)
+g.route(from_node=fn2_fn3_router, to_nodes=[fn2, fn3])
+g.add_edge(from_node=fn3, to_node=fn4)
+
+```
+
+The Graph here now has a `router` that uses `fn2_fn3_router` to router to either `fn2` or `fn3`.
+business logic.
 
 #### Deploying a Graph
+To deploy a Graph we use the `RemoteGraph` construct, which is a hook into the remote server to deploy the Graph.
+
+```python
+from indexify import RemoteGraph
+
+import mymodule
+
+g: Graph = Graph("test", start_node=fn1, description="optional description")
+
+g.add_edge(from_node=fn1, to_node=fn2_fn3_router)
+g.route(from_node=fn2_fn3_router, to_nodes=[fn2, fn3])
+g.add_edge(from_node=fn3, to_node=fn4)
+
+RemoteGraph.deploy(g=g, server_url=server_url, additional_modules=[mymodule, sys.modules[__name__]])
+```
+
+Here, we are using the handle to deploy the Graph `g` on the remote server found at `server_url`. We also pass in
+`additional_modules` which is a list of python modules that you want imported when running the Graph function in an
+executor. The idea behind this parameter is that we might have different functions with different dependencies and thus
+different imports in the python code. At the moment the deployment process does not discover some imported modules
+and so the user has to add them, if needed.
 
 #### Calling a Graph
+Invoking a Graph requires getting a remote reference from the server and running it as follows,
+
+```python
+g = RemoteGraph.by_name(name="test", server_url=server_url)
+invocation_id = g.run(block_until_done=True, a=10)
+```
+
+By specifying the `name` and the `server_url`, we will always have a unique "reference" to a previously deployed Graph.
+In the example above we also set `block_until_done` as `True` to mean that the call in the code will block (sync call).
+Whatever args needed by the graph (in this case the integer values `a`) as passed in as python kwargs. The returned
+`invocation_id` can be used to retrieve outputs from that execution as needed.
