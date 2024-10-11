@@ -14,12 +14,12 @@ pip install indexify
 ```
 
 ## Examples 
-**[PDF Document Extraction](./examples/pdf_document_extraction/workflow.py)**
+**[PDF Document Extraction](../examples/pdf_document_extraction/workflow.py)**
 1. Extracts text, tables and images from an ingested PDF file
 2. Indexes the text using MiniLM-L6-v2, the images with CLIP
 3. Writes the results into a vector database.
 
-**[Youtube Transcription Summarizer](./examples/video_summarization/workflow.py)**
+**[Youtube Transcription Summarizer](../examples/video_summarization/workflow.py)**
 1. Downloads Youtube Video
 2. Extracts audio from the video and transcribes using `Faster Whisper` 
 3. Uses Llama 3.1 backed by `Llama.cpp` to understand and classify the nature of the video.
