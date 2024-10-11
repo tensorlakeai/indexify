@@ -26,7 +26,7 @@ run. The Graph then adds three edges, one edge from `fn1` to `fn2`, a second edg
 finally an edge from `fn3` to `fn4`.
 
 #### Dynamic Routing
-Suppose in the Graph above we instead want to choose between `fn2` and `fn3` instead of execution them one
+Suppose in the Graph above we want to choose between `fn2` and `fn3` instead of executing them one
 after the other. To do this we would define a Dynamic Route,
 
 ```python
@@ -42,7 +42,6 @@ g.add_edge(from_node=fn3, to_node=fn4)
 ```
 
 The Graph here now has a `router` that uses `fn2_fn3_router` to router to either `fn2` or `fn3`.
-business logic.
 
 #### Deploying a Graph
 To deploy a Graph we use the `RemoteGraph` construct, which is a hook into the remote server to deploy the Graph.
