@@ -7,8 +7,8 @@
 Indexify simplifies building and serving durable, multi-stage workflows as inter-connected python functions and automagically deploys them as APIs.
 
 Workflows end-points can be -
-* `Pipelines` - linear sequence of functions.
-* `Graphs` - parallel branches of pipelines, including conditional branching of data-flow.
+* **Pipelines** - linear sequence of functions.
+* **Graphs** - parallel branches of pipelines, including conditional branching of data-flow.
 
 Some of the use-cases that you can use Indexify for -
 
