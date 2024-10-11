@@ -18,7 +18,11 @@ from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
-from indexify.functions_sdk.image import DEFAULT_IMAGE_3_10, DEFAULT_IMAGE_3_11, Image
+from indexify.functions_sdk.image import (
+    DEFAULT_IMAGE_3_10,
+    DEFAULT_IMAGE_3_11,
+    Image,
+)
 
 custom_theme = Theme(
     {
