@@ -249,8 +249,8 @@ if __name__ == '__main__':
     #     print(f'chunk_id : {chunk_id} \n')
     #     print(i['chunk'])
     #     print('\n')
-
-    console.print(rag_call(regular_prompt), style="bold red")
+    response, usage = rag_call(regular_prompt)
+    console.print(response, style="bold red")
 
     console.print('----')
     console.print('----')
@@ -293,4 +293,6 @@ if __name__ == '__main__':
     #     print(i['chunk_with_context'])
     #     print('\n')
 
-    console.print(rag_call(contextual_prompt), style="bold red")
+    response, usage = rag_call(contextual_prompt)
+
+    console.print(response, style="bold red")
