@@ -74,7 +74,7 @@ Running Graph's in-process makes writing and testing Graphs easy, for production
 
 #### 3: Deploy your Graph as an API
 
-Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+The Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. It can host multiple workflows and execute functions across Graphs in parallel.
 
 ```bash
 indexify-cli server-dev-mode
@@ -99,8 +99,10 @@ result = graph.output(invocation_id, "add")
 print(result)
 ```
 
-This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
-Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs!
+This serializes your Graph code and uploads it to the server, and instantiates a new endpoint at `http://localhost:8900`.
+To manage and monitor the workflows, visit `http://localhost:8900/ui/` to view executors, namespaces, and compute graphs.
+
+The rest of your application code that processes data and retrives outputs remains unchanged!
 
 ## More Topics 
 
