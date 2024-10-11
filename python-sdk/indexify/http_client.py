@@ -205,6 +205,10 @@ class IndexifyClient:
         # Create a new client instance with the specified server address
         client = cls(service_url=server_addr)
 
+        if namespace in cls.namespaces:
+            client.namespace = namespace
+            return client
+
         try:
             # Create the new namespace using the client
             client.create_namespace(namespace)
