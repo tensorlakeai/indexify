@@ -2,7 +2,7 @@
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
-## Create and Deploy durable, Data-Intensive Agentic Workflows
+## Create and Deploy Durable, Data-Intensive Agentic Workflows
 
 Indexify simplifies building and serving durable, multi-stage workflows as inter-connected python functions and automagically deploys them as APIs.
 
