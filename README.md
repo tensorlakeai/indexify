@@ -4,7 +4,11 @@
 
 ## Create and Deploy durable, Data-Intensive Agentic Workflows
 
-Indexify simplifies building and serve durable, multi-stage workflows as python functions inter-connected as graphs and automagically deploys them as APIs.
+Indexify simplifies building and serving durable, multi-stage workflows as inter-connected python functions and automagically deploys them as APIs.
+
+Workflows end-points can be -
+* `Pipelines` - linear sequence of functions.
+* `Graphs` - parallel branches of pipelines, including conditional branching of data-flow.
 
 Some of the use-cases that you can use Indexify for -
 
@@ -28,9 +32,9 @@ pip install indexify
 
 ## Basic Usage
 
-Workflows are written as Python functions and are connected as Graphs. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware.
+Workflows are written as Python functions and are inter-connected as Graphs or Pipelines. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
-#### 1: Create a Compute Graph
+#### 1: Define a Compute Pipeline or Graph 
 ```python
 from pydantic import BaseModel
 from indexify import indexify_function, indexify_router, Graph
