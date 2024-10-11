@@ -124,7 +124,7 @@ def server_dev_mode():
 @app.command(help="Build image for function names")
 def build_image(
     workflow_file_path: str,
-    image_names: List[str],
+    image_names: Optional[List[str]] = None,
     python_sdk_path: Optional[str] = None,
 ):
     globals_dict = {}
@@ -140,9 +140,10 @@ def build_image(
         raise Exception(
             f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
         )
-    for name, obj in globals_dict.items():
-        if type(obj) and isinstance(obj, Image) and obj._image_name in image_names:
-            _create_image(obj, python_sdk_path)
+    for _, obj in globals_dict.items():
+        if type(obj) and isinstance(obj, Image):
+            if image_names is None or obj._image_name in image_names:
+                _create_image(obj, python_sdk_path)
 
 
 @app.command(help="Build default image for indexify")
