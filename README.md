@@ -1,23 +1,26 @@
-# Indexify
+# Indexify ✨
+
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
-## Create and Deploy Durable, Data-Intensive Agentic Workflows
+## Create and Deploy Durable, Data-Intensive Agentic Workflows 🚀
 
 Indexify simplifies building and serving durable, multi-stage workflows as inter-connected python functions and automagically deploys them as APIs.
 
-Workflows end-points can be -
+Workflows end-points can be - 📌
+
 * **Pipelines** - linear sequence of functions.
 * **Graphs** - parallel branches of functions, including conditional branching of data-flow.
 
-Some of the use-cases that you can use Indexify for -
+Some of the use-cases that you can use Indexify for - 💡
 
 * [Scraping and Summarizing websites](examples/website_audio_summary/)
 * [PDF Documents Extraction and Indexing](examples/pdf_document_extraction/)
 * [Transcribing audio and summarization](examples/video_summarization/)
 * [Knowledge Graph RAG and Question Answering](examples/knowledge_graph/)
 
-### Key Features
+### Key Features ⭐
+
 * **Conditional Branching and Data Flow:** Router functions can conditionally choose one or more edges in Graph making it easy to invoke expert models based on inputs.
 * **Local Inference:** Run LLMs in workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers.
 * **Distributed Map and Reduce:** Automatically parallelizes functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
@@ -25,16 +28,18 @@ Some of the use-cases that you can use Indexify for -
 * **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
 * **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
 
-## Installation
+## Installation ⚙️
+
 ```bash
 pip install indexify
 ```
 
-## Basic Usage
+## Basic Usage 📚
 
 Workflows are written as Python functions and are inter-connected as Graphs or Pipelines. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
-#### 1: Define a Compute Pipeline or Graph 
+#### 1: Define a Compute Pipeline or Graph 🛠️
+
 ```python
 from pydantic import BaseModel
 from indexify import indexify_function, indexify_router, Graph
@@ -63,7 +68,7 @@ g.add_edge(square, add)
 
 You can separate heavy tasks like local inference of LLMs from database write operations to prevent reprocessing data if a write fails. Indexify caches each function's output, so when you retry downstream processes, previous steps aren't repeated.
 
-#### 2: Test the Graph In-Process
+#### 2: Test the Graph In-Process ✅
 ```python
 invocation_id = g.run(a=10)
 result = g.output(invocation_id, "add")
@@ -72,7 +77,7 @@ print(result)
 
 Running Graph's in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
 
-#### 3: Deploy your Graph as an API
+#### 3: Deploy your Graph as an API 🌐
 
 The Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. It can host multiple workflows and execute functions across Graphs in parallel.
 
@@ -104,7 +109,7 @@ To manage and monitor the workflows, visit `http://localhost:8900/ui/` to view e
 
 The rest of your application code that processes data and retrives outputs remains unchanged!
 
-## More Topics 
+## More Topics 📖
 
 * [Packaging Dependencies of Functions](https://docs.getindexify.ai/packaging-dependencies)
 * [Programming Model](https://docs.getindexify.ai/key-concepts#programming-model)
@@ -112,9 +117,9 @@ The rest of your application code that processes data and retrives outputs remai
 * [Deploying Graph Endpoints using Kubernetes](https://docs.getindexify.ai/operations/deployment#kubernetes)
 * [Architecture of Indexify](https://docs.getindexify.ai/architecture)
 
-### Roadmap
+### Roadmap 🗺️
 
-##### Scheduler
+##### Scheduler ⏳
 
 * Enable batching in functions
 * Data Local function executions - Prioritize scheduling on machines where intermediate output lives for faster execution.
@@ -125,6 +130,6 @@ The rest of your application code that processes data and retrives outputs remai
 * Data Loader Functions - Produces a stream of values over time into Graphs, using the yield keyword.
 
 
-##### SDK
+##### SDK 🛠️
 
 * Build a Typescript SDK for writing workflows in Typescript
