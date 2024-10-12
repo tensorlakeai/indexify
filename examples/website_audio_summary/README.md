@@ -8,6 +8,25 @@ This project demonstrates how to build a website summarization pipeline using In
 - Content summarization using OpenAI's GPT-4
 - Text-to-speech generation using ElevenLabs
 
+
+## How it Works
+
+We define functions to do the following tasks - 
+1. **Website Scraping:**
+   - Uses `httpx` to fetch the content of a given URL.
+2. **Content Summarization:**
+   - Utilizes OpenAI's GPT-4 to generate a concise summary of the website content.
+3. **Text-to-Speech Generation:**
+   - Employs ElevenLabs' API to convert the summary into an audio file.
+
+## Graph Structure
+
+The functions are laid out in the graph as follows:
+
+```
+scrape_website -> summarize_website -> generate_tts
+```
+
 ## Prerequisites
 
 - Python 3.9+
@@ -82,25 +101,6 @@ This project demonstrates how to build a website summarization pipeline using In
    ```
    python workflow.py --mode remote-run
    ```
-
-## How it Works
-
-1. **Website Scraping:**
-   - Uses `httpx` to fetch the content of a given URL.
-
-2. **Content Summarization:**
-   - Utilizes OpenAI's GPT-4 to generate a concise summary of the website content.
-
-3. **Text-to-Speech Generation:**
-   - Employs ElevenLabs' API to convert the summary into an audio file.
-
-## Indexify Graph Structure
-
-The project uses the following Indexify graph:
-
-```
-scrape_website -> summarize_website -> generate_tts
-```
 
 ## Customization
 
