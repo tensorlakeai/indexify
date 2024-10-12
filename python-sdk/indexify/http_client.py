@@ -300,7 +300,7 @@ class IndexifyClient:
         output_id: str,
     ) -> IndexifyData:
         response = self._get(
-            f"namespaces/{namespace}/compute_graphs/{graph}/invocations/{invocation_id}/fn/{fn_name}/{output_id}",
+            f"namespaces/{namespace}/compute_graphs/{graph}/invocations/{invocation_id}/fn/{fn_name}/output/{output_id}",
         )
         response.raise_for_status()
         data_dict = msgpack.unpackb(response.content)
