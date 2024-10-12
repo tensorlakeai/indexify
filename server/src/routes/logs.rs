@@ -45,7 +45,7 @@ pub async fn download_logs(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")

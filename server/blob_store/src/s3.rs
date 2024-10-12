@@ -44,15 +44,13 @@ impl BlobStorageReader for S3FileReader {
         let (tx, rx) = mpsc::unbounded_channel();
         let key = self.key.clone();
         let get_result = client_clone
-            .get(&key.into())
+            .get(&key.clone().into())
             .await
-            .map_err(|e| anyhow!("can't get s3 object {:?}: {:?}", self.key, e))?;
+            .map_err(|e| anyhow!("can't get s3 object {:?}: {:?}", key.clone(), e))?;
         tokio::spawn(async move {
             let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
-                if let Ok(chunk) = chunk {
-                    let _ = tx.send(Ok(chunk));
-                }
+                let _ = tx.send(chunk.map_err(|e| anyhow!("error reading s3 object {:?}: {:?}", key.clone(), e)));
             }
         });
         Ok(Box::pin(UnboundedReceiverStream::new(rx)))

@@ -26,7 +26,7 @@ pub async fn download_invocation_payload(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")
@@ -75,7 +75,7 @@ pub async fn download_fn_output_payload(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")
@@ -111,7 +111,7 @@ pub async fn download_fn_output_by_key(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")

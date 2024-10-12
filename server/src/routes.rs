@@ -68,7 +68,6 @@ use crate::{
         Namespace,
         NamespaceList,
         Node,
-        RuntimeInformation,
         Task,
         TaskOutcome,
         Tasks,
@@ -109,7 +108,6 @@ use crate::{
                 ExecutorMetadata,
                 Task,
                 TaskOutcome,
-                RuntimeInformation,
                 Tasks,
                 GraphInvocations,
                 DataObject,
@@ -360,7 +358,7 @@ async fn create_compute_graph(
                     .blob_storage
                     .put(&file_name, stream)
                     .await
-                    .map_err(IndexifyAPIError::internal_error)?;
+                    .map_err(|e| IndexifyAPIError::internal_error(e))?;
                 put_result = Some(result);
             } else if name == "compute_graph" {
                 let text = field
@@ -743,7 +741,7 @@ async fn get_code(
     let code_stream = storage_reader
         .get()
         .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")
