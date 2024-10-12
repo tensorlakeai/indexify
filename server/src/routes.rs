@@ -55,8 +55,6 @@ use crate::{
     http_objects::{
         ComputeFn,
         ComputeGraph,
-        RuntimeInformation,
-        GraphVersion,
         ComputeGraphsList,
         CreateNamespace,
         DataObject,
@@ -64,12 +62,14 @@ use crate::{
         ExecutorMetadata,
         FnOutputs,
         GraphInvocations,
+        GraphVersion,
         IndexifyAPIError,
         InvocationResult,
         ListParams,
         Namespace,
         NamespaceList,
         Node,
+        RuntimeInformation,
         Task,
         TaskOutcome,
         Tasks,
@@ -666,7 +666,7 @@ async fn get_context(
     Ok(Json(context))
 }
 
-/// Get outputs of a function 
+/// Get outputs of a function
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",

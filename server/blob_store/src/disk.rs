@@ -33,7 +33,9 @@ impl BlobStorageReader for DiskFileReader {
         tokio::spawn(async move {
             let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
-                let _ = tx.send(chunk.map_err(|e| anyhow!("error reading s3 object {:?}: {:?}", file_path.clone(), e)));
+                let _ = tx.send(chunk.map_err(|e| {
+                    anyhow!("error reading s3 object {:?}: {:?}", file_path.clone(), e)
+                }));
             }
         });
         Ok(Box::pin(UnboundedReceiverStream::new(rx)))

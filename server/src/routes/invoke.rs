@@ -40,14 +40,15 @@ use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId, Invoca
 // /// Upload data to a compute graph
 // #[utoipa::path(
 //     post,
-//     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
-//     request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
-//     tag = "ingestion",
+//     path =
+// "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
+//     request_body(content_type = "multipart/form-data", content =
+// inline(InvokeWithFile)),     tag = "ingestion",
 //     responses(
 //         (status = 200, description = "upload successful"),
 //         (status = 400, description = "bad request"),
-//         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-//     ),
+//         (status = INTERNAL_SERVER_ERROR, description = "Internal Server
+// Error")     ),
 // )]
 pub async fn invoke_with_file(
     Path((namespace, compute_graph)): Path<(String, String)>,
