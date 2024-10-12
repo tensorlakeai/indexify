@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use axum::{
@@ -21,35 +21,34 @@ use state_store::{
 };
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::RouteState;
 use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId, InvocationQueryParams};
 
-#[allow(dead_code)]
-#[derive(ToSchema)]
-pub struct InvokeWithFile {
-    /// Extra metadata for file
-    metadata: Option<HashMap<String, serde_json::Value>>,
-    #[schema(format = "binary")]
-    /// Mime type of file
-    mime_type: Option<String>,
-    /// File to upload
-    file: Option<String>,
-}
-/// Upload data to a compute graph
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
-    request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "upload successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-    ),
-)]
+// #[allow(dead_code)]
+// #[derive(ToSchema)]
+// pub struct InvokeWithFile {
+//     /// Extra metadata for file
+//     metadata: Option<HashMap<String, serde_json::Value>>,
+//     #[schema(format = "binary")]
+//     /// Mime type of file
+//     mime_type: Option<String>,
+//     /// File to upload
+//     file: Option<String>,
+// }
+// /// Upload data to a compute graph
+// #[utoipa::path(
+//     post,
+//     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
+//     request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
+//     tag = "ingestion",
+//     responses(
+//         (status = 200, description = "upload successful"),
+//         (status = 400, description = "bad request"),
+//         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+//     ),
+// )]
 pub async fn invoke_with_file(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
@@ -139,7 +138,7 @@ pub async fn invoke_with_file(
     Ok(Json(InvocationId { id }))
 }
 
-/// Upload JSON serialized object to a compute graph
+/// Invoke Compute Graph
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",

@@ -35,6 +35,16 @@ pub async fn download_invocation_payload(
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
+/// Get function output
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
+    tag = "retrieve",
+    responses(
+        (status = 200, description = "Function output"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
 pub async fn download_fn_output_payload(
     Path((namespace, compute_graph, invocation_id, fn_name, id)): Path<(
         String,

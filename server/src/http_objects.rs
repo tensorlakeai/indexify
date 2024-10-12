@@ -4,13 +4,14 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode, GraphVersion};
+use data_model::ComputeGraphCode;
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, ToSchema)]
+#[derive(Debug, ToSchema, Serialize, Deserialize)]
 pub struct IndexifyAPIError {
+    #[serde(skip)]
     status_code: StatusCode,
     message: String,
 }
@@ -379,6 +380,21 @@ impl From<data_model::TaskOutcome> for TaskOutcome {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GraphVersion(pub u32);
+
+impl From<data_model::GraphVersion> for GraphVersion {
+    fn from(version: data_model::GraphVersion) -> Self {
+        Self(version.0)
+    }
+}
+
+impl From<GraphVersion> for data_model::GraphVersion {
+    fn from(version: GraphVersion) -> Self {
+        Self(version.0)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Task {
     pub id: String,
     pub namespace: String,
@@ -402,7 +418,7 @@ impl From<data_model::Task> for Task {
             input_key: task.input_node_output_key,
             outcome: task.outcome.into(),
             reducer_output_id: task.reducer_output_id,
-            graph_version: task.graph_version,
+            graph_version: task.graph_version.into(),
         }
     }
 }

@@ -55,6 +55,8 @@ use crate::{
     http_objects::{
         ComputeFn,
         ComputeGraph,
+        RuntimeInformation,
+        GraphVersion,
         ComputeGraphsList,
         CreateNamespace,
         DataObject,
@@ -79,7 +81,6 @@ use crate::{
         paths(
             create_namespace,
             namespaces,
-            invoke::invoke_with_file,
             invoke::invoke_with_object,
             graph_invocations,
             create_compute_graph,
@@ -91,6 +92,7 @@ use crate::{
             delete_invocation,
             logs::download_logs,
             list_executors,
+            download::download_fn_output_payload,
         ),
         components(
             schemas(
@@ -106,10 +108,12 @@ use crate::{
                 ComputeGraphsList,
                 InvocationResult,
                 ExecutorMetadata,
+                RuntimeInformation,
                 Task,
                 TaskOutcome,
                 Tasks,
                 GraphInvocations,
+                GraphVersion,
                 DataObject,
             )
         ),
@@ -205,7 +209,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(download_invocation_payload).with_state(route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/:id",
+            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/output/:id",
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
         .route(
@@ -609,7 +613,7 @@ async fn executor_tasks(
     ))
 }
 
-/// List tasks for a compute graph invocation
+/// List tasks for an invocation
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks",
@@ -662,11 +666,11 @@ async fn get_context(
     Ok(Json(context))
 }
 
-/// Get outputs for a compute graph invocation
+/// Get outputs of a function 
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",
-    tag = "operations",
+    tag = "retrieve",
     responses(
         (status = 200, description = "List outputs for a given invocation id", body = Tasks),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
