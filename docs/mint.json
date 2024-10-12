@@ -109,38 +109,32 @@
       ]
     },
     {
-      "group": "Ingestion",
+      "group": "operations",
       "pages": [
-        "api-reference/ingestion/create-a-new-extraction-graph-in-the-namespace",
-        "api-reference/ingestion/update-content",
-        "api-reference/ingestion/delete-content",
-        "api-reference/ingestion/list-all-extraction-graphs-in-a-namespace",
-        "api-reference/ingestion/upload-a-file-to-an-extraction-graph-in-a-namespace"
-      ]
-    },
-    {
-      "group": "Retrieval",
-      "pages": [
-        "api-reference/retrieval/get-extracted-content-metadata-for-a-specific-content-id-and-extraction-graph",
-        "api-reference/retrieval/download-content-with-a-given-id",
-        "api-reference/retrieval/get-content-metadata-for-a-specific-content-id",
-        "api-reference/retrieval/list-all-the-content-ingested-into-an-extraction-graph",
-        "api-reference/retrieval/list-all-the-indexes-in-a-given-namespace",
-        "api-reference/retrieval/search-a-vector-index-in-a-namespace"
-      ]
-    },
-    {
-      "group": "Operations",
-      "pages": [
-        "api-reference/operations/list-all-executors-running-extractors-in-the-cluster",
-        "api-reference/operations/list-all-extractors-available-in-the-cluster",
-        "api-reference/operations/get-all-the-extraction-graph-links-for-a-given-extraction-graph",
-        "api-reference/operations/get-analytics-for-an-extraction-graph",
-        "api-reference/operations/create-a-link-with-a-given-extraction-graph",
-        "api-reference/operations/list-all-namespaces-registered-on-the-server",
+        "api-reference/operations/list-executors",
+        "api-reference/operations/list-all-namespaces",
         "api-reference/operations/create-a-new-namespace",
-        "api-reference/operations/list-tasks-generated-for-a-given-content-and-a-given-extraction-policy",
-        "api-reference/operations/list-the-state-changes-in-the-system"
+        "api-reference/operations/list-compute-graphs",
+        "api-reference/operations/create-compute-graph",
+        "api-reference/operations/get-a-compute-graph-definition",
+        "api-reference/operations/delete-compute-graph",
+        "api-reference/operations/delete-a-specific-invocation",
+        "api-reference/operations/get-the-logs-of-a-function",
+        "api-reference/operations/list-tasks-for-an-invocation"
+      ]
+    },
+    {
+      "group": "ingestion",
+      "pages": [
+        "api-reference/ingestion/list-graph-invocations",
+        "api-reference/ingestion/invoke-compute-graph"
+      ]
+    },
+    {
+      "group": "retrieve",
+      "pages": [
+        "api-reference/retrieve/get-function-output",
+        "api-reference/retrieve/get-outputs-of-a-function"
       ]
     }
   ],
