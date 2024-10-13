@@ -211,7 +211,11 @@ The rest of the application code responsible for processing the data in the work
 
 * **TypeScript SDK:** Build an SDK for writing workflows in Typescript.
 
-## Contributors
+### Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tensorlakeai/indexify&type=Date)](https://star-history.com/#tensorlakeai/indexify&Date)
+
+### Contributors
 
 <a href="https://github.com/tensorlakeai/indexify/graphs/contributors">
   <img alt="contributors" src="https://contrib.rocks/image?repo=tensorlakeai/indexify"/>
