@@ -209,13 +209,15 @@ class Graph:
                 k: IndexifyData(payload=serializer.serialize(v))
             }
         self._results[input.id] = outputs
-        self._run(input, outputs)
+        enable_cache = kwargs.get('enable_cache', True)
+        self._run(input, outputs,enable_cache)
         return input.id
 
     def _run(
         self,
         initial_input: IndexifyData,
         outputs: Dict[str, List[bytes]],
+        enable_cache: bool
     ):
         accumulator_values = self._accumulator_values[initial_input.id]
         queue = deque([(self._start_node, initial_input)])
@@ -227,7 +229,7 @@ class Graph:
             cached_output_bytes: Optional[bytes] = self._cache.get(
                 self.name, node_name, input_bytes
             )
-            if cached_output_bytes is not None:
+            if cached_output_bytes is not None and enable_cache:
                 print(
                     f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
                 )
