@@ -1,4 +1,5 @@
-# Indexify
+<a name="readme-top"></a>
+# Indexify 
 
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
@@ -209,3 +210,15 @@ The rest of the application code responsible for processing the data in the work
 #### 🛠️ SDK
 
 * **TypeScript SDK:** Build an SDK for writing workflows in Typescript.
+
+## Contributors
+
+<a href="https://github.com/tensorlakeai/indexify/graphs/contributors">
+  <img alt="contributors" src="https://contrib.rocks/image?repo=tensorlakeai/indexify"/>
+</a>
+
+<p align="right" style="font-size: 14px; color: #555; margin-top: 20px;">
+    <a href="#readme-top" style="text-decoration: none; color: #007bff; font-weight: bold;">
+        ↑ Back to Top ↑
+    </a>
+</p>
