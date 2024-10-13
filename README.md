@@ -52,7 +52,7 @@ Start defining the workflow by implementing its data transformation as composabl
 
 The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. Following a modular design by dividing the entire computation into composable functions enables Indexify to optimize the workflow's execution by storing each of its intermediate results.
 
-Caching each function's output enables precise control over workflow optimization. For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails.
+The decorated functions in Indexify serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails.
 
 Open up a new Python script and insert the following code:
 
