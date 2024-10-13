@@ -95,14 +95,13 @@ pub async fn ingest_files_from_executor(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut output_objects: Vec<PutResult> = vec![];
-    let mut exception_msg: Option<PutResult> = None;
     let mut stdout_msg: Option<PutResult> = None;
     let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
-    let diagnostics_keys = vec!["exception_msg", "stdout", "stderr"];
+    let diagnostics_keys = vec!["stdout", "stderr"];
     while let Some(mut field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
             let name_ref = name.to_string();
@@ -142,7 +141,6 @@ pub async fn ingest_files_from_executor(
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 match name_ref.as_str() {
-                    "exception_msg" => exception_msg = Some(res),
                     "stdout" => stdout_msg = Some(res),
                     "stderr" => stderr_msg = Some(res),
                     _ => {
@@ -184,12 +182,10 @@ pub async fn ingest_files_from_executor(
         node_outputs.push(node_output);
     }
 
-    let exception_payload = prepare_data_payload(exception_msg);
     let stdout_payload = prepare_data_payload(stdout_msg);
     let stderr_payload = prepare_data_payload(stderr_msg);
 
     let task_diagnostic = TaskDiagnostics {
-        exception: exception_payload,
         stdout: stdout_payload,
         stderr: stderr_payload,
     };

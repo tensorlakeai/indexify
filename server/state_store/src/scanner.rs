@@ -341,11 +341,6 @@ impl StateReader {
                             return Ok(Some(stderr));
                         }
                     }
-                    "exception_msg" => {
-                        if let Some(exception_msg) = diagnostics.exception {
-                            return Ok(Some(exception_msg));
-                        }
-                    }
                     _ => {
                         return Err(anyhow::anyhow!("Invalid file type"));
                     }

@@ -252,7 +252,6 @@ pub struct DataPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskDiagnostics {
-    pub exception: Option<DataPayload>,
     pub stdout: Option<DataPayload>,
     pub stderr: Option<DataPayload>,
 }
