@@ -1,4 +1,4 @@
-name: Publish Indexify to PyPI
+name: Publish Example Executor Containers
 
 on:
   workflow_dispatch:
