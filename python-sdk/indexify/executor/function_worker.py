@@ -35,7 +35,6 @@ class FunctionOutput(BaseModel):
     router_output: Optional[RouterOutput]
     reducer: bool = False
     success: bool = True
-    exception: Optional[str] = None
     stdout: str = ""
     stderr: str = ""
 
@@ -131,7 +130,6 @@ def _run_function(
     router_output = None
     fn_output = None
     has_failed = False
-    exception_msg = None
     print(
         f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}"
     )
@@ -153,10 +151,8 @@ def _run_function(
                 is_reducer = fn.indexify_function.accumulate is not None
         except Exception as e:
             import sys
-
             print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
-            exception_msg = str(e)
 
     # WARNING - IF THIS FAILS, WE WILL NOT BE ABLE TO RECOVER
     # ANY LOGS
@@ -164,7 +160,6 @@ def _run_function(
         return FunctionOutput(
             fn_outputs=None,
             router_output=None,
-            exception=exception_msg,
             stdout=stdout_capture.getvalue(),
             stderr=stderr_capture.getvalue(),
             reducer=is_reducer,
