@@ -18,6 +18,8 @@ server:
 
 executors:
   - name: indexify-executor
+    labels:
+      executor-name: default-executor
     image: tensorlake/indexify-executor-default:latest
     replicas: 1
 
