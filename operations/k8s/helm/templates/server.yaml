@@ -23,7 +23,6 @@ spec:
     metadata:
       labels:
         {{- include "labels" (dict "name" "server" "component" "server" "global" $) | nindent 8 }}
-
     spec:
       {{- if .nodeSelector }}
       nodeSelector:
@@ -32,15 +31,19 @@ spec:
       containers:
         - name: indexify
           image: {{ .image }}
+          command: ["indexify-server"]
+          args: ["--config", "/indexify/config/config.yaml"]
+
+          volumeMounts:
+            - name: config
+              mountPath: /indexify/config
+              readOnly: true
+            - name: data
+              mountPath: /tmp/indexify/state
+
           env:
             {{- include "blobStore.env" $.Values | nindent 12 }}
-
-          {{- if not $.Values.blobStore.config }}
-          volumeMounts:
-            - mountPath: /tmp/indexify-blob-storage
-              name: data
-          {{- end}}
-
+          
           livenessProbe:
             httpGet:
               path: /
@@ -51,7 +54,12 @@ spec:
               path: /
               port: 8900
 
-  {{- with .persistance }}
+      volumes:
+        - name: config
+          configMap:
+            name: indexify-server
+
+  {{- with .persistence }}
   volumeClaimTemplates:
   - metadata:
       name: data

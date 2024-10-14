@@ -1,0 +1,13 @@
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: indexify-server
+  labels:
+    {{- include "labels" (dict "name" "indexify" "component" "config" "global" $) | nindent 4 }}
+data:
+  config.yaml: |-
+    listen_addr: 0.0.0.0:8900
+    state_store_path: /tmp/indexify/state
+    blob_storage:
+      {{- .Values.blobStore.config | toYaml | nindent 6 }}

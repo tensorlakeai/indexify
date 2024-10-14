@@ -7,12 +7,14 @@ blobStore:
     s3:
       bucket: indexify
       region: us-east-1
+      accessKey: 
+      secretKey: 
 
 server:
   image: tensorlake/indexify-server:latest
   ingress:
     enabled: true
-  persistance:
+  persistence:
     storageClassName: 'local-path'
     size: 1Gi
 
