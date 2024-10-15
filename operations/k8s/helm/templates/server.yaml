@@ -43,7 +43,7 @@ spec:
 
           env:
             {{- include "blobStore.env" $.Values | nindent 12 }}
-          
+
           livenessProbe:
             httpGet:
               path: /
