@@ -49,12 +49,11 @@ Get started with the basics of Indexify. This section covers how to define a com
 
 ### 🛠️ 1: Define the Compute Graph
 
-Start defining the workflow by implementing its data transformation as composable Python functions. Each function is modified by the `@indexify_function()` decorator, with an optional `accumulate` keyword argument to specify the class to use for accumulating results. Together, these functions form the edges of a `Graph`, which is a representation of a compute graph in the Python SDK.
+Start defining the workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function() serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. These functions form the edges of a `Graph`, which is a representation of a compute graph in the Python SDK.
+
+For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails. 
 
 The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. Following a modular design by dividing the entire computation into composable functions enables Indexify to optimize the workflow's execution by storing each of its intermediate results.
-
-The decorated functions in Indexify serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails.
-
 Open up a new Python script and insert the following code:
 
 ```python
