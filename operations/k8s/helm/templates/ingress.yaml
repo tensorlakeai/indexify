@@ -4,6 +4,10 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ingress
+  {{- if .Values.server.ingress.annotations}}
+  annotations:
+    {{- toYaml .Values.server.ingress.annotations | nindent 4 }}
+  {{- end }}
   labels:
     app.kubernetes.io/component: api
 spec:

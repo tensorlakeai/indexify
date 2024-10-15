@@ -1,24 +1,24 @@
 blobStore:
   # allowHTTP: true
   # endpoint: http://blob-store:9000
-  credentialSecret: blob-store
+  credentialSecret: blob-creds
   config:
     backend: s3
     s3: {}
     #  accessKey: null
     #  secretKey: null
 
-
 server:
   image: tensorlake/indexify-server:latest
   ingress:
     enabled: false
+    annotations: {}
   persistence: {}
     # storageClassName: 'local-path'
     # size: 1Gi
 
 executors:
-  # Executors is 
+  # Executors is an array of executor configurations.
   - name: indexify-executor
     image: tensorlake/indexify-executor-default:latest
     replicas: 1
