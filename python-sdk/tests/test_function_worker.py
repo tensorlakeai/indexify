@@ -2,14 +2,16 @@ import tempfile
 import unittest
 from typing import List, Mapping, Union
 
-from pydantic import BaseModel
-import msgpack
 import cloudpickle
+from pydantic import BaseModel
 
 from indexify import Graph
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import File, IndexifyData
-from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunctionWrapper
+from indexify.functions_sdk.indexify_functions import (
+    IndexifyFunctionWrapper,
+    indexify_function,
+)
 
 
 @indexify_function()
@@ -112,15 +114,15 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
             temp_file_path = temp_file.name
 
             result = await self.function_worker.async_submit(
-                    namespace="test",
-                    graph_name="test",
-                    fn_name="extractor_exception",
-                    input=IndexifyData(id="123", payload=cloudpickle.dumps(10)),
-                    code_path=temp_file_path,
-                    version=1,
-                )
+                namespace="test",
+                graph_name="test",
+                fn_name="extractor_exception",
+                input=IndexifyData(id="123", payload=cloudpickle.dumps(10)),
+                code_path=temp_file_path,
+                version=1,
+            )
             assert not result.success
-            assert(result.exception == "this extractor throws an exception.")
+            assert result.exception == "this extractor throws an exception."
 
 
 if __name__ == "__main__":

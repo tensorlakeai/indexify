@@ -42,6 +42,7 @@ impl Scheduler {
         let mut processed_state_changes = vec![];
         let mut new_reduction_tasks = vec![];
         let mut processed_reduction_tasks = vec![];
+        let mut diagnostic_msgs = vec![];
         for state_change in &state_changes {
             processed_state_changes.push(state_change.id.clone());
             let result = match &state_change.change_type {
@@ -84,14 +85,15 @@ impl Scheduler {
         }
         let mut new_allocations = vec![];
         for state_change in &state_changes {
-            let allocations = match state_change.change_type {
+            let task_placement_result = match state_change.change_type {
                 ChangeType::TaskCreated |
                 ChangeType::ExecutorAdded |
                 ChangeType::ExecutorRemoved => Some(self.task_allocator.schedule_unplaced_tasks()?),
                 _ => None,
             };
-            if let Some(allocations) = allocations {
-                new_allocations.extend(allocations);
+            if let Some(task_placement_result) = task_placement_result {
+                new_allocations.extend(task_placement_result.task_placements);
+                diagnostic_msgs.extend(task_placement_result.diagnostic_msgs);
             }
         }
 
@@ -103,6 +105,7 @@ impl Scheduler {
                     new_reduction_tasks,
                     processed_reduction_tasks,
                 },
+                diagnostic_msgs,
             }),
             state_changes_processed: processed_state_changes,
         };

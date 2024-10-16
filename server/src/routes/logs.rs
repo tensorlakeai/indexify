@@ -8,7 +8,7 @@ use axum::{
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
-/// Get the logs of a function for a specific invocation
+/// Get the logs of a function
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}",
@@ -45,7 +45,7 @@ pub async fn download_logs(
     let payload_stream = storage_reader
         .get()
         .await
-        .map_err(IndexifyAPIError::internal_error)?;
+        .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
     Response::builder()
         .header("Content-Type", "application/octet-stream")

@@ -1,0 +1,42 @@
+version: "3"
+networks:
+  server:
+services:
+  indexify:
+    image: tensorlake/indexify-server
+    ports:
+      - 8900:8900
+    networks:
+      server:
+        aliases:
+          - indexify-server
+    volumes:
+      - data:/tmp/indexify-blob-storage
+  executor:
+    image: tensorlake/blueprint-pdf-structured-extraction:latest
+    env_file:
+      - .env
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
+      mode: replicated
+      replicas: 1
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: db_user 
+      POSTGRES_PASSWORD: db_password 
+      POSTGRES_DB: indexify_demo
+    networks:
+      server:
+volumes:
+  data:

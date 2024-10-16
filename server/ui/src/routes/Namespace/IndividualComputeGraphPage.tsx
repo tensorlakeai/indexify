@@ -7,11 +7,11 @@ import {
 import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom';
-import { ComputeGraph, DataObject } from 'getindexify';
 import ComputeGraphTable from '../../components/tables/ComputeGraphTable';
 import CopyText from '../../components/CopyText';
 import InvocationsTable from '../../components/tables/InvocationsTable';
 import { useState } from 'react';
+import { ComputeGraph, DataObject } from '../../types';
 
 const IndividualComputeGraphPage = () => {
   const { 

@@ -1,7 +1,7 @@
 import { Box } from '@mui/material'
-import { Namespace } from 'getindexify'
 import { useLoaderData } from 'react-router-dom'
 import NamespacesCard from '../../components/cards/NamespacesCard'
+import { Namespace } from '../../types'
 
 const NamespacesPage = () => {
   const {

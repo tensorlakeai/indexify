@@ -7,52 +7,33 @@ blobStore:
     s3:
       bucket: indexify
       region: us-east-1
+      accessKey:
+      secretKey:
 
 server:
   image: tensorlake/indexify-server:latest
   ingress:
     enabled: true
-  persistance:
+    annotations: {}
+  persistence:
     storageClassName: 'local-path'
     size: 1Gi
 
-  #   nodeselector:
-  #     gpu: "true"
-
 executors:
-  name: indexify-executor
-  image: tensorlake/indexify-executor-default:latest
-  replicas: 1
-  # nodeselector:
-  #   gpu: "true"
-
-extraObjects:
-  - |
-    apiVersion: v1
-    kind: Secret
-    metadata:
-      name: blob-creds
-    type: Opaque
-    stringData:
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
+  - name: indexify-executor
+    image: tensorlake/indexify-executor-default:latest
+    replicas: 1
 
 minio:
   enabled: true
-
   fullnameOverride: blob-store
-
   persistence:
     enabled: false
-
   mode: standalone
-
   rootUser: minioadmin
   rootPassword: minioadmin
-
   buckets:
     - name: indexify
-
   resources:
     requests:
       memory: 128Mi

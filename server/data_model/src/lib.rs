@@ -198,7 +198,7 @@ pub struct ComputeGraphCode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
-pub struct GraphVersion(u32);
+pub struct GraphVersion(pub u32);
 
 impl GraphVersion {
     pub fn next(&self) -> Self {

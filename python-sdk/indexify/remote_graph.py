@@ -32,7 +32,7 @@ class RemoteGraph:
         return self._client.invoke_graph_with_object(
             self._name, block_until_done, **kwargs
         )
-    
+
     def rerun(self):
         """
         Rerun the graph with the given invocation ID.
@@ -41,17 +41,19 @@ class RemoteGraph:
         self._client.rerun_graph(self._name)
 
     @classmethod
-    def deploy(cls, g: Graph, additional_modules=[], server_url: Optional[str] = "http://localhost:8900"):
+    def deploy(
+        cls,
+        g: Graph,
+        additional_modules=[],
+        server_url: Optional[str] = "http://localhost:8900",
+    ):
         """
         Create a new RemoteGraph from a local Graph object.
         :param g: The local Graph object.
         :param server_url: The URL of the server where the graph will be registered.
         """
-        import cloudpickle
-        for module in additional_modules:
-            cloudpickle.register_pickle_by_value(module)
         client = IndexifyClient(service_url=server_url)
-        client.register_compute_graph(g)
+        client.register_compute_graph(g, additional_modules)
         return cls(name=g.name, server_url=server_url)
 
     @classmethod

@@ -4,7 +4,14 @@ from typing import List, Union
 
 from pydantic import BaseModel
 
-from indexify import Graph, RemoteGraph, indexify_function, indexify_router
+from indexify import (
+    Graph,
+    Pipeline,
+    RemoteGraph,
+    RemotePipeline,
+    indexify_function,
+    indexify_router,
+)
 from indexify.functions_sdk.data_objects import File
 
 
@@ -96,6 +103,15 @@ def create_router_graph():
     return graph
 
 
+def create_simple_pipeline():
+    p = Pipeline("simple_pipeline", "A simple pipeline")
+    p.add_step(generate_seq)
+    p.add_step(square)
+    p.add_step(sum_of_squares)
+    p.add_step(make_it_string)
+    return p
+
+
 class TestGraphBehaviors(unittest.TestCase):
     def test_simple_function(self):
         graph = Graph(
@@ -158,6 +174,14 @@ class TestGraphBehaviors(unittest.TestCase):
 
         output = graph.output(invocation_id, "handle_file")
         self.assertEqual(output, [11])
+
+    def test_pipeline(self):
+        p = create_simple_pipeline()
+        p.run(x=3)
+        p = RemotePipeline.deploy(p)
+        invocation_id = p.run(block_until_done=True, x=3)
+        output = p.output(invocation_id, "make_it_string")
+        self.assertEqual(output, ["5"])
 
 
 if __name__ == "__main__":

@@ -1,40 +1,97 @@
-If you'd like to try with your own cluster, check out the
-[instructions][operations/k8s].
+---
+title: 'Kubernetes'
+---
+Deployment on Kubernetes is done using Helm charts. We provide a Helm chart to deploy the Indexify server and executor on Kubernetes.
 
-[operations/k8s]:
-  https://github.com/tensorlakeai/indexify/tree/main/operations/k8s
+The Helm chart is very lightweight and is meant to be a starting point for deploying Indexify on Kubernetes.
+It is not meant to be a one-size-fits-all solution, and you may need to customize it to fit your needs. But we are
+always open to contributions and feedback to make it more useful for everyone!
 
 ## Components
 
-- [Server][api.yaml] - This is where all your requests go. There's an
-  ingress which exposes `/` by default.
-- [Executor][extractor.yaml] - Extractors can take multiple forms, this
-  example is generic and works for all the extractors which are distributed by
-  the project.
+- [Server][server.yaml] - The API server which manages the graph and orchestrates
+  the execution of functions. It is deployed as a StatefulSet; the server is a stateful
+  application, and it requires a persistent volume to store the state of the execution graph.
+  The server requires a blob store to store the output of functions.
 
-[api.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/base/api.yaml
-[coordinator.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/base/coordinator.yaml
-[extractor.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/extractor/extractor.yaml
+- [Executor][executor.yaml] - Executors are the workers that execute the functions in the graph.
+They are deployed as a Deployment. The helm chart deploys the default executor by default, but you can
+customize it to deploy many executors with the same Indexify server.
+
+- Blob Store - The blob store is used to store the output of functions.
+We require using an S3 like service for the blob store. The credentials are stored as a Kubernetes
+secret and mounted as environment variables in the server.
+
+[server.yaml]:
+  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/helm/templates/server.yaml
+[executor.yaml]:
+  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/helm/templates/executor.yaml
+
+## Values
+
+The Helm chart is parameterized with the following values:
+
+### Required
+
+#### Blob Store
+
+- `blobStore.endpoint` - The endpoint for the blob store.
+- `blobStore.config.s3.accessKey` - The access key for the blob store.
+- `blobStore.config.s3.secretKey` - The secret key for the blob store.
+- `blobStore.allowHTTP` - Whether to allow HTTP connections to the blob store.
+
+#### Server
+
+- `server.persistance.size` - The size of the persistent volume for the server.
+- `server.persistance.storageClass` - The storage class for the persistent volume. This will
+depend on the cloud provider you are using. For example, `standard` for GCP, `gp2` for AWS, etc.
+
+### Optional
+
+#### Server
+
+- `server.image` - The Docker image for the Indexify server.
+- `server.ingress.enabled` - Whether to create an Ingress resource for the server.
+
+#### Executors
+
+- `executors.replicas` - The number of replicas for the executor. 1 by default.
+- `executors.image` - The Docker image for the Indexify executor.
+- `executors.name` - The name of the executor. `indexify-executor` by default.
+
+##### Adding additional executors
+
+You can add additional executors by adding a new key under `executors` in the values file.
+For example, to add a new executor with the name `indexify-executor-2`, you can add the following:
+
+```yaml
+executors:
+  - name: indexify-pdf-blueprint-downloader
+    image: tensorlake/pdf-blueprint-download:latest
+    replicas: 1
+  - name: indexify-pdf-blueprint-parser
+    image: tensorlake/pdf-blueprint-pdf-parser:latest
+    replicas: 1
+  - name: indexify-pdf-blueprint-lancdb
+    image: tensorlake/pdf-blueprint-lancdb
+    replicas: 1
+  - name: indexify-pdf-blueprint-st
+    image: tensorlake/pdf-blueprint-st:latest
+    replicas: 1
+```
+
+In each executor, one has to specify the `name`, `image`, and `replicas` of the executor.
 
 ## Dependencies
 
 ### Blob Store
 
-We recommend using an S3 like service for the blob store. Our [ephemeral
-example][kustomize/local] uses minio for this. See the [environment variable
+We recommend using an S3 like service for the blob store. Our [local][helm/local.yaml] helm
+values override uses minio for this. See the [environment variable
 patch][minio/api.yaml] for how this gets configured.
 
-[kustomize/local]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/local/kustomization.yaml
-[minio/api.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/minio/api.yaml
-
-The API server and coordinator will need an `AWS_ENDPOINT` env var pointing to
-where your S3 solution is hosted. Extractors need a slightly different env var -
-`AWS_ENDPOINT_URL`.
+[helm/local.yaml]:
+  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/helm/local.yaml
 
 #### GCP
 
@@ -53,21 +110,3 @@ discussion on how that would look for the project.
 
 [s3proxy]: https://github.com/gaul/s3proxy
 [issue]: https://github.com/tensorlakeai/indexify/issues
-
-### Vector Store
-
-We support multiple backends for vectors including `LanceDb`, `Qdrant` and
-`PgVector`. The ephemeral example uses postgres and `PgVector` for this. The
-[database][vector-store.yaml] itself is pretty simple. Pay extra attention to
-the [patch][postgres/config.yaml] which configures the API server and collector
-to use that backend.
-
-[vector-store.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/postgres/vector-store.yaml
-[postgres/config.yaml]:
-  https://github.com/tensorlakeai/indexify/blob/main/operations/k8s/kustomize/components/postgres/config.yaml
-
-### Structured Store
-
-Take a look at the vector store component in kustomize. It implements the
-structured store as well.

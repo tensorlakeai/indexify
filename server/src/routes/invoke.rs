@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use axum::{
@@ -20,36 +20,36 @@ use state_store::{
     },
 };
 use tokio::sync::broadcast::Receiver;
-use tracing::info;
-use utoipa::ToSchema;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use super::RouteState;
 use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId, InvocationQueryParams};
 
-#[allow(dead_code)]
-#[derive(ToSchema)]
-pub struct InvokeWithFile {
-    /// Extra metadata for file
-    metadata: Option<HashMap<String, serde_json::Value>>,
-    #[schema(format = "binary")]
-    /// Mime type of file
-    mime_type: Option<String>,
-    /// File to upload
-    file: Option<String>,
-}
-/// Upload data to a compute graph
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
-    request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "upload successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-    ),
-)]
+// #[allow(dead_code)]
+// #[derive(ToSchema)]
+// pub struct InvokeWithFile {
+//     /// Extra metadata for file
+//     metadata: Option<HashMap<String, serde_json::Value>>,
+//     #[schema(format = "binary")]
+//     /// Mime type of file
+//     mime_type: Option<String>,
+//     /// File to upload
+//     file: Option<String>,
+// }
+// /// Upload data to a compute graph
+// #[utoipa::path(
+//     post,
+//     path =
+// "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
+//     request_body(content_type = "multipart/form-data", content =
+// inline(InvokeWithFile)),     tag = "ingestion",
+//     responses(
+//         (status = 200, description = "upload successful"),
+//         (status = 400, description = "bad request"),
+//         (status = INTERNAL_SERVER_ERROR, description = "Internal Server
+// Error")     ),
+// )]
 pub async fn invoke_with_file(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
@@ -66,6 +66,7 @@ pub async fn invoke_with_file(
                 info!("writing to blob store, file name = {:?}", name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
                 let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
+                    error!("failed to write to blob store: {}", e);
                     IndexifyAPIError::internal_error(anyhow!(
                         "failed to write to blob store: {}",
                         e
@@ -102,6 +103,7 @@ pub async fn invoke_with_file(
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
+            error!("failed to write to blob store: {}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let data_payload = data_model::DataPayload {
@@ -137,7 +139,7 @@ pub async fn invoke_with_file(
     Ok(Json(InvocationId { id }))
 }
 
-/// Upload JSON serialized object to a compute graph
+/// Invoke Compute Graph
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
@@ -165,6 +167,7 @@ pub async fn invoke_with_object(
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
+            error!("failed to write to blob store: {}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let data_payload = data_model::DataPayload {
@@ -209,7 +212,7 @@ pub async fn invoke_with_object(
         if let Some(rx) = rx.as_mut() {
             loop {
                 if let Ok(ev)  =  rx.recv().await {
-                    if ev.invocation_id() == id {
+                    if ev.invocation_id() == id  || ev.invocation_id() == "" {
                         yield Event::default().json_data(ev.clone());
 
                         if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {

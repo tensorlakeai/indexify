@@ -1,252 +1,225 @@
-# Indexify
+<a name="readme-top"></a>
+# Indexify 
+
 ![Tests](https://github.com/tensorlakeai/indexify/actions/workflows/test.yaml/badge.svg?branch=main)
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
-## Create and Deploy durable, Data-Intensive Agentic Workflows
+## Create and Deploy Durable, Data-Intensive Agentic Workflows
 
-Indexify simplifies building and serve durable, multi-stage workflows as python functions inter-connected as graphs and automagically deploys them as APIs.
+*Indexify simplifies building and serving durable, multi-stage workflows as inter-connected Python functions and automagically deploys them as APIs.*
 
-Some of the use-cases that you can use Indexify for -
+### 💡 Use Cases
 
-* [Scraping and Summarizing websites](examples/website_audio_summary/)
-* [PDF Documents Extraction and Indexing](examples/pdf_document_extraction/)
-* [Transcribing audio and summarization](examples/website_audio_summary/)
-* [Knowledge Graph RAG Pipeline](examples/knowledge_graph_generation/)
-* [Knowledge Graph QA System](examples/knowledge_graph_qa_system/)
+**Indexify** is a versatile data processing framework for all kinds of use-cases, including:
 
-### Key Features
-* **Conditional Branching and Data Flow:** Router functions can conditionaly chose one or more edges in Graph making it easy to invoke expert models based on inputs.
-* **Local Inference:** Run LLMs in workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers.
-* **Distributed Map and Reduce:** Automatically parallelizes functions over sequences across multiple machines. Reducer functions are durable and invoked as map functions finish.
-* **Version Graphs and Backfill:** Backfill API to update previously processed data when functions or models are updated.
-* **Placement Constraints:** Allows graphs to span GPU instances and cost-effective CPU machines, with functions assigned to specific instance types.
-* **Request Queuing and Batching:** Automatically queues and batches parallel workflow invocations to maximize GPU utilization.
+* [Scraping and Summarizing Websites](examples/website_audio_summary/)
+* [Extracting and Indexing PDF Documents](examples/pdf_document_extraction/)
+* [Transcribing and Summarizing Audio Files](examples/video_summarization/)
+* [Knowledge Graph RAG and Question Answering](examples/knowledge_graph/)
 
-## Installation
+### 📌 Concepts
+
+A **workflow** represents a data transformation that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware. By modeling these functions as nodes of a graph and function composition as edges of one, the data transformation can be entirely described by an inter-connected graph known as a **compute graph**.
+
+A **compute graph** implementing a workflow can be structured as either a **pipeline** or a **graph**.
+
+* A **pipeline** represents a linear flow of data moving in a single direction.
+* A **graph** represents a non-linear flow of data enabling parallel branches and conditional branching.
+
+### ⭐ Key Features
+
+* **Dynamic Routing:** Route data to different specialized models based on conditional branching logic.
+* **Local Inference:** Execute LLMs directly within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers.
+* **Distributed Processing:** Run functions in parallel across machines so that results across functions can be combined as they complete.
+* **Workflow Versioning:** Version compute graphs to update previously processed data to reflect the latest functions and models.
+* **Resource Allocation:** Span workflows across GPU and CPU instances so that functions can be assigned to their optimal hardware.
+* **Request Optimization:** Maximize GPU utilization by automatically queuing and batching invocations in parallel.
+
+## ⚙️ Installation
+
+Install Indexify's SDK and CLI into your development environment:
+
 ```bash
 pip install indexify
 ```
 
-## Basic Usage
+## 📚 Basic Usage
 
-Workflows are written as Python functions and are connected as Graphs. Each function is a logical compute unit that can be retried upon failure or assigned to specific hardware.
+Get started with the basics of Indexify. This section covers how to define a compute graph in a Python script, test its behavior in the same process as its execution environment, and deploy it as an API to a local Indexify server for remote execution.
 
-#### 1: Create a Compute Graph
+### 🛠️ 1: Define the Compute Graph
+
+Start defining the workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function()` serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. These functions form the edges of a `Graph`, which is a representation of a compute graph in the Python SDK. <br></br>
+For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails.<br></br>
+The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. Following a modular design by dividing the entire computation into composable functions enables Indexify to optimize the workflow's execution by storing each of its intermediate results.
+Open up a new Python script and insert the following code:
+
 ```python
 from pydantic import BaseModel
 from indexify import indexify_function, indexify_router, Graph
 from typing import List, Union
 
+# Model to accumulate a running total
 class Total(BaseModel):
     val: int = 0
 
-@indexify_function()
-def generate_numbers(a: int) -> List[int]:
-    return [i for i in range(a)]
-
-@indexify_function()
-def square(total: Total) -> int:
-    return total.val ** 2
-
+# Adds a new number to the running total and returns its updated value
 @indexify_function(accumulate=Total)
 def add(total: Total, new: int) -> Total:
     total.val += new
     return total
 
-g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
-g.add_edge(generate_numbers, square)
-g.add_edge(square, add)
+# Returns a list of the first consecutive whole numbers
+@indexify_function()
+def generate_numbers(a: int) -> List[int]:
+    return [i for i in range(a)]
+
+# Returns the square of a given number
+@indexify_function()
+def square(i: int) -> int:
+    return i ** 2
+
+# Constructs a compute graph connecting the three functions defined above into a workflow that generates
+# a list of the first consecutive whole numbers, squares each of them, and calculates their cumulative sum
+graph = Graph(name="sum_of_squares", start_node=generate_numbers, description="compute the sum of squares for each of the first consecutive whole numbers")
+graph.add_edge(generate_numbers, square)
+graph.add_edge(square, add)
 ```
 
-You can separate heavy tasks like local inference of LLMs from database write operations to prevent reprocessing data if a write fails. Indexify caches each function's output, so when you retry downstream processes, previous steps aren't repeated.
+#### ✅ 2: Test the Compute Graph In-Process
 
-#### 2: Test the Graph In-Process
+Once the workflow has been defined, it's time to test its behavior to verify its correctness. For rapid prototyping, this can be performed within the same Python process as it's defined.
+
+Append the following Python code to the script to calculate the sum of squares for the first 10 consecutive whole numbers:
+
 ```python
-invocation_id = g.run(a=10)
-result = g.output(invocation_id, "add")
+# Execute the workflow represented by the graph with an initial input of 10
+invocation_id = graph.run(a=10)
+
+# Get the execution's output by providing its invocation ID and the name of its last function
+result = graph.output(invocation_id, "add")
+
+# Display the result for verification
 print(result)
 ```
 
-Running Graph's in-process makes writing and testing Graphs easy, for production environments you would want an API to call them whenever there is data to process.
+Run the Python script 
 
-#### 3: Test your Graph as an API locally
+```bash
+python3 sum_of_squares.py
+```
 
-Indexify server generates API endpoints for Compute Graphs, allowing external systems to invoke your workflows. The server can host multiple workflows and can execute functions across Graphs in parallel.
+If the compute graph is defined, the script will execute the compute graph within the same process and return metadata about its completed functions: each its own name and output.
 
-API calls to these graphs are automatically queued and routed based on the graph’s topology, eliminating the need for RPC libraries, Kafka, or additional databases to manage internal state and communication across different processes or machines.
+Verify that the displayed result is 285.
+
+```bash
+[Total(val=285)]
+```
+
+While testing a compute graph in-process provides a helpful tool for iterative development, an integration test where the compute graph is deployed as an API is more suited for a production environment.
+
+#### 🌐 3: Deploy the Compute Graph as an API
+
+An **Indexify server** hosts workflows represented by compute graphs and provides API endpoints for remote execution.
+
+An **Indexify client** allows users to deploy and invoke workflows by calling API endpoints through the Python SDK.
+
+Start an Indexify server using the CLI installed with the SDK:
 
 ```bash
 indexify-cli server-dev-mode
 ```
 
-This starts the following processes on your terminal -
+The command above initializes the following processes in your terminal session:
 
-**Indexify Server**: Manages state of graphs, orchestrates functions, and stores and distributes function outputs. Endpoint - http://localhost:8900
+* **Server:** Manages the state of compute graphs, orchestrates functions, and stores function outputs.
+* **Executor:** Runs Python functions and coordinates execution state of functions with server.
 
-**Executor**: Runs python functions and coordinates execution state of functions with server.
+The server can be accessed using the following URL: <http://localhost:8900/>.
 
-Change the code above to deploy the graph as an API -
+Verify that it's currently running in your local environment by accessing its user interface using the following URL: <http://localhost:8900/ui/>.
+
+The user interface presents a simple way to monitor the Indexify server for easy management, including its executors, compute graphs, and other resources.
+
+Now that the server is running, update the Python script to deploy the compute graph to the server for remote execution and to return its output by making a call to its API endpoint through the Python SDK.
 
 ```python
 from indexify import RemoteGraph
 
-graph = RemoteGraph.deploy(g)
-invocation_id = graph.run(block_until_done=True, a=10)
-result = graph.output(invocation_id, "add")
+# Deploy the compute graph to the Indexify server for remote execution
+remote_graph = RemoteGraph.deploy(graph)
+
+# Uncomment the following line to reference a graph already deployed
+# graph = RemoteGraph.by_name("sequence_summer") 
+
+# Execute the workflow with an initial input of 10 to its first function
+# Wait until the entire workflow has finished execution before returning
+invocation_id = remote_graph.run(block_until_done=True, a=10)
+
+# Get the execution's output through its API endpoint by providing its invocation ID and last function name
+result = remote_graph.output(invocation_id, "add")
+
+# Display the result for verification
 print(result)
 ```
 
-This serializes your Graph code and uploads it to the server, and instantiates a new endpoint.
-Everything else, remains the same in your application code that invokes the Graph to process data and retrieve outputs!
+Run the modified Python script to serialize and upload the compute graph to the server, which then instantiates an API endpoint for future remote execution.
 
-#### 4: Call Remote Graphs from Applications
-
-You can call these remote graphs from any application. Think about them like an extension of your application.
-
-```python
-graph = RemoteGraph.by_name("sequence_summer")
-invocation_id = graph.run(block_until_done=True, a=5)
-print(graph.output(invocation_id, "add"))
-```
-
-#### 5: Deploying Graph Endpoints using Docker Compose
-You can spin up the server and executor using docker compose, and deploy and run in a production-like environment. Copy the [docker-compose.yaml file from here](https://raw.githubusercontent.com/tensorlakeai/indexify/refs/heads/main/docker-compose.yaml).
+While the compute graph has an API endpoint for accessing its output as described above, the Python SDK manages it under the hood, returning the output given the invocation ID of the run and the name of the function. This ID uniquely identifies a specific execution of the compute graph while the name specifies the function within the execution whose output is to be returned.
 
 ```bash
-docker compose up
+python3 sum_of_squares.py
 ```
 
-This starts the server and two replicas of the exeuctor in separate containers. Change the `replicas` field for the executor in docker compose to add more executors (i.e parallelism) to the workflow.
+If the Indexify server is running, it will remotely execute the compute graph and return metadata about the completed tasks: each with its own task name, task ID, function name, invocation ID, executor ID, and outcome.
 
-This uses a default executor container based on Debian and a vanilla Python installation.
+If an exception is raised while running the script, verify the server is accessible at `http://localhost:8900`. If there is an error accessing the server, make sure the server was started with the `indexify-cli server-dev-mode` command mentioned above.
 
-#### 6: Building Executor Images with Custom Dependencies
+Verify that the displayed result is 285.
 
-You can build custom images for functions that require additional Python or System dependencies.
-
-```python
-from indexify import indexify_function, Image
-
-image = (
-    Image()
-    .name("my-custom-image")
-    .base_image("python:3.10.15-slim-bookworm")
-    .tag("latest")
-    .run("pip install indexify")
-)
-
-@indexify_function(image=image)
-def func_a(x: int) -> str:
-    ...
-```
-This will instruct the Indexify server to run the function in images with name `my-custom-image`.
-
-Build the image -
 ```bash
-indexify-cli build-image /path/to/workflow/code func_a
+[Total(val=285)]
 ```
 
-This will produce an image tagged `my-custom-image` by running all the commands specified above!
+The rest of the application code responsible for processing the data in the workflow remains unchanged!
 
-### Production Deployment
+## 📖 More Topics
 
-You could deploy Indexify Server in production in the following ways -
+* [Architecture of Indexify](https://docs.getindexify.ai/architecture)
+* [Packaging Dependencies of Functions](https://docs.getindexify.ai/packaging-dependencies)
+* [Programming Model](https://docs.getindexify.ai/key-concepts#programming-model)
+* [Deploying Compute Graph Endpoints using Docker Compose](https://docs.getindexify.ai/operations/deployment#docker-compose)
+* [Deploying Compute Graph Endpoints using Kubernetes](https://docs.getindexify.ai/operations/deployment#kubernetes)
 
-1. **Single Node:** Run both the server and executor on a single machine to run workflows on a single machine. Indexify would queue requests so you can upload as much data as you want, and can expect them to be eventually completed.
+### 🗺️ Roadmap
 
-2. **Distributed:** If you anticipate processing a lot of data, and have fixed latency or throughput requirements you can deploy the executors on 100s or 1000s of machines for parallel execution. You can always scale up and down the clusters with ease.
+#### ⏳ Scheduler
 
-#### Kubernetes Deployment
-We have provided some basic Helm charts to deploy Indexify Server and Executors on Kubernetes. You can find them [here](https://github.com/tensorlakeai/indexify/tree/main/operations/k8s)
+* **Function Batching:** Process multiple functions in a single batch to improve efficiency.
+* **Data Localized Execution:** Boost performance by prioritizing execution on machines where intermediate outputs exist already.
+* **Reducer Optimizations:** Optimize performance by batching the serial execution of reduce function calls.
+* **Parallel Scheduling:** Reduce latency by enabling parallel execution across multiple machines.
+* **Cyclic Graph Support:** Enable more flexible agentic behaviors by leveraging cycles in graphs.
+* **Ephemeral Graphs:** Perform multi-stage inference and retrieval without persisting intermediate outputs.
+* **Data Loader Functions:** Stream values into graphs over time using the `yield` keyword.
 
-### Programming Model:
+#### 🛠️ SDK
 
-**Automatic Parallelization:**
-If a function returns a list, downstream functions are invoked in parallel with each list element.
-```python
-@indexify_function()
-def fetch_urls(num_urls: int) -> list[str]:
-    return [
-        'https://example.com/page1',
-        'https://example.com/page2',
-        'https://example.com/page3',
-    ]
+* **TypeScript SDK:** Build an SDK for writing workflows in Typescript.
 
-# scrape_page is called in parallel for every element of fetch_url across
-# many machines in a cluster or across many worker processes in a machine
-@indexify_function()
-def scrape_page(url: str) -> str:
-    # Code to scrape the page content
-    content = requests.get(url).text
-    return content
-```
-*Use Cases:* Generating Embedding from every single chunk of a document.
+### Star History
 
-**Dynamic Routing**
+[![Star History Chart](https://api.star-history.com/svg?repos=tensorlakeai/indexify&type=Date)](https://star-history.com/#tensorlakeai/indexify&Date)
 
-Functions can route data to different nodes based on custom logic, enabling dynamic branching.
+### Contributors
 
-```python
-@indexify_function()
-def handle_error(text: str):
-    # Logic to handle error messages
-    pass
+<a href="https://github.com/tensorlakeai/indexify/graphs/contributors">
+  <img alt="contributors" src="https://contrib.rocks/image?repo=tensorlakeai/indexify"/>
+</a>
 
-@indexify_function()
-def handle_normal(text: str):
-    # Logic to process normal text
-    pass
-
-# The function routes data into the handle_error and handle_normal based on the
-# logic of the function.
-@indexify_router()
-def analyze_text(text: str) -> List[Union[handle_error, handle_normal]]:
-    if 'error' in text.lower():
-        return [handle_error]
-    else:
-        return [handle_normal]
-```
-
-*Use Cases:* Use Case: Processing outputs differently based on classification results.
-
-**Reducing/Accumulating from Sequences:**
-```python
-@indexify_function()
-def fetch_numbers() -> list[int]:
-    return [1, 2, 3, 4, 5]
-
-class Total(BaseModel):
-    value: int = 0
-
-@indexify_function(accumulate=Total)
-def accumulate_total(total: Total, number: int) -> Total:
-    total.value += number
-    return total
-```
-*Use Cases:* Aggregating a summary from hundreds of web pages.
-
-### What happens when you invoke a Compute Graph API?
-
-* Indexify serializes the input and calls the API over HTTP.
-* The server creates and schedules a Task for the fist function on an executor.
-* The executor loads and executes the function and sends the data back to the server.
-* The two above steps are repeated for every function in the Graph.
-
-There are a lot of details we are skipping here! The scheduler utilizes a state of the art distributed and parallel event driven design internally to schedule tasks under 10 micro seconds, and uses many optimization techniques for storing blobs, rocksdb for state storage, streaming HTTP2 based RPC between server and executor to speed up execution.
-
-### Roadmap
-
-##### Scheduler
-
-* Enable batching in functions
-* Data Local function executions - Prioritize scheduling on machines where intermediate output lives for faster execution.
-* Reducer optimizations - Being able to batch serial execution reduce function calls.
-* Machine parallel scheduling for even lower latency.
-* Support Cycles in the graphs for more flexible agentic behaviors in Graphs.
-* Ephemeral Graphs - multi-stage inference and retrieval with no persistence of intermediate outputs
-* Data Loader Functions - Produces a stream of values over time into Graphs, using the yield keyword.
-
-
-##### SDK
-
-* Build a Typescript SDK for writing workflows in Typescript
+<p align="right" style="font-size: 14px; color: #555; margin-top: 20px;">
+    <a href="#readme-top" style="text-decoration: none; color: #007bff; font-weight: bold;">
+        ↑ Back to Top ↑
+    </a>
+</p>

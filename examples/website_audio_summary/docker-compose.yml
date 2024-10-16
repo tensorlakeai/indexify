@@ -1,0 +1,46 @@
+version: '3'
+networks:
+  server:
+
+services:
+  indexify:
+    image: tensorlake/indexify-server
+    ports:
+      - 8900:8900
+    networks:
+      server:
+        aliases:
+          - indexify-server
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
+  scraper:
+    image: tensorlake/scraper-image:latest
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
+  openai:
+    image: tensorlake/openai-image:latest
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
+  elevenlabs:
+    image: tensorlake/elevenlabs-image:latest
+    environment:
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
+volumes:
+  data:

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{stream::BoxStream, StreamExt};
@@ -29,18 +29,13 @@ impl BlobStorageReader for DiskFileReader {
             .get(&file_path.clone().into())
             .await
             .map_err(|e| anyhow::anyhow!("Failed to read file: {:?}, error: {}", file_path, e))?;
+        let file_path = file_path.clone();
         tokio::spawn(async move {
             let mut stream = get_result.into_stream();
             while let Some(chunk) = stream.next().await {
-                if let Ok(chunk) = chunk {
-                    let _ = tx.send(Ok(chunk));
-                } else {
-                    let _ = tx.send(Err(anyhow::anyhow!(
-                        "Error reading file: {:?}",
-                        chunk.err()
-                    )));
-                    break;
-                }
+                let _ = tx.send(chunk.map_err(|e| {
+                    anyhow!("error reading s3 object {:?}: {:?}", file_path.clone(), e)
+                }));
             }
         });
         Ok(Box::pin(UnboundedReceiverStream::new(rx)))

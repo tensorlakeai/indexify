@@ -4,7 +4,7 @@ class Image:
 
         self._tag = "latest"
 
-        self._base_image = "python:3.10.15-slim-bookworm"
+        self._base_image = "python:3.11.10-slim-bookworm"
 
         self._run_strs = []
 
@@ -25,10 +25,18 @@ class Image:
         return self
 
 
-DEFAULT_IMAGE = (
+DEFAULT_IMAGE_3_10 = (
     Image()
     .name("tensorlake/indexify-executor-default")
     .base_image("python:3.10.15-slim-bookworm")
-    .tag("latest")
+    .tag("3.10")
+    .run("pip install indexify")
+)
+
+DEFAULT_IMAGE_3_11 = (
+    Image()
+    .name("tensorlake/indexify-executor-default")
+    .base_image("python:3.11.10-slim-bookworm")
+    .tag("3.11")
     .run("pip install indexify")
 )

@@ -123,6 +123,7 @@ pub struct SchedulerUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
     pub allocations: Vec<TaskPlacement>,
     pub reduction_tasks: ReductionTasks,
+    pub diagnostic_msgs: Vec<String>,
 }
 
 pub struct DeleteInvocationRequest {

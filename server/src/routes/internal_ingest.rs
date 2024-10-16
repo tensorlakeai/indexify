@@ -249,6 +249,7 @@ async fn write_to_disk<'a>(
     info!("writing to blob store, file name = {:?}", file_name);
     let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     blob_storage.put(&file_name, stream).await.map_err(|e| {
+        error!("failed to write to blob store: {}", e);
         IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
     })
 }

@@ -75,7 +75,7 @@ class Downloader:
 
         reducer_url = None
         if task.reducer_output_id:
-            reducer_url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/{task.reducer_output_id}"
+            reducer_url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/output/{task.reducer_output_id}"
 
         console.print(
             Panel(
