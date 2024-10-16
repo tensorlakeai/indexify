@@ -15,6 +15,7 @@
 * [Scraping and Summarizing Websites](examples/website_audio_summary/)
 * [Extracting and Indexing PDF Documents](examples/pdf_document_extraction/)
 * [Transcribing and Summarizing Audio Files](examples/video_summarization/)
+* [Object Detection and Description](examples/object_detection/)
 * [Knowledge Graph RAG and Question Answering](examples/knowledge_graph/)
 
 ### 📌 Concepts
