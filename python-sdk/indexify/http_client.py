@@ -79,7 +79,7 @@ class IndexifyClient:
             status_code = str(response.status_code)
             if status_code.startswith("4"):
                 raise ApiException(
-                    "status code: " + status_code + " request args: " + str(kwargs)
+                    "status code: " + status_code + " message: " + response.text
                 )
             if status_code.startswith("5"):
                 raise ApiException(response.text)

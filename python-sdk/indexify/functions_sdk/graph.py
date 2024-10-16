@@ -153,7 +153,7 @@ class Graph:
         start_node = self.nodes[self._start_node]
         start_node = FunctionMetadata(
             name=start_node.name,
-            fn_name=start_node.fn_name,
+            fn_name=start_node.name,
             description=start_node.description,
             reducer=start_node.accumulate is not None,
             image_name=start_node.image._image_name,

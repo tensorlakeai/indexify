@@ -37,7 +37,6 @@ class ImageEmbeddingExtractor(IndexifyFunction):
     def run(self, images: DocumentImages) -> List[ImageWithEmbedding]:
         embedding = []
         for image in images.images:
-            print(image.image)
             img_emb = self.model.encode(image.image)
             embedding.append(
                 ImageWithEmbedding(
