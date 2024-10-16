@@ -79,6 +79,10 @@ class IndexifyFunction(ABC):
 
         return partial(self.run, **kwargs)
 
+    @classmethod
+    def deserialize_output(cls, output: IndexifyData) -> Any:
+        serializer = get_serializer(cls.payload_encoder)
+        return serializer.deserialize(output.payload)
 
 class IndexifyRouter(ABC):
     name: str = ""
@@ -265,7 +269,3 @@ class IndexifyFunctionWrapper:
                 payload = list(payload.values())[0]
             return arg_type.model_validate(payload)
         return payload
-
-    def deserialize_fn_output(self, output: IndexifyData) -> Any:
-        serializer = get_serializer(self.indexify_function.payload_encoder)
-        return serializer.deserialize(output.payload)

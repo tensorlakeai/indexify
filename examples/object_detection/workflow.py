@@ -58,13 +58,17 @@ class FilteredImage(BaseModel):
 
 class ImageDescriber(IndexifyFunction):
     name = "image_describer"
+    image = image
+
     def __init__(self):
         super().__init__()
         from transformers import AutoModelForCausalLM, AutoTokenizer
         model_id = "vikhyatk/moondream2"
         revision = "2024-08-26"
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_id, trust_remote_code=True, revision=revision
+            model_id,
+            trust_remote_code=True,
+            revision=revision,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
 
@@ -77,7 +81,6 @@ class ImageDescriber(IndexifyFunction):
 
 
 if __name__=="__main__":
-    from pathlib import Path
     import urllib.request
     with urllib.request.urlopen('https://www.frommers.com/system/media_items/attachments/000/868/461/s980/Frommers-New-York-City-Getting-Around-1190x768.webp?1647177178') as response:
         data = response.read()
@@ -86,10 +89,8 @@ if __name__=="__main__":
 
     g = Graph(name="object_detection_workflow", start_node=ObjectDetector)
     g.add_edge(ObjectDetector, ImageDescriber)
-    invocation_id = g.run(block_until_done=True, img=img)
-    print(g.output(invocation_id, "image_describer"))
 
-    # g = RemoteGraph.deploy(g, server_url="http://100.106.216.46:8900")
-    # invocation_id = g.run(block_until_done=True, img=img)
-    # output = g.output(invocation_id, "object_detector")
-    # print(output)
+    g = RemoteGraph.deploy(g, server_url="http://100.106.216.46:8900")
+    invocation_id = g.run(block_until_done=True, img=img)
+    output = g.output(invocation_id, "image_describer")
+    print(output)

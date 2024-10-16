@@ -13,7 +13,7 @@ from rich import print
 from indexify.error import ApiException
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
-from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
+from indexify.functions_sdk.indexify_functions import IndexifyFunction
 from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
 
 
@@ -71,7 +71,7 @@ class IndexifyClient:
         self._service_url = service_url
         self._timeout = kwargs.get("timeout")
         self._graphs: Dict[str, Graph] = {}
-        self._fns = {}
+        self._fns: Dict[str, IndexifyFunction] = {}
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
         try:
@@ -181,14 +181,12 @@ class IndexifyClient:
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
 
-    def load_fn_wrapper(self, name: str, fn_name: str) -> IndexifyFunctionWrapper:
+    def load_fn(self, name: str, fn_name: str) -> IndexifyFunction:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
         )
         pickled_functions_by_name = cloudpickle.loads(response.content)
-        return IndexifyFunctionWrapper(
-            cloudpickle.loads(pickled_functions_by_name[fn_name])
-        )
+        return cloudpickle.loads(pickled_functions_by_name[fn_name])
 
     def namespaces(self) -> List[str]:
         response = self._get(f"namespaces")
@@ -323,7 +321,7 @@ class IndexifyClient:
         """
         fn_key = f"{graph}/{fn_name}"
         if fn_key not in self._fns:
-            self._fns[fn_key] = self.load_fn_wrapper(graph, fn_name)
+            self._fns[fn_key] = self.load_fn(graph, fn_name)
         response = self._get(
             f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{invocation_id}/outputs",
         )
@@ -335,7 +333,7 @@ class IndexifyClient:
                 indexify_data = self._download_output(
                     self.namespace, graph, invocation_id, fn_name, output.id
                 )
-                output = self._fns[fn_key].deserialize_fn_output(indexify_data)
+                output = self._fns[fn_key].deserialize_output(indexify_data)
                 outputs.append(output)
         return outputs
 
