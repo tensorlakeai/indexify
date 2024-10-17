@@ -229,12 +229,12 @@ class Graph:
             cached_output_bytes: Optional[bytes] = self._cache.get(
                 self.name, node_name, input_bytes
             )
-            if cached_output_bytes is not None and enable_cache:
-                print(
-                    f"ran {node_name}: num outputs: {len(cached_output_bytes)} (cache hit)"
-                )
+            if cached_output_bytes is not None and enable_cache: 
                 function_outputs: List[IndexifyData] = []
                 cached_output_list = serializer.deserialize_list(cached_output_bytes)
+                print(
+                    f"ran {node_name}: num outputs: {len(cached_output_list)} (cache hit)"
+                )
                 if accumulator_values.get(node_name, None) is not None:
                     accumulator_values[node_name] = cached_output_list[-1].model_copy()
                     outputs[node_name] = []
@@ -250,16 +250,17 @@ class Graph:
                 if accumulator_values.get(node_name, None) is not None:
                     accumulator_values[node_name] = function_outputs[-1].model_copy()
                     outputs[node_name] = []
-                outputs[node_name].extend(function_outputs)
-                function_outputs_bytes: List[bytes] = [
-                    serializer.serialize_list(function_outputs)
-                ]
-                self._cache.set(
-                    self.name,
-                    node_name,
-                    input_bytes,
-                    function_outputs_bytes,
-                )
+                if function_outputs:
+                    outputs[node_name].extend(function_outputs)
+                    function_outputs_bytes: List[bytes] = [
+                        serializer.serialize_list(function_outputs)
+                    ]
+                    self._cache.set(
+                        self.name,
+                        node_name,
+                        input_bytes,
+                        function_outputs_bytes,
+                    )
             if accumulator_values.get(node_name, None) is not None and queue:
                 print(
                     f"accumulator not none for {node_name}, continuing, len queue: {len(queue)}"
