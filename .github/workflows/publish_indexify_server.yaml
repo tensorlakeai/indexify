@@ -265,3 +265,16 @@ jobs:
             fi
             docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:$tag -f dockerfiles/Dockerfile.release_server;
           done
+
+  vercel-cache-revalidation:
+    name: Vercel Cache
+    runs-on: ubuntu-latest
+    needs:
+      - create-release
+      - extract-version
+    env:
+      REVALIDATION_SECRET: ${{ secrets.REVALIDATION_SECRET }}
+    steps:
+      - name: Revalidate Cache
+        run: |
+          curl -X POST 'https://tensorlake.ai/api/revalidate?secret=$REVALIDATION_SECRET'
