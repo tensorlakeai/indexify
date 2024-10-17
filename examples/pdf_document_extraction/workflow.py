@@ -4,7 +4,7 @@ from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 
 image = (
-    Image()
+    Image(python="3.10")
     .name("tensorlake/pdf-blueprint-download")
     .run("pip install httpx")
 )

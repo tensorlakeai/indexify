@@ -9,7 +9,7 @@ from inkwell import Pipeline, PageFragmentType, Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 image = (
-    Image()
+    Image(python="3.10")
     .name("tensorlake/pdf-blueprint-pdf-parser")
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx git g++")
@@ -23,7 +23,7 @@ image = (
 )
 
 gpu_image = (
-    Image()
+    Image(python="3.10")
     .name("tensorlake/pdf-blueprint-pdf-parser-gpu")
     .base_image("pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime")
     .run("apt update")

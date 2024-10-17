@@ -6,7 +6,7 @@ from common_objects import ImageWithEmbedding, TextChunk
 import lancedb
 from lancedb.pydantic import LanceModel, Vector
 
-image = Image().name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
+image = Image(python="3.10").name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
 
 class ImageEmbeddingTable(LanceModel):
     vector: Vector(512)
