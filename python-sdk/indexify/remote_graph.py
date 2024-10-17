@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 from indexify.functions_sdk.graph import Graph
 
 from .http_client import IndexifyClient
-from .settings import DEFAULT_SERVICE_URL
+from .settings import DEFAULT_SERVICE_URL,DEFAULT_NAMESPACE
 
 
 class RemoteGraph:
@@ -11,9 +11,10 @@ class RemoteGraph:
         self,
         name: str,
         server_url: Optional[str] = DEFAULT_SERVICE_URL,
+        namespace: Optional[str] = DEFAULT_NAMESPACE
     ):
         self._name = name
-        self._client = IndexifyClient(service_url=server_url)
+        self._client = IndexifyClient(service_url=server_url).create_namespace(namespace)
 
     def run(self, block_until_done: bool = False, **kwargs) -> str:
         """
