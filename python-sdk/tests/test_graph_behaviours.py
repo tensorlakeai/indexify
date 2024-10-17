@@ -183,6 +183,28 @@ class TestGraphBehaviors(unittest.TestCase):
         output = p.output(invocation_id, "make_it_string")
         self.assertEqual(output, ["5"])
 
+    def test_ignore_none_in_map(self):
+        @indexify_function()
+        def gen_seq(x: int) -> List[int]:
+            return list(range(x))
+
+        @indexify_function()
+        def ignore_none(x: int) -> int:
+            if x % 2 == 0:
+                return x
+            return None
+        @indexify_function()
+        def add_two(x: int) -> int:
+            return x + 2
+
+        graph = Graph(name="test_ignore_none", description="test", start_node=gen_seq)
+        graph.add_edge(gen_seq, ignore_none)
+        graph.add_edge(ignore_none, add_two)
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=5)
+        output = graph.output(invocation_id, "add_two")
+        self.assertEqual(sorted(output), [2, 4, 6])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -218,6 +218,8 @@ class IndexifyFunctionWrapper:
             args.append(input)
 
         extracted_data = self.indexify_function.run(*args, **kwargs)
+        if extracted_data is None:
+            return []
 
         return extracted_data if isinstance(extracted_data, list) else [extracted_data]
 
@@ -234,7 +236,7 @@ class IndexifyFunctionWrapper:
             acc = self.indexify_function.accumulate.model_validate(
                 self.indexify_function.accumulate()
             )
-        outputs: List[Any] = self.run_fn(input, acc=acc)
+        outputs: Optional[List[Any]] = self.run_fn(input, acc=acc)
         return [
             IndexifyData(payload=serializer.serialize(output)) for output in outputs
         ]
