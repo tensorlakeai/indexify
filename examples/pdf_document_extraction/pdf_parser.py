@@ -25,7 +25,7 @@ image = (
 gpu_image = (
     Image()
     .name("tensorlake/pdf-blueprint-pdf-parser-gpu")
-    .base_image("pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime")
+    .base_image("pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime")
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx git g++")
     .run("pip install langchain")

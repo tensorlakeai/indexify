@@ -1,11 +1,20 @@
+def python_version_to_image(python_version):
+    if python_version.startswith("3.9"):
+        return "python:3.9.20-bookworm"
+    elif python_version.startswith("3.10"):
+        return "python:3.10.15-bookworm"
+    elif python_version.startswith("3.11"):
+        return "python:3.11.10-bookworm"
+    else:
+        raise ValueError(f"unsupported Python version: {python_version}")
+
+
 class Image:
-    def __init__(self):
+    def __init__(self, python="3.10"):
         self._image_name = None
-
         self._tag = "latest"
-
-        self._base_image = "python:3.11.10-slim-bookworm"
-
+        self._base_image = python_version_to_image(python)
+        self._python_version = python
         self._run_strs = []
 
     def name(self, image_name):
