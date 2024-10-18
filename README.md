@@ -8,6 +8,12 @@
 
 *Indexify simplifies building and serving durable, multi-stage workflows as inter-connected Python functions and automagically deploys them as APIs.*
 
+A **workflow** encodes data ingestion and transformation stages that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware.
+
+> [!NOTE]  
+> Indexify is the Open-Source core compute engine that powers Tensorlake's Serverless Workflow Engine for processing unstructured data. [Book a Demo to learn about the platform.](https://calendly.com/diptanu/tensorlake-client-call)
+
+
 ### 💡 Use Cases
 
 **Indexify** is a versatile data processing framework for all kinds of use-cases, including:
@@ -17,15 +23,6 @@
 * [Transcribing and Summarizing Audio Files](examples/video_summarization/)
 * [Object Detection and Description](examples/object_detection/)
 * [Knowledge Graph RAG and Question Answering](examples/knowledge_graph/)
-
-### 📌 Concepts
-
-A **workflow** represents a data transformation that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware. By modeling these functions as nodes of a graph and function composition as edges of one, the data transformation can be entirely described by an inter-connected graph known as a **compute graph**.
-
-Workflows can be structured as either a **pipeline** or a **graph**.
-
-* A **pipeline** represents a linear flow of data moving in a single direction.
-* A **graph** represents a non-linear flow of data enabling parallel branches and conditional branching.
 
 ### ⭐ Key Features
 
@@ -44,16 +41,11 @@ Install Indexify's SDK and CLI into your development environment:
 pip install indexify
 ```
 
-## 📚 Basic Usage
+## 📚 A Minimal Example
 
-Get started with the basics of Indexify. This section covers how to define a compute graph in a Python script, test its behavior in the same process as its execution environment, and deploy it as an API to a local Indexify server for remote execution.
-
-### 🛠️ 1: Define the Compute Graph
-
-Start defining the workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function()` serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. These functions form the edges of a `Graph`, which is a representation of a compute graph. <br></br>
-For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails.<br></br>
-The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. Following a modular design by dividing the entire computation into composable functions enables Indexify to optimize the workflow's execution by storing each of its intermediate results.
-Open up a new Python script and insert the following code:
+Define a workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function()`. These functions form the edges of a `Graph`, which is the representation of a compute graph. <br></br>
+Functions serve as discrete units within a Graph, defining the boundaries for retry attempts and resource allocation. They separate computationally heavy tasks like LLM inference from lightweight ones like database writes. <br></br>
+The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. 
 
 ```python
 from pydantic import BaseModel
@@ -87,105 +79,10 @@ graph.add_edge(generate_numbers, square)
 graph.add_edge(square, add)
 ```
 
-#### ✅ 2: Test the Compute Graph In-Process
+[Read the Docs](https://docs.tensorlake.ai/quick-start) to learn more about how to test, deploy and create API endpoints for Workflows.
 
-Once the workflow has been defined, it's time to test its behavior to verify its correctness. For rapid prototyping, this can be performed within the same Python process as it's defined.
 
-Append the following Python code to a script `sum_of_squares.py` to calculate the sum of squares for the first 10 consecutive whole numbers:
-
-```python
-# Execute the workflow represented by the graph with an initial input of 10
-invocation_id = graph.run(up_to=10)
-
-# Get the execution's output by providing its invocation ID and the name of its last function
-result = graph.output(invocation_id, "add")
-
-# Display the result for verification
-print(result)
-```
-
-Run the Python script 
-
-```bash
-python3 sum_of_squares.py
-```
-
-If the compute graph is defined, the script will execute the compute graph within the same process and return metadata about its completed functions: each its own name and output.
-
-Verify that the displayed result is 285.
-
-```bash
-[Total(val=285)]
-```
-
-While testing a compute graph in-process provides a helpful tool for iterative development, an integration test where the compute graph is deployed as an API is more suited for a production environment.
-
-#### 🌐 3: Deploy the Compute Graph as an API
-
-An **Indexify server** hosts workflows represented by compute graphs and provides API endpoints for remote execution.
-
-An **Indexify client** allows users to deploy and invoke workflows by calling API endpoints through the Python SDK.
-
-Start an Indexify server using the CLI installed with the SDK:
-
-```bash
-indexify-cli server-dev-mode
-```
-
-The command above initializes the following processes in your terminal session:
-
-* **Server:** Manages the state of compute graphs, orchestrates functions, and stores function outputs.
-* **Executor:** Runs Python functions and coordinates execution state of functions with server.
-
-The server can be accessed using the following URL: <http://localhost:8900/>.
-
-Verify that it's currently running in your local environment by accessing its user interface using the following URL: <http://localhost:8900/ui/>.
-
-The user interface presents a simple way to monitor the Indexify server for easy management, including its executors, compute graphs, and other resources.
-
-Now that the server is running, update the Python script to deploy the compute graph to the server for remote execution and to return its output by making a call to its API endpoint through the Python SDK.
-
-```python
-from indexify import RemoteGraph
-
-# Deploy the compute graph to the Indexify server for remote execution
-remote_graph = RemoteGraph.deploy(graph)
-
-# Uncomment the following line to reference a graph already deployed
-# graph = RemoteGraph.by_name("sequence_summer") 
-
-# Execute the workflow with an initial input of 10 to its first function
-# Wait until the entire workflow has finished execution before returning
-invocation_id = remote_graph.run(block_until_done=True, a=10)
-
-# Get the execution's output through its API endpoint by providing its invocation ID and last function name
-result = remote_graph.output(invocation_id, "add")
-
-# Display the result for verification
-print(result)
-```
-
-Run the modified Python script to serialize and upload the compute graph to the server, which then instantiates an API endpoint for future remote execution.
-
-While the compute graph has an API endpoint for accessing its output as described above, the Python SDK manages it under the hood, returning the output given the invocation ID of the run and the name of the function. This ID uniquely identifies a specific execution of the compute graph while the name specifies the function within the execution whose output is to be returned.
-
-```bash
-python3 sum_of_squares.py
-```
-
-If the Indexify server is running, it will remotely execute the compute graph and return metadata about the completed tasks: each with its own task name, task ID, function name, invocation ID, executor ID, and outcome.
-
-If an exception is raised while running the script, verify the server is accessible at `http://localhost:8900`. If there is an error accessing the server, make sure the server was started with the `indexify-cli server-dev-mode` command mentioned above.
-
-Verify that the displayed result is 285.
-
-```bash
-[Total(val=285)]
-```
-
-The rest of the application code responsible for processing the data in the workflow remains unchanged!
-
-## 📖 More Topics
+## 📖 Some Topics
 
 * [Architecture of Indexify](https://docs.getindexify.ai/architecture)
 * [Packaging Dependencies of Functions](https://docs.getindexify.ai/packaging-dependencies)
