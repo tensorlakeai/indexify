@@ -22,7 +22,7 @@
 
 A **workflow** represents a data transformation that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware. By modeling these functions as nodes of a graph and function composition as edges of one, the data transformation can be entirely described by an inter-connected graph known as a **compute graph**.
 
-A **compute graph** implementing a workflow can be structured as either a **pipeline** or a **graph**.
+Workflows can be structured as either a **pipeline** or a **graph**.
 
 * A **pipeline** represents a linear flow of data moving in a single direction.
 * A **graph** represents a non-linear flow of data enabling parallel branches and conditional branching.
@@ -50,7 +50,7 @@ Get started with the basics of Indexify. This section covers how to define a com
 
 ### 🛠️ 1: Define the Compute Graph
 
-Start defining the workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function()` serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. These functions form the edges of a `Graph`, which is a representation of a compute graph in the Python SDK. <br></br>
+Start defining the workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function()` serve as discrete computational units within a Graph, defining the boundaries for retry attempts and resource allocation. These functions form the edges of a `Graph`, which is a representation of a compute graph. <br></br>
 For instance, separating computationally heavy tasks like LLM inference from lightweight ones like database writes into distinct edges of the compute graph prevents repeating the inference if the write operation fails.<br></br>
 The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. Following a modular design by dividing the entire computation into composable functions enables Indexify to optimize the workflow's execution by storing each of its intermediate results.
 Open up a new Python script and insert the following code:
@@ -59,6 +59,16 @@ Open up a new Python script and insert the following code:
 from pydantic import BaseModel
 from indexify import indexify_function, indexify_router, Graph
 from typing import List, Union
+
+# Returns a list of the first consecutive whole numbers
+@indexify_function()
+def generate_numbers(up_to: int) -> List[int]:
+    return [i for i in range(up_to)]
+
+# Returns the square of a given number
+@indexify_function()
+def square(i: int) -> int:
+    return i ** 2
 
 # Model to accumulate a running total
 class Total(BaseModel):
@@ -69,16 +79,6 @@ class Total(BaseModel):
 def add(total: Total, new: int) -> Total:
     total.val += new
     return total
-
-# Returns a list of the first consecutive whole numbers
-@indexify_function()
-def generate_numbers(a: int) -> List[int]:
-    return [i for i in range(a)]
-
-# Returns the square of a given number
-@indexify_function()
-def square(i: int) -> int:
-    return i ** 2
 
 # Constructs a compute graph connecting the three functions defined above into a workflow that generates
 # a list of the first consecutive whole numbers, squares each of them, and calculates their cumulative sum
@@ -91,11 +91,11 @@ graph.add_edge(square, add)
 
 Once the workflow has been defined, it's time to test its behavior to verify its correctness. For rapid prototyping, this can be performed within the same Python process as it's defined.
 
-Append the following Python code to the script to calculate the sum of squares for the first 10 consecutive whole numbers:
+Append the following Python code to a script `sum_of_squares.py` to calculate the sum of squares for the first 10 consecutive whole numbers:
 
 ```python
 # Execute the workflow represented by the graph with an initial input of 10
-invocation_id = graph.run(a=10)
+invocation_id = graph.run(up_to=10)
 
 # Get the execution's output by providing its invocation ID and the name of its last function
 result = graph.output(invocation_id, "add")
