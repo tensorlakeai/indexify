@@ -82,7 +82,7 @@ graph.add_edge(square, add)
 [Read the Docs](https://docs.tensorlake.ai/quick-start) to learn more about how to test, deploy and create API endpoints for Workflows.
 
 
-## 📖 Some Topics
+## 📖 Next Steps
 
 * [Architecture of Indexify](https://docs.getindexify.ai/architecture)
 * [Packaging Dependencies of Functions](https://docs.getindexify.ai/packaging-dependencies)
