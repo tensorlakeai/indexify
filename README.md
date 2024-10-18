@@ -11,7 +11,7 @@
 A **workflow** encodes data ingestion and transformation stages that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
 > [!NOTE]  
-> Indexify is the Open-Source core compute engine that powers Tensorlake's Serverless Workflow Engine for processing unstructured data. [Book a Demo to learn about the platform.](https://calendly.com/diptanu/tensorlake-client-call)
+> Indexify is the Open-Source core compute engine that powers Tensorlake's Serverless Workflow Engine for processing unstructured data. [Book a Demo to learn more about the platform.](https://calendly.com/diptanu/tensorlake-client-call)
 
 
 ### 💡 Use Cases
