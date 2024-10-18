@@ -5,7 +5,7 @@ from indexify.functions_sdk.indexify_functions import IndexifyFunction
 from sentence_transformers import SentenceTransformer
 from common_objects import ImageWithEmbedding, TextChunk, DocumentImages, DocumentImage
 
-image = Image(python="3.10").name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
+image = Image(python="3.11").name("tensorlake/pdf-blueprint-st").run("pip install sentence-transformers")
 
 
 class TextEmbeddingExtractor(IndexifyFunction):

@@ -261,7 +261,7 @@ WORKDIR /app
         docker_file += f"\nRUN pip install indexify"
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
-    console.print(f"{docker_file}", style="magenta")
+    print(f"{docker_file}")
 
     client = docker.from_env()
     image_name = f"{image._image_name}:{image._tag}"
