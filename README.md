@@ -52,35 +52,39 @@ from pydantic import BaseModel
 from indexify import indexify_function, indexify_router, Graph
 from typing import List, Union
 
-# Returns a list of the first consecutive whole numbers
+class Document(BaseModel):
+   pages: List[str]
+
+# Parse a pdf and extract text
 @indexify_function()
-def generate_numbers(up_to: int) -> List[int]:
-    return [i for i in range(up_to)]
+def process_document(file: File) -> Document:
+    # Process a PDF and extract pages
 
-# Returns the square of a given number
+class TextChunk(BaseModel):
+   chunk: str
+   page_number: int
+
+# Chunk the pages for embedding and retreival
 @indexify_function()
-def square(i: int) -> int:
-    return i ** 2
+def chunk_document(document: Document) -> List[TextChunk]:
+    # Split the pages
 
-# Model to accumulate a running total
-class Total(BaseModel):
-    val: int = 0
-
-# Adds a new number to the running total and returns its updated value
-@indexify_function(accumulate=Total)
-def add(total: Total, new: int) -> Total:
-    total.val += new
-    return total
+# Embed a single chunk.
+# Note: (Automatic Map) Indexify automatically parallelize functions when they consume an element
+# from functions that produces a List
+@indexify_functions()
+def embed_and_write(chunk: TextChunk) -> ChunkEmbedding:
+    # run an embedding model on the chunk
+    # write_to_db
 
 # Constructs a compute graph connecting the three functions defined above into a workflow that generates
-# a list of the first consecutive whole numbers, squares each of them, and calculates their cumulative sum
-graph = Graph(name="sum_of_squares", start_node=generate_numbers, description="compute the sum of squares for each of the first consecutive whole numbers")
-graph.add_edge(generate_numbers, square)
-graph.add_edge(square, add)
+# runs them as a pipeline
+graph = Graph(name="document_ingestion_pipeline", start_node=process_document, description="...")
+graph.add_edge(process_document, chunk_document)
+graph.add_edge(chunk_document, embed_and_write)
 ```
 
 [Read the Docs](https://docs.tensorlake.ai/quick-start) to learn more about how to test, deploy and create API endpoints for Workflows.
-
 
 ## 📖 Next Steps
 
