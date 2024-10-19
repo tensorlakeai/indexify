@@ -538,6 +538,19 @@ impl Task {
         )
     }
 
+    pub fn key_from(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        fn_name: &str,
+        id: &str,
+    ) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            namespace, compute_graph, invocation_id, fn_name, id
+        )
+    }
+
     pub fn key_output(&self, output_id: &str) -> String {
         format!("{}|{}|{}", self.namespace, self.id, output_id)
     }
