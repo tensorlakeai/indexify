@@ -4,8 +4,9 @@ from indexify import Image
 chroma_image = Image(python="3.11").name("tensorlake/blueprints-chromadb").run("pip install chromadb").run("pip install pillow")
 
 st_image = (
-    Image(python="3.11")
+    Image()
     .name("tensorlake/pdf-blueprint-st")
+    .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime")
     .run("pip install sentence-transformers")
     .run("pip install langchain")
     .run("pip install pillow")
