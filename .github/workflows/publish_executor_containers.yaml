@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -33,6 +36,7 @@ jobs:
           indexify-cli build-default-image 
           indexify-cli build-image examples/pdf_document_extraction/embedding.py
           indexify-cli build-image examples/pdf_document_extraction/lancedb_functions.py
+          indexify-cli build-image examples/pdf_document_extraction/chromadb_writer.py
           indexify-cli build-image examples/pdf_document_extraction/pdf_parser.py
           indexify-cli build-image examples/pdf_document_extraction/workflow.py
           docker push tensorlake/indexify-executor-default:3.10
