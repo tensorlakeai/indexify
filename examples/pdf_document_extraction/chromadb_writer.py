@@ -23,14 +23,14 @@ class ChromaDBWriter(IndexifyFunction):
         import numpy as np
         if type(input) == ImageWithEmbedding:
             img_arr = np.array(Image.open(io.BytesIO(input.image_bytes)))
-            self._image_collection.add(
+            self._image_collection.upsert(
                 ids=[str(uuid.uuid4())],
                 embeddings=[input.embedding],
                 metadatas=[{"page_number": input.page_number}],
                 images=[img_arr]
             )
         elif type(input) == TextChunk:
-            self._text_collection.add(
+            self._text_collection.upsert(
                 ids=[str(uuid.uuid4())],
                 embeddings=[input.embeddings],
                 metadatas=[{"page_number": input.page_number}],

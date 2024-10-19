@@ -58,7 +58,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
 
     def __init__(self):
         super().__init__()
-        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        self.model = SentenceTransformer('Alibaba-NLP/gte-base-en-v1.5', trust_remote_code=True)
 
     def run(self, input: TextChunk) -> TextChunk:
         embeddings = self.model.encode(input.chunk)

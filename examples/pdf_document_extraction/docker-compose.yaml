@@ -88,6 +88,8 @@ services:
       server:
     volumes:
       - data:/tmp/indexify-blob-storage
+    ports:
+      - 8000:8000
 
 
 volumes:
