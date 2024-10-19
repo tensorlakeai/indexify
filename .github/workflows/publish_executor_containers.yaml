@@ -8,11 +8,6 @@ permissions:
   actions: write
   packages: write
 
-
-defaults:
-  run:
-    working-directory: ./python-sdk
-
 jobs:
   build-and-push-docker-images:
     name: Build and Push Docker Executor 
