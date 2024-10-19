@@ -1,13 +1,11 @@
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from indexify import Image
 from typing import Union
 from common_objects import ImageWithEmbedding, TextChunk
-
-image = Image(python="3.11").name("tensorlake/blueprints-chromadb").run("pip install chromadb").run("pip install pillow")
+from images import chroma_image
 
 class ChromaDBWriter(IndexifyFunction):
     name = "chroma_db_writer"
-    image = image
+    image = chroma_image
 
     def __init__(self):
         import chromadb

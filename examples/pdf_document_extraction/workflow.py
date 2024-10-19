@@ -48,8 +48,9 @@ if __name__ == "__main__":
     # Uncomment this to run the graph locally
     #invocation_id = graph.run(block_until_done=True, url="https://arxiv.org/pdf/2302.12854")
     import common_objects
+    import images
 
-    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects])
+    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects, images])
     invocation_id = remote_graph.run(
         block_until_done=True, url="https://arxiv.org/pdf/1706.03762"
     )

@@ -1,12 +1,11 @@
 from typing import Union
 
-from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 from common_objects import ImageWithEmbedding, TextChunk
 import lancedb
 from lancedb.pydantic import LanceModel, Vector
+from images import lance_image
 
-image = Image(python="3.11").name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
 
 class ImageEmbeddingTable(LanceModel):
     vector: Vector(512)
@@ -20,7 +19,7 @@ class TextEmbeddingTable(LanceModel):
 
 class LanceDBWriter(IndexifyFunction):
     name = "lancedb_writer"
-    image = image
+    image = lance_image
 
     def __init__(self):
         super().__init__()

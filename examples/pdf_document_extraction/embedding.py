@@ -1,23 +1,14 @@
 from typing import Any, List
 
-from indexify import Image
 from indexify.functions_sdk.indexify_functions import IndexifyFunction, indexify_function
 from sentence_transformers import SentenceTransformer
 from common_objects import ImageWithEmbedding, TextChunk
 from inkwell.api.document import Document
 from inkwell.api.page import PageFragmentType
 import base64
+from images import st_image
 
-image = (
-    Image(python="3.11")
-    .name("tensorlake/pdf-blueprint-st")
-    .run("pip install sentence-transformers")
-    .run("pip install langchain")
-    .run("pip install pillow")
-    .run("pip install py-inkwell")
-)
-
-@indexify_function(image=image)
+@indexify_function(image=st_image)
 def chunk_text(document: Document) -> List[TextChunk]:
     """
     Extract chunks from document
@@ -54,7 +45,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
     description = "Extractor class that captures an embedding model"
     system_dependencies = []
     input_mime_types = ["text"]
-    image = image
+    image = st_image
 
     def __init__(self):
         super().__init__()
@@ -69,7 +60,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
 class ImageEmbeddingExtractor(IndexifyFunction):
     name = "image-embedding"
     description = "Extractor class that captures an embedding model"
-    image=image
+    image=st_image
 
     def __init__(self):
         super().__init__()
