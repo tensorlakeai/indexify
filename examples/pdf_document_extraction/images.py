@@ -1,7 +1,12 @@
 from indexify import Image
 
 
-chroma_image = Image(python="3.11").name("tensorlake/blueprints-chromadb").run("pip install chromadb").run("pip install pillow")
+chroma_image = (
+    Image(python="3.11")
+    .name("tensorlake/blueprints-chromadb")
+    .run("pip install chromadb")
+    .run("pip install pillow")
+)
 
 st_image = (
     Image()
@@ -13,8 +18,11 @@ st_image = (
     .run("pip install py-inkwell")
 )
 
-
-lance_image = Image(python="3.11").name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
+lance_image = (
+    Image(python="3.11")
+    .name("tensorlake/pdf-blueprint-lancdb")
+    .run("pip install lancedb")
+)
 
 inkwell_image_gpu = (
     Image()
@@ -25,5 +33,5 @@ inkwell_image_gpu = (
     .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
     .run("apt install -y tesseract-ocr")
     .run("apt install -y libtesseract-dev")
-    .run("pip install \"py-inkwell[inference]\"")
+    .run('pip install "py-inkwell[inference]"')
 )
