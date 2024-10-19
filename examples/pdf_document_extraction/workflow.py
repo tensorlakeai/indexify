@@ -20,9 +20,9 @@ def download_pdf(url: str) -> File:
 
 
 def create_graph() -> Graph:
-    from embedding import ImageEmbeddingExtractor, TextEmbeddingExtractor
-    from lancedb_functions import LanceDBWriter
-    from pdf_parser import PDFParser, extract_chunks, extract_images
+    from embedding import ImageEmbeddingExtractor, TextEmbeddingExtractor, chunk_text
+    from chromadb_writer import ChromaDBWriter
+    from pdf_parser import PDFParser
 
     g = Graph(
         "Extract_pages_tables_images_pdf",
@@ -31,52 +31,26 @@ def create_graph() -> Graph:
 
     # Parse the PDF which was downloaded
     g.add_edge(download_pdf, PDFParser)
-
-    # Extract all the text chunks in the PDF
-    # and embed the images with CLIP
-    g.add_edges(PDFParser, [extract_chunks, extract_images])
+    g.add_edge(PDFParser, chunk_text)
 
     ## Embed all the text chunks in the PDF
-    g.add_edge(extract_chunks, TextEmbeddingExtractor)
-    g.add_edge(extract_images, ImageEmbeddingExtractor)
+    g.add_edge(chunk_text, TextEmbeddingExtractor)
+    g.add_edge(PDFParser, ImageEmbeddingExtractor)
 
     ## Write all the embeddings to the vector database
-    g.add_edge(TextEmbeddingExtractor, LanceDBWriter)
-    g.add_edge(ImageEmbeddingExtractor, LanceDBWriter)
+    g.add_edge(TextEmbeddingExtractor, ChromaDBWriter)
+    g.add_edge(ImageEmbeddingExtractor, ChromaDBWriter)
     return g
 
 
 if __name__ == "__main__":
     graph: Graph = create_graph()
     # Uncomment this to run the graph locally
-    invocation_id = graph.run(url="https://arxiv.org/pdf/2106.00043.pdf")
-    #import common_objects
+    #invocation_id = graph.run(block_until_done=True, url="https://arxiv.org/pdf/2302.12854")
+    import common_objects
 
-    #remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects])
-    #invocation_id = remote_graph.run(
-    #    block_until_done=True, url="https://arxiv.org/pdf/2106.00043.pdf"
-    #)
-    #print(f"Invocation ID: {invocation_id}")
-
-    # After extraction, lets test retreival
-
-    #import lancedb
-    #import sentence_transformers
-
-    #client = lancedb.connect("vectordb.lance")
-    #text_table = client.open_table("text_embeddings")
-    #st = sentence_transformers.SentenceTransformer(
-    #   "sentence-transformers/all-MiniLM-L6-v2"
-    #)
-    #emb = st.encode("Generative adversarial networks")
-
-    #from lancedb.pydantic import LanceModel, Vector
-    #class TextEmbeddingTable(LanceModel):
-    #        vector: Vector(384)
-    #        text: str
-    #        page_number: int
-
-    #results = text_table.search(emb.tolist()).limit(10).to_pydantic(TextEmbeddingTable)
-    #print(f"Found {len(results)} results")
-    #for result in results:
-    #   print(f"page_number: {result.page_number}\n\ntext: {result.text}")
+    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects])
+    invocation_id = remote_graph.run(
+        block_until_done=True, url="https://arxiv.org/pdf/1706.03762"
+    )
+    print(f"Invocation ID: {invocation_id}")

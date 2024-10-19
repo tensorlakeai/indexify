@@ -44,8 +44,8 @@ services:
     deploy:
       mode: replicated
       replicas: 1
-  lancedb-executor:
-    image: tensorlake/pdf-blueprint-lancdb
+  chromadb-executor:
+    image: tensorlake/blueprints-chromadb
     command:
       [
         "indexify-cli",
@@ -57,16 +57,10 @@ services:
       server:
     volumes:
       - data:/tmp/indexify-blob-storage
-      - type: bind
-        source: ./vectordb.lance
-        target: /indexify/vectordb.lance
-    deploy:
-      mode: replicated
-      replicas: 1
   pdf-parser-executor:
     # Use this for GPU support
-    # image: tensorlake/pdf-blueprint-pdf-parser-gpu:latest
-    image: tensorlake/pdf-blueprint-pdf-parser:latest
+    image: tensorlake/pdf-blueprint-pdf-parser-gpu:latest
+    #image: tensorlake/pdf-blueprint-pdf-parser:latest
     command:
       [
         "indexify-cli",
@@ -82,11 +76,19 @@ services:
       mode: replicated
       replicas: 1
       # Uncomment this for GPU support
-      # resources:
-      #   reservations:
-      #     devices:
-      #       - driver: nvidia
-      #         capabilities: [gpu]
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+  chromadb:
+    image: chromadb/chroma
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+
 
 volumes:
   data:

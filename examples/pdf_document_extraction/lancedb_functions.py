@@ -10,6 +10,7 @@ image = Image(python="3.11").name("tensorlake/pdf-blueprint-lancdb").run("pip in
 
 class ImageEmbeddingTable(LanceModel):
     vector: Vector(512)
+    image_bytes: bytes
     page_number: int
 
 class TextEmbeddingTable(LanceModel):
@@ -37,6 +38,7 @@ class LanceDBWriter(IndexifyFunction):
                 [
                     ImageEmbeddingTable(
                         vector=input.embedding,
+                        image_bytes=input.image_bytes,
                         page_number=input.page_number,
                     )
                 ]

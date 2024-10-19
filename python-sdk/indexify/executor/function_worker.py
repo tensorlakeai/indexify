@@ -62,6 +62,7 @@ class FunctionWorker:
         self._executor: concurrent.futures.ProcessPoolExecutor = (
             concurrent.futures.ProcessPoolExecutor(max_workers=workers)
         )
+        self._workers = workers
 
     async def async_submit(
         self,
@@ -74,22 +75,9 @@ class FunctionWorker:
         init_value: Optional[IndexifyData] = None,
     ) -> FunctionWorkerOutput:
         try:
-            result = await asyncio.get_running_loop().run_in_executor(
-                self._executor,
-                _run_function,
-                namespace,
-                graph_name,
-                fn_name,
-                input,
-                code_path,
-                version,
-                init_value,
-            )
-        except BrokenProcessPool as mp:
-            self._executor.shutdown(wait=True, cancel_futures=True)
-            traceback.print_exc()
-            raise mp
-        except FunctionRunException as e:
+            result = _run_function(namespace, graph_name, fn_name, input, code_path, version, init_value)
+            # TODO - bring back running in a separate process
+        except Exception as e:
             return FunctionWorkerOutput(
                 exception=str(e),
                 stdout=e.stdout,
