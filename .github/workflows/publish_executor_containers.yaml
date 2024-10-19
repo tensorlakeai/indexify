@@ -30,6 +30,7 @@ jobs:
           pip install indexify -U
           indexify-cli build-default-image 
           indexify-cli build-image examples/pdf_document_extraction/images.py
+          indexify-cli build-image examples/pdf_structured_extraction/workflow.py
           docker push tensorlake/indexify-executor-default:3.10
           docker push tensorlake/indexify-executor-default:3.11
           docker push tensorlake/tensorlake/pdf-blueprint-st
@@ -37,4 +38,6 @@ jobs:
           docker push tensorlake/pdf-blueprint-pdf-parser
           docker push tensorlake/pdf-blueprint-pdf-parser-gpu
           docker push tensorlake/pdf-blueprint-download
+          docker push tensorlake/blueprints-chromadb
+          docker push tensorlake/blueprint-pdf-structured-extraction
 
