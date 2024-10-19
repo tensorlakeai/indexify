@@ -33,7 +33,7 @@ jobs:
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
           docker push tensorlake/indexify-executor-default:3.10
           docker push tensorlake/indexify-executor-default:3.11
-          docker push tensorlake/tensorlake/pdf-blueprint-st
+          docker push tensorlake/pdf-blueprint-st
           docker push tensorlake/pdf-blueprint-lancdb
           docker push tensorlake/pdf-blueprint-pdf-parser-gpu
           docker push tensorlake/pdf-blueprint-download
