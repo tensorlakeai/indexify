@@ -1,14 +1,10 @@
-from indexify import Image, RemoteGraph
+from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
+from images import http_client_image
 
-image = (
-    Image(python="3.11")
-    .name("tensorlake/pdf-blueprint-download")
-    .run("pip install httpx")
-)
-@indexify_function(image=image)
+@indexify_function(image=http_client_image)
 def download_pdf(url: str) -> File:
     """
     Download pdf from url

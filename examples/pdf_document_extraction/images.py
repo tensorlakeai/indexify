@@ -1,5 +1,10 @@
 from indexify import Image
 
+http_client_image = (
+    Image(python="3.11")
+    .name("tensorlake/pdf-blueprint-download")
+    .run("pip install httpx")
+)
 
 chroma_image = (
     Image(python="3.11")
