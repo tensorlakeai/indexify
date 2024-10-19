@@ -15,19 +15,6 @@ st_image = (
 
 lance_image = Image(python="3.11").name("tensorlake/pdf-blueprint-lancdb").run("pip install lancedb")
 
-inkwell_image = (
-    Image(python="3.11")
-    .name("tensorlake/pdf-blueprint-pdf-parser")
-    .run("apt update")
-    .run("apt install -y libgl1-mesa-glx git g++")
-    .run("pip install torch")
-    .run("pip install numpy")
-    .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
-    .run("apt install -y tesseract-ocr")
-    .run("apt install -y libtesseract-dev")
-    .run("pip install \"py-inkwell[inference]\"")
-)
-
 inkwell_image_gpu = (
     Image()
     .name("tensorlake/pdf-blueprint-pdf-parser-gpu")

@@ -35,7 +35,6 @@ jobs:
           docker push tensorlake/indexify-executor-default:3.11
           docker push tensorlake/tensorlake/pdf-blueprint-st
           docker push tensorlake/pdf-blueprint-lancdb
-          docker push tensorlake/pdf-blueprint-pdf-parser
           docker push tensorlake/pdf-blueprint-pdf-parser-gpu
           docker push tensorlake/pdf-blueprint-download
           docker push tensorlake/blueprints-chromadb
