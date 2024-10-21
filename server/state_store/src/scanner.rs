@@ -318,61 +318,34 @@ impl StateReader {
         cg: &str,
         inv_id: &str,
         cg_fn: &str,
-        task_id: Option<&str>,
+        task_id: &str,
         file: &str,
     ) -> Result<Option<DataPayload>> {
         let key = Task::key_prefix_for_fn(ns, cg, inv_id, cg_fn);
         println!("{}", key);
 
-        if let Some(task_id) = task_id {
-            let task = self
-                .get_task(ns, cg, inv_id, cg_fn, task_id)?
-                .ok_or(anyhow::anyhow!("Task not found"))?;
+        let task = self
+            .get_task(ns, cg, inv_id, cg_fn, task_id)?
+            .ok_or(anyhow::anyhow!("Task not found"))?;
 
-            if let Some(diagnostics) = task.diagnostics {
-                match file {
-                    "stdout" => {
-                        if let Some(stdout) = diagnostics.stdout {
-                            return Ok(Some(stdout));
-                        }
+        if let Some(diagnostics) = task.diagnostics {
+            match file {
+                "stdout" => {
+                    if let Some(stdout) = diagnostics.stdout {
+                        return Ok(Some(stdout));
                     }
-                    "stderr" => {
-                        if let Some(stderr) = diagnostics.stderr {
-                            return Ok(Some(stderr));
-                        }
+                }
+                "stderr" => {
+                    if let Some(stderr) = diagnostics.stderr {
+                        return Ok(Some(stderr));
                     }
-                    _ => {
-                        return Err(anyhow::anyhow!("Invalid file type"));
-                    }
+                }
+                _ => {
+                    return Err(anyhow::anyhow!("Invalid file type"));
                 }
             }
         }
 
-        let diagnostic = self.get_rows_from_cf_with_limits::<Task>(
-            &key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::Tasks,
-            None,
-        )?;
-        for task in diagnostic.0 {
-            if let Some(diagnostics) = task.diagnostics {
-                match file {
-                    "stdout" => {
-                        if let Some(stdout) = diagnostics.stdout {
-                            return Ok(Some(stdout));
-                        }
-                    }
-                    "stderr" => {
-                        if let Some(stderr) = diagnostics.stderr {
-                            return Ok(Some(stderr));
-                        }
-                    }
-                    _ => {
-                        return Err(anyhow::anyhow!("Invalid file type"));
-                    }
-                }
-            }
-        }
         Ok(None)
     }
 
