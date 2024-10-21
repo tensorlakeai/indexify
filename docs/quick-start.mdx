@@ -26,7 +26,7 @@ Let's create a simple workflow to summarize a website on-demand! It demonstrates
     @indexify_function()
     def summarize_text(text: str) -> str:
         from openai import OpenAI
-        completion = OpenAI().chat.completiions.create(
+        completion = OpenAI().chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant. Generate a summary of this website"},
@@ -52,6 +52,8 @@ Let's create a simple workflow to summarize a website on-demand! It demonstrates
     ```bash
     indexify-cli server-dev-mode
     ```
+
+    Note: The `indexify-cli` command is part of the `indexify` python package previously installed.
 
     This starts the following processes -
     * **Server:** Orchestrates functions in the graph, stores execution state, and hosts Remote Graph APIs.
