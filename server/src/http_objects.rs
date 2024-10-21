@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-
+use std::fmt;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -230,6 +230,47 @@ impl From<data_model::RuntimeInformation> for RuntimeInformation {
     }
 }
 
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct ImageInformation{
+    pub image_name: String,
+    pub tag: String,
+    pub base_image: String,
+    pub run_strs: Vec<String>
+}
+
+impl fmt::Debug for ImageInformation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ImageInformation")
+            .field("image_name", &self.image_name)
+            .field("tag", &self.tag)
+            .field("base_image", &self.base_image)
+            .field("run_strs", &self.run_strs)
+            .finish()
+    }
+}
+
+impl From<ImageInformation> for data_model::ImageInformation {
+    fn from(value: ImageInformation) -> Self {
+        data_model::ImageInformation {
+            image_name: value.image_name,
+            tag: value.tag,
+            base_image: value.base_image,
+            run_strs: value.run_strs,
+        }
+    }
+}
+
+impl From<data_model::ImageInformation> for ImageInformation {
+    fn from(value: data_model::ImageInformation) -> ImageInformation {
+        ImageInformation {
+            image_name: value.image_name,
+            tag: value.tag,
+            base_image: value.base_image,
+            run_strs: value.run_strs,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {
     pub name: String,
@@ -241,6 +282,7 @@ pub struct ComputeGraph {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub runtime_information: RuntimeInformation,
+    pub image_information: ImageInformation,
 }
 
 impl ComputeGraph {
@@ -271,6 +313,7 @@ impl ComputeGraph {
             edges: self.edges.clone(),
             created_at: 0,
             runtime_information: self.runtime_information.into(),
+            image_information: self.image_information.into(),
         };
         Ok(compute_graph)
     }
@@ -295,6 +338,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             edges: compute_graph.edges,
             created_at: compute_graph.created_at,
             runtime_information: compute_graph.runtime_information.into(),
+            image_information: compute_graph.image_information.into(),
         }
     }
 }

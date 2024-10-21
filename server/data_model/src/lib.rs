@@ -219,6 +219,14 @@ pub struct RuntimeInformation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImageInformation{
+    pub image_name: String,
+    pub tag: String,
+    pub base_image: String,
+    pub run_strs: Vec<String>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
@@ -230,6 +238,7 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    pub image_information: ImageInformation,
 }
 
 impl ComputeGraph {

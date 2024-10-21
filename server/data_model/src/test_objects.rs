@@ -12,17 +12,7 @@ pub mod tests {
         NodeOutput,
         RuntimeInformation,
     };
-    use crate::{
-        DataPayload,
-        DynamicEdgeRouter,
-        ExecutorId,
-        ExecutorMetadata,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
-        Task,
-        TaskBuilder,
-    };
+    use crate::{DataPayload, DynamicEdgeRouter, ExecutorId, ExecutorMetadata, ImageInformation, InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder, Task, TaskBuilder};
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
@@ -169,6 +159,12 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            image_information: ImageInformation {
+                image_name: "test-image".to_string(),
+                tag: "tag-1".to_string(),
+                base_image: "base-image".to_string(),
+                run_strs: vec!("run 1".to_string(), "run 2". to_string(), "run 3".to_string())
+            }
         }
     }
 
@@ -207,6 +203,12 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            image_information: ImageInformation {
+                image_name: "test-image".to_string(),
+                tag: "tag-1".to_string(),
+                base_image: "base-image".to_string(),
+                run_strs: vec!("run 1".to_string(), "run 2".to_string(), "run 3".to_string())
+            }
         }
     }
 
@@ -239,6 +241,12 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            image_information: ImageInformation {
+                image_name: "test-image".to_string(),
+                tag: "tag-1".to_string(),
+                base_image: "base-image".to_string(),
+                run_strs: vec!("run 1".to_string(), "run 2". to_string(), "run 3".to_string())
+            }
         }
     }
 
