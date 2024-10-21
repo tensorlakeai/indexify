@@ -10,11 +10,16 @@
 
 A **workflow** encodes data ingestion and transformation stages that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
-<video src="https://media.githubusercontent.com/media/tensorlakeai/indexify/main/docs/images/PDF_Exatraction_Demo-VEED.gif"></video>
+<br />
 
+<div align="center">
+    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/docs/images/PDF_Exatraction_Demo-VEED.gif" 
+     alt="PDF Extraction Demo" 
+     style="width: 75%; height: auto;" 
+     loading="lazy" />
+</div>
 
-<div align="center"><img src="./docs/images/PDF_Exatraction_Demo-VEED.gif" style="width:75%"></div>
-
+<br />
 
 *To give you a taste of the project, in the above video - Indexify running PDF Extraction on a cluster of 3 machines. </br>
 top left -    A GPU accelerated machine running document layout and OCR model on a PDF,</br>
