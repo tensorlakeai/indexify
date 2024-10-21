@@ -20,7 +20,7 @@ A **workflow** encodes data ingestion and transformation stages that can be impl
 top left -    A GPU accelerated machine running document layout and OCR model on a PDF,</br>
 bottom left - chunking texts, embedding image and text using CLIP and a text embedding model. </br>
 top right - A function writing image and text embeddings to ChromaDB. </br>
-All three functions of the workflow are running in parallel and coordinated by Indexify server.*
+All three functions of the workflow are running in parallel and coordinated by the Indexify server.*
 
 > [!NOTE]  
 > Indexify is the Open-Source core compute engine that powers Tensorlake's Serverless Workflow Engine for processing unstructured data.
@@ -28,7 +28,7 @@ All three functions of the workflow are running in parallel and coordinated by I
 
 ### 💡 Use Cases
 
-**Indexify** is a versatile data processing framework for all kinds of use-cases, including:
+**Indexify** is a versatile data processing framework for all kinds of use cases, including:
 
 * [Scraping and Summarizing Websites](examples/website_audio_summary/)
 * [Extracting and Indexing PDF Documents](examples/pdf_document_extraction/)
@@ -112,7 +112,7 @@ graph.add_edge(chunk_document, embed_and_write)
 
 * **Function Batching:** Process multiple functions in a single batch to improve efficiency.
 * **Data Localized Execution:** Boost performance by prioritizing execution on machines where intermediate outputs exist already.
-* **Reducer Optimizations:** Optimize performance by batching the serial execution of reduce function calls.
+* **Reducer Optimizations:** Optimize performance by batching the serial execution of reduced function calls.
 * **Parallel Scheduling:** Reduce latency by enabling parallel execution across multiple machines.
 * **Cyclic Graph Support:** Enable more flexible agentic behaviors by leveraging cycles in graphs.
 * **Ephemeral Graphs:** Perform multi-stage inference and retrieval without persisting intermediate outputs.
