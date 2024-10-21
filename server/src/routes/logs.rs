@@ -42,7 +42,7 @@ pub async fn download_task_logs(
         )
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                "to download diagnostic payload: {}",
+                "failed to download diagnostic payload: {}",
                 e
             ))
         })?
