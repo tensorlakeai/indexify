@@ -16,10 +16,10 @@ class PDFParser(IndexifyFunction):
 
         self._pipeline = Pipeline()
 
-    def run(self, input: File) -> Document:
+    def run(self, file: File) -> Document:
         import tempfile
 
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
-            f.write(input.data)
+            f.write(file.data)
             document: Document = self._pipeline.process(f.name)
         return Document(pages=document.pages)
