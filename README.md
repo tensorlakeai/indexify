@@ -13,7 +13,7 @@ A **workflow** encodes data ingestion and transformation stages that can be impl
 <div align="center"><img src="./docs/images/PDF_Exatraction_Demo-VEED.gif" style="width:75%"></div>
 
 
-*Indexify running PDF Extraction on a cluster of 3 machines. (top left) - A GPU accelerated machine running document layout and OCR model on a PDF, (bottom left) - chunking texts, embedding image and text using CLIP and a text embedding model. (top right) - A function writing image and text embeddings to ChromaDB. All three processes are running in parallel and coordinated by Indexify server.*
+*Indexify running PDF Extraction on a cluster of 3 machines. (top left) - A GPU accelerated machine running document layout and OCR model on a PDF, (bottom left) - chunking texts, embedding image and text using CLIP and a text embedding model. (top right) - A function writing image and text embeddings to ChromaDB. All three functions of the workflow are running in parallel and coordinated by Indexify server.*
 
 > [!NOTE]  
 > Indexify is the Open-Source core compute engine that powers Tensorlake's Serverless Workflow Engine for processing unstructured data.
