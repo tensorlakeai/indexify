@@ -11,6 +11,8 @@
 A **workflow** encodes data ingestion and transformation stages that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
 ![](https://pub-cda17134527d47a3b08825f7328a9295.r2.dev/PDF_Exatraction_Demo.mp4)
+<div align="center"><img src="https://pub-cda17134527d47a3b08825f7328a9295.r2.dev/PDF_Exatraction_Demo.gif" style="width:75%"></div>
+
 
 *Indexify running PDF Extraction on a cluster of 3 machines. (top left) - A GPU accelerated machine running document layout and OCR model on a PDF, (bottom left) - chunking texts, embedding image and text using CLIP and a text embedding model. (top right) - A function writing image and text embeddings to ChromaDB. All three processes are running in parallel and coordinated by Indexify server.
 
