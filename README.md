@@ -13,7 +13,7 @@ A **workflow** encodes data ingestion and transformation stages that can be impl
 <br />
 
 <div align="center">
-    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/docs/images/PDF_Exatraction_Demo-VEED.gif" 
+    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/docs/images/PDF_Extraction_Demo-VEED.gif" 
      alt="PDF Extraction Demo" 
      style="width: 75%; height: auto;" 
      loading="lazy" />
