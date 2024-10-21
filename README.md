@@ -10,6 +10,9 @@
 
 A **workflow** encodes data ingestion and transformation stages that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware.
 
+<video src="https://media.githubusercontent.com/media/tensorlakeai/indexify/main/docs/images/PDF_Exatraction_Demo-VEED.gif"></video>
+
+
 <div align="center"><img src="./docs/images/PDF_Exatraction_Demo-VEED.gif" style="width:75%"></div>
 
 
