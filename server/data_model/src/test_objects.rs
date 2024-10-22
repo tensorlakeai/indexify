@@ -12,7 +12,18 @@ pub mod tests {
         NodeOutput,
         RuntimeInformation,
     };
-    use crate::{DataPayload, DynamicEdgeRouter, ExecutorId, ExecutorMetadata, ImageInformation, InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder, Task, TaskBuilder};
+    use crate::{
+        DataPayload,
+        DynamicEdgeRouter,
+        ExecutorId,
+        ExecutorMetadata,
+        ImageInformation,
+        InvocationPayload,
+        InvocationPayloadBuilder,
+        NodeOutputBuilder,
+        Task,
+        TaskBuilder,
+    };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
     pub const TEST_EXECUTOR_ID: &str = "test_executor_1";
@@ -158,7 +169,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
-            }
+            },
         }
     }
 
@@ -175,8 +186,12 @@ pub mod tests {
                 image_name: "test-image".to_string(),
                 tag: "tag-1".to_string(),
                 base_image: "base-image".to_string(),
-                run_strs: vec!("run 1".to_string(), "run 2". to_string(), "run 3".to_string())
-            }
+                run_strs: vec![
+                    "run 1".to_string(),
+                    "run 2".to_string(),
+                    "run 3".to_string(),
+                ],
+            },
         };
         let fn_b = test_compute_fn("fn_b");
         let fn_c = test_compute_fn("fn_c");

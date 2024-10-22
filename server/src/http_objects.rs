@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -85,11 +85,11 @@ pub struct NamespaceList {
 }
 
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
-pub struct ImageInformation{
+pub struct ImageInformation {
     pub image_name: String,
     pub tag: String,
     pub base_image: String,
-    pub run_strs: Vec<String>
+    pub run_strs: Vec<String>,
 }
 
 impl fmt::Debug for ImageInformation {
@@ -165,7 +165,7 @@ impl TryFrom<data_model::ComputeFn> for ComputeFn {
             reducer: c.reducer,
             payload_encoder: c.payload_encoder,
             image_name: c.image_name,
-            image_information: serde_json::to_string(&c.image_information)?
+            image_information: serde_json::to_string(&c.image_information)?,
         })
     }
 }
@@ -204,7 +204,7 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             target_fns: d.target_functions,
             payload_encoder: d.payload_encoder,
             image_name: d.image_name,
-            image_information: d.image_information.into()
+            image_information: d.image_information.into(),
         }
     }
 }
@@ -267,7 +267,6 @@ impl From<data_model::RuntimeInformation> for RuntimeInformation {
         }
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {

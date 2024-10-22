@@ -79,11 +79,11 @@ impl From<&str> for TaskId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
-pub struct ImageInformation{
+pub struct ImageInformation {
     pub image_name: String,
     pub tag: String,
     pub base_image: String,
-    pub run_strs: Vec<String>
+    pub run_strs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
@@ -227,7 +227,6 @@ pub struct RuntimeInformation {
     pub major_version: u8,
     pub minor_version: u8,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
