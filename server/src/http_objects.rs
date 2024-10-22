@@ -84,153 +84,7 @@ pub struct NamespaceList {
     pub namespaces: Vec<Namespace>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ComputeFn {
-    pub name: String,
-    pub fn_name: String,
-    pub description: String,
-    pub reducer: bool,
-    pub payload_encoder: String,
-    pub image_name: String,
-}
-
-impl From<&ComputeFn> for data_model::ComputeFn {
-    fn from(val: &ComputeFn) -> Self {
-        data_model::ComputeFn {
-            name: val.name.clone(),
-            fn_name: val.fn_name.clone(),
-            description: val.description.clone(),
-            placement_constraints: Default::default(),
-            reducer: val.reducer,
-            payload_encoder: val.payload_encoder.clone(),
-            image_name: val.image_name.clone(),
-        }
-    }
-}
-
-impl From<ComputeFn> for data_model::ComputeFn {
-    fn from(val: ComputeFn) -> Self {
-        data_model::ComputeFn {
-            name: val.name.clone(),
-            fn_name: val.fn_name.clone(),
-            description: val.description.clone(),
-            placement_constraints: Default::default(),
-            reducer: val.reducer,
-            payload_encoder: val.payload_encoder.clone(),
-            image_name: val.image_name.clone(),
-        }
-    }
-}
-
-impl From<data_model::ComputeFn> for ComputeFn {
-    fn from(c: data_model::ComputeFn) -> Self {
-        Self {
-            name: c.name,
-            fn_name: c.fn_name,
-            description: c.description,
-            reducer: c.reducer,
-            payload_encoder: c.payload_encoder,
-            image_name: c.image_name,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct DynamicRouter {
-    pub name: String,
-    pub source_fn: String,
-    pub description: String,
-    pub target_fns: Vec<String>,
-    pub payload_encoder: String,
-    pub image_name: String,
-}
-
-impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
-    fn from(val: DynamicRouter) -> Self {
-        data_model::DynamicEdgeRouter {
-            name: val.name.clone(),
-            source_fn: val.source_fn.clone(),
-            description: val.description.clone(),
-            target_functions: val.target_fns.clone(),
-            payload_encoder: val.payload_encoder.clone(),
-            image_name: val.image_name.clone(),
-        }
-    }
-}
-
-impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
-    fn from(d: data_model::DynamicEdgeRouter) -> Self {
-        Self {
-            name: d.name,
-            source_fn: d.source_fn,
-            description: d.description,
-            target_fns: d.target_functions,
-            payload_encoder: d.payload_encoder,
-            image_name: d.image_name,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub enum Node {
-    #[serde(rename = "dynamic_router")]
-    DynamicRouter(DynamicRouter),
-    #[serde(rename = "compute_fn")]
-    ComputeFn(ComputeFn),
-}
-
-impl Node {
-    pub fn name(&self) -> String {
-        match self {
-            Node::DynamicRouter(d) => d.name.clone(),
-            Node::ComputeFn(c) => c.name.clone(),
-        }
-    }
-}
-
-impl From<Node> for data_model::Node {
-    fn from(val: Node) -> Self {
-        match val {
-            Node::DynamicRouter(d) => data_model::Node::Router(d.into()),
-            Node::ComputeFn(c) => data_model::Node::Compute(c.into()),
-        }
-    }
-}
-
-impl From<data_model::Node> for Node {
-    fn from(node: data_model::Node) -> Self {
-        match node {
-            data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
-            data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RuntimeInformation {
-    pub major_version: u8,
-    pub minor_version: u8,
-}
-
-impl From<RuntimeInformation> for data_model::RuntimeInformation {
-    fn from(value: RuntimeInformation) -> Self {
-        data_model::RuntimeInformation {
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-        }
-    }
-}
-
-impl From<data_model::RuntimeInformation> for RuntimeInformation {
-    fn from(value: data_model::RuntimeInformation) -> Self {
-        Self {
-            major_version: value.major_version,
-            minor_version: value.minor_version,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct ImageInformation{
     pub image_name: String,
     pub tag: String,
@@ -271,6 +125,150 @@ impl From<data_model::ImageInformation> for ImageInformation {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct ComputeFn {
+    pub name: String,
+    pub fn_name: String,
+    pub description: String,
+    pub reducer: bool,
+    pub payload_encoder: String,
+    pub image_name: String,
+    pub image_information: String,
+}
+
+impl TryFrom<ComputeFn> for data_model::ComputeFn {
+    type Error = serde_json::Error;
+
+    fn try_from(val: ComputeFn) -> Result<Self, Self::Error> {
+        println!("{}", val.image_information.as_str());
+        Ok(data_model::ComputeFn {
+            name: val.name.clone(),
+            fn_name: val.fn_name.clone(),
+            description: val.description.clone(),
+            placement_constraints: Default::default(),
+            reducer: val.reducer,
+            payload_encoder: val.payload_encoder.clone(),
+            image_name: val.image_name.clone(),
+            image_information: serde_json::from_str(val.image_information.as_str())?,
+        })
+    }
+}
+
+impl TryFrom<data_model::ComputeFn> for ComputeFn {
+    type Error = serde_json::Error;
+
+    fn try_from(c: data_model::ComputeFn) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: c.name,
+            fn_name: c.fn_name,
+            description: c.description,
+            reducer: c.reducer,
+            payload_encoder: c.payload_encoder,
+            image_name: c.image_name,
+            image_information: serde_json::to_string(&c.image_information)?
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct DynamicRouter {
+    pub name: String,
+    pub source_fn: String,
+    pub description: String,
+    pub target_fns: Vec<String>,
+    pub payload_encoder: String,
+    pub image_name: String,
+    pub image_information: ImageInformation,
+}
+
+impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
+    fn from(val: DynamicRouter) -> Self {
+        data_model::DynamicEdgeRouter {
+            name: val.name.clone(),
+            source_fn: val.source_fn.clone(),
+            description: val.description.clone(),
+            target_functions: val.target_fns.clone(),
+            payload_encoder: val.payload_encoder.clone(),
+            image_name: val.image_name.clone(),
+            image_information: val.image_information.clone().into(),
+        }
+    }
+}
+
+impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
+    fn from(d: data_model::DynamicEdgeRouter) -> Self {
+        Self {
+            name: d.name,
+            source_fn: d.source_fn,
+            description: d.description,
+            target_fns: d.target_functions,
+            payload_encoder: d.payload_encoder,
+            image_name: d.image_name,
+            image_information: d.image_information.into()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub enum Node {
+    #[serde(rename = "dynamic_router")]
+    DynamicRouter(DynamicRouter),
+    #[serde(rename = "compute_fn")]
+    ComputeFn(ComputeFn),
+}
+
+impl Node {
+    pub fn name(&self) -> String {
+        match self {
+            Node::DynamicRouter(d) => d.name.clone(),
+            Node::ComputeFn(c) => c.name.clone(),
+        }
+    }
+}
+
+impl From<Node> for data_model::Node {
+    fn from(val: Node) -> Self {
+        match val {
+            Node::DynamicRouter(d) => data_model::Node::Router(d.try_into().unwrap()),
+            Node::ComputeFn(c) => data_model::Node::Compute(c.try_into().unwrap()),
+        }
+    }
+}
+
+impl From<data_model::Node> for Node {
+    fn from(node: data_model::Node) -> Self {
+        match node {
+            data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
+            data_model::Node::Compute(c) => Node::ComputeFn(c.try_into().unwrap()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RuntimeInformation {
+    pub major_version: u8,
+    pub minor_version: u8,
+}
+
+impl From<RuntimeInformation> for data_model::RuntimeInformation {
+    fn from(value: RuntimeInformation) -> Self {
+        data_model::RuntimeInformation {
+            major_version: value.major_version,
+            minor_version: value.minor_version,
+        }
+    }
+}
+
+impl From<data_model::RuntimeInformation> for RuntimeInformation {
+    fn from(value: data_model::RuntimeInformation) -> Self {
+        Self {
+            major_version: value.major_version,
+            minor_version: value.minor_version,
+        }
+    }
+}
+
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraph {
     pub name: String,
@@ -282,7 +280,6 @@ pub struct ComputeGraph {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub runtime_information: RuntimeInformation,
-    pub image_information: ImageInformation,
 }
 
 impl ComputeGraph {
@@ -313,7 +310,6 @@ impl ComputeGraph {
             edges: self.edges.clone(),
             created_at: 0,
             runtime_information: self.runtime_information.into(),
-            image_information: self.image_information.into(),
         };
         Ok(compute_graph)
     }
@@ -323,7 +319,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
     fn from(compute_graph: data_model::ComputeGraph) -> Self {
         let start_fn = match compute_graph.start_fn {
             data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
-            data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
+            data_model::Node::Compute(c) => Node::ComputeFn(c.try_into().unwrap()),
         };
         let mut nodes = HashMap::new();
         for (k, v) in compute_graph.nodes.into_iter() {
@@ -338,7 +334,6 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             edges: compute_graph.edges,
             created_at: compute_graph.created_at,
             runtime_information: compute_graph.runtime_information.into(),
-            image_information: compute_graph.image_information.into(),
         }
     }
 }

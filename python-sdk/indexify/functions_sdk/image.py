@@ -1,3 +1,6 @@
+from pydantic import BaseModel
+from typing import List
+
 def python_version_to_image(python_version):
     if python_version.startswith("3.9"):
         return "python:3.9.20-bookworm"
@@ -33,6 +36,14 @@ class Image:
         self._run_strs.append(run_str)
         return self
 
+    def to_image_information(self):
+        return ImageInformation(
+            image_name=self._image_name,
+            tag=self._tag,
+            base_image=self._base_image,
+            run_strs=self._run_strs
+        ).model_dump_json()
+
 
 DEFAULT_IMAGE_3_10 = (
     Image()
@@ -49,3 +60,11 @@ DEFAULT_IMAGE_3_11 = (
     .tag("3.11")
     .run("pip install indexify")
 )
+
+
+# Pydantic object for API
+class ImageInformation(BaseModel):
+    image_name: str
+    tag: str
+    base_image: str
+    run_strs: List[str]

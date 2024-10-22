@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 import httpx
 import yaml
 from httpx_sse import aconnect_sse
+from indexify.executor.runtime_probes import IS_DEFAULT_EXECUTOR_KEY
 from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
@@ -307,6 +308,13 @@ class ExtractorAgent:
                 return words[0].capitalize() + "" + " ".join(words[1:])
 
             runtime_probe: ProbeInfo = self._probe.probe()
+
+            # Inspect the image
+            if runtime_probe.is_default_executor:
+                # install dependencies
+                # rewrite the image name
+                pass
+
             data = ExecutorMetadata(
                 id=self._executor_id,
                 addr="",

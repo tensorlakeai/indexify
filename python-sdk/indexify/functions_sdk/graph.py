@@ -157,6 +157,7 @@ class Graph:
             description=start_node.description,
             reducer=start_node.accumulate is not None,
             image_name=start_node.image._image_name,
+            image_information=start_node.image.to_image_information()
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -170,6 +171,7 @@ class Graph:
                         target_fns=self.routers[node_name],
                         payload_encoder=node.payload_encoder,
                         image_name=node.image._image_name,
+                        image_information=start_node.image.to_image_information()
                     )
                 )
             else:
@@ -180,6 +182,7 @@ class Graph:
                         description=node.description,
                         reducer=node.accumulate is not None,
                         image_name=node.image._image_name,
+                        image_information=node.image.to_image_information()
                     )
                 )
 

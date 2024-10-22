@@ -158,12 +158,6 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
-            },
-            image_information: ImageInformation {
-                image_name: "test-image".to_string(),
-                tag: "tag-1".to_string(),
-                base_image: "base-image".to_string(),
-                run_strs: vec!("run 1".to_string(), "run 2". to_string(), "run 3".to_string())
             }
         }
     }
@@ -177,6 +171,12 @@ pub mod tests {
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
             payload_encoder: "cloudpickle".to_string(),
             image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+            image_information: ImageInformation {
+                image_name: "test-image".to_string(),
+                tag: "tag-1".to_string(),
+                base_image: "base-image".to_string(),
+                run_strs: vec!("run 1".to_string(), "run 2". to_string(), "run 3".to_string())
+            }
         };
         let fn_b = test_compute_fn("fn_b");
         let fn_c = test_compute_fn("fn_c");
@@ -203,12 +203,6 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
-            image_information: ImageInformation {
-                image_name: "test-image".to_string(),
-                tag: "tag-1".to_string(),
-                base_image: "base-image".to_string(),
-                run_strs: vec!("run 1".to_string(), "run 2".to_string(), "run 3".to_string())
-            }
         }
     }
 
@@ -241,12 +235,6 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
-            image_information: ImageInformation {
-                image_name: "test-image".to_string(),
-                tag: "tag-1".to_string(),
-                base_image: "base-image".to_string(),
-                run_strs: vec!("run 1".to_string(), "run 2". to_string(), "run 3".to_string())
-            }
         }
     }
 

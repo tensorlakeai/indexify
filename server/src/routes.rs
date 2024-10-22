@@ -354,6 +354,7 @@ async fn create_compute_graph(
 ) -> Result<(), IndexifyAPIError> {
     let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
     let mut put_result: Option<PutResult> = None;
+    println!("Compute graph code {:?}", compute_graph_code);
     while let Some(field) = compute_graph_code.next_field().await.unwrap() {
         let name = field.name();
         if let Some(name) = name {
