@@ -313,7 +313,6 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
     fn from(compute_graph: data_model::ComputeGraph) -> Self {
         let start_fn = match compute_graph.start_fn {
             data_model::Node::Router(d) => Node::DynamicRouter(d.into()),
-            // data_model::Node::Compute(c) => Node::ComputeFn(c.into())
             data_model::Node::Compute(c) => Node::ComputeFn(c.into()),
         };
         let mut nodes = HashMap::new();

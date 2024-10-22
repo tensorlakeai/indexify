@@ -171,7 +171,7 @@ class Graph:
                         target_fns=self.routers[node_name],
                         payload_encoder=node.payload_encoder,
                         image_name=node.image._image_name,
-                        image_information=start_node.image.to_image_information()
+                        image_information=node.image.to_image_information()
                     )
                 )
             else:
@@ -232,7 +232,7 @@ class Graph:
             cached_output_bytes: Optional[bytes] = self._cache.get(
                 self.name, node_name, input_bytes
             )
-            if cached_output_bytes is not None and enable_cache: 
+            if cached_output_bytes is not None and enable_cache:
                 function_outputs: List[IndexifyData] = []
                 cached_output_list = serializer.deserialize_list(cached_output_bytes)
                 print(
