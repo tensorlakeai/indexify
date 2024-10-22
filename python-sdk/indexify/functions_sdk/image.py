@@ -12,6 +12,14 @@ def python_version_to_image(python_version):
         raise ValueError(f"unsupported Python version: {python_version}")
 
 
+# Pydantic object for API
+class ImageInformation(BaseModel):
+    image_name: str
+    tag: str
+    base_image: str
+    run_strs: List[str]
+
+
 class Image:
     def __init__(self, python="3.10"):
         self._image_name = None
@@ -61,10 +69,3 @@ DEFAULT_IMAGE_3_11 = (
     .run("pip install indexify")
 )
 
-
-# Pydantic object for API
-class ImageInformation(BaseModel):
-    image_name: str
-    tag: str
-    base_image: str
-    run_strs: List[str]
