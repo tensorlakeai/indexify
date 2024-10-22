@@ -50,7 +50,7 @@ class Image:
             tag=self._tag,
             base_image=self._base_image,
             run_strs=self._run_strs
-        ).model_dump_json()
+        )
 
 
 DEFAULT_IMAGE_3_10 = (

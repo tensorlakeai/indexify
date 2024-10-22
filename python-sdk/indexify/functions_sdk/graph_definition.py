@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 
+from indexify.functions_sdk.image import ImageInformation
 from pydantic import BaseModel
 
 from .object_serializer import get_serializer
@@ -11,7 +12,7 @@ class FunctionMetadata(BaseModel):
     description: str
     reducer: bool = False
     image_name: str
-    image_information: str
+    image_information: ImageInformation
     payload_encoder: str = "cloudpickle"
 
 
@@ -21,7 +22,7 @@ class RouterMetadata(BaseModel):
     source_fn: str
     target_fns: List[str]
     image_name: str
-    image_information: str
+    image_information: ImageInformation
     payload_encoder: str = "cloudpickle"
 
 

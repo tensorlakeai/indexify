@@ -23,7 +23,6 @@ impl JsonEncode for JsonEncoder {
     }
 
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
-        println!("{:?}", std::str::from_utf8(bytes));
         serde_json::from_slice(bytes).map_err(|e| {
             anyhow::anyhow!(
                 "error deserializing from json bytes, {}, value: {:?}",
