@@ -307,6 +307,13 @@ class ExtractorAgent:
                 return words[0].capitalize() + "" + " ".join(words[1:])
 
             runtime_probe: ProbeInfo = self._probe.probe()
+
+            # Inspect the image
+            if runtime_probe.is_default_executor:
+                # install dependencies
+                # rewrite the image name
+                pass
+
             data = ExecutorMetadata(
                 id=self._executor_id,
                 addr="",

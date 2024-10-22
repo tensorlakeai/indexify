@@ -78,6 +78,14 @@ impl From<&str> for TaskId {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+pub struct ImageInformation {
+    pub image_name: String,
+    pub tag: String,
+    pub base_image: String,
+    pub run_strs: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
 pub struct DynamicEdgeRouter {
     pub name: String,
@@ -86,6 +94,7 @@ pub struct DynamicEdgeRouter {
     pub target_functions: Vec<String>,
     pub payload_encoder: String,
     pub image_name: String,
+    pub image_information: ImageInformation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -97,6 +106,7 @@ pub struct ComputeFn {
     pub reducer: bool,
     pub payload_encoder: String,
     pub image_name: String,
+    pub image_information: ImageInformation,
 }
 
 impl ComputeFn {
