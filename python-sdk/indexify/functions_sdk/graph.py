@@ -29,6 +29,7 @@ from .graph_definition import (
 )
 from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
+    FunctionCallResult,
     IndexifyFunction,
     IndexifyFunctionWrapper,
     IndexifyRouter,
@@ -157,7 +158,7 @@ class Graph:
             description=start_node.description,
             reducer=start_node.accumulate is not None,
             image_name=start_node.image._image_name,
-            image_information=start_node.image.to_image_information()
+            image_information=start_node.image.to_image_information(),
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -171,7 +172,7 @@ class Graph:
                         target_fns=self.routers[node_name],
                         payload_encoder=node.payload_encoder,
                         image_name=node.image._image_name,
-                        image_information=node.image.to_image_information()
+                        image_information=node.image.to_image_information(),
                     )
                 )
             else:
@@ -182,7 +183,7 @@ class Graph:
                         description=node.description,
                         reducer=node.accumulate is not None,
                         image_name=node.image._image_name,
-                        image_information=node.image.to_image_information()
+                        image_information=node.image.to_image_information(),
                     )
                 )
 
@@ -212,58 +213,37 @@ class Graph:
                 k: IndexifyData(payload=serializer.serialize(v))
             }
         self._results[input.id] = outputs
-        enable_cache = kwargs.get('enable_cache', True)
-        self._run(input, outputs,enable_cache)
+        enable_cache = kwargs.get("enable_cache", True)
+        self._run(input, outputs, enable_cache)
         return input.id
 
     def _run(
         self,
         initial_input: IndexifyData,
         outputs: Dict[str, List[bytes]],
-        enable_cache: bool
+        enable_cache: bool,
     ):
         accumulator_values = self._accumulator_values[initial_input.id]
         queue = deque([(self._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
             node = self.nodes[node_name]
-            serializer = get_serializer(node.payload_encoder)
-            input_bytes = serializer.serialize(input)
-            cached_output_bytes: Optional[bytes] = self._cache.get(
-                self.name, node_name, input_bytes
-            )
-            if cached_output_bytes is not None and enable_cache:
-                function_outputs: List[IndexifyData] = []
-                cached_output_list = serializer.deserialize_list(cached_output_bytes)
-                print(
-                    f"ran {node_name}: num outputs: {len(cached_output_list)} (cache hit)"
-                )
-                if accumulator_values.get(node_name, None) is not None:
-                    accumulator_values[node_name] = cached_output_list[-1].model_copy()
-                    outputs[node_name] = []
-                function_outputs.extend(cached_output_list)
-                outputs[node_name].extend(cached_output_list)
-            else:
-                function_outputs: List[IndexifyData] = IndexifyFunctionWrapper(
-                    node
-                ).invoke_fn_ser(
-                    node_name, input, accumulator_values.get(node_name, None)
-                )
-                print(f"ran {node_name}: num outputs: {len(function_outputs)}")
-                if accumulator_values.get(node_name, None) is not None:
-                    accumulator_values[node_name] = function_outputs[-1].model_copy()
-                    outputs[node_name] = []
-                if function_outputs:
-                    outputs[node_name].extend(function_outputs)
-                    function_outputs_bytes: List[bytes] = [
-                        serializer.serialize_list(function_outputs)
-                    ]
-                    self._cache.set(
-                        self.name,
-                        node_name,
-                        input_bytes,
-                        function_outputs_bytes,
-                    )
+            function_outputs: FunctionCallResult = IndexifyFunctionWrapper(
+                node
+            ).invoke_fn_ser(node_name, input, accumulator_values.get(node_name, None))
+            if function_outputs.traceback_msg is not None:
+                print(function_outputs.traceback_msg)
+                import os
+
+                print("exiting local execution due to error")
+                os._exit(1)
+            fn_outputs = function_outputs.ser_outputs
+            print(f"ran {node_name}: num outputs: {len(fn_outputs)}")
+            if accumulator_values.get(node_name, None) is not None:
+                accumulator_values[node_name] = fn_outputs[-1].model_copy()
+                outputs[node_name] = []
+            if fn_outputs:
+                outputs[node_name].extend(fn_outputs)
             if accumulator_values.get(node_name, None) is not None and queue:
                 print(
                     f"accumulator not none for {node_name}, continuing, len queue: {len(queue)}"
@@ -275,7 +255,7 @@ class Graph:
             for i, edge in enumerate(out_edges):
                 if edge in self.routers:
                     out_edges.remove(edge)
-                    for output in function_outputs:
+                    for output in fn_outputs:
                         dynamic_edges = self._route(edge, output) or []
                         for dynamic_edge in dynamic_edges.edges:
                             if dynamic_edge in self.nodes:
@@ -284,7 +264,7 @@ class Graph:
                                 )
                                 out_edges.append(dynamic_edge)
             for out_edge in out_edges:
-                for output in function_outputs:
+                for output in fn_outputs:
                     queue.append((out_edge, output))
 
     def _route(self, node_name: str, input: IndexifyData) -> Optional[RouterOutput]:

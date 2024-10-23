@@ -1,6 +1,5 @@
-import asyncio
+import sys
 import traceback
-from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
 import cloudpickle
@@ -12,7 +11,11 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from indexify.functions_sdk.indexify_functions import IndexifyFunctionWrapper
+from indexify.functions_sdk.indexify_functions import (
+    FunctionCallResult,
+    IndexifyFunctionWrapper,
+    RouterCallResult,
+)
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
@@ -75,7 +78,9 @@ class FunctionWorker:
         init_value: Optional[IndexifyData] = None,
     ) -> FunctionWorkerOutput:
         try:
-            result = _run_function(namespace, graph_name, fn_name, input, code_path, version, init_value)
+            result = _run_function(
+                namespace, graph_name, fn_name, input, code_path, version, init_value
+            )
             # TODO - bring back running in a separate process
         except Exception as e:
             return FunctionWorkerOutput(
@@ -110,7 +115,6 @@ def _run_function(
     init_value: Optional[IndexifyData] = None,
 ) -> FunctionOutput:
     import io
-    import traceback
     from contextlib import redirect_stderr, redirect_stdout
 
     stdout_capture = io.StringIO()
@@ -134,14 +138,23 @@ def _run_function(
                 str(type(fn.indexify_function))
                 == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRo'>"
             ):
-                router_output = fn.invoke_router(fn_name, input)
+                router_call_result: RouterCallResult = fn.invoke_router(fn_name, input)
+                router_output = RouterOutput(edges=router_call_result.edges)
+                if router_call_result.traceback_msg is not None:
+                    print(router_call_result.traceback_msg, file=sys.stderr)
+                    has_failed = True
+                    exception_msg = router_call_result.traceback_msg
             else:
-                fn_output = fn.invoke_fn_ser(fn_name, input, init_value)
-
+                fn_call_result: FunctionCallResult = fn.invoke_fn_ser(
+                    fn_name, input, init_value
+                )
                 is_reducer = fn.indexify_function.accumulate is not None
+                fn_output = fn_call_result.ser_outputs
+                if fn_call_result.traceback_msg is not None:
+                    print(fn_call_result.traceback_msg, file=sys.stderr)
+                    has_failed = True
+                    exception_msg = fn_call_result.traceback_msg
         except Exception as e:
-            import sys
-
             print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
             exception_msg = str(e)
