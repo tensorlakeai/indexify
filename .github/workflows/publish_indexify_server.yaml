@@ -277,4 +277,4 @@ jobs:
     steps:
       - name: Revalidate Cache
         run: |
-          curl -X POST 'https://tensorlake.ai/api/revalidate?secret=$REVALIDATION_SECRET'
+          curl -X POST 'https://www.tensorlake.ai/api/revalidate?secret=d9f3116092236bbbd8d4fda96ffeebd3c64266c6d249e3c59e71c5d8bd695cc4'
