@@ -27,7 +27,7 @@ Let's create a simple workflow to summarize a website on-demand! It demonstrates
     def summarize_text(text: str) -> str:
         from openai import OpenAI
         completion = OpenAI().chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini-2024-07-18",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant. Generate a summary of this website"},
                 {"role": "user", "content": text},
@@ -43,7 +43,9 @@ Let's create a simple workflow to summarize a website on-demand! It demonstrates
     The graph can be run as-is, this is useful for testing.
 
     ```python
-    g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    invocation_id = g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    results = g.output(invocation_id, "summarize_text")
+    print(results)
     ```
   </Step>
   <Step title="Deploying a Graph as an Remote API">
