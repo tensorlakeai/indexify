@@ -14,7 +14,6 @@ import {
   Typography,
   Box,
   Alert,
-  Button,
   TextField,
   InputAdornment,
 } from '@mui/material';
@@ -90,54 +89,6 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
       handleSearch(computeFn, term);
     });
   }, [searchTerms, handleSearch]);
-
-  const viewLogs = async (fnName: string, logType: 'stdout' | 'stderr') => {
-    try {
-      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${fnName}/logs/${logType}`;
-      const response = await axios.get(url, {
-        responseType: 'text',
-        headers: {
-          'accept': 'text/plain'
-        }
-      });
-
-      const logContent = response.data;
-
-      if (!logContent || logContent.trim() === '') {
-        toast.info(`No ${logType} logs found for ${fnName}.`);
-        return;
-      }
-
-      const newWindow = window.open('', '_blank');
-      if (newWindow) {
-        newWindow.document.write(`
-          <html>
-            <head>
-              <title>${fnName} - ${logType} Log</title>
-              <style>
-                body { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }
-              </style>
-            </head>
-            <body>${logContent}</body>
-          </html>
-        `);
-        newWindow.document.close();
-      } else {
-        toast.error('Unable to open new window. Please check your browser settings.');
-      }
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response) {
-        if (error.response.status === 404) {
-          toast.info(`No ${logType} logs found for ${fnName}.`);
-        } else {
-          toast.error(`Failed to fetch ${logType} logs for ${fnName}. Please try again later.`);
-        }
-      } else {
-        toast.error(`An unexpected error occurred while fetching ${logType} logs for ${fnName}.`);
-      }
-      console.error(`Error fetching ${logType} logs:`, error);
-    }
-  };
 
   const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     const target = event.target as HTMLElement;
