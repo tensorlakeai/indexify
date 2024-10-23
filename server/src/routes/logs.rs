@@ -8,7 +8,6 @@ use axum::{
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
-
 #[utoipa::path(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}",
