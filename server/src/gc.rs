@@ -73,9 +73,7 @@ mod tests {
     use futures::stream;
     use state_store::{
         requests::{
-            CreateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            RequestPayload,
+            CreateComputeGraphRequest, DeleteComputeGraphRequest, RequestPayload,
             StateMachineUpdateRequest,
         },
         serializer::{JsonEncode, JsonEncoder},

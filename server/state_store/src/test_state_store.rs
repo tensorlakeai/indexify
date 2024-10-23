@@ -4,29 +4,17 @@ pub mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{
-            self,
-            mock_invocation_payload,
-            mock_invocation_payload_graph_b,
-            mock_node_fn_output_fn_a,
-            mock_node_router_output_x,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
+            self, mock_invocation_payload, mock_invocation_payload_graph_b,
+            mock_node_fn_output_fn_a, mock_node_router_output_x, TEST_EXECUTOR_ID, TEST_NAMESPACE,
         },
-        ExecutorId,
-        NodeOutput,
-        Task,
-        TaskId,
-        TaskOutcome,
+        ExecutorId, NodeOutput, Task, TaskId, TaskOutcome,
     };
     use tempfile::TempDir;
 
     use crate::{
         requests::{
-            CreateComputeGraphRequest,
-            FinalizeTaskRequest,
-            InvokeComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
+            CreateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest,
+            RequestPayload, StateMachineUpdateRequest,
         },
         IndexifyState,
     };

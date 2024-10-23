@@ -125,29 +125,15 @@ mod tests {
 
     use data_model::{
         test_objects::tests::{
-            mock_graph_a,
-            mock_invocation_payload,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
+            mock_graph_a, mock_invocation_payload, TEST_EXECUTOR_ID, TEST_NAMESPACE,
         },
-        DataPayload,
-        ExecutorId,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutput,
-        NodeOutputBuilder,
-        OutputPayload,
-        TaskId,
-        TaskOutcome,
+        DataPayload, ExecutorId, InvocationPayload, InvocationPayloadBuilder, NodeOutput,
+        NodeOutputBuilder, OutputPayload, TaskId, TaskOutcome,
     };
     use rand::Rng;
     use state_store::requests::{
-        CreateComputeGraphRequest,
-        FinalizeTaskRequest,
-        InvokeComputeGraphRequest,
-        RequestPayload,
-        RerunComputeGraphRequest,
-        StateMachineUpdateRequest,
+        CreateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest, RequestPayload,
+        RerunComputeGraphRequest, StateMachineUpdateRequest,
     };
     use tracing_subscriber::{layer::SubscriberExt, Layer};
     use uuid::Uuid;

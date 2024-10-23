@@ -13,9 +13,7 @@ use futures::{stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
     requests::{
-        InvokeComputeGraphRequest,
-        RequestPayload,
-        RerunComputeGraphRequest,
+        InvokeComputeGraphRequest, RequestPayload, RerunComputeGraphRequest,
         StateMachineUpdateRequest,
     },
 };

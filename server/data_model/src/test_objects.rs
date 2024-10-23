@@ -4,25 +4,12 @@ pub mod tests {
     use rand::{distributions::Alphanumeric, Rng};
 
     use super::super::{
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        Node,
-        Node::Compute,
-        NodeOutput,
+        ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute, NodeOutput,
         RuntimeInformation,
     };
     use crate::{
-        DataPayload,
-        DynamicEdgeRouter,
-        ExecutorId,
-        ExecutorMetadata,
-        ImageInformation,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
-        Task,
-        TaskBuilder,
+        DataPayload, DynamicEdgeRouter, ExecutorId, ExecutorMetadata, ImageInformation,
+        InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder, Task, TaskBuilder,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";

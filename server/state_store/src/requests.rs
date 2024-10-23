@@ -1,15 +1,6 @@
 use data_model::{
-    ComputeGraph,
-    ExecutorId,
-    ExecutorMetadata,
-    GraphVersion,
-    InvocationPayload,
-    NodeOutput,
-    ReduceTask,
-    StateChangeId,
-    Task,
-    TaskDiagnostics,
-    TaskId,
+    ComputeGraph, ExecutorId, ExecutorMetadata, GraphVersion, InvocationPayload, NodeOutput,
+    ReduceTask, StateChangeId, Task, TaskDiagnostics, TaskId,
 };
 
 pub struct StateMachineUpdateRequest {

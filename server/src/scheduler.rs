@@ -4,10 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{ChangeType, StateChangeId};
 use state_store::{
     requests::{
-        CreateTasksRequest,
-        ReductionTasks,
-        RequestPayload,
-        SchedulerUpdateRequest,
+        CreateTasksRequest, ReductionTasks, RequestPayload, SchedulerUpdateRequest,
         StateMachineUpdateRequest,
     },
     IndexifyState,
@@ -86,9 +83,11 @@ impl Scheduler {
         let mut new_allocations = vec![];
         for state_change in &state_changes {
             let task_placement_result = match state_change.change_type {
-                ChangeType::TaskCreated |
-                ChangeType::ExecutorAdded |
-                ChangeType::ExecutorRemoved => Some(self.task_allocator.schedule_unplaced_tasks()?),
+                ChangeType::TaskCreated
+                | ChangeType::ExecutorAdded
+                | ChangeType::ExecutorRemoved => {
+                    Some(self.task_allocator.schedule_unplaced_tasks()?)
+                }
                 _ => None,
             };
             if let Some(task_placement_result) = task_placement_result {
@@ -141,13 +140,9 @@ mod tests {
 
     use data_model::{
         test_objects::tests::{
-            mock_executor,
-            mock_executor_id,
-            mock_invocation_payload_graph_b,
-            TEST_NAMESPACE,
+            mock_executor, mock_executor_id, mock_invocation_payload_graph_b, TEST_NAMESPACE,
         },
-        ExecutorId,
-        TaskOutcome,
+        ExecutorId, TaskOutcome,
     };
     use state_store::test_state_store::tests::TestStateStore;
 

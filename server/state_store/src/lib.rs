@@ -12,15 +12,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType,
-    ExecutorId,
-    InvokeComputeGraphEvent,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    Task,
-    TaskFinishedEvent,
-    TaskId,
+    ChangeType, ExecutorId, InvokeComputeGraphEvent, StateChange, StateChangeBuilder,
+    StateChangeId, Task, TaskFinishedEvent, TaskId,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
@@ -595,17 +588,12 @@ mod tests {
 
     use data_model::{
         test_objects::tests::{create_mock_task, mock_graph_a, TEST_NAMESPACE},
-        ComputeGraph,
-        GraphInvocationCtxBuilder,
-        Namespace,
+        ComputeGraph, GraphInvocationCtxBuilder, Namespace,
     };
     use futures::StreamExt;
     use requests::{
-        CreateComputeGraphRequest,
-        DeleteComputeGraphRequest,
-        ReductionTasks,
-        SchedulerUpdateRequest,
-        TaskPlacement,
+        CreateComputeGraphRequest, DeleteComputeGraphRequest, ReductionTasks,
+        SchedulerUpdateRequest, TaskPlacement,
     };
     use tempfile::TempDir;
     use tokio;
