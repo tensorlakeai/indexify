@@ -47,11 +47,11 @@ pub async fn download_task_logs(
         })?;
 
     if payload.is_none() {
-    return Response::builder()
-        .header("Content-Type", "application/octet-stream")
-        .header("Content-Length", 0)
-        .body(Body::empty())
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
+        return Response::builder()
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", 0)
+            .body(Body::empty())
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     let payload = payload.unwrap();
 
