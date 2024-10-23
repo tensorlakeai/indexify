@@ -14,8 +14,11 @@ import {
   Chip,
   TextField,
   InputAdornment,
+  Button,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 interface Task {
   id: string;
@@ -50,11 +53,60 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
         setTasks(response.data.tasks);
       } catch (error) {
         console.error('Error fetching tasks:', error);
+        toast.error('Failed to fetch tasks. Please try again later.');
       }
     };
 
     fetchTasks();
   }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
+
+  const viewLogs = async (task: Task, logType: 'stdout' | 'stderr') => {
+    try {
+      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${task.compute_fn}/tasks/${task.id}/logs/${logType}`;
+      const response = await axios.get(url, {
+        responseType: 'text',
+        headers: {
+          'accept': 'text/plain'
+        }
+      });
+
+      const logContent = response.data;
+
+      if (!logContent || logContent.trim() === '') {
+        toast.info(`No ${logType} logs found for task ${task.id}.`);
+        return;
+      }
+
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(`
+          <html>
+            <head>
+              <title>Task ${task.id} - ${logType} Log</title>
+              <style>
+                body { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }
+              </style>
+            </head>
+            <body>${logContent}</body>
+          </html>
+        `);
+        newWindow.document.close();
+      } else {
+        toast.error('Unable to open new window. Please check your browser settings.');
+      }
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        if (error.response.status === 404) {
+          toast.info(`No ${logType} logs found for task ${task.id}.`);
+        } else {
+          toast.error(`Failed to fetch ${logType} logs for task ${task.id}. Please try again later.`);
+        }
+      } else {
+        toast.error(`An unexpected error occurred while fetching ${logType} logs for task ${task.id}.`);
+      }
+      console.error(`Error fetching ${logType} logs:`, error);
+    }
+  };
 
   const filteredTasks = useMemo(() => {
     return tasks.filter(task => 
@@ -98,6 +150,7 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
         <Alert variant="outlined" severity="info">
           No Tasks Found
         </Alert>
+        <ToastContainer position="top-right" />
       </Box>
     );
   }
@@ -128,6 +181,7 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
               <TableCell>Compute Function</TableCell>
               <TableCell>Input Key</TableCell>
               <TableCell>Outcome</TableCell>
+              <TableCell>Logs</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -142,11 +196,25 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
                     sx={getChipStyles(task.outcome)}
                   />
                 </TableCell>
+                <TableCell>
+                  <Button 
+                    onClick={() => viewLogs(task, 'stdout')}
+                    sx={{ mr: 1 }}
+                  >
+                    View stdout
+                  </Button>
+                  <Button 
+                    onClick={() => viewLogs(task, 'stderr')}
+                  >
+                    View stderr
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </TableContainer>
+      <ToastContainer position="top-right" />
     </Box>
   );
 };
