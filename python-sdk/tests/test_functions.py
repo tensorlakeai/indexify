@@ -20,7 +20,7 @@ class TestFunctionWrapper(unittest.TestCase):
             return "hello"
 
         extractor_wrapper = IndexifyFunctionWrapper(extractor_a)
-        result = extractor_wrapper.run_fn({"url": "foo"})
+        result, err = extractor_wrapper.run_fn({"url": "foo"})
         self.assertEqual(result[0], "hello")
 
     def test_get_output_model(self):
@@ -64,7 +64,7 @@ class TestFunctionWrapper(unittest.TestCase):
             return [func_a]
 
         router_wrapper = IndexifyFunctionWrapper(router_fn)
-        result = router_wrapper.run_router({"url": "foo"})
+        result, err = router_wrapper.run_router({"url": "foo"})
         self.assertEqual(result, ["func_a"])
 
     def test_accumulate(self):
@@ -77,7 +77,7 @@ class TestFunctionWrapper(unittest.TestCase):
             return acc
 
         wrapper = IndexifyFunctionWrapper(accumulate_fn)
-        result = wrapper.run_fn(acc=AccumulatedState(x=12), input={"x": 1})
+        result, err = wrapper.run_fn(acc=AccumulatedState(x=12), input={"x": 1})
         self.assertEqual(result[0].x, 13)
 
     # FIXME: Partial extractor is not working

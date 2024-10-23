@@ -1,5 +1,7 @@
-from pydantic import BaseModel
 from typing import List
+
+from pydantic import BaseModel
+
 
 def python_version_to_image(python_version):
     if python_version.startswith("3.9"):
@@ -49,7 +51,7 @@ class Image:
             image_name=self._image_name,
             tag=self._tag,
             base_image=self._base_image,
-            run_strs=self._run_strs
+            run_strs=self._run_strs,
         )
 
 
@@ -68,4 +70,3 @@ DEFAULT_IMAGE_3_11 = (
     .tag("3.11")
     .run("pip install indexify")
 )
-

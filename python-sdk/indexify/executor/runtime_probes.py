@@ -5,7 +5,6 @@ from typing import Any, Dict, Tuple
 
 from pydantic import BaseModel
 
-
 DEFAULT_EXECUTOR = "tensorlake/indexify-executor-default"
 
 

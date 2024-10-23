@@ -1,4 +1,7 @@
 import inspect
+import re
+import sys
+import traceback
 from abc import ABC, abstractmethod
 from functools import update_wrapper
 from typing import (
@@ -7,6 +10,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Tuple,
     Type,
     Union,
     get_args,
@@ -20,6 +24,37 @@ from typing_extensions import get_type_hints
 from .data_objects import IndexifyData, RouterOutput
 from .image import DEFAULT_IMAGE_3_10, Image
 from .object_serializer import CloudPickleSerializer, get_serializer
+
+
+def format_filtered_traceback(exc_info=None):
+    """
+    Format a traceback excluding indexify_functions.py lines.
+    Can be used in exception handlers to replace traceback.format_exc()
+    """
+    if exc_info is None:
+        exc_info = sys.exc_info()
+
+    # Get the full traceback as a string
+    full_traceback = traceback.format_exception(*exc_info)
+
+    # Filter out lines containing indexify_functions.py
+    filtered_lines = []
+    skip_next = False
+
+    for line in full_traceback:
+        if "indexify_functions.py" in line:
+            skip_next = True
+            continue
+        if skip_next:
+            if line.strip().startswith("File "):
+                skip_next = False
+            else:
+                continue
+        filtered_lines.append(line)
+
+    # Clean up any double blank lines that might have been created
+    cleaned = re.sub(r"\n\s*\n\s*\n", "\n\n", "".join(filtered_lines))
+    return cleaned
 
 
 def is_pydantic_model_from_annotation(type_annotation):
@@ -49,12 +84,6 @@ def is_pydantic_model_from_annotation(type_annotation):
     return False
 
 
-class EmbeddingIndexes(BaseModel):
-    dim: int
-    distance: Optional[str] = "cosine"
-    database_url: Optional[str] = None
-
-
 class PlacementConstraints(BaseModel):
     min_python_version: Optional[str] = "3.9"
     max_python_version: Optional[str] = None
@@ -62,7 +91,7 @@ class PlacementConstraints(BaseModel):
     image_name: Optional[str] = None
 
 
-class IndexifyFunction(ABC):
+class IndexifyFunction:
     name: str = ""
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE_3_10
@@ -70,7 +99,6 @@ class IndexifyFunction(ABC):
     accumulate: Optional[Type[Any]] = None
     payload_encoder: Optional[str] = "cloudpickle"
 
-    @abstractmethod
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
 
@@ -84,14 +112,14 @@ class IndexifyFunction(ABC):
         serializer = get_serializer(cls.payload_encoder)
         return serializer.deserialize(output.payload)
 
-class IndexifyRouter(ABC):
+
+class IndexifyRouter:
     name: str = ""
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     payload_encoder: Optional[str] = "cloudpickle"
 
-    @abstractmethod
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
 
@@ -166,6 +194,16 @@ def indexify_function(
     return construct
 
 
+class FunctionCallResult(BaseModel):
+    ser_outputs: List[IndexifyData]
+    traceback_msg: Optional[str] = None
+
+
+class RouterCallResult(BaseModel):
+    edges: List[str]
+    traceback_msg: Optional[str] = None
+
+
 class IndexifyFunctionWrapper:
     def __init__(self, indexify_function: Union[IndexifyFunction, IndexifyRouter]):
         self.indexify_function: Union[
@@ -189,7 +227,9 @@ class IndexifyFunctionWrapper:
                 )
         return return_type
 
-    def run_router(self, input: Union[Dict, Type[BaseModel]]) -> List[str]:
+    def run_router(
+        self, input: Union[Dict, Type[BaseModel]]
+    ) -> Tuple[List[str], Optional[str]]:
         kwargs = input if isinstance(input, dict) else {"input": input}
         args = []
         kwargs = {}
@@ -197,17 +237,20 @@ class IndexifyFunctionWrapper:
             kwargs = input
         else:
             args.append(input)
-        extracted_data = self.indexify_function.run(*args, **kwargs)
+        try:
+            extracted_data = self.indexify_function.run(*args, **kwargs)
+        except Exception as e:
+            return [], format_filtered_traceback()
         if not isinstance(extracted_data, list) and extracted_data is not None:
-            return [extracted_data.name]
+            return [extracted_data.name], None
         edges = []
         for fn in extracted_data or []:
             edges.append(fn.name)
-        return edges
+        return edges, None
 
     def run_fn(
         self, input: Union[Dict, Type[BaseModel]], acc: Type[Any] = None
-    ) -> List[IndexifyData]:
+    ) -> Tuple[List[Any], Optional[str]]:
         args = []
         kwargs = {}
         if acc is not None:
@@ -217,15 +260,21 @@ class IndexifyFunctionWrapper:
         else:
             args.append(input)
 
-        extracted_data = self.indexify_function.run(*args, **kwargs)
+        try:
+            extracted_data = self.indexify_function.run(*args, **kwargs)
+        except Exception as e:
+            return [], format_filtered_traceback()
         if extracted_data is None:
-            return []
+            return [], None
 
-        return extracted_data if isinstance(extracted_data, list) else [extracted_data]
+        output = (
+            extracted_data if isinstance(extracted_data, list) else [extracted_data]
+        )
+        return output, None
 
     def invoke_fn_ser(
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
-    ) -> List[IndexifyData]:
+    ) -> FunctionCallResult:
         input = self.deserialize_input(name, input)
         serializer = get_serializer(self.indexify_function.payload_encoder)
         if acc is not None:
@@ -236,14 +285,16 @@ class IndexifyFunctionWrapper:
             acc = self.indexify_function.accumulate.model_validate(
                 self.indexify_function.accumulate()
             )
-        outputs: Optional[List[Any]] = self.run_fn(input, acc=acc)
-        return [
+        outputs, err = self.run_fn(input, acc=acc)
+        ser_outputs = [
             IndexifyData(payload=serializer.serialize(output)) for output in outputs
         ]
+        return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
-    def invoke_router(self, name: str, input: IndexifyData) -> Optional[RouterOutput]:
+    def invoke_router(self, name: str, input: IndexifyData) -> RouterCallResult:
         input = self.deserialize_input(name, input)
-        return RouterOutput(edges=self.run_router(input))
+        edges, err = self.run_router(input)
+        return RouterCallResult(edges=edges, traceback_msg=err)
 
     def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
         if self.indexify_function.payload_encoder == "cloudpickle":

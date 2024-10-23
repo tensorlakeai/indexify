@@ -193,6 +193,7 @@ class TestGraphBehaviors(unittest.TestCase):
             if x % 2 == 0:
                 return x
             return None
+
         @indexify_function()
         def add_two(x: int) -> int:
             return x + 2

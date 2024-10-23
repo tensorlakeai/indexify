@@ -1,7 +1,8 @@
 from typing import Dict, List, Optional
 
-from indexify.functions_sdk.image import ImageInformation
 from pydantic import BaseModel
+
+from indexify.functions_sdk.image import ImageInformation
 
 from .object_serializer import get_serializer
 
