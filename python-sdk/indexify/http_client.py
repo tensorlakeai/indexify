@@ -220,11 +220,11 @@ class IndexifyClient:
         self._post("namespaces", json={"name": namespace})
 
     def logs(
-        self, invocation_id: str, cg_name: str, fn_name: str, file: str
+        self, invocation_id: str, cg_name: str, fn_name: str, task_id: str, file: str
     ) -> Optional[str]:
         try:
             response = self._get(
-                f"namespaces/{self.namespace}/compute_graphs/{cg_name}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}"
+                f"namespaces/{self.namespace}/compute_graphs/{cg_name}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}"
             )
             response.raise_for_status()
             return response.content.decode("utf-8")
@@ -272,12 +272,14 @@ class IndexifyClient:
                                 event.payload.invocation_id,
                                 graph,
                                 event.payload.fn_name,
+                                event.payload.task_id,
                                 "stdout",
                             )
                             stderr = self.logs(
                                 event.payload.invocation_id,
                                 graph,
                                 event.payload.fn_name,
+                                event.payload.task_id,
                                 "stderr",
                             )
                             if stdout:

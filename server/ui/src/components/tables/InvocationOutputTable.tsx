@@ -201,7 +201,6 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
                   <TableRow>
                     <TableCell>Compute Function</TableCell>
                     <TableCell>ID</TableCell>
-                    <TableCell>Logs</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -209,19 +208,6 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
                     <TableRow key={idx}>
                       <TableCell>{output.compute_fn}</TableCell>
                       <TableCell>{output.id}</TableCell>
-                      <TableCell>
-                        <Button 
-                          onClick={() => viewLogs(output.compute_fn, 'stdout')}
-                          sx={{ mr: 1 }}
-                        >
-                          View stdout
-                        </Button>
-                        <Button 
-                          onClick={() => viewLogs(output.compute_fn, 'stderr')}
-                        >
-                          View stderr
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

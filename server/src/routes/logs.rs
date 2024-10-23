@@ -44,10 +44,16 @@ pub async fn download_task_logs(
                 "failed to download diagnostic payload: {}",
                 e
             ))
-        })?
-        .ok_or(IndexifyAPIError::internal_error(anyhow!(
-            "diagnostic payload not found for task"
-        )))?;
+        })?;
+
+    if payload.is_none() {
+    return Response::builder()
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Length", 0)
+        .body(Body::empty())
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
+    }
+    let payload = payload.unwrap();
 
     let storage_reader = state.blob_storage.get(&payload.path);
     let payload_stream = storage_reader

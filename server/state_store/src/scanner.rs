@@ -321,9 +321,6 @@ impl StateReader {
         task_id: &str,
         file: &str,
     ) -> Result<Option<DataPayload>> {
-        let key = Task::key_prefix_for_fn(ns, cg, inv_id, cg_fn);
-        println!("{}", key);
-
         let task = self
             .get_task(ns, cg, inv_id, cg_fn, task_id)?
             .ok_or(anyhow::anyhow!("Task not found"))?;
