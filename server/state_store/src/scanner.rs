@@ -318,40 +318,34 @@ impl StateReader {
         cg: &str,
         inv_id: &str,
         cg_fn: &str,
+        task_id: &str,
         file: &str,
     ) -> Result<Option<DataPayload>> {
         let key = Task::key_prefix_for_fn(ns, cg, inv_id, cg_fn);
         println!("{}", key);
-        let diagnostic = self.get_rows_from_cf_with_limits::<Task>(
-            &key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::Tasks,
-            None,
-        )?;
-        for task in diagnostic.0 {
-            if let Some(diagnostics) = task.diagnostics {
-                match file {
-                    "stdout" => {
-                        if let Some(stdout) = diagnostics.stdout {
-                            return Ok(Some(stdout));
-                        }
+
+        let task = self
+            .get_task(ns, cg, inv_id, cg_fn, task_id)?
+            .ok_or(anyhow::anyhow!("Task not found"))?;
+
+        if let Some(diagnostics) = task.diagnostics {
+            match file {
+                "stdout" => {
+                    if let Some(stdout) = diagnostics.stdout {
+                        return Ok(Some(stdout));
                     }
-                    "stderr" => {
-                        if let Some(stderr) = diagnostics.stderr {
-                            return Ok(Some(stderr));
-                        }
+                }
+                "stderr" => {
+                    if let Some(stderr) = diagnostics.stderr {
+                        return Ok(Some(stderr));
                     }
-                    "exception_msg" => {
-                        if let Some(exception_msg) = diagnostics.exception {
-                            return Ok(Some(exception_msg));
-                        }
-                    }
-                    _ => {
-                        return Err(anyhow::anyhow!("Invalid file type"));
-                    }
+                }
+                _ => {
+                    return Err(anyhow::anyhow!("Invalid file type"));
                 }
             }
         }
+
         Ok(None)
     }
 
@@ -511,10 +505,7 @@ impl StateReader {
         compute_fn: &str,
         task_id: &str,
     ) -> Result<Option<Task>> {
-        let key = format!(
-            "{}|{}|{}|{}|{}",
-            namespace, compute_graph, invocation_id, compute_fn, task_id
-        );
+        let key = Task::key_from(namespace, compute_graph, invocation_id, compute_fn, task_id);
         let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
         Ok(task)
     }
