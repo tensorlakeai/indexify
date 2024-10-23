@@ -9,7 +9,10 @@ use tracing::info;
 
 use super::{routes::RouteState, scheduler::Scheduler};
 use crate::{
-    config::ServerConfig, executors::ExecutorManager, gc::Gc, routes::create_routes,
+    config::ServerConfig,
+    executors::ExecutorManager,
+    gc::Gc,
+    routes::create_routes,
     system_tasks::SystemTasksExecutor,
 };
 

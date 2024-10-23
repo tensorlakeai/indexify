@@ -4,7 +4,9 @@ use anyhow::Result;
 use data_model::{ExecutorId, ExecutorMetadata};
 use state_store::{
     requests::{
-        DeregisterExecutorRequest, RegisterExecutorRequest, RequestPayload,
+        DeregisterExecutorRequest,
+        RegisterExecutorRequest,
+        RequestPayload,
         StateMachineUpdateRequest,
     },
     IndexifyState,

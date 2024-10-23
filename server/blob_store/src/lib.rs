@@ -6,7 +6,9 @@ use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
 use object_store::{
     aws::{AmazonS3, AmazonS3Builder},
-    local, ObjectStore, WriteMultipart,
+    local,
+    ObjectStore,
+    WriteMultipart,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

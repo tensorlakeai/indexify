@@ -2,23 +2,49 @@ use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType, ComputeGraph, ExecutorId, GraphInvocationCtx, GraphInvocationCtxBuilder,
-    InvokeComputeGraphEvent, Namespace, NodeOutput, OutputPayload, StateChange, StateChangeBuilder,
-    StateChangeId, SystemTask, Task, TaskAnalytics,
+    ChangeType,
+    ComputeGraph,
+    ExecutorId,
+    GraphInvocationCtx,
+    GraphInvocationCtxBuilder,
+    InvokeComputeGraphEvent,
+    Namespace,
+    NodeOutput,
+    OutputPayload,
+    StateChange,
+    StateChangeBuilder,
+    StateChangeId,
+    SystemTask,
+    Task,
+    TaskAnalytics,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use rocksdb::{
-    AsColumnFamilyRef, BoundColumnFamily, Direction, IteratorMode, OptimisticTransactionDB,
-    ReadOptions, Transaction, TransactionDB,
+    AsColumnFamilyRef,
+    BoundColumnFamily,
+    Direction,
+    IteratorMode,
+    OptimisticTransactionDB,
+    ReadOptions,
+    Transaction,
+    TransactionDB,
 };
 use strum::AsRefStr;
 use tracing::error;
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    CreateTasksRequest, DeleteInvocationRequest, DeregisterExecutorRequest, FinalizeTaskRequest,
-    InvokeComputeGraphRequest, NamespaceRequest, ReductionTasks, RegisterExecutorRequest,
-    RemoveSystemTaskRequest, RerunComputeGraphRequest, RerunInvocationRequest,
+    CreateTasksRequest,
+    DeleteInvocationRequest,
+    DeregisterExecutorRequest,
+    FinalizeTaskRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    RegisterExecutorRequest,
+    RemoveSystemTaskRequest,
+    RerunComputeGraphRequest,
+    RerunInvocationRequest,
     UpdateSystemTaskRequest,
 };
 
@@ -357,10 +383,10 @@ pub(crate) fn create_compute_graph(
 
     if let Some(existing_compute_graph) = existing_compute_graph {
         let existing_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
-        if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash
-            || compute_graph.edges != existing_compute_graph.edges
-            || compute_graph.nodes != existing_compute_graph.nodes
-            || compute_graph.start_fn != existing_compute_graph.start_fn
+        if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash ||
+            compute_graph.edges != existing_compute_graph.edges ||
+            compute_graph.nodes != existing_compute_graph.nodes ||
+            compute_graph.start_fn != existing_compute_graph.start_fn
         {
             compute_graph.version = existing_compute_graph.version.next();
         }
