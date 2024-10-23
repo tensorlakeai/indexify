@@ -19,6 +19,7 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
+from . import executor_image_builder
 
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
@@ -27,6 +28,7 @@ from .function_worker import FunctionWorker
 from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
+from ..functions_sdk.image import ImageInformation
 
 custom_theme = Theme(
     {
@@ -58,7 +60,10 @@ class ExtractorAgent:
         function_worker: FunctionWorker,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
+        name_alias: Optional[str] = None,
     ):
+        self.name_alias = name_alias
+
         self.num_workers = num_workers
         self._use_tls = False
         if config_path:
@@ -145,15 +150,90 @@ class ExtractorAgent:
     async def task_launcher(self):
         async_tasks: List[asyncio.Task] = []
         fn_queue: List[FunctionInput] = []
+
         async_tasks.append(
             asyncio.create_task(
                 self._task_store.get_runnable_tasks(), name="get_runnable_tasks"
             )
         )
+
+        run_first = True
+
         while True:
             fn: FunctionInput
             for fn in fn_queue:
                 task: Task = self._task_store.get_task(fn.task_id)
+
+                # Bootstrap this executor.
+                if run_first:
+                    console.print(
+                        Text(
+                            f"Check: Executor Bootstrap.",
+                            style="red bold",
+                        )
+                    )
+                    # TODO probe should know if it's a container or not.
+                    runtime_probe: ProbeInfo = self._probe.probe()
+                    if runtime_probe.is_default_executor:
+                        console.print(
+                            Text(
+                                f"Attempting Executor Bootstrap.",
+                                style="red bold",
+                            )
+                        )
+                        try:
+                            run_strs = await get_run_strs_from_image(task, self._protocol, self._server_addr)
+                            console.print(
+                                Text(
+                                    "Attempting to install dependencies",
+                                    style="red bold",
+                                )
+                            )
+
+                            for run_str in run_strs:
+                                console.print(
+                                    Text(
+                                        f"Attempting {run_str}",
+                                        style="red bold",
+                                    )
+                                )
+                                executor_image_builder.install_dependencies(run_str)
+
+                            console.print(
+                                Text(
+                                    f"Recording image name {self.name_alias}",
+                                    style="red bold",
+                                )
+                            )
+                            executor_image_builder.record_image_name(self.name_alias)
+                        except KeyError as e:
+                            console.print(
+                                Text(
+                                    f"Cannot find run string dependencies from compute graph",
+                                    style="red bold",
+                                )
+                                + Text(f"Exception: {e}", style="red")
+                                + Text(
+                                    f"Failing the executor launch",
+                                    style="red bold",
+                                )
+                            )
+                        except Exception as e:
+                            console.print(
+                                Text(
+                                    f"Exception bootstrapping the Executor",
+                                    style="red bold",
+                                )
+                                + Text(f"Exception: {e}", style="red")
+                                + Text(
+                                    f"Failing the executor launch",
+                                    style="red bold",
+                                )
+                            )
+                            exit(-1)
+
+                    run_first = False
+
                 async_tasks.append(
                     ExtractTask(
                         function_worker=self._function_worker,
@@ -372,3 +452,36 @@ class ExtractorAgent:
     def shutdown(self, loop):
         self._function_worker.shutdown()
         loop.create_task(self._shutdown(loop))
+
+
+
+async def get_compute_graph_from_server(url):
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url=url, headers={"Content-Type": "application/json"})
+            return resp.json()
+    except Exception as e:
+        console.print(
+            Text("Unable to get graph information from Server", style="red bold")
+        )
+
+
+async def get_run_strs_from_image(task: Task, protocol, server_addr):
+    namespace = task.namespace
+    graph_name: str = task.compute_graph
+    compute_fn_name: str = task.compute_fn
+    cg_url = f"{protocol}://{server_addr}/namespaces/{namespace}/compute_graphs/{graph_name}"
+    compute_graph = await get_compute_graph_from_server(url=cg_url)
+
+    console.print(
+        Text(
+            f"Compute_fn name {compute_fn_name}, ComputeGraph {compute_graph} \n",
+            style="red yellow",
+        )
+    )
+
+    # TODO create and test with router_fn
+    image_information = ImageInformation(**compute_graph["nodes"][compute_fn_name]['compute_fn']["image_information"])
+    run_strs = image_information.run_strs
+
+    return run_strs
