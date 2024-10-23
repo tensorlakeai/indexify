@@ -75,8 +75,8 @@ Let's create a simple workflow to summarize a website on-demand! It demonstrates
 
     You can now call the graph as a remote API.
     ```python
-    invocation_id = graph.run(blocking_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
-    results = graph.output(invocation_id)
+    invocation_id = graph.run(block_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
+    results = graph.output(invocation_id, "summarize_text")
     ```
   </Step>
 </Steps>
