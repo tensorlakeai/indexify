@@ -28,11 +28,9 @@ class TaskReporter:
 
     def report_task_outcome(self, completed_task: CompletedTask):
         fn_outputs = []
-        print(
-            f"[bold]task-reporter[/bold] uploading output of size: {len(completed_task.outputs or [])}"
-        )
         for output in completed_task.outputs or []:
             output_bytes = MsgPackSerializer.serialize(output)
+            print(f"[bold]task-reporter[/bold] uploading output of size: {len(output_bytes)}")
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )

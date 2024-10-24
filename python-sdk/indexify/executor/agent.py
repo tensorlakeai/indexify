@@ -115,9 +115,9 @@ class ExtractorAgent:
                 )
                 console.print(
                     Panel(
-                        f"Reporting outcome of task {task_outcome.task.id}\n"
+                        f"Reporting outcome of task: {task_outcome.task.id}, function: {task_outcome.task.compute_fn}\n"
                         f"Outcome: {style_outcome}\n"
-                        f"Outputs: {len(task_outcome.outputs or [])}  Router Output: {task_outcome.router_output}",
+                        f"Num Fn Outputs: {len(task_outcome.outputs or [])}  Router Output: {task_outcome.router_output}",
                         title="Task Completion",
                         border_style="info",
                     )
