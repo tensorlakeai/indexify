@@ -9,7 +9,7 @@ import {
   useParams
 } from "react-router-dom";
 
-import Root, { loader as RootLoader } from "./routes/root";
+import Root from "./routes/root";
 import { ErrorPage } from "./error-page";
 import {
   ComputeGraphsPageLoader,
@@ -30,15 +30,17 @@ function RedirectToComputeGraphs() {
   const { namespace } = useParams();
   
   if (namespace === "namespaces") {
-    // Don't redirect if the param is "namespaces"
     return null;
   } else if (namespace === "namespace") {
-    // Redirect to extractors if the param is "namespace"
-    return <Navigate to={`/${namespace}/extractors`} replace />;
+    return <Navigate to={`/${namespace}/compute-graphs`} replace />;
   } else {
-    // Original behavior for other cases
-    return <Navigate to={`/${namespace}/extractors`} replace />;
+    return <Navigate to={`/${namespace}/compute-graphs`} replace />;
   }
+}
+
+async function rootLoader() {
+  const namespacesData = await NamespacesPageLoader();
+  return namespacesData;
 }
 
 const router = createBrowserRouter(
@@ -47,7 +49,7 @@ const router = createBrowserRouter(
       path: "/",
       element: <Root />,
       errorElement: <ErrorPage />,
-      loader: RootLoader,
+      loader: rootLoader,
       children: [
         {
           path: "/:namespace",

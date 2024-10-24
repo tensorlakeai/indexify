@@ -30,7 +30,7 @@ export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
   const client = createClient(params.namespace)
   
   try {
-    const computeGraphs = await apiClient.get<ComputeGraphsList>('/namespaces/default/compute_graphs');
+    const computeGraphs = await apiClient.get<ComputeGraphsList>(`/namespaces/${params.namespace}/compute_graphs`);
     return {
       client,
       computeGraphs: computeGraphs.data,
@@ -52,8 +52,8 @@ export async function IndividualComputeGraphPageLoader({ params }: LoaderFunctio
   
   try {
     const [computeGraphsResponse, invocationsResponse] = await Promise.all([
-      apiClient.get<ComputeGraphsList>('/namespaces/default/compute_graphs'),
-      apiClient.get(`/namespaces/default/compute_graphs/${computeGraph}/invocations`)
+      apiClient.get<ComputeGraphsList>(`/namespaces/${params.namespace}/compute_graphs`),
+      apiClient.get(`/namespaces/${params.namespace}/compute_graphs/${computeGraph}/invocations`)
     ]);
 
     const localComputeGraph = computeGraphsResponse.data.compute_graphs.find((graph: ComputeGraph) => graph.name === computeGraph);
