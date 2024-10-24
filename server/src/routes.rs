@@ -317,7 +317,9 @@ async fn namespace_middleware(
             .map_err(IndexifyAPIError::internal_error)?;
 
         if ns.is_none() {
-            return Err(IndexifyAPIError::not_found("Namespace not found"));
+            return Err(IndexifyAPIError::not_found(
+                format!("Namespace not found: {}", namespace).as_str(),
+            ));
         }
     }
 
