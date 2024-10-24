@@ -420,6 +420,11 @@ impl StateReader {
         .collect::<Result<Vec<(String, V)>, _>>()
     }
 
+    pub fn get_namespace(&self, namespace: &str) -> Result<Option<Namespace>> {
+        let ns = self.get_from_cf(&IndexifyObjectsColumns::Namespaces, namespace)?;
+        Ok(ns)
+    }
+
     pub fn get_all_namespaces(&self) -> Result<Vec<Namespace>> {
         let (namespaces, _) = self.get_rows_from_cf_with_limits::<Namespace>(
             &[],
