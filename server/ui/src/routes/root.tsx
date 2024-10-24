@@ -25,22 +25,22 @@ import {
 import { Link } from 'react-router-dom';
 import { Cpu, TableDocument, Setting4 } from 'iconsax-react';
 import VersionDisplay from '../components/VersionDisplay';
+import NamespaceSelector from '../components/NamespaceSelector';
 
 const indexifyServiceURL = getIndexifyServiceURL();
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const namespaces = (
-    await IndexifyClient.namespaces({
-      serviceUrl: indexifyServiceURL,
-    })
-  ).map((repo: any) => repo.name);
-
-  if (!params.namespace || !namespaces.includes(params.namespace)) {
-    if (params.namespace !== 'default') {
-      return redirect(`/${namespaces[0] ?? 'default'}/compute-graphs`);
-    }
+  const response = await IndexifyClient.namespaces({
+    serviceUrl: indexifyServiceURL,
+  });
+  
+  const namespaceNames = response.map((repo) => repo.name);
+  
+  if (!params.namespace || !namespaceNames.includes(params.namespace)) {
+    return redirect(`/default/compute-graphs`);
   }
-  return { namespaces, namespace: params.namespace };
+  
+  return { namespaces: response, namespace: params.namespace || 'default' };
 }
 
 const drawerWidth = 240;
@@ -48,7 +48,6 @@ const drawerWidth = 240;
 export default function Dashboard() {
   const { namespace } = useLoaderData() as {
     namespace: string;
-    namespaces: string[];
   };
   const location = useLocation();
 
@@ -113,6 +112,7 @@ export default function Dashboard() {
               }}
             >
               <List sx={{ flexGrow: 1 }}>
+                <NamespaceSelector />
                 <ListItemButton
                   to={`/${namespace}/compute-graphs`}
                   component={Link}
