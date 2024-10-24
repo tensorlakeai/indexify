@@ -96,9 +96,9 @@ class Graph:
             return self
 
         if issubclass(indexify_fn, IndexifyFunction) and indexify_fn.accumulate:
-            self.accumulator_zero_values[
-                indexify_fn.name
-            ] = indexify_fn.accumulate().model_dump()
+            self.accumulator_zero_values[indexify_fn.name] = (
+                indexify_fn.accumulate().model_dump()
+            )
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
