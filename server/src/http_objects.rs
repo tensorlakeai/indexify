@@ -491,6 +491,7 @@ pub struct InvocationId {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
+    pub executor_version: String,
     pub addr: String,
     pub image_name: String,
     pub labels: HashMap<String, serde_json::Value>,
@@ -500,6 +501,7 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
     fn from(executor: data_model::ExecutorMetadata) -> Self {
         Self {
             id: executor.id.to_string(),
+            executor_version: executor.executor_version,
             addr: executor.addr,
             image_name: executor.image_name,
             labels: executor.labels,

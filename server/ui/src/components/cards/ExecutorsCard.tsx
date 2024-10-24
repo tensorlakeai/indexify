@@ -22,6 +22,7 @@ const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
             <TableRow>
               <TableCell>Image Name</TableCell>
               <TableCell>ID</TableCell>
+              <TableCell>Version</TableCell>
               <TableCell>Address</TableCell>
               <TableCell>Labels</TableCell>
             </TableRow>
@@ -36,6 +37,7 @@ const ExecutorsCard = ({ executors }: { executors: ExecutorMetadata[] }) => {
                   </Box>
                 </TableCell>
                 <TableCell>{executor.id}</TableCell>
+                <TableCell>{executor.executor_version}</TableCell>
                 <TableCell>{executor.addr}</TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
