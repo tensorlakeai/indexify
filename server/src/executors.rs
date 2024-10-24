@@ -92,6 +92,7 @@ mod tests {
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
+            executor_version: "1.0".to_string(),
             image_name: "test".to_string(),
             addr: "".to_string(),
             labels: Default::default(),
@@ -114,6 +115,7 @@ mod tests {
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
+            executor_version: "1.0".to_string(),
             image_name: "test".to_string(),
             addr: "".to_string(),
             labels: Default::default(),

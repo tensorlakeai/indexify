@@ -260,6 +260,7 @@ pub mod tests {
     pub fn mock_executor() -> ExecutorMetadata {
         ExecutorMetadata {
             id: mock_executor_id(),
+            executor_version: "1.0.0".to_string(),
             image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             addr: "".to_string(),
             labels: Default::default(),

@@ -2,6 +2,7 @@ import asyncio
 import json
 import ssl
 from concurrent.futures.process import BrokenProcessPool
+from importlib.metadata import version
 from typing import Dict, List, Optional
 
 import httpx
@@ -314,8 +315,10 @@ class ExtractorAgent:
                 # rewrite the image name
                 pass
 
+            executor_version = version("indexify")
             data = ExecutorMetadata(
                 id=self._executor_id,
+                executor_version=executor_version,
                 addr="",
                 image_name=runtime_probe.image_name,
                 labels=runtime_probe.labels,

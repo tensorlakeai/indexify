@@ -206,9 +206,9 @@ class RouterCallResult(BaseModel):
 
 class IndexifyFunctionWrapper:
     def __init__(self, indexify_function: Union[IndexifyFunction, IndexifyRouter]):
-        self.indexify_function: Union[
-            IndexifyFunction, IndexifyRouter
-        ] = indexify_function()
+        self.indexify_function: Union[IndexifyFunction, IndexifyRouter] = (
+            indexify_function()
+        )
 
     def get_output_model(self) -> Any:
         if not isinstance(self.indexify_function, IndexifyFunction):

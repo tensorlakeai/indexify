@@ -18,6 +18,7 @@ class Task(BaseModel):
 
 class ExecutorMetadata(BaseModel):
     id: str
+    executor_version: str
     addr: str
     image_name: str
     labels: Dict[str, Any]

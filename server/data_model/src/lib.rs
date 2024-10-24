@@ -669,9 +669,16 @@ impl TaskAnalytics {
     }
 }
 
+// FIXME Remove in next release
+fn default_executor_ver() -> String {
+    "0.2.17".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
+    #[serde(default = "default_executor_ver")]
+    pub executor_version: String,
     pub image_name: String,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,

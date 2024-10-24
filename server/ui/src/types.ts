@@ -97,6 +97,7 @@ export interface ComputeGraphCreateType {
 
 export interface ExecutorMetadata {
   id: string;
+  executor_version: string;
   addr: string;
   image_name: string;
   labels: Record<string, any>;

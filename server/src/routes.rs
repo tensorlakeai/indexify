@@ -202,7 +202,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
                 .on_failure(()),
         )
         .layer(cors)
-        .layer(DefaultBodyLimit::max(usize::MAX))
+        .layer(DefaultBodyLimit::disable())
 }
 
 async fn index() -> &'static str {
@@ -632,6 +632,7 @@ async fn executor_tasks(
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
             id: executor_id.clone(),
+            executor_version: payload.executor_version.clone(),
             image_name: payload.image_name.clone(),
             addr: payload.addr.clone(),
             labels: payload.labels.clone(),
