@@ -2,9 +2,11 @@ import asyncio
 import json
 import ssl
 from concurrent.futures.process import BrokenProcessPool
+import traceback
 from typing import Dict, List, Optional
 
 import httpx
+from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
 from indexify.http_client import IndexifyClient
 import yaml
 from httpx_sse import aconnect_sse
@@ -71,6 +73,10 @@ class ExtractorAgent:
             True
             if (runtime_probe.is_default_executor and self.name_alias is not None)
             else False
+        )
+
+        console.print(
+            f"Require Bootstrap? {self._require_image_bootstrap}", style="cyan bold"
         )
 
         self.num_workers = num_workers
@@ -170,10 +176,10 @@ class ExtractorAgent:
             for fn in fn_queue:
                 task: Task = self._task_store.get_task(fn.task_id)
 
-                # Bootstrap this executor. Fail the task if you we cannot bootstrap.
+                # Bootstrap this executor. Fail the task if we can't.
                 if self._require_image_bootstrap:
                     try:
-                        image_info = _get_image_info_for_compute_graph(
+                        image_info = await _get_image_info_for_compute_graph(
                             task, self._protocol, self._server_addr
                         )
                         image_dependency_installer.executor_image_builder(
@@ -182,8 +188,8 @@ class ExtractorAgent:
                         self._require_image_bootstrap = False
                     except Exception as e:
                         console.print(
-                            Text("Failed to bootstrap the executor", style="red bold")
-                            + Text(f"Exception: {e}", style="red")
+                            Text("Failed to bootstrap the executor ", style="red bold")
+                            + Text(f"Exception: {traceback.format_exc()}", style="red")
                         )
 
                         completed_task = CompletedTask(
@@ -348,16 +354,10 @@ class ExtractorAgent:
 
             runtime_probe: ProbeInfo = self._probe.probe()
 
-            # Inspect the image
-            if runtime_probe.is_default_executor:
-                # install dependencies
-                # rewrite the image name
-                pass
-
             data = ExecutorMetadata(
                 id=self._executor_id,
                 addr="",
-                image_name=runtime_probe.image_name,
+                image_name=self.name_alias,
                 labels=runtime_probe.labels,
             ).model_dump()
 
@@ -434,7 +434,7 @@ async def _get_image_info_for_compute_graph(
     http_client = IndexifyClient(
         service_url=f"{protocol}://{server_addr}", namespace=namespace
     )
-    compute_graph = http_client.graph(graph_name)
+    compute_graph: ComputeGraphMetadata = http_client.graph(graph_name)
 
     console.print(
         Text(
@@ -443,9 +443,4 @@ async def _get_image_info_for_compute_graph(
         )
     )
 
-    # TODO create and test with router_fn
-    image_information = ImageInformation(
-        **compute_graph["nodes"][compute_fn_name]["compute_fn"]["image_information"]
-    )
-
-    return image_information
+    return compute_graph.nodes[compute_fn_name].compute_fn.image_information

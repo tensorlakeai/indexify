@@ -1,6 +1,5 @@
 import os
 import subprocess
-from typing import List
 
 from rich.console import Console
 from rich.text import Text
@@ -38,11 +37,13 @@ def executor_image_builder(image_info: ImageInformation, name_alias: str):
     console.print(Text("Attempting Executor Bootstrap.", style="red bold"))
 
     run_strs = image_info.run_strs
-    console.print(Text("Attempting to install dependencies", style="red bold"))
+    console.print(Text("Attempting to install dependencies.", style="red bold"))
 
     for run_str in run_strs:
         console.print(Text(f"Attempting {run_str}", style="red bold"))
         _install_dependencies(run_str)
+
+    console.print(Text("Install dependencies done.", style="red bold"))
 
     console.print(Text(f"Recording image name {name_alias}", style="red bold"))
     _record_image_name(name_alias)
