@@ -6,6 +6,7 @@ from importlib.metadata import version
 from typing import Dict, List, Optional
 
 import httpx
+from indexify.http_client import IndexifyClient
 import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
@@ -19,7 +20,7 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from . import executor_image_builder
+from . import image_dependency_installer
 
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
@@ -64,6 +65,15 @@ class ExtractorAgent:
     ):
         self.name_alias = name_alias
 
+        self._probe = RuntimeProbes()
+
+        runtime_probe: ProbeInfo = self._probe.probe()
+        self._require_image_bootstrap = (
+            True
+            if (runtime_probe.is_default_executor and self.name_alias is not None)
+            else False
+        )
+
         self.num_workers = num_workers
         self._use_tls = False
         if config_path:
@@ -104,7 +114,6 @@ class ExtractorAgent:
         self._task_reporter = TaskReporter(
             base_url=self._base_url, executor_id=self._executor_id
         )
-        self._probe = RuntimeProbes()
 
     async def task_completion_reporter(self):
         console.print(Text("Starting task completion reporter", style="bold cyan"))
@@ -157,82 +166,33 @@ class ExtractorAgent:
             )
         )
 
-        run_first = True
-
         while True:
             fn: FunctionInput
             for fn in fn_queue:
                 task: Task = self._task_store.get_task(fn.task_id)
 
-                # Bootstrap this executor.
-                if run_first:
-                    console.print(
-                        Text(
-                            f"Check: Executor Bootstrap.",
-                            style="red bold",
+                # Bootstrap this executor. Fail the task if you we cannot bootstrap.
+                if self._require_image_bootstrap:
+                    try:
+                        image_info = _get_image_info_for_compute_graph(
+                            task, self._protocol, self._server_addr
                         )
-                    )
-                    # TODO probe should know if it's a container or not.
-                    runtime_probe: ProbeInfo = self._probe.probe()
-                    if runtime_probe.is_default_executor:
+                        image_dependency_installer.executor_image_builder(
+                            image_info, self.name_alias
+                        )
+                        self._require_image_bootstrap = False
+                    except Exception as e:
                         console.print(
-                            Text(
-                                f"Attempting Executor Bootstrap.",
-                                style="red bold",
-                            )
+                            Text("Failed to bootstrap the executor", style="red bold")
+                            + Text(f"Exception: {e}", style="red")
                         )
-                        try:
-                            run_strs = await get_run_strs_from_image(task, self._protocol, self._server_addr)
-                            console.print(
-                                Text(
-                                    "Attempting to install dependencies",
-                                    style="red bold",
-                                )
-                            )
 
-                            for run_str in run_strs:
-                                console.print(
-                                    Text(
-                                        f"Attempting {run_str}",
-                                        style="red bold",
-                                    )
-                                )
-                                executor_image_builder.install_dependencies(run_str)
-
-                            console.print(
-                                Text(
-                                    f"Recording image name {self.name_alias}",
-                                    style="red bold",
-                                )
-                            )
-                            executor_image_builder.record_image_name(self.name_alias)
-                        except KeyError as e:
-                            console.print(
-                                Text(
-                                    f"Cannot find run string dependencies from compute graph",
-                                    style="red bold",
-                                )
-                                + Text(f"Exception: {e}", style="red")
-                                + Text(
-                                    f"Failing the executor launch",
-                                    style="red bold",
-                                )
-                            )
-                        except Exception as e:
-                            console.print(
-                                Text(
-                                    f"Exception bootstrapping the Executor",
-                                    style="red bold",
-                                )
-                                + Text(f"Exception: {e}", style="red")
-                                + Text(
-                                    f"Failing the executor launch",
-                                    style="red bold",
-                                )
-                            )
-                            exit(-1)
-
-                    run_first = False
+                        completed_task = CompletedTask(
+                            task=async_task.task,
+                            outputs=[],
+                            task_outcome="failure",
+                        )
+                        self._task_store.complete(outcome=completed_task)
 
                 async_tasks.append(
                     ExtractTask(
@@ -454,11 +414,12 @@ class ExtractorAgent:
         loop.create_task(self._shutdown(loop))
 
 
-
 async def get_compute_graph_from_server(url):
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url=url, headers={"Content-Type": "application/json"})
+            resp = await client.get(
+                url=url, headers={"Content-Type": "application/json"}
+            )
             return resp.json()
     except Exception as e:
         console.print(
@@ -466,12 +427,17 @@ async def get_compute_graph_from_server(url):
         )
 
 
-async def get_run_strs_from_image(task: Task, protocol, server_addr):
+async def _get_image_info_for_compute_graph(
+    task: Task, protocol, server_addr
+) -> ImageInformation:
     namespace = task.namespace
     graph_name: str = task.compute_graph
     compute_fn_name: str = task.compute_fn
-    cg_url = f"{protocol}://{server_addr}/namespaces/{namespace}/compute_graphs/{graph_name}"
-    compute_graph = await get_compute_graph_from_server(url=cg_url)
+
+    http_client = IndexifyClient(
+        service_url=f"{protocol}://{server_addr}", namespace=namespace
+    )
+    compute_graph = http_client.graph(graph_name)
 
     console.print(
         Text(
@@ -481,7 +447,8 @@ async def get_run_strs_from_image(task: Task, protocol, server_addr):
     )
 
     # TODO create and test with router_fn
-    image_information = ImageInformation(**compute_graph["nodes"][compute_fn_name]['compute_fn']["image_information"])
-    run_strs = image_information.run_strs
+    image_information = ImageInformation(
+        **compute_graph["nodes"][compute_fn_name]["compute_fn"]["image_information"]
+    )
 
-    return run_strs
+    return image_information

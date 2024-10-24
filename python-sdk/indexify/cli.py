@@ -170,7 +170,7 @@ def executor(
     ),
     name_alias: Optional[str] = typer.Option(
         None, help="Name alias for the executor if it's spun up with the base image"
-    )
+    ),
 ):
     id = nanoid.generate()
     console.print(
