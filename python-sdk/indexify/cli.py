@@ -168,6 +168,9 @@ def executor(
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
+    name_alias: Optional[str] = typer.Option(
+        None, help="Name alias for the executor if it's spun up with the base image"
+    )
 ):
     id = nanoid.generate()
     console.print(
@@ -176,7 +179,8 @@ def executor(
             f"Config path: {config_path}\n"
             f"Server address: {server_addr}\n"
             f"Executor ID: {id}\n"
-            f"Executor cache: {executor_cache}",
+            f"Executor cache: {executor_cache}\n"
+            f"Name Alias: {name_alias}",
             title="Agent Configuration",
             border_style="info",
         )
@@ -197,6 +201,7 @@ def executor(
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
+        name_alias=name_alias,
     )
 
     try:
