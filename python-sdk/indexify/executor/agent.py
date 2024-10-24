@@ -357,11 +357,13 @@ class ExtractorAgent:
 
             executor_version = version("indexify")
 
+            image_name = self.name_alias if self.name_alias is not None else runtime_probe.image_name
+
             data = ExecutorMetadata(
                 id=self._executor_id,
                 executor_version=executor_version,
                 addr="",
-                image_name=self.name_alias,
+                image_name=image_name,
                 labels=runtime_probe.labels,
             ).model_dump()
 
