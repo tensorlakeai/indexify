@@ -3,8 +3,18 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, MatchedPath, Multipart, Path, Query, Request, State},
+    extract::{
+        DefaultBodyLimit,
+        MatchedPath,
+        Multipart,
+        Path,
+        Query,
+        RawPathParams,
+        Request,
+        State,
+    },
     http::{Method, Response},
+    middleware::{self, Next},
     response::{sse::Event, IntoResponse},
     routing::{delete, get, post},
     Json,
@@ -150,76 +160,22 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/namespaces",
             post(create_namespace).with_state(route_state.clone()),
         )
-        .route(
-            "/namespaces/:namespace/compute_graphs",
-            post(create_compute_graph).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs",
-            get(list_compute_graphs).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph",
-            delete(delete_compute_graph).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph",
-            get(get_compute_graph).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/tasks",
-            get(list_tasks).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/outputs",
-            get(list_outputs).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/context",
-            get(get_context).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations",
-            get(graph_invocations).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invoke_file",
-            post(invoke_with_file).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invoke_object",
-            post(invoke_with_object).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/rerun",
-            post(rerun_compute_graph).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id",
-            delete(delete_invocation).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/notify",
-            get(notify_on_change).with_state(route_state.clone()),
+        .nest(
+            "/namespaces/:namespace",
+            namespace_routes(route_state.clone()),
         )
         .route(
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
             get(get_code).with_state(route_state.clone()),
         )
         .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/payload",
-            get(download_invocation_payload).with_state(route_state.clone()),
-        )
-        .route(
-            "/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/output/:id",
-            get(download_fn_output_payload).with_state(route_state.clone()),
-        )
-        .route("/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/tasks/:task_id/logs/:file", get(download_task_logs).with_state(route_state.clone()))
-        .route(
             "/internal/ingest_files",
             post(ingest_files_from_executor).with_state(route_state.clone()),
         )
-        .route("/internal/executors", get(list_executors).with_state(route_state.clone()))
+        .route(
+            "/internal/executors",
+            get(list_executors).with_state(route_state.clone()),
+        )
         .route(
             "/internal/executors/:id/tasks",
             post(executor_tasks).with_state(route_state.clone()),
@@ -274,6 +230,98 @@ async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
         content.data,
     )
         .into_response()
+}
+
+/// Namespace router with namespace specific layers.
+pub fn namespace_routes(route_state: RouteState) -> Router {
+    Router::new()
+        .route(
+            "/compute_graphs",
+            post(create_compute_graph).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs",
+            get(list_compute_graphs).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph",
+            delete(delete_compute_graph).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph",
+            get(get_compute_graph).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations/:invocation_id/tasks",
+            get(list_tasks).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations/:invocation_id/outputs",
+            get(list_outputs).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations/:invocation_id/context",
+            get(get_context).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations",
+            get(graph_invocations).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invoke_file",
+            post(invoke_with_file).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invoke_object",
+            post(invoke_with_object).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/rerun",
+            post(rerun_compute_graph).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations/:invocation_id",
+            delete(delete_invocation).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/notify",
+            get(notify_on_change).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations/:invocation_id/payload",
+            get(download_invocation_payload).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/output/:id",
+            get(download_fn_output_payload).with_state(route_state.clone()),
+        )
+        .route("/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/tasks/:task_id/logs/:file", get(download_task_logs).with_state(route_state.clone()))
+        .layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
+}
+
+/// Middleware to check if the namespace exists.
+async fn namespace_middleware(
+    route_state: RouteState,
+    params: RawPathParams,
+    request: Request,
+    next: Next,
+) -> impl IntoResponse {
+    // get the namespace path variable from the path
+    let namespace_param = params.iter().find(|(key, _)| *key == "namespace");
+
+    // if the namespace path variable is found, check if the namespace exists
+    if let Some((_, namespace)) = namespace_param {
+        let reader = route_state.indexify_state.reader();
+        let ns = reader
+            .get_namespace(namespace)
+            .map_err(IndexifyAPIError::internal_error)?;
+
+        if ns.is_none() {
+            return Err(IndexifyAPIError::not_found("Namespace not found"));
+        }
+    }
+
+    Ok(next.run(request).await)
 }
 
 /// Create a new namespace
