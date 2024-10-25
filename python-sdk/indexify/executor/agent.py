@@ -75,7 +75,7 @@ class ExtractorAgent:
             if (runtime_probe.is_default_executor and self.name_alias is not None)
             else False
         )
-        self._executor_failed = False
+        self._executor_bootstrap_failed = False
 
         console.print(
             f"Require Bootstrap? {self._require_image_bootstrap}", style="cyan bold"
@@ -178,7 +178,7 @@ class ExtractorAgent:
             for fn in fn_queue:
                 task: Task = self._task_store.get_task(fn.task_id)
 
-                if self._executor_failed:
+                if self._executor_bootstrap_failed:
                     completed_task = CompletedTask(
                         task=task,
                         outputs=[],
@@ -204,7 +204,7 @@ class ExtractorAgent:
                             + Text(f"Exception: {traceback.format_exc()}", style="red")
                         )
 
-                        self._executor_failed = True
+                        self._executor_bootstrap_failed = True
 
                         completed_task = CompletedTask(
                             task=task,
