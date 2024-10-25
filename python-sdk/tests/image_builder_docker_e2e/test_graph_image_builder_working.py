@@ -1,6 +1,8 @@
+import unittest
+
 from indexify.functions_sdk.image import Image
 from pydantic import BaseModel
-from indexify import indexify_function, Graph
+from indexify import indexify_function, Graph, RemoteGraph
 from typing import List
 
 
@@ -17,7 +19,7 @@ docker run --network host -it indexify-python-sdk-dev indexify-cli executor \
 - Check that the output is val[30].
 """
 
-image = Image().name("indexify/indexify-executor-default")
+image = Image().name("indexify/indexify-executor-default").run("pip install requests")
 
 
 class Total(BaseModel):
@@ -40,26 +42,23 @@ def add(total: Total, new: int) -> Total:
     return total
 
 
-g = Graph(
-    name="sequence_summer",
-    start_node=generate_numbers,
-    description="Simple Sequence Summer",
-)
-g.add_edge(generate_numbers, square)
-g.add_edge(square, add)
+class TestGraphImageBuilderWorking(unittest.TestCase):
+
+    def test_install_working_dependency(self):
+        g = Graph(
+            name="sequence_summer",
+            start_node=generate_numbers,
+            description="Simple Sequence Summer",
+        )
+
+        g.add_edge(generate_numbers, square)
+        g.add_edge(square, add)
+
+        RemoteGraph.deploy(g)
+        graph = RemoteGraph.by_name("sequence_summer")
+        invocation_id = graph.run(block_until_done=True, a=5)
+        assert graph.output(invocation_id, "add")[0].val == 30
+
 
 if __name__ == "__main__":
-    # invocation_id = g.run(a=10)
-    # result = g.get_output(invocation_id, "add")
-    # print(result)
-
-    from indexify import RemoteGraph
-
-    graph = RemoteGraph.deploy(g)
-    invocation_id = graph.run(block_until_done=True, a=10)
-    result = graph.output(invocation_id, "add")
-    print(result)
-
-    graph = RemoteGraph.by_name("sequence_summer")
-    invocation_id = graph.run(block_until_done=True, a=5)
-    assert graph.output(invocation_id, "add")[0].val == 30
+    unittest.main()

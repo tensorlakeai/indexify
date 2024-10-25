@@ -75,6 +75,7 @@ class ExtractorAgent:
             if (runtime_probe.is_default_executor and self.name_alias is not None)
             else False
         )
+        self._executor_failed = False
 
         console.print(
             f"Require Bootstrap? {self._require_image_bootstrap}", style="cyan bold"
@@ -177,6 +178,16 @@ class ExtractorAgent:
             for fn in fn_queue:
                 task: Task = self._task_store.get_task(fn.task_id)
 
+                if self._executor_failed:
+                    completed_task = CompletedTask(
+                        task=task,
+                        outputs=[],
+                        task_outcome="failure",
+                    )
+                    self._task_store.complete(outcome=completed_task)
+
+                    continue
+
                 # Bootstrap this executor. Fail the task if we can't.
                 if self._require_image_bootstrap:
                     try:
@@ -193,22 +204,26 @@ class ExtractorAgent:
                             + Text(f"Exception: {traceback.format_exc()}", style="red")
                         )
 
+                        self._executor_failed = True
+
                         completed_task = CompletedTask(
-                            task=async_task.task,
+                            task=task,
                             outputs=[],
                             task_outcome="failure",
                         )
                         self._task_store.complete(outcome=completed_task)
-                else:
-                    async_tasks.append(
-                        ExtractTask(
-                            function_worker=self._function_worker,
-                            task=task,
-                            input=fn.input,
-                            code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
-                            init_value=fn.init_value,
-                        )
+
+                        continue
+
+                async_tasks.append(
+                    ExtractTask(
+                        function_worker=self._function_worker,
+                        task=task,
+                        input=fn.input,
+                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
+                        init_value=fn.init_value,
                     )
+                )
 
             fn_queue = []
             done, pending = await asyncio.wait(
@@ -357,7 +372,11 @@ class ExtractorAgent:
 
             executor_version = version("indexify")
 
-            image_name = self.name_alias if self.name_alias is not None else runtime_probe.image_name
+            image_name = (
+                self.name_alias
+                if self.name_alias is not None
+                else runtime_probe.image_name
+            )
 
             data = ExecutorMetadata(
                 id=self._executor_id,
@@ -415,19 +434,6 @@ class ExtractorAgent:
     def shutdown(self, loop):
         self._function_worker.shutdown()
         loop.create_task(self._shutdown(loop))
-
-
-async def get_compute_graph_from_server(url):
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                url=url, headers={"Content-Type": "application/json"}
-            )
-            return resp.json()
-    except Exception as e:
-        console.print(
-            Text("Unable to get graph information from Server", style="red bold")
-        )
 
 
 async def _get_image_info_for_compute_graph(
