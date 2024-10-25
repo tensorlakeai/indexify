@@ -22,10 +22,10 @@ console = Console(theme=custom_theme)
 
 def _record_image_name(name: str):
     file_path = os.path.expanduser("~/.indexify/image_name")
+    os.makedirs(file_path, exist_ok=True)
 
-    if os.path.exists(file_path):
-        with open(file_path, "w") as file:
-            file.write(name)
+    with open(file_path, "w") as file:
+        file.write(name)
 
 
 def _install_dependencies(run_str: str):
