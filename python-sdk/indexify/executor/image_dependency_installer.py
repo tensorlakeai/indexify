@@ -30,7 +30,9 @@ def _record_image_name(name: str):
 
 def _install_dependencies(run_str: str):
     # Throw error to the caller if these subprocesses fail.
-    subprocess.run(run_str.split())
+    proc = subprocess.run(run_str.split())
+    if proc.returncode != 0:
+        raise Exception(f"Unable to install dep `{run_str}`")
 
 
 def executor_image_builder(image_info: ImageInformation, name_alias: str):
