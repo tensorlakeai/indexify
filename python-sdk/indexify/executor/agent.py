@@ -3,9 +3,12 @@ import json
 import ssl
 from concurrent.futures.process import BrokenProcessPool
 from importlib.metadata import version
+import traceback
 from typing import Dict, List, Optional
 
 import httpx
+from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
+from indexify.http_client import IndexifyClient
 import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
@@ -19,6 +22,7 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
+from . import image_dependency_installer
 
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
@@ -27,6 +31,7 @@ from .function_worker import FunctionWorker
 from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
+from ..functions_sdk.image import ImageInformation
 
 custom_theme = Theme(
     {
@@ -58,7 +63,24 @@ class ExtractorAgent:
         function_worker: FunctionWorker,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
+        name_alias: Optional[str] = None,
     ):
+        self.name_alias = name_alias
+
+        self._probe = RuntimeProbes()
+
+        runtime_probe: ProbeInfo = self._probe.probe()
+        self._require_image_bootstrap = (
+            True
+            if (runtime_probe.is_default_executor and self.name_alias is not None)
+            else False
+        )
+        self._executor_bootstrap_failed = False
+
+        console.print(
+            f"Require Bootstrap? {self._require_image_bootstrap}", style="cyan bold"
+        )
+
         self.num_workers = num_workers
         self._use_tls = False
         if config_path:
@@ -99,7 +121,6 @@ class ExtractorAgent:
         self._task_reporter = TaskReporter(
             base_url=self._base_url, executor_id=self._executor_id
         )
-        self._probe = RuntimeProbes()
 
     async def task_completion_reporter(self):
         console.print(Text("Starting task completion reporter", style="bold cyan"))
@@ -145,15 +166,55 @@ class ExtractorAgent:
     async def task_launcher(self):
         async_tasks: List[asyncio.Task] = []
         fn_queue: List[FunctionInput] = []
+
         async_tasks.append(
             asyncio.create_task(
                 self._task_store.get_runnable_tasks(), name="get_runnable_tasks"
             )
         )
+
         while True:
             fn: FunctionInput
             for fn in fn_queue:
                 task: Task = self._task_store.get_task(fn.task_id)
+
+                if self._executor_bootstrap_failed:
+                    completed_task = CompletedTask(
+                        task=task,
+                        outputs=[],
+                        task_outcome="failure",
+                    )
+                    self._task_store.complete(outcome=completed_task)
+
+                    continue
+
+                # Bootstrap this executor. Fail the task if we can't.
+                if self._require_image_bootstrap:
+                    try:
+                        image_info = await _get_image_info_for_compute_graph(
+                            task, self._protocol, self._server_addr
+                        )
+                        image_dependency_installer.executor_image_builder(
+                            image_info, self.name_alias
+                        )
+                        self._require_image_bootstrap = False
+                    except Exception as e:
+                        console.print(
+                            Text("Failed to bootstrap the executor ", style="red bold")
+                            + Text(f"Exception: {traceback.format_exc()}", style="red")
+                        )
+
+                        self._executor_bootstrap_failed = True
+
+                        completed_task = CompletedTask(
+                            task=task,
+                            outputs=[],
+                            task_outcome="failure",
+                        )
+                        self._task_store.complete(outcome=completed_task)
+
+                        continue
+
                 async_tasks.append(
                     ExtractTask(
                         function_worker=self._function_worker,
@@ -309,18 +370,19 @@ class ExtractorAgent:
 
             runtime_probe: ProbeInfo = self._probe.probe()
 
-            # Inspect the image
-            if runtime_probe.is_default_executor:
-                # install dependencies
-                # rewrite the image name
-                pass
-
             executor_version = version("indexify")
+
+            image_name = (
+                self.name_alias
+                if self.name_alias is not None
+                else runtime_probe.image_name
+            )
+
             data = ExecutorMetadata(
                 id=self._executor_id,
                 executor_version=executor_version,
                 addr="",
-                image_name=runtime_probe.image_name,
+                image_name=image_name,
                 labels=runtime_probe.labels,
             ).model_dump()
 
@@ -372,3 +434,25 @@ class ExtractorAgent:
     def shutdown(self, loop):
         self._function_worker.shutdown()
         loop.create_task(self._shutdown(loop))
+
+
+async def _get_image_info_for_compute_graph(
+    task: Task, protocol, server_addr
+) -> ImageInformation:
+    namespace = task.namespace
+    graph_name: str = task.compute_graph
+    compute_fn_name: str = task.compute_fn
+
+    http_client = IndexifyClient(
+        service_url=f"{protocol}://{server_addr}", namespace=namespace
+    )
+    compute_graph: ComputeGraphMetadata = http_client.graph(graph_name)
+
+    console.print(
+        Text(
+            f"Compute_fn name {compute_fn_name}, ComputeGraph {compute_graph} \n",
+            style="red yellow",
+        )
+    )
+
+    return compute_graph.nodes[compute_fn_name].compute_fn.image_information
