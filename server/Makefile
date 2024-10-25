@@ -29,7 +29,6 @@ build-container: ## Build container
 	docker image prune -f
 
 build-container-dev: ## Build container for local development
-	docker build -f dockerfiles/Dockerfile.builder --tag ${DOCKER_USERNAME}/builder .
 	docker build -f dockerfiles/Dockerfile.local --tag ${DOCKER_USERNAME}/${APPLICATION_NAME} .
 
 push-container: ## Push container to docker hub

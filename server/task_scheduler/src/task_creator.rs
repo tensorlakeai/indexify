@@ -55,11 +55,17 @@ pub async fn handle_task_finished(
     task: Task,
     compute_graph: ComputeGraph,
 ) -> Result<TaskCreationResult> {
-    let invocation_ctx = indexify_state.reader().invocation_ctx(
-        &task.namespace,
-        &task.compute_graph_name,
-        &task.invocation_id,
-    )?;
+    let invocation_ctx = indexify_state
+        .reader()
+        .invocation_ctx(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.invocation_id,
+        )?
+        .ok_or(anyhow!(
+            "invocation context not found for invocation_id {}",
+            task.invocation_id
+        ))?;
 
     if task.outcome == TaskOutcome::Failure {
         let mut invocation_finished = false;

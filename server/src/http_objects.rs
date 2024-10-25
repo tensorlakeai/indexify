@@ -479,6 +479,7 @@ impl From<data_model::NodeOutput> for FnOutput {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnOutputs {
+    pub status: String,
     pub outputs: Vec<FnOutput>,
     pub cursor: Option<Vec<u8>>,
 }
