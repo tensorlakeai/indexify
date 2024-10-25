@@ -21,8 +21,9 @@ console = Console(theme=custom_theme)
 
 
 def _record_image_name(name: str):
+    dir_path = os.path.expanduser("~/.indexify/")
     file_path = os.path.expanduser("~/.indexify/image_name")
-    os.makedirs(file_path, exist_ok=True)
+    os.makedirs(dir_path, exist_ok=True)
 
     with open(file_path, "w") as file:
         file.write(name)
