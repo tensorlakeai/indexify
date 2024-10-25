@@ -6,7 +6,8 @@ import {
   createBrowserRouter,
   Navigate,
   RouterProvider,
-  useParams
+  useParams,
+  LoaderFunctionArgs
 } from "react-router-dom";
 
 import Root from "./routes/root";
@@ -25,22 +26,30 @@ import {
   IndividualInvocationPage,
   ExecutorsPage,
 } from "./routes/Namespace";
+import { IndexifyClient } from "getindexify";
+import { getIndexifyServiceURL } from "./utils/helpers";
 
 function RedirectToComputeGraphs() {
   const { namespace } = useParams();
+  const currentNamespace = namespace || 'default';
   
   if (namespace === "namespaces") {
     return null;
-  } else if (namespace === "namespace") {
-    return <Navigate to={`/${namespace}/compute-graphs`} replace />;
   } else {
-    return <Navigate to={`/${namespace}/compute-graphs`} replace />;
+    return <Navigate to={`/${currentNamespace}/compute-graphs`} replace />;
   }
 }
 
-async function rootLoader() {
-  const namespacesData = await NamespacesPageLoader();
-  return namespacesData;
+async function rootLoader({ params }: LoaderFunctionArgs) {
+  const response = await IndexifyClient.namespaces({
+    serviceUrl: getIndexifyServiceURL(),
+  });
+  
+  const namespace = params.namespace || 'default';
+  return { 
+    namespaces: response, 
+    namespace 
+  };
 }
 
 const router = createBrowserRouter(

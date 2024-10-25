@@ -11,12 +11,11 @@ export const apiClient = axios.create({
 });
 
 
-function createClient(namespace: string | undefined) {
-  if (!namespace) throw new Error('Namespace is required')
+function createClient(namespace: string) {
   return IndexifyClient.createClient({
     serviceUrl: indexifyServiceURL,
-    namespace,
-  })
+    namespace: namespace || 'default',
+  });
 }
 
 export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
@@ -26,22 +25,22 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
 }
 
 export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
-  if (!params.namespace) return redirect('/')
-  const client = createClient(params.namespace)
+  const namespace = params.namespace || 'default';
+  const client = createClient(namespace);
   
   try {
-    const computeGraphs = await apiClient.get<ComputeGraphsList>(`/namespaces/${params.namespace}/compute_graphs`);
+    const computeGraphs = await apiClient.get<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`);
     return {
       client,
       computeGraphs: computeGraphs.data,
-      namespace: client.namespace,
+      namespace,
     }
   } catch (error) {
     console.error("Error fetching compute graphs:", error)
     return {
       client,
       computeGraphs: { compute_graphs: [] },
-      namespace: client.namespace,
+      namespace,
     }
   }
 }
