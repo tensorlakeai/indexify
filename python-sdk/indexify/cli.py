@@ -1,5 +1,4 @@
 import asyncio
-import io
 import os
 import shutil
 import signal
