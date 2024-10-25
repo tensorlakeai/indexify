@@ -6,10 +6,11 @@ import {
   createBrowserRouter,
   Navigate,
   RouterProvider,
-  useParams
+  useParams,
+  LoaderFunctionArgs
 } from "react-router-dom";
 
-import Root, { loader as RootLoader } from "./routes/root";
+import Root from "./routes/root";
 import { ErrorPage } from "./error-page";
 import {
   ComputeGraphsPageLoader,
@@ -25,20 +26,30 @@ import {
   IndividualInvocationPage,
   ExecutorsPage,
 } from "./routes/Namespace";
+import { IndexifyClient } from "getindexify";
+import { getIndexifyServiceURL } from "./utils/helpers";
 
 function RedirectToComputeGraphs() {
   const { namespace } = useParams();
+  const currentNamespace = namespace || 'default';
   
   if (namespace === "namespaces") {
-    // Don't redirect if the param is "namespaces"
     return null;
-  } else if (namespace === "namespace") {
-    // Redirect to extractors if the param is "namespace"
-    return <Navigate to={`/${namespace}/extractors`} replace />;
   } else {
-    // Original behavior for other cases
-    return <Navigate to={`/${namespace}/extractors`} replace />;
+    return <Navigate to={`/${currentNamespace}/compute-graphs`} replace />;
   }
+}
+
+async function rootLoader({ params }: LoaderFunctionArgs) {
+  const response = await IndexifyClient.namespaces({
+    serviceUrl: getIndexifyServiceURL(),
+  });
+  
+  const namespace = params.namespace || 'default';
+  return { 
+    namespaces: response, 
+    namespace 
+  };
 }
 
 const router = createBrowserRouter(
@@ -47,7 +58,7 @@ const router = createBrowserRouter(
       path: "/",
       element: <Root />,
       errorElement: <ErrorPage />,
-      loader: RootLoader,
+      loader: rootLoader,
       children: [
         {
           path: "/:namespace",
