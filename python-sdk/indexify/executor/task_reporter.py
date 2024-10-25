@@ -30,7 +30,7 @@ class TaskReporter:
         fn_outputs = []
         for output in completed_task.outputs or []:
             print(
-                f"[bold]task-reporter[/bold] uploading output of size: {len(output_bytes)} bytes"
+                f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
             output_bytes = MsgPackSerializer.serialize(output) 
             fn_outputs.append(
