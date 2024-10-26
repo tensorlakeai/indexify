@@ -330,7 +330,7 @@ mod tests {
             state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?;
-        assert_eq!(graph_ctx.outstanding_tasks, 0);
+        assert_eq!(graph_ctx.unwrap().outstanding_tasks, 0);
 
         let request = RequestPayload::RerunComputeGraph(RerunComputeGraphRequest {
             namespace: graph.namespace.clone(),

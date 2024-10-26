@@ -251,7 +251,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(invocation_ctx.completed);
+        assert!(invocation_ctx.unwrap().completed);
 
         Ok(())
     }

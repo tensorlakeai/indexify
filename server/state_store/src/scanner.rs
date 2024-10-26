@@ -587,16 +587,18 @@ impl StateReader {
         namespace: &str,
         compute_graph: &str,
         invocation_id: &str,
-    ) -> Result<GraphInvocationCtx> {
+    ) -> Result<Option<GraphInvocationCtx>> {
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
         let value = self.db.get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
             &key,
         )?;
-        match value {
-            Some(value) => Ok(JsonEncoder::decode(&value)?),
-            None => Err(anyhow!("invocation ctx not found")),
+        if let None = value {
+            return Ok(None);
         }
+        let invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&value.unwrap())
+            .map_err(|e| anyhow!("unable to decode invocation ctx: {}", e))?;
+        Ok(Some(invocation_ctx))
     }
 
     pub fn task_analytics(

@@ -39,8 +39,6 @@ WORKDIR /indexify
 
 COPY --from=rust-builder /app/target/release/indexify-server ./
 
-COPY sample_config.yaml ./config/indexify.yaml
-
 ENV PATH="/indexify:${PATH}"
 
 ENTRYPOINT [ "/indexify/indexify-server" ]

@@ -732,6 +732,19 @@ async fn list_outputs(
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<FnOutputs>, IndexifyAPIError> {
+    let invocation_ctx = state
+        .indexify_state
+        .reader()
+        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or(IndexifyAPIError::not_found("Compute Graph not found"))?;
+    if !invocation_ctx.completed {
+        return Ok(Json(FnOutputs {
+            status: "pending".to_string(),
+            outputs: vec![],
+            cursor: None,
+        }));
+    }
     let (outputs, cursor) = state
         .indexify_state
         .reader()
@@ -744,7 +757,11 @@ async fn list_outputs(
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let outputs = outputs.into_iter().map(Into::into).collect();
-    Ok(Json(FnOutputs { outputs, cursor }))
+    Ok(Json(FnOutputs {
+        status: "finalized".to_string(),
+        outputs,
+        cursor,
+    }))
 }
 
 /// Delete a specific invocation  

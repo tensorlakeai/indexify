@@ -10,7 +10,7 @@ from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
 
-from indexify.error import ApiException
+from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
@@ -36,7 +36,9 @@ class GraphOutputMetadata(BaseModel):
 
 
 class GraphOutputs(BaseModel):
+    status: str
     outputs: List[GraphOutputMetadata]
+    cursor: Optional[str] = None
 
 
 class IndexifyClient:
@@ -329,6 +331,8 @@ class IndexifyClient:
         )
         response.raise_for_status()
         graph_outputs = GraphOutputs(**response.json())
+        if graph_outputs.status == "pending":
+            raise GraphStillProcessing()
         outputs = []
         for output in graph_outputs.outputs:
             if output.compute_fn == fn_name:
