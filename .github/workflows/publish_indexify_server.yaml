@@ -234,6 +234,13 @@ jobs:
           r2-bucket: ${{ secrets.R2_BUCKET }}
           source-dir: server/.repo/
           destination-dir: ./repo
+      - name: bump homebrew-core formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: indexify-server
+          download-url: https://github.com/tensorlakeai/indexify.git
+        env:
+          COMMITTER_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
 
   build-and-push-docker-images:
     name: Build and Push Docker Images
