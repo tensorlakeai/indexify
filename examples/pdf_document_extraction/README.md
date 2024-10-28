@@ -10,6 +10,20 @@ The pipeline is hosted on a server endpoint in one of the containers. The endpoi
 docker compose up
 ```
 
+## Deploy the Graph
+The [Graph](workflow.py) has all the code which performs PDF Parsing, embedding and writing the VectorDB. We will deploy the Graph on the server to create an Endpoint for our workflow. 
+```bash
+pip install indexify
+```
+
+```bash
+python workflow.py
+```
+
+This stage deploys the workflow on the server. At this point, you can also open the [UI](http://localhost:8900) to see the deployed Graph.
+
+After this, you can call the endpoint with PDFs to make Indexify start parsing documents.
+
 ## Calling the Endpoint 
 
 ```python
