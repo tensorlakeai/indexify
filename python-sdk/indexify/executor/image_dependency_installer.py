@@ -20,20 +20,16 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 
-def _record_image_name(name: str):
+def _record_image_name(name: str, version: int):
     dir_path = os.path.expanduser("~/.indexify/")
+
     file_path = os.path.expanduser("~/.indexify/image_name")
     os.makedirs(dir_path, exist_ok=True)
-
     with open(file_path, "w") as file:
         file.write(name)
 
-
-def _record_image_version(version: int):
-    dir_path = os.path.expanduser("~/.indexify/")
     file_path = os.path.expanduser("~/.indexify/image_version")
     os.makedirs(dir_path, exist_ok=True)
-
     with open(file_path, "w") as file:
         file.write(str(version))
 
@@ -65,5 +61,5 @@ def executor_image_builder(
             style="red bold",
         )
     )
-    _record_image_name(name_alias)
-    _record_image_version(image_version)
+
+    _record_image_name(name_alias, image_version)

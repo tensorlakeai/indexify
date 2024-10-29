@@ -86,7 +86,7 @@ pub struct ImageInformation {
     pub base_image: String,
     pub run_strs: Vec<String>,
     pub image_hash: String,
-    pub version: ImageVersion, // this maps with image_hash
+    pub version: ImageVersion, // this gets updated when the hash changes
 }
 
 impl ImageInformation {
@@ -95,7 +95,7 @@ impl ImageInformation {
         image_hasher.update(image_name.clone());
         image_hasher.update(tag.clone());
         image_hasher.update(base_image.clone());
-        image_hasher.update(run_strs.clone().join("-----"));
+        image_hasher.update(run_strs.clone().join(""));
 
         ImageInformation {
             image_name,

@@ -35,7 +35,7 @@ docker run --network host -it indexify-python-sdk-dev indexify-cli executor \
 # Use default image
 # image1 = Image().name("tensorlake/indexify-executor-default")
 # image1 = Image().name("tensorlake/indexify-executor-default").run("ls /")
-# image1 = Image().name("tensorlake/indexify-executor-default").run("ls /one")
+image1 = Image().name("tensorlake/indexify-executor-default").run("ls /one")
 
 
 class Total(BaseModel):
