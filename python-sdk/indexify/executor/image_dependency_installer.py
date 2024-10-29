@@ -20,13 +20,18 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 
-def _record_image_name(name: str):
+def _record_image_name(name: str, version: int):
     dir_path = os.path.expanduser("~/.indexify/")
+
     file_path = os.path.expanduser("~/.indexify/image_name")
     os.makedirs(dir_path, exist_ok=True)
-
     with open(file_path, "w") as file:
         file.write(name)
+
+    file_path = os.path.expanduser("~/.indexify/image_version")
+    os.makedirs(dir_path, exist_ok=True)
+    with open(file_path, "w") as file:
+        file.write(str(version))
 
 
 def _install_dependencies(run_str: str):
@@ -36,7 +41,9 @@ def _install_dependencies(run_str: str):
         raise Exception(f"Unable to install dep `{run_str}`")
 
 
-def executor_image_builder(image_info: ImageInformation, name_alias: str):
+def executor_image_builder(
+    image_info: ImageInformation, name_alias: str, image_version: int
+):
     console.print(Text("Attempting Executor Bootstrap.", style="red bold"))
 
     run_strs = image_info.run_strs
@@ -48,5 +55,11 @@ def executor_image_builder(image_info: ImageInformation, name_alias: str):
 
     console.print(Text("Install dependencies done.", style="red bold"))
 
-    console.print(Text(f"Recording image name {name_alias}", style="red bold"))
-    _record_image_name(name_alias)
+    console.print(
+        Text(
+            f"Recording image name {name_alias} and version {image_version}",
+            style="red bold",
+        )
+    )
+
+    _record_image_name(name_alias, image_version)

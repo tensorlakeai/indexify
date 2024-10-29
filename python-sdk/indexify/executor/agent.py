@@ -64,8 +64,10 @@ class ExtractorAgent:
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
         name_alias: Optional[str] = None,
+        image_version: Optional[int] = None,
     ):
         self.name_alias = name_alias
+        self.image_version = image_version
 
         self._probe = RuntimeProbes()
 
@@ -195,7 +197,7 @@ class ExtractorAgent:
                             task, self._protocol, self._server_addr
                         )
                         image_dependency_installer.executor_image_builder(
-                            image_info, self.name_alias
+                            image_info, self.name_alias, self.image_version
                         )
                         self._require_image_bootstrap = False
                     except Exception as e:
@@ -378,11 +380,18 @@ class ExtractorAgent:
                 else runtime_probe.image_name
             )
 
+            image_version: int = (
+                self.image_version
+                if self.image_version is not None
+                else runtime_probe.image_version
+            )
+
             data = ExecutorMetadata(
                 id=self._executor_id,
                 executor_version=executor_version,
                 addr="",
                 image_name=image_name,
+                image_version=image_version,
                 labels=runtime_probe.labels,
             ).model_dump()
 

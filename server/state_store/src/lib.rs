@@ -241,7 +241,10 @@ impl IndexifyState {
                 vec![]
             }
             requests::RequestPayload::CreateComputeGraph(req) => {
-                state_machine::create_compute_graph(self.db.clone(), req.compute_graph.clone())?;
+                state_machine::create_or_update_compute_graph(
+                    self.db.clone(),
+                    req.compute_graph.clone(),
+                )?;
                 vec![]
             }
             requests::RequestPayload::DeleteComputeGraph(request) => {
@@ -662,26 +665,11 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         // Create a compute graph
-        let compute_graph = mock_graph_a();
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    compute_graph: compute_graph.clone(),
-                }),
-                state_changes_processed: vec![],
-            })
-            .await?;
+        let compute_graph = mock_graph_a(None);
+        _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
         // Read the compute graph
-        let reader = indexify_state.reader();
-        let result = reader
-            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
-            .unwrap();
-        let compute_graphs = result
-            .iter()
-            .map(|(_, cg)| cg.clone())
-            .collect::<Vec<ComputeGraph>>();
+        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
 
         // Check if the compute graph was created
         assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
@@ -698,16 +686,60 @@ mod tests {
             .await?;
 
         // Read the compute graph again
-        let result = reader
-            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
-            .unwrap();
-        let compute_graphs = result
-            .iter()
-            .map(|(_, cg)| cg.clone())
-            .collect::<Vec<ComputeGraph>>();
+        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
 
         // Check if the compute graph was deleted
         assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_version_bump_on_graph_update() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
+
+        // Create a compute graph and write it
+        let compute_graph = mock_graph_a(Some("Old Hash".to_string()));
+        _write_to_test_state_store(&indexify_state, compute_graph).await?;
+
+        // Read the compute graph
+        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+
+        // Check if the compute graph was created
+        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        let nodes = &compute_graphs[0].nodes;
+        assert_eq!(*nodes["fn_a"].image_version(), 1);
+        assert_eq!(*nodes["fn_b"].image_version(), 1);
+        assert_eq!(*nodes["fn_c"].image_version(), 1);
+
+        assert_eq!(nodes["fn_a"].image_hash(), "Old Hash");
+        assert_eq!(nodes["fn_b"].image_hash(), "Old Hash");
+        assert_eq!(nodes["fn_c"].image_hash(), "Old Hash");
+
+        for i in 2..4 {
+            // Update the graph
+            let new_hash = format!("this is a new hash {}", i);
+            let compute_graph = mock_graph_a(Some(new_hash.clone()));
+
+            _write_to_test_state_store(&indexify_state, compute_graph).await?;
+
+            // Read it again
+            let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+
+            // Verify the name is the same. Verify the version is different.
+            assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+            // println!("compute graph {:?}", compute_graphs[0]);
+            let nodes = &compute_graphs[0].nodes;
+            assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
+            assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
+            assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
+
+            assert_eq!(*nodes["fn_a"].image_version(), i);
+            assert_eq!(*nodes["fn_b"].image_version(), i);
+            assert_eq!(*nodes["fn_c"].image_version(), i);
+        }
 
         Ok(())
     }
@@ -718,7 +750,7 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         let executor_id = ExecutorId::new("executor1".to_string());
-        let cg = mock_graph_a();
+        let cg = mock_graph_a(None);
         let task = create_mock_task(
             &cg,
             "fn",
@@ -824,5 +856,33 @@ mod tests {
         assert_eq!(res[0].id, task_1.id);
 
         Ok(())
+    }
+
+    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<ComputeGraph> {
+        let reader = indexify_state.reader();
+        let result = reader
+            .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)
+            .unwrap();
+        let compute_graphs = result
+            .iter()
+            .map(|(_, cg)| cg.clone())
+            .collect::<Vec<ComputeGraph>>();
+
+        compute_graphs
+    }
+
+    async fn _write_to_test_state_store(
+        indexify_state: &Arc<IndexifyState>,
+        compute_graph: ComputeGraph,
+    ) -> Result<()> {
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    compute_graph: compute_graph.clone(),
+                }),
+                state_changes_processed: vec![],
+            })
+            .await
     }
 }

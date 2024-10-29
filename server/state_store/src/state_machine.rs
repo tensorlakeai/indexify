@@ -372,7 +372,7 @@ pub(crate) fn delete_input_data_object(
     Ok(())
 }
 
-pub(crate) fn create_compute_graph(
+pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     mut compute_graph: ComputeGraph,
 ) -> Result<()> {
@@ -389,6 +389,26 @@ pub(crate) fn create_compute_graph(
             compute_graph.start_fn != existing_compute_graph.start_fn
         {
             compute_graph.version = existing_compute_graph.version.next();
+        }
+
+        for (node_name, node) in compute_graph.nodes.iter_mut() {
+            let existing_node = existing_compute_graph.nodes.get(node_name).unwrap();
+
+            let existing_hash = existing_compute_graph
+                .nodes
+                .get(node_name)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "unable to find function {} in graph {}",
+                        node_name,
+                        compute_graph.name
+                    )
+                })?
+                .image_hash();
+
+            if node.image_hash() != existing_hash {
+                node.set_image_version(existing_node.clone().image_version_next());
+            }
         }
     };
 

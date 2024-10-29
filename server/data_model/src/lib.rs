@@ -13,6 +13,7 @@ use derive_builder::Builder;
 use filter::LabelsFilter;
 use indexify_utils::default_creation_time;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // Invoke graph for all existing payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +85,27 @@ pub struct ImageInformation {
     pub tag: String,
     pub base_image: String,
     pub run_strs: Vec<String>,
+    pub image_hash: String,
+    pub version: ImageVersion, // this gets updated when the hash changes
+}
+
+impl ImageInformation {
+    pub fn new(image_name: String, tag: String, base_image: String, run_strs: Vec<String>) -> Self {
+        let mut image_hasher = Sha256::new();
+        image_hasher.update(image_name.clone());
+        image_hasher.update(tag.clone());
+        image_hasher.update(base_image.clone());
+        image_hasher.update(run_strs.clone().join(""));
+
+        ImageInformation {
+            image_name,
+            tag,
+            base_image,
+            run_strs,
+            image_hash: format!("{:x}", image_hasher.finalize()),
+            version: ImageVersion::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
@@ -110,7 +132,28 @@ pub struct ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
+    pub fn matches_executor(
+        &self,
+        executor: &ExecutorMetadata,
+        diagnostic_msgs: &mut Vec<String>,
+    ) -> bool {
+        if executor.image_name != self.image_name {
+            diagnostic_msgs.push(format!(
+                "executor {}, image name: {} does not match function image name {}",
+                executor.id, executor.image_name, self.image_name
+            ));
+
+            return false;
+        }
+
+        if self.image_information.version.0 != executor.image_version {
+            diagnostic_msgs.push(format!(
+                "executor {}, image version: {} does not match function image version {}",
+                executor.id, executor.image_version, self.image_information.version.0
+            ));
+            return false;
+        }
+
         self.placement_constraints.matches(&executor.labels)
     }
 }
@@ -136,10 +179,42 @@ impl Node {
         }
     }
 
-    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
+    pub fn image_hash(&self) -> &str {
+        match self {
+            Node::Router(router) => &router.image_information.image_hash,
+            Node::Compute(compute) => &compute.image_information.image_hash,
+        }
+    }
+
+    pub fn image_version(&self) -> &u32 {
+        match self {
+            Node::Router(router) => &router.image_information.version.0,
+            Node::Compute(compute) => &compute.image_information.version.0,
+        }
+    }
+
+    pub fn set_image_version(&mut self, image_version: ImageVersion) {
+        match self {
+            Node::Router(ref mut router) => router.image_information.version = image_version,
+            Node::Compute(ref mut compute) => compute.image_information.version = image_version,
+        }
+    }
+
+    pub fn image_version_next(self) -> ImageVersion {
+        match self {
+            Node::Router(router) => router.image_information.version.next(),
+            Node::Compute(compute) => compute.image_information.version.next(),
+        }
+    }
+
+    pub fn matches_executor(
+        &self,
+        executor: &ExecutorMetadata,
+        diagnostic_msgs: &mut Vec<String>,
+    ) -> bool {
         match self {
             Node::Router(_) => true,
-            Node::Compute(compute) => compute.matches_executor(executor),
+            Node::Compute(compute) => compute.matches_executor(executor, diagnostic_msgs),
         }
     }
 
@@ -217,6 +292,21 @@ impl GraphVersion {
 }
 
 impl Default for GraphVersion {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
+pub struct ImageVersion(pub u32);
+
+impl ImageVersion {
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+impl Default for ImageVersion {
     fn default() -> Self {
         Self(1)
     }
@@ -680,6 +770,7 @@ pub struct ExecutorMetadata {
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
     pub image_name: String,
+    pub image_version: u32,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
 }
@@ -784,4 +875,50 @@ pub struct StateChange {
 pub struct Namespace {
     pub name: String,
     pub created_at: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{ComputeFn, ExecutorMetadata, ImageInformation, ImageVersion};
+
+    #[test]
+    fn test_compute_fn_neq_executor_for_image_name() {
+        let compute_fn = ComputeFn {
+            image_name: "some_image_name".to_string(),
+            image_information: ImageInformation {
+                version: ImageVersion(1),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let executor_metadata = ExecutorMetadata {
+            image_name: "some_image_name1".to_string(),
+            image_version: 0,
+            ..Default::default()
+        };
+
+        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+    }
+
+    #[test]
+    fn test_compute_fn_neq_executor_for_image_version() {
+        // Test cascades with `test_compute_fn_neq_executor_for_image_name`
+        let compute_fn = ComputeFn {
+            image_name: "some_image_name".to_string(),
+            image_information: ImageInformation {
+                version: ImageVersion(1),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let executor_metadata = ExecutorMetadata {
+            image_name: "some_image_name".to_string(),
+            image_version: 2,
+            ..Default::default()
+        };
+
+        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+    }
 }

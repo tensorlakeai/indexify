@@ -13,3 +13,4 @@ serde_json = { workspace = true }
 indexify_utils = { workspace = true }
 rand = {workspace=true}
 uuid = {workspace=true}
+sha2 = {workspace=true}

@@ -117,7 +117,7 @@ impl TaskScheduler {
                 continue;
             }
 
-            if node.matches_executor(executor) {
+            if node.matches_executor(executor, &mut diagnostic_msgs) {
                 filtered_executors.push(executor.id.clone());
             }
         }

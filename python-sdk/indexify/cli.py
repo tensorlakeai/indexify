@@ -170,6 +170,9 @@ def executor(
     name_alias: Optional[str] = typer.Option(
         None, help="Name alias for the executor if it's spun up with the base image"
     ),
+    image_version: Optional[int] = typer.Option(
+        "1", help="Requested Image Version for this executor"
+    ),
 ):
     id = nanoid.generate()
     console.print(
@@ -179,7 +182,8 @@ def executor(
             f"Server address: {server_addr}\n"
             f"Executor ID: {id}\n"
             f"Executor cache: {executor_cache}\n"
-            f"Name Alias: {name_alias}",
+            f"Name Alias: {name_alias}"
+            f"Image Version: {image_version}\n",
             title="Agent Configuration",
             border_style="info",
         )
@@ -201,6 +205,7 @@ def executor(
         config_path=config_path,
         code_path=executor_cache,
         name_alias=name_alias,
+        image_version=image_version,
     )
 
     try:
