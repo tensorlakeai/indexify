@@ -130,7 +130,7 @@ pub async fn ingest_files_from_executor(
                 output_objects.push(res.clone());
             } else if diagnostics_keys.iter().any(|e| name_ref.contains(e)) {
                 let task_result = task_result.as_ref().ok_or_else(|| {
-                    IndexifyAPIError::bad_request("task_result is required before node_outputs")
+                    IndexifyAPIError::bad_request("task_result is required before diagnostics")
                 })?;
                 let file_name = format!(
                     "{}.{}.{}.{}.{}",
