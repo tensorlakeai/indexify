@@ -28,6 +28,7 @@ def _record_image_name(name: str):
     with open(file_path, "w") as file:
         file.write(name)
 
+
 def _record_image_version(version: int):
     dir_path = os.path.expanduser("~/.indexify/")
     file_path = os.path.expanduser("~/.indexify/image_version")
@@ -44,7 +45,9 @@ def _install_dependencies(run_str: str):
         raise Exception(f"Unable to install dep `{run_str}`")
 
 
-def executor_image_builder(image_info: ImageInformation, name_alias: str, image_version: int):
+def executor_image_builder(
+    image_info: ImageInformation, name_alias: str, image_version: int
+):
     console.print(Text("Attempting Executor Bootstrap.", style="red bold"))
 
     run_strs = image_info.run_strs
@@ -56,6 +59,11 @@ def executor_image_builder(image_info: ImageInformation, name_alias: str, image_
 
     console.print(Text("Install dependencies done.", style="red bold"))
 
-    console.print(Text(f"Recording image name {name_alias} and version {image_version}", style="red bold"))
+    console.print(
+        Text(
+            f"Recording image name {name_alias} and version {image_version}",
+            style="red bold",
+        )
+    )
     _record_image_name(name_alias)
     _record_image_version(image_version)

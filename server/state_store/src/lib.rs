@@ -595,6 +595,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
     use data_model::{
         test_objects::tests::{create_mock_task, mock_graph_a, TEST_NAMESPACE},
         ComputeGraph,
@@ -866,7 +867,10 @@ mod tests {
         compute_graphs
     }
 
-    async fn _write_to_test_state_store(indexify_state: &Arc<IndexifyState>, compute_graph: ComputeGraph) -> Result<()> {
+    async fn _write_to_test_state_store(
+        indexify_state: &Arc<IndexifyState>,
+        compute_graph: ComputeGraph,
+    ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
@@ -874,6 +878,7 @@ mod tests {
                     compute_graph: compute_graph.clone(),
                 }),
                 state_changes_processed: vec![],
-            }).await
+            })
+            .await
     }
 }

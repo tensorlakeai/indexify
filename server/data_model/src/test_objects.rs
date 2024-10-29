@@ -61,17 +61,14 @@ pub mod tests {
                     image_information,
                     ..Default::default()
                 }
-            },
-            _ => {
-                ComputeFn {
-                    name: name.to_string(),
-                    description: format!("description {}", name),
-                    fn_name: name.to_string(),
-                    image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
-                    ..Default::default()
-                }
             }
-
+            _ => ComputeFn {
+                name: name.to_string(),
+                description: format!("description {}", name),
+                fn_name: name.to_string(),
+                image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+                ..Default::default()
+            },
         }
     }
 

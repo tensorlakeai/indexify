@@ -84,7 +84,12 @@ class RemoteGraph:
         return cls(name=g.name, server_url=server_url, client=client)
 
     @classmethod
-    def by_name(cls, name: str, server_url: Optional[str] = DEFAULT_SERVICE_URL, client: Optional[IndexifyClient] = None):
+    def by_name(
+        cls,
+        name: str,
+        server_url: Optional[str] = DEFAULT_SERVICE_URL,
+        client: Optional[IndexifyClient] = None,
+    ):
         """
         Create a handle to call a RemoteGraph by name.
 
@@ -104,7 +109,7 @@ class RemoteGraph:
     ) -> List[Any]:
         """
         Returns the extracted objects by a graph for an ingested object.
- 
+
         - If the extractor name is provided, only the objects extracted by that extractor are returned.
         - If the extractor name is not provided, all the extracted objects are returned for the input object.
 

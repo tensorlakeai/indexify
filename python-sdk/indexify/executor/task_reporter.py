@@ -32,7 +32,7 @@ class TaskReporter:
             print(
                 f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
-            output_bytes = MsgPackSerializer.serialize(output) 
+            output_bytes = MsgPackSerializer.serialize(output)
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )
