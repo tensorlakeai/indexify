@@ -445,6 +445,53 @@ pub fn delete_compute_graph(
 
     for iter in make_prefix_iterator(
         txn,
+        &IndexifyObjectsColumns::Tasks.cf_db(&db),
+        prefix.as_bytes(),
+        &None,
+    ) {
+        let (key, value) = iter?;
+        let value = JsonEncoder::decode::<Task>(&value)?;
+
+        // mark all diagnostics urls for gc.
+        match &value.diagnostics {
+            Some(diagnostics) => {
+                [
+                    diagnostics.exception.clone(),
+                    diagnostics.stdout.clone(),
+                    diagnostics.stderr.clone(),
+                ]
+                .iter()
+                .flatten()
+                .try_for_each(|data| -> Result<()> {
+                    txn.put_cf(
+                        &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                        data.path.as_bytes(),
+                        [],
+                    )?;
+
+                    Ok(())
+                })?;
+            }
+            None => {}
+        }
+        txn.delete_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &key)?;
+
+        delete_cf_prefix(
+            txn,
+            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
+            format!("{}|{}", namespace, value.id).as_bytes(),
+        )?;
+    }
+
+    delete_cf_prefix(
+        txn,
+        &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    // mark all fn output urls for gc.
+    for iter in make_prefix_iterator(
+        txn,
         &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
         prefix.as_bytes(),
         &None,
@@ -454,11 +501,10 @@ pub fn delete_compute_graph(
         match &value.payload {
             OutputPayload::Router(_) => {}
             OutputPayload::Fn(payload) => {
-                println!("delete_compute_graph: {:?}", value.clone());
                 txn.put_cf(
                     &IndexifyObjectsColumns::GcUrls.cf_db(&db),
                     payload.path.as_bytes(),
-                    &[],
+                    [],
                 )?;
             }
         }
