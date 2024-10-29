@@ -173,6 +173,17 @@ impl Node {
         }
     }
 
+    pub fn image_version_assign(&mut self, image_version: u32) {
+        match self {
+            Node::Router(ref mut router) => {
+                router.image_information.version = ImageVersion(image_version);
+            }
+            Node::Compute(compute) => {
+                compute.image_information.version = ImageVersion(image_version);
+            }
+        }
+    }
+
     pub fn image_version_assign_next(&mut self) {
         match self {
             Node::Router(router) => {

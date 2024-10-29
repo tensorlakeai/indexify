@@ -392,13 +392,15 @@ pub(crate) fn create_or_update_compute_graph(
         }
 
         for (node_name, node) in compute_graph.nodes.iter_mut() {
+            let existing_node = existing_compute_graph.nodes.get(node_name).unwrap();
+
             let existing_hash = existing_compute_graph
                 .nodes
                 .get(node_name)
                 .unwrap()
                 .image_hash();
             if node.image_hash() != existing_hash {
-                node.image_version_assign_next();
+                node.image_version_assign(existing_node.image_version() + 1);
             }
         }
     };

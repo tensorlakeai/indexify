@@ -60,6 +60,7 @@ class RuntimeProbes:
 
         return ProbeInfo(
             image_name=self._image_name,
+            image_version=self._image_version,
             python_major_version=self._python_version_major,
             labels=labels,
             is_default_executor=self._is_default_executor(),

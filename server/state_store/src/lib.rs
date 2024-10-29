@@ -718,24 +718,28 @@ mod tests {
         assert_eq!(nodes["fn_b"].image_hash(), "Old Hash");
         assert_eq!(nodes["fn_c"].image_hash(), "Old Hash");
 
-        // Update the graph
-        let compute_graph = mock_graph_a(Some("this is a new hash".to_string()));
-        _write_to_test_state_store(&indexify_state, compute_graph).await?;
+        for i in 2..4 {
+            // Update the graph
+            let new_hash = format!("this is a new hash {}", i);
+            let compute_graph = mock_graph_a(Some(new_hash.clone()));
 
-        // Read it again
-        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
+            _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
-        // Verify the name is the same. Verify the version is different.
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-        // println!("compute graph {:?}", compute_graphs[0]);
-        let nodes = &compute_graphs[0].nodes;
-        assert_eq!(nodes["fn_a"].image_hash(), "this is a new hash");
-        assert_eq!(nodes["fn_b"].image_hash(), "this is a new hash");
-        assert_eq!(nodes["fn_c"].image_hash(), "this is a new hash");
+            // Read it again
+            let compute_graphs = _read_cgs_from_state_store(&indexify_state);
 
-        assert_eq!(*nodes["fn_a"].image_version(), 2);
-        assert_eq!(*nodes["fn_b"].image_version(), 2);
-        assert_eq!(*nodes["fn_c"].image_version(), 2);
+            // Verify the name is the same. Verify the version is different.
+            assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+            // println!("compute graph {:?}", compute_graphs[0]);
+            let nodes = &compute_graphs[0].nodes;
+            assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
+            assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
+            assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
+
+            assert_eq!(*nodes["fn_a"].image_version(), i);
+            assert_eq!(*nodes["fn_b"].image_version(), i);
+            assert_eq!(*nodes["fn_c"].image_version(), i);
+        }
 
         Ok(())
     }
