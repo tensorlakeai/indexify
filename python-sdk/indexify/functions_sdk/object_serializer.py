@@ -1,5 +1,6 @@
 from typing import Any, List
 
+import jsonpickle
 import cloudpickle
 import msgpack
 from pydantic import BaseModel
@@ -12,8 +13,26 @@ def get_serializer(serializer_type: str) -> Any:
         return CloudPickleSerializer()
     elif serializer_type == "msgpack":
         return MsgPackSerializer()
-    else:
-        raise ValueError(f"Unknown serializer type: {serializer_type}")
+    elif serializer_type == "json":
+        return JsonSerializer()
+    raise ValueError(f"Unknown serializer type: {serializer_type}")
+
+class JsonSerializer:
+    @staticmethod
+    def serialize(data: Any) -> str:
+        return jsonpickle.encode(data)
+
+    @staticmethod
+    def deserialize(data: str) -> Any:
+        return jsonpickle.decode(data)
+
+    @staticmethod
+    def serialize_list(data: List[Any]) -> str:
+        return jsonpickle.encode(data)
+
+    @staticmethod
+    def deserialize_list(data: str) -> List[Any]:
+        return jsonpickle.decode(data)
 
 
 class CloudPickleSerializer:
