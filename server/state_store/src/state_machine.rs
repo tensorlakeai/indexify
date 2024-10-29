@@ -397,10 +397,17 @@ pub(crate) fn create_or_update_compute_graph(
             let existing_hash = existing_compute_graph
                 .nodes
                 .get(node_name)
-                .unwrap()
+                .ok_or_else(|| {
+                    anyhow!(
+                        "unable to find function {} in graph {}",
+                        node_name,
+                        compute_graph.name
+                    )
+                })?
                 .image_hash();
+
             if node.image_hash() != existing_hash {
-                node.image_version_assign(existing_node.image_version() + 1);
+                node.set_image_version(existing_node.clone().image_version_next());
             }
         }
     };

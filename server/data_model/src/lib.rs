@@ -132,9 +132,29 @@ pub struct ComputeFn {
 }
 
 impl ComputeFn {
-    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
-        (self.image_information.version.0 == executor.image_version) &&
-            self.placement_constraints.matches(&executor.labels)
+    pub fn matches_executor(
+        &self,
+        executor: &ExecutorMetadata,
+        diagnostic_msgs: &mut Vec<String>,
+    ) -> bool {
+        if executor.image_name != self.image_name {
+            diagnostic_msgs.push(format!(
+                "executor {}, image name: {} does not match function image name {}",
+                executor.id, executor.image_name, self.image_name
+            ));
+
+            return false;
+        }
+
+        if self.image_information.version.0 != executor.image_version {
+            diagnostic_msgs.push(format!(
+                "executor {}, image version: {} does not match function image version {}",
+                executor.id, executor.image_version, self.image_information.version.0
+            ));
+            return false;
+        }
+
+        self.placement_constraints.matches(&executor.labels)
     }
 }
 
@@ -173,32 +193,28 @@ impl Node {
         }
     }
 
-    pub fn image_version_assign(&mut self, image_version: u32) {
+    pub fn set_image_version(&mut self, image_version: ImageVersion) {
         match self {
-            Node::Router(ref mut router) => {
-                router.image_information.version = ImageVersion(image_version);
-            }
-            Node::Compute(compute) => {
-                compute.image_information.version = ImageVersion(image_version);
-            }
+            Node::Router(ref mut router) => router.image_information.version = image_version,
+            Node::Compute(ref mut compute) => compute.image_information.version = image_version,
         }
     }
 
-    pub fn image_version_assign_next(&mut self) {
+    pub fn image_version_next(self) -> ImageVersion {
         match self {
-            Node::Router(router) => {
-                router.image_information.version = router.image_information.version.next();
-            }
-            Node::Compute(compute) => {
-                compute.image_information.version = compute.image_information.version.next();
-            }
+            Node::Router(router) => router.image_information.version.next(),
+            Node::Compute(compute) => compute.image_information.version.next(),
         }
     }
 
-    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
+    pub fn matches_executor(
+        &self,
+        executor: &ExecutorMetadata,
+        diagnostic_msgs: &mut Vec<String>,
+    ) -> bool {
         match self {
             Node::Router(_) => true,
-            Node::Compute(compute) => compute.matches_executor(executor),
+            Node::Compute(compute) => compute.matches_executor(executor, diagnostic_msgs),
         }
     }
 
@@ -859,4 +875,50 @@ pub struct StateChange {
 pub struct Namespace {
     pub name: String,
     pub created_at: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{ComputeFn, ExecutorMetadata, ImageInformation, ImageVersion};
+
+    #[test]
+    fn test_compute_fn_neq_executor_for_image_name() {
+        let compute_fn = ComputeFn {
+            image_name: "some_image_name".to_string(),
+            image_information: ImageInformation {
+                version: ImageVersion(1),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let executor_metadata = ExecutorMetadata {
+            image_name: "some_image_name1".to_string(),
+            image_version: 0,
+            ..Default::default()
+        };
+
+        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+    }
+
+    #[test]
+    fn test_compute_fn_neq_executor_for_image_version() {
+        // Test cascades with `test_compute_fn_neq_executor_for_image_name`
+        let compute_fn = ComputeFn {
+            image_name: "some_image_name".to_string(),
+            image_information: ImageInformation {
+                version: ImageVersion(1),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let executor_metadata = ExecutorMetadata {
+            image_name: "some_image_name".to_string(),
+            image_version: 2,
+            ..Default::default()
+        };
+
+        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+    }
 }
