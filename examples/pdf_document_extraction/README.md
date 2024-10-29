@@ -1,6 +1,6 @@
 # PDF Document Extraction and Indexing
 
-The example builds a pipeline that extracts text, tables and figures from a PDF Document. It embeds the text, table and images from the document and writes them into LanceDB.
+The example builds a pipeline that extracts text, tables and figures from a PDF Document. It embeds the text, table and images from the document and writes them into ChromaDB.
 
 The pipeline is hosted on a server endpoint in one of the containers. The endpoint can be called from any Python application.
 
@@ -40,9 +40,8 @@ You can read the output of every function of the Graph.
 chunks = graph.output(invocation_id, "chunk_text")
 ```
 
-The lancedb table is populated automatically by the `LanceDBWriter` class.
-The name of the database used in the example is `vectordb.lance`. Its created in the folder where the docker compose lives, and bind-mounted into the container for LanceDB to write to it.
-You can change the code to make it write anywhere you want.
+The ChromaDB tables are populated automatically by the [ChromaDBs](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/retreive.py) class.
+The name of the databases used in the example are `text_embeddings` and `image_embeddings`. The database running inside the container at port `8000` is forwarded to the host for convenience. 
 
 ## Customization
 
