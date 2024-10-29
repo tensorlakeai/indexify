@@ -40,8 +40,12 @@ You can read the output of every function of the Graph.
 chunks = graph.output(invocation_id, "chunk_text")
 ```
 
-The ChromaDB tables are populated automatically by the [ChromaDBs](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/retreive.py) class.
+The ChromaDB tables are populated automatically by the [ChromaDBWriter](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/chromadb_writer.py) class.
 The name of the databases used in the example are `text_embeddings` and `image_embeddings`. The database running inside the container at port `8000` is forwarded to the host for convenience. 
+
+## Vector Search
+
+Once the documents are processed, you can query ChromaDB for vector search. Here is some [same code for that](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/retreive.py)
 
 ## Customization
 
