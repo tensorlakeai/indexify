@@ -105,7 +105,7 @@ mod tests {
             info!("garbage collector shutdown");
         });
         // Create a compute graph
-        let compute_graph = mock_graph_a();
+        let compute_graph = mock_graph_a(None);
         state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {

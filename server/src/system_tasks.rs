@@ -218,7 +218,7 @@ mod tests {
         let scheduler = Scheduler::new(state.clone());
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
-        let graph = mock_graph_a();
+        let graph = mock_graph_a(None);
         let cg_request = CreateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
@@ -566,7 +566,7 @@ mod tests {
         let scheduler = Scheduler::new(state.clone());
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
-        let graph = mock_graph_a();
+        let graph = mock_graph_a(None);
         let cg_request = CreateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
