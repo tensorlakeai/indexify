@@ -47,18 +47,36 @@ pub mod tests {
             .unwrap()
     }
 
-    fn test_compute_fn(name: &str) -> ComputeFn {
-        ComputeFn {
-            name: name.to_string(),
-            description: format!("description {}", name),
-            fn_name: name.to_string(),
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
-            ..Default::default()
+    fn test_compute_fn(name: &str, image_hash: Option<String>) -> ComputeFn {
+        match image_hash {
+            Some(image_hash) => {
+                let mut image_information = ImageInformation::default();
+                image_information.image_hash = image_hash.to_string();
+
+                ComputeFn {
+                    name: name.to_string(),
+                    description: format!("description {}", name),
+                    fn_name: name.to_string(),
+                    image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+                    image_information,
+                    ..Default::default()
+                }
+            },
+            _ => {
+                ComputeFn {
+                    name: name.to_string(),
+                    description: format!("description {}", name),
+                    fn_name: name.to_string(),
+                    image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+                    ..Default::default()
+                }
+            }
+
         }
     }
 
     fn reducer_fn(name: &str, reduce: bool) -> ComputeFn {
-        let mut compute_fn = test_compute_fn(name);
+        let mut compute_fn = test_compute_fn(name, None);
         compute_fn.reducer = reduce;
         compute_fn
     }
@@ -141,10 +159,11 @@ pub mod tests {
             .unwrap()
     }
 
-    pub fn mock_graph_a() -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a");
-        let fn_b = test_compute_fn("fn_b");
-        let fn_c = test_compute_fn("fn_c");
+    pub fn mock_graph_a(image_hash: Option<String>) -> ComputeGraph {
+        let fn_a = test_compute_fn("fn_a", image_hash.clone());
+        let fn_b = test_compute_fn("fn_b", image_hash.clone());
+        let fn_c = test_compute_fn("fn_c", image_hash.clone());
+
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_A".to_string(),
@@ -174,7 +193,7 @@ pub mod tests {
     }
 
     pub fn mock_graph_b() -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a");
+        let fn_a = test_compute_fn("fn_a", None);
         let router_x = DynamicEdgeRouter {
             name: "router_x".to_string(),
             description: "description router_x".to_string(),
@@ -191,10 +210,12 @@ pub mod tests {
                     "run 2".to_string(),
                     "run 3".to_string(),
                 ],
+                image_hash: "".to_string(),
+                version: Default::default(),
             },
         };
-        let fn_b = test_compute_fn("fn_b");
-        let fn_c = test_compute_fn("fn_c");
+        let fn_b = test_compute_fn("fn_b", None);
+        let fn_c = test_compute_fn("fn_c", None);
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_B".to_string(),
@@ -222,9 +243,9 @@ pub mod tests {
     }
 
     pub fn mock_graph_with_reducer() -> ComputeGraph {
-        let fn_a = test_compute_fn("fn_a");
+        let fn_a = test_compute_fn("fn_a", None);
         let fn_b = reducer_fn("fn_b", true);
-        let fn_c = test_compute_fn("fn_c");
+        let fn_c = test_compute_fn("fn_c", None);
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_R".to_string(),
@@ -264,6 +285,7 @@ pub mod tests {
             image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             addr: "".to_string(),
             labels: Default::default(),
+            image_version: 1,
         }
     }
 }

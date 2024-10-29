@@ -105,12 +105,12 @@ impl fmt::Debug for ImageInformation {
 
 impl From<ImageInformation> for data_model::ImageInformation {
     fn from(value: ImageInformation) -> Self {
-        data_model::ImageInformation {
-            image_name: value.image_name,
-            tag: value.tag,
-            base_image: value.base_image,
-            run_strs: value.run_strs,
-        }
+        data_model::ImageInformation::new(
+            value.image_name,
+            value.tag,
+            value.base_image,
+            value.run_strs,
+        )
     }
 }
 
@@ -494,6 +494,7 @@ pub struct ExecutorMetadata {
     pub executor_version: String,
     pub addr: String,
     pub image_name: String,
+    pub image_version: u32,
     pub labels: HashMap<String, serde_json::Value>,
 }
 
@@ -504,6 +505,7 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             executor_version: executor.executor_version,
             addr: executor.addr,
             image_name: executor.image_name,
+            image_version: executor.image_version,
             labels: executor.labels,
         }
     }

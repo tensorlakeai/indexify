@@ -47,7 +47,7 @@ pub mod tests {
         pub async fn with_simple_graph(&self) -> String {
             let cg_request = CreateComputeGraphRequest {
                 namespace: TEST_NAMESPACE.to_string(),
-                compute_graph: tests::mock_graph_a(),
+                compute_graph: tests::mock_graph_a(None),
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {

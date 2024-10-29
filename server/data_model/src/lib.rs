@@ -13,6 +13,7 @@ use derive_builder::Builder;
 use filter::LabelsFilter;
 use indexify_utils::default_creation_time;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // Invoke graph for all existing payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +85,27 @@ pub struct ImageInformation {
     pub tag: String,
     pub base_image: String,
     pub run_strs: Vec<String>,
+    pub image_hash: String,
+    pub version: ImageVersion, // this maps with image_hash
+}
+
+impl ImageInformation {
+    pub fn new(image_name: String, tag: String, base_image: String, run_strs: Vec<String>) -> Self {
+        let mut image_hasher = Sha256::new();
+        image_hasher.update(image_name.clone());
+        image_hasher.update(tag.clone());
+        image_hasher.update(base_image.clone());
+        image_hasher.update(run_strs.clone().join("-----"));
+
+        ImageInformation {
+            image_name,
+            tag,
+            base_image,
+            run_strs,
+            image_hash: format!("{:x}", image_hasher.finalize()),
+            version: ImageVersion::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
@@ -111,7 +133,8 @@ pub struct ComputeFn {
 
 impl ComputeFn {
     pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
-        self.placement_constraints.matches(&executor.labels)
+        (self.image_information.version.0 == executor.image_version) &&
+            self.placement_constraints.matches(&executor.labels)
     }
 }
 
@@ -133,6 +156,31 @@ impl Node {
         match self {
             Node::Router(router) => &router.image_name,
             Node::Compute(compute) => &compute.image_name,
+        }
+    }
+
+    pub fn image_hash(&self) -> &str {
+        match self {
+            Node::Router(router) => &router.image_information.image_hash,
+            Node::Compute(compute) => &compute.image_information.image_hash,
+        }
+    }
+
+    pub fn image_version(&self) -> &u32 {
+        match self {
+            Node::Router(router) => &router.image_information.version.0,
+            Node::Compute(compute) => &compute.image_information.version.0,
+        }
+    }
+
+    pub fn image_version_assign_next(&mut self) {
+        match self {
+            Node::Router(router) => {
+                router.image_information.version = router.image_information.version.next();
+            }
+            Node::Compute(compute) => {
+                compute.image_information.version = compute.image_information.version.next();
+            }
         }
     }
 
@@ -217,6 +265,21 @@ impl GraphVersion {
 }
 
 impl Default for GraphVersion {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
+pub struct ImageVersion(pub u32);
+
+impl ImageVersion {
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+impl Default for ImageVersion {
     fn default() -> Self {
         Self(1)
     }
@@ -680,6 +743,7 @@ pub struct ExecutorMetadata {
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
     pub image_name: String,
+    pub image_version: u32,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
 }

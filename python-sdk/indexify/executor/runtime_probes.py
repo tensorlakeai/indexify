@@ -6,10 +6,12 @@ from typing import Any, Dict, Tuple
 from pydantic import BaseModel
 
 DEFAULT_EXECUTOR = "tensorlake/indexify-executor-default"
+DEFAULT_VERSION = 1
 
 
 class ProbeInfo(BaseModel):
     image_name: str
+    image_version: int
     python_major_version: int
     labels: Dict[str, Any] = {}
     is_default_executor: bool
@@ -18,6 +20,7 @@ class ProbeInfo(BaseModel):
 class RuntimeProbes:
     def __init__(self) -> None:
         self._image_name = self._read_image_name()
+        self._image_version = self._read_image_version()
         self._os_name = platform.system()
         self._architecture = platform.machine()
         (
@@ -31,6 +34,13 @@ class RuntimeProbes:
             with open(file_path, "r") as file:
                 return file.read().strip()
         return DEFAULT_EXECUTOR
+
+    def _read_image_version(self) -> int:
+        file_path = os.path.expanduser("~/.indexify/image_version")
+        if os.path.exists(file_path):
+            with open(file_path, "r") as file:
+                return int(file.read().strip())
+        return DEFAULT_VERSION
 
     def _get_python_version(self) -> Tuple[int, int]:
         version_info = sys.version_info
