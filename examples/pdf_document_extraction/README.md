@@ -37,7 +37,7 @@ invocation_id = graph.run(block_until_done=True, url="")
 You can read the output of every function of the Graph.
 
 ```python
-chunks = graph.get_output(invocation_id, "extract_chunks")
+chunks = graph.output(invocation_id, "chunk_text")
 ```
 
 The lancedb table is populated automatically by the `LanceDBWriter` class.
