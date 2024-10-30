@@ -19,9 +19,7 @@ pub struct KVS {
 impl KVS {
     pub async fn new(object_store: Arc<dyn ObjectStore>, path: &str) -> Result<Self> {
         let options = DbOptions::default();
-        let kv_store = Db::open_with_opts(Path::from(path), options, object_store)
-            .await
-            .unwrap();
+        let kv_store = Db::open_with_opts(Path::from(path), options, object_store).await?;
         Ok(KVS {
             kv_store: Arc::new(kv_store),
         })

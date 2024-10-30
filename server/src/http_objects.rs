@@ -519,9 +519,6 @@ pub struct InvocationQueryParams {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CtxStatePutRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
     pub key: String,
 
     // Could have encoded this as string but

@@ -11,10 +11,10 @@ use object_store::{
     ObjectStore,
     WriteMultipart,
 };
-use url::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWrite;
+use url::Url;
 
 use self::{disk::DiskFileReader, s3::S3FileReader};
 
@@ -70,7 +70,7 @@ impl Default for BlobStorageConfig {
         BlobStorageConfig {
             s3: None,
             disk: Some(DiskStorageConfig {
-                path: blob_store_path.to_str().unwrap().to_string(),
+                path: format!("file:///{}", blob_store_path.to_str().unwrap().to_string()),
             }),
         }
     }

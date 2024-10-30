@@ -1,6 +1,6 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, path::Path, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use state_store::{
@@ -37,7 +37,11 @@ impl Service {
         let blob_storage = Arc::new(BlobStorage::new(self.config.blob_storage.clone())?);
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let object_store = self.config.blob_storage.object_store()?;
-        let kvs = KVS::new(object_store.clone(), "graph_ctx_state").await?;
+        let kvs_manifest_path = Path::new(&self.config.state_store_path).join("graph_ctx_state");
+        let kvs_manifest_path = kvs_manifest_path
+            .to_str()
+            .ok_or(anyhow!(format!("unable to create kv store pathl")))?;
+        let kvs = KVS::new(object_store.clone(), kvs_manifest_path).await?;
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
             kvs: Arc::new(kvs),
