@@ -517,6 +517,31 @@ pub struct InvocationQueryParams {
     pub block_until_finish: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtxStatePutRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
+    pub key: String,
+
+    // Could have encoded this as string but
+    // making sure we get valid json from user
+    // code
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtxStateGetRequest {
+    /// The key to retrieve, and if none, return all keys
+    pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtxStateGetResponse {
+    // Values indexed by key names
+    pub value: Option<serde_json::Value>,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::http_objects::{ComputeFn, DynamicRouter};

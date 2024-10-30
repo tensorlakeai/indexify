@@ -4,6 +4,7 @@ use anyhow::Result;
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use state_store::{
+    kv::KVS,
     requests::{NamespaceRequest, RequestPayload::CreateNameSpace, StateMachineUpdateRequest},
     IndexifyState,
 };
@@ -35,8 +36,11 @@ impl Service {
         let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?).await?;
         let blob_storage = Arc::new(BlobStorage::new(self.config.blob_storage.clone())?);
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
+        let object_store = self.config.blob_storage.object_store()?;
+        let kvs = KVS::new(object_store.clone(), "graph_ctx_state").await?;
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
+            kvs: Arc::new(kvs),
             blob_storage: blob_storage.clone(),
             executor_manager,
         };

@@ -27,6 +27,7 @@ use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use nanoid::nanoid;
 use state_store::{
+    kv::{WriteContextData, KVS},
     requests::{
         CreateComputeGraphRequest,
         DeleteComputeGraphRequest,
@@ -45,7 +46,10 @@ use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::executors::{self, EXECUTOR_TIMEOUT};
+use crate::{
+    executors::{self, EXECUTOR_TIMEOUT},
+    http_objects::{CtxStateGetRequest, CtxStateGetResponse, CtxStatePutRequest},
+};
 
 mod download;
 mod internal_ingest;
@@ -140,6 +144,7 @@ struct ApiDoc;
 pub struct RouteState {
     pub indexify_state: Arc<IndexifyState>,
     pub blob_storage: Arc<blob_store::BlobStorage>,
+    pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
 }
 
@@ -183,6 +188,14 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/fn_outputs/:input_key",
             get(download_fn_output_by_key).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
+            post(set_ctx_state_key).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
+            get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .route("/ui", get(ui_index_handler))
         .route("/ui/*rest", get(ui_handler))
@@ -823,4 +836,39 @@ async fn get_code(
         )
         .body(Body::from_stream(code_stream))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+}
+
+async fn set_ctx_state_key(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+    Json(payload): Json<CtxStatePutRequest>,
+) -> Result<(), IndexifyAPIError> {
+    let request = WriteContextData {
+        namespace,
+        compute_graph,
+        invocation_id,
+        key: payload.key,
+        value: serde_json::to_vec(&payload.value)
+            .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?,
+    };
+    state
+        .kvs
+        .put_ctx_state(request)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    Ok(())
+}
+
+async fn get_ctx_state_key(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+    Json(request): Json<CtxStateGetRequest>,
+) -> Result<Json<CtxStateGetResponse>, IndexifyAPIError> {
+    let value = state
+        .kvs
+        .get_ctx_state_key(&namespace, &compute_graph, &invocation_id, &request.key)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    let value = value.map(|v| serde_json::from_slice(&v.to_vec()).unwrap());
+    Ok(Json(CtxStateGetResponse { value }))
 }

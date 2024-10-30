@@ -7,9 +7,11 @@ use futures::{stream::BoxStream, StreamExt};
 use object_store::{
     aws::{AmazonS3, AmazonS3Builder},
     local,
+    parse_url,
     ObjectStore,
     WriteMultipart,
 };
+use url::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWrite;
@@ -46,6 +48,18 @@ impl BlobStorageConfig {
             disk: Some(DiskStorageConfig {
                 path: path.to_string(),
             }),
+        }
+    }
+
+    pub fn object_store(&self) -> Result<Arc<dyn ObjectStore>> {
+        if let Some(s3) = &self.s3 {
+            let s3 = s3_storage(s3)?;
+            Ok(Arc::new(s3))
+        } else {
+            let disk = Url::parse(&self.disk.clone().unwrap().path)
+                .map_err(|e| anyhow!("Invalid disk URL: {}", e))?;
+            let (disk, _) = parse_url(&disk)?;
+            Ok(Arc::new(disk))
         }
     }
 }
