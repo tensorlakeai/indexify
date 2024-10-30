@@ -61,9 +61,12 @@ tower-http = { version = "0.6.1", default-features = false, features = [
 ] }
 pin-project = "1.1.6"
 ciborium = "0.2.2"
-opentelemetry_sdk = "0.26.0"
-opentelemetry = "0.26.0"
+opentelemetry_sdk = { version = "0.22.0", features = ["metrics", "rt-tokio"]}
+opentelemetry = "0.22.0"
+opentelemetry-otlp = "0.26.0"
 uuid = { version = "1.10.0", features = ["v4"] }
+prometheus = "0.13.4"
+opentelemetry-prometheus = "0.15.0"
 
 [dependencies]
 async-stream = {workspace = true}
@@ -96,6 +99,11 @@ rand.workspace = true
 hex = "0.4.3"
 indexify_ui = {workspace=true}
 hyper = {workspace=true}
+opentelemetry-otlp = {workspace = true}
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["rt-tokio"] }
+prometheus = { workspace = true }
+opentelemetry-prometheus = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

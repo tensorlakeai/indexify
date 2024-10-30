@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use opentelemetry::global::meter;
+use opentelemetry::metrics::Counter;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use service::Service;
 use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
@@ -20,6 +23,45 @@ mod system_tasks;
 struct Cli {
     #[arg(short, long, value_name = "config file")]
     config: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+struct MetricsData {
+    counter: Counter<u64>,
+}
+
+impl Default for MetricsData {
+    fn default() -> Self { Self::new() }
+}
+
+impl MetricsData {
+    pub fn new() -> MetricsData {
+        let counter = meter("").u64_counter("counter1")
+            .with_description("Simple counter for testin")
+            .init();
+
+        MetricsData {
+            counter
+        }
+    }
+}
+
+fn init_provider() -> prometheus::Registry {
+    let registry = prometheus::Registry::new();
+
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .build();
+
+    let mut provider = SdkMeterProvider::builder();
+
+    if let Ok(exporter) = exporter {
+        provider = provider.with_reader(exporter);
+    };
+
+    opentelemetry::global::set_meter_provider(provider.build());
+
+    registry
 }
 
 #[tokio::main]

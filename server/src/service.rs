@@ -10,7 +10,7 @@ use state_store::{
 use tokio::{self, signal, sync::watch};
 use tracing::info;
 
-use super::{routes::RouteState, scheduler::Scheduler};
+use super::{init_provider, routes::RouteState, scheduler::Scheduler};
 use crate::{
     config::ServerConfig,
     executors::ExecutorManager,
@@ -32,6 +32,7 @@ impl Service {
 
     pub async fn start(&self) -> Result<()> {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
+
         let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?).await?;
         let blob_storage = Arc::new(BlobStorage::new(self.config.blob_storage.clone())?);
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
@@ -39,7 +40,10 @@ impl Service {
             indexify_state: indexify_state.clone(),
             blob_storage: blob_storage.clone(),
             executor_manager,
+            metrics_registry: Arc::new(init_provider()),
+            metrics: Arc::new(Default::default()),
         };
+
         let app = create_routes(route_state);
         let handle = Handle::new();
         let handle_sh = handle.clone();
@@ -55,11 +59,13 @@ impl Service {
             let _ = scheduler.start(shutdown_rx, state_watcher_rx).await;
             info!("scheduler shutdown");
         });
+
         tokio::spawn(async move {
             info!("starting garbage collector");
             let _ = gc.start().await;
             info!("garbage collector shutdown");
         });
+
         tokio::spawn(async move {
             info!("starting system tasks executor");
             let _ = system_tasks_executor.start().await;
