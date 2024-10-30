@@ -13,14 +13,13 @@ use axum::{
         Request,
         State,
     },
-    http::{Method, Response},
+    http::{Method, Response, StatusCode},
     middleware::{self, Next},
     response::{sse::Event, IntoResponse},
     routing::{delete, get, post},
     Json,
     Router,
 };
-use axum::http::StatusCode;
 use blob_store::PutResult;
 use data_model::ExecutorId;
 use futures::StreamExt;
@@ -62,29 +61,33 @@ use internal_ingest::ingest_files_from_executor;
 use invoke::{invoke_with_file, invoke_with_object, rerun_compute_graph};
 use logs::download_task_logs;
 
-use crate::{executors::ExecutorManager, http_objects::{
-    ComputeFn,
-    ComputeGraph,
-    ComputeGraphsList,
-    CreateNamespace,
-    DataObject,
-    DynamicRouter,
-    ExecutorMetadata,
-    FnOutputs,
-    GraphInvocations,
-    GraphVersion,
-    ImageInformation,
-    IndexifyAPIError,
-    InvocationResult,
-    ListParams,
-    Namespace,
-    NamespaceList,
-    Node,
-    RuntimeInformation,
-    Task,
-    TaskOutcome,
-    Tasks,
-}, MetricsData};
+use crate::{
+    executors::ExecutorManager,
+    http_objects::{
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphsList,
+        CreateNamespace,
+        DataObject,
+        DynamicRouter,
+        ExecutorMetadata,
+        FnOutputs,
+        GraphInvocations,
+        GraphVersion,
+        ImageInformation,
+        IndexifyAPIError,
+        InvocationResult,
+        ListParams,
+        Namespace,
+        NamespaceList,
+        Node,
+        RuntimeInformation,
+        Task,
+        TaskOutcome,
+        Tasks,
+    },
+    MetricsData,
+};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -187,11 +190,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         )
         .route("/ui", get(ui_index_handler))
         .route("/ui/*rest", get(ui_handler))
-
-        .route("/metrics",
-               get(pull_metrics).with_state(route_state.clone())
+        .route(
+            "/metrics",
+            get(pull_metrics).with_state(route_state.clone()),
         )
-
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &Request| {
@@ -802,10 +804,7 @@ async fn delete_invocation(
     Ok(())
 }
 
-async fn pull_metrics(
-    State(state): State<RouteState>
-) -> Result<Response<Body>, IndexifyAPIError> {
-
+async fn pull_metrics(State(state): State<RouteState>) -> Result<Response<Body>, IndexifyAPIError> {
     let metric_families = state.metrics_registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();

@@ -1,14 +1,14 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
+
 use anyhow::anyhow;
 use clap::Parser;
-use opentelemetry::global::meter;
-use opentelemetry::metrics::ObservableCounter;
+use opentelemetry::{global::meter, metrics::ObservableCounter};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use service::Service;
+use state_store::IndexifyState;
 use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
-use state_store::IndexifyState;
+
 use crate::http_objects::IndexifyAPIError;
 
 mod config;
@@ -30,7 +30,7 @@ struct Cli {
 
 #[derive(Clone)]
 struct MetricsData {
-    unallocated_tasks: ObservableCounter<u64>
+    unallocated_tasks: ObservableCounter<u64>,
 }
 
 impl MetricsData {
@@ -47,14 +47,21 @@ impl MetricsData {
                     match unallocated_tasks {
                         Ok(tasks) => {
                             for task in tasks {
-                                let compute_graph =
-                                    indexify_state.reader().get_compute_graph(&task.namespace, &task.compute_graph_name)
-                                        .map_err(|_| IndexifyAPIError::internal_error(anyhow!("Unable to read metrics")))
-                                        .unwrap();
+                                let compute_graph = indexify_state
+                                    .reader()
+                                    .get_compute_graph(&task.namespace, &task.compute_graph_name)
+                                    .map_err(|_| {
+                                        IndexifyAPIError::internal_error(anyhow!(
+                                            "Unable to read metrics"
+                                        ))
+                                    })
+                                    .unwrap();
 
-                                let compute_graph = match compute_graph{
-                                    None => { continue; }
-                                    Some(x) => { x }
+                                let compute_graph = match compute_graph {
+                                    None => {
+                                        continue;
+                                    }
+                                    Some(x) => x,
                                 };
 
                                 let node = compute_graph.nodes.get(&task.compute_fn_name).unwrap();
@@ -62,20 +69,22 @@ impl MetricsData {
                                 let image_version = node.image_version();
                                 let image_name = node.image_name().to_string();
 
-                                let version_kv = opentelemetry::KeyValue::new("image_version", image_version.to_string());
-                                let name_kv = opentelemetry::KeyValue::new("image_name", image_name);
+                                let version_kv = opentelemetry::KeyValue::new(
+                                    "image_version",
+                                    image_version.to_string(),
+                                );
+                                let name_kv =
+                                    opentelemetry::KeyValue::new("image_name", image_name);
                                 observer.observe(1, &[version_kv, name_kv])
                             }
-                        },
-                        Err(_) => {},
+                        }
+                        Err(_) => {}
                     }
                 }
             })
             .init();
 
-        MetricsData {
-            unallocated_tasks
-        }
+        MetricsData { unallocated_tasks }
     }
 }
 
