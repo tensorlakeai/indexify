@@ -10,11 +10,12 @@ use state_store::{
 use tokio::{self, signal, sync::watch};
 use tracing::info;
 
-use super::{init_provider, routes::RouteState, scheduler::Scheduler, MetricsData};
+use super::{routes::RouteState, scheduler::Scheduler};
 use crate::{
     config::ServerConfig,
     executors::ExecutorManager,
     gc::Gc,
+    metrics::{as_metrics::MetricsData, init_provider},
     routes::create_routes,
     system_tasks::SystemTasksExecutor,
 };

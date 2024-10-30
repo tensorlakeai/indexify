@@ -86,7 +86,7 @@ use crate::{
         TaskOutcome,
         Tasks,
     },
-    MetricsData,
+    metrics::as_metrics::MetricsData,
 };
 
 #[derive(OpenApi)]
