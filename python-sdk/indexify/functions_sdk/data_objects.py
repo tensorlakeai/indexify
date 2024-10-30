@@ -16,7 +16,7 @@ class RouterOutput(BaseModel):
 
 class IndexifyData(BaseModel):
     id: Optional[str] = None
-    payload: bytes
+    payload: Union[bytes | str]
     payload_encoding: str = "cloudpickle"
 
 
