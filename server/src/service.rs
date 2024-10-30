@@ -10,7 +10,7 @@ use state_store::{
 use tokio::{self, signal, sync::watch};
 use tracing::info;
 
-use super::{init_provider, routes::RouteState, scheduler::Scheduler};
+use super::{init_provider, routes::RouteState, scheduler::Scheduler, MetricsData};
 use crate::{
     config::ServerConfig,
     executors::ExecutorManager,
@@ -41,7 +41,7 @@ impl Service {
             blob_storage: blob_storage.clone(),
             executor_manager,
             metrics_registry: Arc::new(init_provider()),
-            metrics: Arc::new(Default::default()),
+            metrics: Arc::new(MetricsData::new(indexify_state.clone())),
         };
 
         let app = create_routes(route_state);

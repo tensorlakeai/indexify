@@ -188,7 +188,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route("/ui", get(ui_index_handler))
         .route("/ui/*rest", get(ui_handler))
 
-        // TODO do you need RW lock?
         .route("/metrics",
                get(pull_metrics).with_state(route_state.clone())
         )
@@ -806,26 +805,6 @@ async fn delete_invocation(
 async fn pull_metrics(
     State(state): State<RouteState>
 ) -> Result<Response<Body>, IndexifyAPIError> {
-
-    let unallocated_tasks = state.indexify_state.reader().unallocated_tasks();
-
-    match unallocated_tasks {
-        Ok(tasks) => {
-            for task in tasks {
-                let compute_graph = state.indexify_state.reader().get_compute_graph(&task.namespace, &task.compute_graph_name).unwrap().unwrap();
-
-                let node = compute_graph.nodes.get(&task.compute_fn_name).unwrap();
-
-                let image_version = node.image_version();
-                let image_name = node.image_name().to_string();
-
-                let version_kv = opentelemetry::KeyValue::new("image_version", image_version.to_string());
-                let name_kv = opentelemetry::KeyValue::new("image_name", image_name);
-                state.metrics.counter.add(1, &[version_kv, name_kv]);
-            }
-        },
-        Err(_) => {},
-    }
 
     let metric_families = state.metrics_registry.gather();
     let mut buffer = vec![];
