@@ -190,11 +190,11 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespace/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
+            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
             post(set_ctx_state_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespace/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
+            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .route("/ui", get(ui_index_handler))
