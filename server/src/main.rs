@@ -1,5 +1,5 @@
 use std::{path::PathBuf, sync::Arc};
-
+use std::sync::Mutex;
 use anyhow::anyhow;
 use clap::Parser;
 use opentelemetry::{global::meter, metrics::ObservableCounter};
@@ -39,9 +39,10 @@ impl MetricsData {
             .u64_observable_counter("unallocated_tasks")
             .with_description("Counter that displays unallocated tasks in the server")
             .with_callback({
-                let indexify_state = indexify_state.clone();
+                let indexify_state_lock = Mutex::new(indexify_state.clone());
 
                 move |observer| {
+                    let indexify_state = indexify_state_lock.lock().unwrap();
                     let unallocated_tasks = indexify_state.reader().unallocated_tasks();
 
                     match unallocated_tasks {
