@@ -348,6 +348,7 @@ pub struct DataObject {
     pub id: String,
     pub payload_size: u64,
     pub payload_sha_256: String,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
