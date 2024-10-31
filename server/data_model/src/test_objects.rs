@@ -147,6 +147,7 @@ pub mod tests {
         InvocationPayloadBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_graph_name("graph_B".to_string())
+            .created_at(5)
             .payload(DataPayload {
                 path: "test".to_string(),
                 size: 23,
