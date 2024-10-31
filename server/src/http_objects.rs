@@ -269,6 +269,7 @@ pub struct ComputeGraph {
     pub namespace: String,
     pub description: String,
     pub start_node: Node,
+    #[serde(skip_deserializing)]
     pub version: u32,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
