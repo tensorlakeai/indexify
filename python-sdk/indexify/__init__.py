@@ -4,6 +4,8 @@ from .functions_sdk.image import Image
 from .functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
+    get_ctx,
+    IndexifyFunction,
 )
 from .functions_sdk.pipeline import Pipeline
 from .http_client import IndexifyClient
@@ -19,6 +21,8 @@ __all__ = [
     "RemotePipeline",
     "Image",
     "indexify_function",
+    "get_ctx",
+    "IndexifyFunction",
     "indexify_router",
     "DEFAULT_SERVICE_URL",
     "IndexifyClient",

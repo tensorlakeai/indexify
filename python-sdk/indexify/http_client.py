@@ -197,6 +197,13 @@ class IndexifyClient:
         for item in namespaces_dict:
             namespaces.append(item["name"])
         return namespaces
+    
+    def set_state_key(self, key: str, value: Json) -> None: 
+        self._post(f"namespaces/{self.namespace}/state/{key}", json=value)
+
+    def get_state_key(self, key: str) -> Json: 
+        response = self._get(f"namespaces/{self.namespace}/state/{key}")
+        return response.json()
 
     @classmethod
     def new_namespace(

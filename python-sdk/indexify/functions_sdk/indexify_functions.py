@@ -2,7 +2,6 @@ import inspect
 import re
 import sys
 import traceback
-from abc import ABC, abstractmethod
 from functools import update_wrapper
 from typing import (
     Any,
@@ -18,13 +17,31 @@ from typing import (
 )
 
 import msgpack
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr, Field
 from typing_extensions import get_type_hints
 
-from .data_objects import IndexifyData, RouterOutput
+from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE_3_10, Image
 from .object_serializer import CloudPickleSerializer, get_serializer
 
+class GraphInvocationContext(BaseModel):
+    invocation_id: str 
+    graph_name: str 
+    graph_version: str
+    _indexify_client: Optional[Any] = PrivateAttr(default=None) # avoids circular import
+    _local_state: Dict[str, Any] = PrivateAttr(default_factory=dict)
+
+
+    def set_state_key(self, key: str, value: Any) -> None:
+        if self._indexify_client is None:
+            self._local_state[key] = value
+            return
+        self._indexify_client.set_state_key(key, value)
+
+    def get_state_key(self, key: str) -> Any:
+        if self._indexify_client is None:
+            return self._local_state.get(key)
+        return self._indexify_client.get_state_key(key)
 
 def format_filtered_traceback(exc_info=None):
     """
@@ -205,10 +222,14 @@ class RouterCallResult(BaseModel):
 
 
 class IndexifyFunctionWrapper:
-    def __init__(self, indexify_function: Union[IndexifyFunction, IndexifyRouter]):
+    def __init__(self,
+                 indexify_function: Union[IndexifyFunction, IndexifyRouter],
+                 context: GraphInvocationContext
+    ):
         self.indexify_function: Union[IndexifyFunction, IndexifyRouter] = (
             indexify_function()
         )
+        self.indexify_function._ctx = context
 
     def get_output_model(self) -> Any:
         if not isinstance(self.indexify_function, IndexifyFunction):
@@ -322,3 +343,11 @@ class IndexifyFunctionWrapper:
                 payload = list(payload.values())[0]
             return arg_type.model_validate(payload)
         return payload
+
+def get_ctx() -> GraphInvocationContext:
+    frame = inspect.currentframe()
+    caller_frame = frame.f_back.f_back
+    foo_instance = caller_frame.f_locals['self']
+    del frame
+    del caller_frame
+    return foo_instance._ctx

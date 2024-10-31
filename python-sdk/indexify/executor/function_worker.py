@@ -15,7 +15,9 @@ from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
     IndexifyFunctionWrapper,
     RouterCallResult,
+    GraphInvocationContext,
 )
+from indexify import IndexifyClient
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
@@ -44,7 +46,7 @@ class FunctionOutput(BaseModel):
 
 
 def _load_function(
-    namespace: str, graph_name: str, fn_name: str, code_path: str, version: int
+    namespace: str, graph_name: str, fn_name: str, code_path: str, version: int, invocation_id: Optional[str] = None, indexify_client: Optional[IndexifyClient] = None
 ):
     """Load an extractor to the memory: extractor_wrapper_map."""
     global function_wrapper_map
@@ -54,18 +56,21 @@ def _load_function(
     with open(code_path, "rb") as f:
         code = f.read()
         pickled_functions = cloudpickle.loads(code)
+    context = GraphInvocationContext(invocation_id, graph_name, version, _indexify_client=indexify_client)
     function_wrapper = IndexifyFunctionWrapper(
-        cloudpickle.loads(pickled_functions[fn_name])
+        cloudpickle.loads(pickled_functions[fn_name]),
+        context,
     )
     function_wrapper_map[key] = function_wrapper
 
 
 class FunctionWorker:
-    def __init__(self, workers: int = 1) -> None:
+    def __init__(self, workers: int = 1, indexify_client: IndexifyClient = None) -> None:
         self._executor: concurrent.futures.ProcessPoolExecutor = (
             concurrent.futures.ProcessPoolExecutor(max_workers=workers)
         )
         self._workers = workers
+        self._indexify_client = indexify_client
 
     async def async_submit(
         self,
@@ -76,10 +81,11 @@ class FunctionWorker:
         code_path: str,
         version: int,
         init_value: Optional[IndexifyData] = None,
+        invocation_id: Optional[str] = None,
     ) -> FunctionWorkerOutput:
         try:
             result = _run_function(
-                namespace, graph_name, fn_name, input, code_path, version, init_value
+                namespace, graph_name, fn_name, input, code_path, version, init_value, invocation_id, self._indexify_client
             )
             # TODO - bring back running in a separate process
         except Exception as e:
@@ -113,6 +119,8 @@ def _run_function(
     code_path: str,
     version: int,
     init_value: Optional[IndexifyData] = None,
+    invocation_id: Optional[str] = None,
+    indexify_client: Optional[IndexifyClient] = None,
 ) -> FunctionOutput:
     import io
     from contextlib import redirect_stderr, redirect_stdout

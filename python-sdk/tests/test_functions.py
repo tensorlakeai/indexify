@@ -1,5 +1,5 @@
 import unittest
-from typing import List, Optional, Union
+from typing import List, Union
 
 from pydantic import BaseModel
 
@@ -7,8 +7,12 @@ from indexify.functions_sdk.indexify_functions import (
     IndexifyFunctionWrapper,
     indexify_function,
     indexify_router,
+    GraphInvocationContext,
+    get_ctx,
 )
 
+
+TEST_GRAPH_CTX = GraphInvocationContext(invocation_id="123", graph_name="test", graph_version="1")
 
 class TestFunctionWrapper(unittest.TestCase):
     def test_basic_features(self):
@@ -19,7 +23,7 @@ class TestFunctionWrapper(unittest.TestCase):
             """
             return "hello"
 
-        extractor_wrapper = IndexifyFunctionWrapper(extractor_a)
+        extractor_wrapper = IndexifyFunctionWrapper(extractor_a, TEST_GRAPH_CTX)
         result, err = extractor_wrapper.run_fn({"url": "foo"})
         self.assertEqual(result[0], "hello")
 
@@ -31,7 +35,7 @@ class TestFunctionWrapper(unittest.TestCase):
             """
             return "hello"
 
-        extractor_wrapper = IndexifyFunctionWrapper(extractor_b)
+        extractor_wrapper = IndexifyFunctionWrapper(extractor_b, TEST_GRAPH_CTX)
         result = extractor_wrapper.get_output_model()
         self.assertEqual(result, str)
 
@@ -43,7 +47,7 @@ class TestFunctionWrapper(unittest.TestCase):
             """
             return ["hello", "world"]
 
-        extractor_wrapper = IndexifyFunctionWrapper(extractor_b)
+        extractor_wrapper = IndexifyFunctionWrapper(extractor_b, TEST_GRAPH_CTX)
         result = extractor_wrapper.get_output_model()
         self.assertEqual(result, str)
 
@@ -63,7 +67,7 @@ class TestFunctionWrapper(unittest.TestCase):
             """
             return [func_a]
 
-        router_wrapper = IndexifyFunctionWrapper(router_fn)
+        router_wrapper = IndexifyFunctionWrapper(router_fn, TEST_GRAPH_CTX)
         result, err = router_wrapper.run_router({"url": "foo"})
         self.assertEqual(result, ["func_a"])
 
@@ -76,9 +80,21 @@ class TestFunctionWrapper(unittest.TestCase):
             acc.x += x
             return acc
 
-        wrapper = IndexifyFunctionWrapper(accumulate_fn)
+        wrapper = IndexifyFunctionWrapper(accumulate_fn, TEST_GRAPH_CTX)
         result, err = wrapper.run_fn(acc=AccumulatedState(x=12), input={"x": 1})
         self.assertEqual(result[0].x, 13)
+
+    def test_get_ctx(self):
+        @indexify_function()
+        def extractor_c(url: str) -> str:
+            ctx = get_ctx()  # type: ignore
+            ctx.set_state_key("foo", "bar")
+            foo_val = ctx.get_state_key("foo")
+            return ctx.invocation_id
+
+        extractor_wrapper = IndexifyFunctionWrapper(extractor_c, TEST_GRAPH_CTX)
+        result, _ = extractor_wrapper.run_fn({"url": "foo"})
+        self.assertEqual(result[0], "123")
 
     # FIXME: Partial extractor is not working
     # def test_partial_extractor(self):
