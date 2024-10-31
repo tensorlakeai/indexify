@@ -497,8 +497,8 @@ impl InvocationPayloadBuilder {
             id,
             namespace: ns,
             compute_graph_name: cg_name,
-            payload: payload,
-            created_at: created_at
+            payload,
+            created_at: created_at,
         })
     }
 }
