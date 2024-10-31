@@ -2,10 +2,10 @@ from . import data_loaders
 from .functions_sdk.graph import Graph
 from .functions_sdk.image import Image
 from .functions_sdk.indexify_functions import (
+    IndexifyFunction,
+    get_ctx,
     indexify_function,
     indexify_router,
-    get_ctx,
-    IndexifyFunction,
 )
 from .functions_sdk.pipeline import Pipeline
 from .http_client import IndexifyClient

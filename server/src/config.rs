@@ -35,16 +35,6 @@ impl ServerConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.blob_storage.s3.is_some() && self.blob_storage.disk.is_some() {
-            return Err(anyhow::anyhow!(
-                "cannot specify both s3 and disk blob storage"
-            ));
-        }
-        if self.blob_storage.s3.is_none() && self.blob_storage.disk.is_none() {
-            return Err(anyhow::anyhow!(
-                "must specify one of s3 or disk blob storage"
-            ));
-        }
         if self.listen_addr.parse::<SocketAddr>().is_err() {
             return Err(anyhow::anyhow!(
                 "invalid listen address: {}",

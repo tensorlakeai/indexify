@@ -6,6 +6,7 @@ import cloudpickle
 from pydantic import BaseModel
 from rich import print
 
+from indexify import IndexifyClient
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -13,11 +14,10 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
+    GraphInvocationContext,
     IndexifyFunctionWrapper,
     RouterCallResult,
-    GraphInvocationContext,
 )
-from indexify import IndexifyClient
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
 
@@ -46,7 +46,13 @@ class FunctionOutput(BaseModel):
 
 
 def _load_function(
-    namespace: str, graph_name: str, fn_name: str, code_path: str, version: int, invocation_id: Optional[str] = None, indexify_client: Optional[IndexifyClient] = None
+    namespace: str,
+    graph_name: str,
+    fn_name: str,
+    code_path: str,
+    version: int,
+    invocation_id: Optional[str] = None,
+    indexify_client: Optional[IndexifyClient] = None,
 ):
     """Load an extractor to the memory: extractor_wrapper_map."""
     global function_wrapper_map
@@ -56,7 +62,14 @@ def _load_function(
     with open(code_path, "rb") as f:
         code = f.read()
         pickled_functions = cloudpickle.loads(code)
-    context = GraphInvocationContext(invocation_id, graph_name, version, _indexify_client=indexify_client)
+    print(invocation_id)
+    print(version)
+    context = GraphInvocationContext(
+        invocation_id=invocation_id,
+        graph_name=graph_name,
+        graph_version=str(version),
+        _indexify_client=indexify_client,
+    )
     function_wrapper = IndexifyFunctionWrapper(
         cloudpickle.loads(pickled_functions[fn_name]),
         context,
@@ -65,7 +78,9 @@ def _load_function(
 
 
 class FunctionWorker:
-    def __init__(self, workers: int = 1, indexify_client: IndexifyClient = None) -> None:
+    def __init__(
+        self, workers: int = 1, indexify_client: IndexifyClient = None
+    ) -> None:
         self._executor: concurrent.futures.ProcessPoolExecutor = (
             concurrent.futures.ProcessPoolExecutor(max_workers=workers)
         )
@@ -85,7 +100,15 @@ class FunctionWorker:
     ) -> FunctionWorkerOutput:
         try:
             result = _run_function(
-                namespace, graph_name, fn_name, input, code_path, version, init_value, invocation_id, self._indexify_client
+                namespace,
+                graph_name,
+                fn_name,
+                input,
+                code_path,
+                version,
+                init_value,
+                invocation_id,
+                self._indexify_client,
             )
             # TODO - bring back running in a separate process
         except Exception as e:
@@ -139,7 +162,15 @@ def _run_function(
         try:
             key = f"{namespace}/{graph_name}/{version}/{fn_name}"
             if key not in function_wrapper_map:
-                _load_function(namespace, graph_name, fn_name, code_path, version)
+                _load_function(
+                    namespace,
+                    graph_name,
+                    fn_name,
+                    code_path,
+                    version,
+                    invocation_id,
+                    indexify_client,
+                )
 
             fn = function_wrapper_map[key]
             if (

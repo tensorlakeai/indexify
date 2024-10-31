@@ -36,12 +36,12 @@ impl Service {
         let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?).await?;
         let blob_storage = Arc::new(BlobStorage::new(self.config.blob_storage.clone())?);
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
-        let object_store = self.config.blob_storage.object_store()?;
         let kvs_manifest_path = Path::new(&self.config.state_store_path).join("graph_ctx_state");
         let kvs_manifest_path = kvs_manifest_path
             .to_str()
             .ok_or(anyhow!(format!("unable to create kv store pathl")))?;
-        let kvs = KVS::new(object_store.clone(), kvs_manifest_path).await?;
+        println!("KVS manifest path: {}", kvs_manifest_path);
+        let kvs = KVS::new(&format!("file://{}", &kvs_manifest_path.to_string())).await?;
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
             kvs: Arc::new(kvs),

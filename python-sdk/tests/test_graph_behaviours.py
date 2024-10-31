@@ -9,6 +9,7 @@ from indexify import (
     Pipeline,
     RemoteGraph,
     RemotePipeline,
+    get_ctx,
     indexify_function,
     indexify_router,
 )
@@ -22,6 +23,30 @@ class MyObject(BaseModel):
 @indexify_function()
 def simple_function(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
+
+
+class ComplexObject(BaseModel):
+    invocation_id: str
+    graph_name: str
+    graph_version: str
+    data: int
+
+
+@indexify_function()
+def simple_function_ctx(x: MyObject) -> ComplexObject:
+    ctx = get_ctx()
+    ctx.set_state_key("my_key", 10)
+    val = ctx.get_state_key("my_key")
+    return ComplexObject(
+        invocation_id=ctx.invocation_id,
+        graph_name=ctx.graph_name,
+        graph_version=ctx.graph_version,
+        data=val,
+    )
+
+@indexify_function()
+def simple_function_ctx_b(x: ComplexObject) -> int:
+    return x.data + 1
 
 
 @indexify_function()
@@ -205,6 +230,16 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=5)
         output = graph.output(invocation_id, "add_two")
         self.assertEqual(sorted(output), [2, 4, 6])
+
+    def test_graph_context(self):
+        graph = Graph(
+            name="test_context", description="test", start_node=simple_function_ctx
+        )
+        graph.add_edge(simple_function_ctx, simple_function_ctx_b)
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output2 = graph.output(invocation_id, "simple_function_ctx_b")
+        self.assertEqual(output2[0], 11)
 
 
 if __name__ == "__main__":

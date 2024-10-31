@@ -66,6 +66,7 @@ class ExtractTask(asyncio.Task):
                 init_value=init_value,
                 code_path=code_path,
                 version=task.graph_version,
+                invocation_id=task.invocation_id,
             ),
             **kwargs,
         )

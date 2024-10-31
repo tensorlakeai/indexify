@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
     extract::{
@@ -822,19 +822,20 @@ async fn get_code(
         return Err(IndexifyAPIError::not_found("Compute Graph not found"));
     }
     let compute_graph = compute_graph.unwrap();
-    let storage_reader = state.blob_storage.get(&compute_graph.code.path);
-    let code_stream = storage_reader
-        .get()
+    let storage_reader = state
+        .blob_storage
+        .get(&compute_graph.code.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
-
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {}", e))
+        })?;
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header(
             "Content-Length",
             compute_graph.code.clone().size.to_string(),
         )
-        .body(Body::from_stream(code_stream))
+        .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 

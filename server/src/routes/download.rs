@@ -22,16 +22,15 @@ pub async fn download_invocation_payload(
                 e
             ))
         })?;
-    let storage_reader = state.blob_storage.get(&output.payload.path);
-    let payload_stream = storage_reader
-        .get()
+    let storage_reader = state
+        .blob_storage
+        .get(&output.payload.path)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
-
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", output.payload.size.to_string())
-        .body(Body::from_stream(payload_stream))
+        .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
@@ -81,16 +80,15 @@ pub async fn download_fn_output_payload(
             )))
         }
     };
-    let storage_reader = state.blob_storage.get(&payload.path);
-    let payload_stream = storage_reader
-        .get()
+    let storage_reader = state
+        .blob_storage
+        .get(&payload.path)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
-
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", payload.size.to_string())
-        .body(Body::from_stream(payload_stream))
+        .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
 
@@ -117,15 +115,14 @@ pub async fn download_fn_output_by_key(
             )))
         }
     };
-    let storage_reader = state.blob_storage.get(&payload.path);
-    let payload_stream = storage_reader
-        .get()
+    let storage_reader = state
+        .blob_storage
+        .get(&payload.path)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
-
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", payload.size.to_string())
-        .body(Body::from_stream(payload_stream))
+        .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }

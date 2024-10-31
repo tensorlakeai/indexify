@@ -4,15 +4,17 @@ from typing import List, Union
 from pydantic import BaseModel
 
 from indexify.functions_sdk.indexify_functions import (
+    GraphInvocationContext,
     IndexifyFunctionWrapper,
+    get_ctx,
     indexify_function,
     indexify_router,
-    GraphInvocationContext,
-    get_ctx,
 )
 
+TEST_GRAPH_CTX = GraphInvocationContext(
+    invocation_id="123", graph_name="test", graph_version="1"
+)
 
-TEST_GRAPH_CTX = GraphInvocationContext(invocation_id="123", graph_name="test", graph_version="1")
 
 class TestFunctionWrapper(unittest.TestCase):
     def test_basic_features(self):

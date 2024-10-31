@@ -1,14 +1,12 @@
 import asyncio
 import json
 import ssl
+import traceback
 from concurrent.futures.process import BrokenProcessPool
 from importlib.metadata import version
-import traceback
 from typing import Dict, List, Optional
 
 import httpx
-from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
-from indexify.http_client import IndexifyClient
 import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
@@ -22,8 +20,11 @@ from indexify.functions_sdk.data_objects import (
     IndexifyData,
     RouterOutput,
 )
-from . import image_dependency_installer
+from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
+from indexify.http_client import IndexifyClient
 
+from ..functions_sdk.image import ImageInformation
+from . import image_dependency_installer
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
@@ -31,7 +32,6 @@ from .function_worker import FunctionWorker
 from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
-from ..functions_sdk.image import ImageInformation
 
 custom_theme = Theme(
     {
@@ -60,7 +60,6 @@ class ExtractorAgent:
         executor_id: str,
         num_workers,
         code_path: str,
-        function_worker: FunctionWorker,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
         name_alias: Optional[str] = None,
@@ -113,7 +112,7 @@ class ExtractorAgent:
 
         self._task_store: TaskStore = TaskStore()
         self._executor_id = executor_id
-        self._function_worker = function_worker
+        self._function_worker = FunctionWorker(workers=num_workers, indexify_client=IndexifyClient(service_url=f"{self._protocol}://{server_addr}")) 
         self._has_registered = False
         self._server_addr = server_addr
         self._base_url = f"{self._protocol}://{self._server_addr}"

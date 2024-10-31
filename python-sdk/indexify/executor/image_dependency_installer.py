@@ -7,7 +7,6 @@ from rich.theme import Theme
 
 from indexify.functions_sdk.image import ImageInformation
 
-
 custom_theme = Theme(
     {
         "info": "cyan",
