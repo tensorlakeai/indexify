@@ -43,6 +43,7 @@ export interface DataObject {
   id: string;
   payload_size: number;
   payload_sha_256: string;
+  created_at?: number;
 }
 
 export interface GraphInvocations {
