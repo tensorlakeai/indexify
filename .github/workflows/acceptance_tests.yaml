@@ -1,0 +1,119 @@
+name: Acceptance Tests
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  changes:
+    name: Get Changes
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+      indexify: ${{ steps.filter.outputs.indexify }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            ui:
+              - 'server/ui/**'
+            indexify:
+              - 'server/**'
+              - 'python-sdk/**'
+              - '.github/**'
+
+  test:
+    name: Run Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.indexify == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      #   - name: Update APT package list
+      # run: sudo apt-get update || true # skip errors as temp workaround for https://github.com/tensorlakeai/indexify/actions/runs/8814655533/job/24194983960#step:3:33
+      - name: Install poetry
+        run: pipx install poetry
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'poetry'
+      - name: Copy rust-toolchain
+        run: cp server/rust-toolchain.toml .
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-directories: |
+            server/target
+      - name: Install python dependencies
+        run: |
+          cd python-sdk
+          poetry install
+      - name: Build indexify-server
+        run: |
+          cd server
+          cargo build
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd server
+            RUST_LOG=debug cargo run &
+
+          wait-on: |
+            tcp:localhost:8900
+
+          tail: true
+          wait-for: 30s
+          log-output: true
+          # always logging the output to debug test failures.
+          log-output-if: true
+      - name: Start Background Indexify Executor
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd python-sdk
+            poetry run indexify-cli executor &
+
+          wait-on: |
+            tcp:localhost:8900
+
+          tail: true
+          wait-for: 10s
+          log-output: true
+          # always logging the output to debug test failures.
+          log-output-if: true
+      - name: Wait for readiness
+        run: |
+          serverReady=false
+          counter=0
+          while [ "$serverReady" != true ]; do
+            output=$(curl --silent --fail http://localhost:8900/internal/executors | jq '. | length' 2>/dev/null)
+            if [[ $? -eq 0 && "$output" -ge 1 ]]; then
+                echo "Server ready with executors."
+                serverReady=true
+            else
+                echo 'Waiting for executors to join server...'
+                counter=$((counter+1))
+                if [ $counter -gt 6 ]; then
+                    echo "Timeout waiting for executors to join server."
+                    exit 1
+                fi
+                sleep 5
+            fi
+          done
+      - name: Run Acceptance Tests
+        run: |
+          cd python-sdk
+          poetry run python tests/test_graph_behaviours.py
+          poetry run python tests/test_graph_update.py
+          poetry run python tests/test_graph_validation.py
