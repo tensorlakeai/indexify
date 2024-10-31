@@ -14,6 +14,7 @@ interface RowData {
   fn_name: string;
   description: string;
   dependencies: string[];
+  version?: string;
 }
 
 const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namespace }) => {
@@ -54,6 +55,7 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
       <Table sx={{ minWidth: 650 }} aria-label="compute graph table">
         <TableHead sx={{ pt: 2}}>
           <TableRow sx={{ mt: 2}}>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Version</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Node Name</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Out Edges</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Description</TableCell>
@@ -62,6 +64,7 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
         <TableBody>
           {rows.sort((a, b) => a.name.localeCompare(b.name)).map((row) => (
             <TableRow key={row.name}>
+              <TableCell sx={{ pt: 2}}>{row.version}</TableCell>
               <TableCell sx={{ pt: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'left', flexDirection: 'column' }}>
                   <Box display={'flex'} flexDirection={'row'} alignItems={'center'}>
