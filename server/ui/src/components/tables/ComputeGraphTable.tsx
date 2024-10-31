@@ -14,7 +14,7 @@ interface RowData {
   fn_name: string;
   description: string;
   dependencies: string[];
-  version?: string;
+  version: string;
 }
 
 const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namespace }) => {
@@ -26,6 +26,7 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
         fn_name: node.compute_fn.fn_name,
         description: node.compute_fn.description,
         dependencies: graphData.edges[nodeName] || [],
+        version: graphData.version || 'N/A'
       };
     } else {
       return {
@@ -34,6 +35,7 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
         fn_name: node.dynamic_router.source_fn,
         description: node.dynamic_router.description,
         dependencies: node.dynamic_router.target_fns,
+        version: graphData.version || 'N/A'
       };
     }
   });
@@ -49,22 +51,20 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
     }
   };
 
-
   return (
     <TableContainer component={Paper} sx={{borderRadius: '8px', mt: 2, boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
       <Table sx={{ minWidth: 650 }} aria-label="compute graph table">
         <TableHead sx={{ pt: 2}}>
           <TableRow sx={{ mt: 2}}>
-            <TableCell sx={{ fontSize: 14, pt: 1}}>Version</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Node Name</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Out Edges</TableCell>
+            <TableCell sx={{ fontSize: 14, pt: 1}}>Version</TableCell>
             <TableCell sx={{ fontSize: 14, pt: 1}}>Description</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {rows.sort((a, b) => a.name.localeCompare(b.name)).map((row) => (
             <TableRow key={row.name}>
-              <TableCell sx={{ pt: 2}}>{row.version}</TableCell>
               <TableCell sx={{ pt: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'left', flexDirection: 'column' }}>
                   <Box display={'flex'} flexDirection={'row'} alignItems={'center'}>
@@ -92,6 +92,7 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
                   <Chip key={index} label={dep} size="small" sx={{ mr: 0.5 }} />
                 ))}
               </TableCell>
+              <TableCell sx={{ pt: 2}}>{row.version}</TableCell>
               <TableCell sx={{ pt: 2}}>{row.description}</TableCell>
             </TableRow>
           ))}
