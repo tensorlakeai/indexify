@@ -3,6 +3,7 @@ import {
   Breadcrumbs,
   Typography,
   Stack,
+  Chip,
 } from '@mui/material';
 import { TableDocument } from 'iconsax-react';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
@@ -47,8 +48,8 @@ const IndividualComputeGraphPage = () => {
             <div className="heading-icon-container">
               <TableDocument size="25" className="heading-icons" variant="Outline"/>
             </div>
-            <Typography variant="h4" display={'flex'} flexDirection={'row'}>
-              {computeGraph.name} <CopyText text={computeGraph.name} />
+            <Typography variant="h4" display={'flex'} flexDirection={'row'} alignItems={'center'} gap={1}>
+            {computeGraph.name} <Chip label={`Version ${computeGraph.version}`} size="small" /> <CopyText text={computeGraph.name} />
             </Typography>
           </div>
           <ComputeGraphTable namespace={namespace} graphData={computeGraph} />
