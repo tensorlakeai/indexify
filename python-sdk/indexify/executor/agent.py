@@ -422,6 +422,10 @@ class ExtractorAgent:
                         console.print(
                             Text("executor registered successfully", style="bold green")
                         )
+                        if not event_source.response.is_success:
+                            console.print(f"failed to register: {event_source.response.text}")
+                            await asyncio.sleep(5)
+                            continue
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
                             tasks = []
