@@ -392,22 +392,10 @@ pub(crate) fn create_or_update_compute_graph(
         }
 
         for (node_name, node) in compute_graph.nodes.iter_mut() {
-            let existing_node = existing_compute_graph.nodes.get(node_name).unwrap();
-
-            let existing_hash = existing_compute_graph
-                .nodes
-                .get(node_name)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "unable to find function {} in graph {}",
-                        node_name,
-                        compute_graph.name
-                    )
-                })?
-                .image_hash();
-
-            if node.image_hash() != existing_hash {
-                node.set_image_version(existing_node.clone().image_version_next());
+            if let Some(existing_node) = existing_compute_graph.nodes.get(node_name) {
+                if node.image_hash() != existing_node.image_hash() {
+                    node.set_image_version(existing_node.clone().image_version_next());
+                }
             }
         }
     };
