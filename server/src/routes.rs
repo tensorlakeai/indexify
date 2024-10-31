@@ -569,6 +569,7 @@ async fn graph_invocations(
             id: data_object.id,
             payload_size: data_object.payload.size,
             payload_sha_256: data_object.payload.sha256_hash,
+            created_at: data_object.created_at,
         });
     }
     Ok(Json(GraphInvocations {

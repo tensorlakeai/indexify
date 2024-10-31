@@ -731,7 +731,8 @@
         "required": [
           "id",
           "payload_size",
-          "payload_sha_256"
+          "payload_sha_256",
+          "created_at"
         ],
         "properties": {
           "id": {
@@ -741,6 +742,11 @@
             "type": "string"
           },
           "payload_size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
             "type": "integer",
             "format": "int64",
             "minimum": 0

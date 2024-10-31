@@ -11,7 +11,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use filter::LabelsFilter;
-use indexify_utils::default_creation_time;
+use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -458,6 +458,7 @@ pub struct InvocationPayload {
     pub namespace: String,
     pub compute_graph_name: String,
     pub payload: DataPayload,
+    pub created_at: u64,
 }
 
 impl InvocationPayload {
@@ -484,6 +485,7 @@ impl InvocationPayloadBuilder {
             .compute_graph_name
             .clone()
             .ok_or(anyhow!("compute_graph_name is required"))?;
+        let created_at: u64 = get_epoch_time_in_ms();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
@@ -496,6 +498,7 @@ impl InvocationPayloadBuilder {
             namespace: ns,
             compute_graph_name: cg_name,
             payload,
+            created_at,
         })
     }
 }
