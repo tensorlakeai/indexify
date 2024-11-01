@@ -29,21 +29,19 @@ class GraphInvocationContext(BaseModel):
     invocation_id: str
     graph_name: str
     graph_version: str
-    indexify_client: Optional[Any] = PrivateAttr(
-        default=None
-    )  # avoids circular import
+    indexify_client: Optional[Any] = Field(default=None)  # avoids circular import
     _local_state: Dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def set_state_key(self, key: str, value: Any) -> None:
         if self.indexify_client is None:
             self._local_state[key] = value
             return
-        self.indexify_client.set_state_key(key, value)
+        self.indexify_client.set_state_key(self.graph_name, self.invocation_id, key, value)
 
     def get_state_key(self, key: str) -> Any:
         if self.indexify_client is None:
             return self._local_state.get(key)
-        return self.indexify_client.get_state_key(key)
+        return self.indexify_client.get_state_key(self.graph_name, self.invocation_id, key)
 
 
 def format_filtered_traceback(exc_info=None):

@@ -199,13 +199,13 @@ class IndexifyClient:
         return namespaces
 
     def set_state_key(self, compute_graph: str, invocation_id: str, key: str, value: Json) -> None:
-        response = self._post(f"/internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx", json={"key": key, "value": value}),
-        response.raise_for_status()
+        response = self._post(f"internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx", json={"key": key, "value": value}),
+        response[0].raise_for_status()
 
     def get_state_key(self, compute_graph: str, invocation_id: str, key: str) -> Json:
-        response = self._get(f"/internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx", json={"key": key}),
-        response.raise_for_status()
-        return response.json().get("value")
+        response = self._get(f"internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx", json={"key": key}),
+        response[0].raise_for_status()
+        return response[0].json().get("value")
 
     @classmethod
     def new_namespace(
