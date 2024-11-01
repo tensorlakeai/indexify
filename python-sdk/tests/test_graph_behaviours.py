@@ -59,6 +59,7 @@ class SimpleFunctionCtxC(IndexifyFunction):
         ctx = get_ctx()
         print(f"ctx: {ctx}")
         val = ctx.get_state_key("my_key")
+        assert val == 10
         return val + 1
 
 @indexify_function()
