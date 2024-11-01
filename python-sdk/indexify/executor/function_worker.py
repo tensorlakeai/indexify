@@ -51,8 +51,8 @@ def _load_function(
     fn_name: str,
     code_path: str,
     version: int,
-    invocation_id: Optional[str] = None,
-    indexify_client: Optional[IndexifyClient] = None,
+    invocation_id: str,
+    indexify_client: IndexifyClient,
 ):
     """Load an extractor to the memory: extractor_wrapper_map."""
     global function_wrapper_map
@@ -62,13 +62,12 @@ def _load_function(
     with open(code_path, "rb") as f:
         code = f.read()
         pickled_functions = cloudpickle.loads(code)
-    print(invocation_id)
-    print(version)
+    print("indexify client ", indexify_client)
     context = GraphInvocationContext(
         invocation_id=invocation_id,
         graph_name=graph_name,
         graph_version=str(version),
-        _indexify_client=indexify_client,
+        indexify_client=indexify_client,
     )
     function_wrapper = IndexifyFunctionWrapper(
         cloudpickle.loads(pickled_functions[fn_name]),

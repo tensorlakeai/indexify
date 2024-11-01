@@ -17,7 +17,7 @@ from typing import (
 )
 
 import msgpack
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
@@ -29,21 +29,21 @@ class GraphInvocationContext(BaseModel):
     invocation_id: str
     graph_name: str
     graph_version: str
-    _indexify_client: Optional[Any] = PrivateAttr(
+    indexify_client: Optional[Any] = PrivateAttr(
         default=None
     )  # avoids circular import
     _local_state: Dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def set_state_key(self, key: str, value: Any) -> None:
-        if self._indexify_client is None:
+        if self.indexify_client is None:
             self._local_state[key] = value
             return
-        self._indexify_client.set_state_key(key, value)
+        self.indexify_client.set_state_key(key, value)
 
     def get_state_key(self, key: str) -> Any:
-        if self._indexify_client is None:
+        if self.indexify_client is None:
             return self._local_state.get(key)
-        return self._indexify_client.get_state_key(key)
+        return self.indexify_client.get_state_key(key)
 
 
 def format_filtered_traceback(exc_info=None):
