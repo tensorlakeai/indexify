@@ -215,7 +215,12 @@ class Graph:
             }
         self._results[input.id] = outputs
         enable_cache = kwargs.get("enable_cache", True)
-        ctx = GraphInvocationContext(invocation_id=input.id, graph_name=self.name, graph_version="1", indexify_client=None)
+        ctx = GraphInvocationContext(
+            invocation_id=input.id,
+            graph_name=self.name,
+            graph_version="1",
+            indexify_client=None,
+        )
         self._run(input, outputs, enable_cache, ctx)
         return input.id
 

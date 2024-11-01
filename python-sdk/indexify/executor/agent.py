@@ -112,7 +112,12 @@ class ExtractorAgent:
 
         self._task_store: TaskStore = TaskStore()
         self._executor_id = executor_id
-        self._function_worker = FunctionWorker(workers=num_workers, indexify_client=IndexifyClient(service_url=f"{self._protocol}://{server_addr}")) 
+        self._function_worker = FunctionWorker(
+            workers=num_workers,
+            indexify_client=IndexifyClient(
+                service_url=f"{self._protocol}://{server_addr}"
+            ),
+        )
         self._has_registered = False
         self._server_addr = server_addr
         self._base_url = f"{self._protocol}://{self._server_addr}"

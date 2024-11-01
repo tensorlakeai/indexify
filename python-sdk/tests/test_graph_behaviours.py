@@ -41,6 +41,7 @@ def simple_function_ctx(x: MyObject) -> ComplexObject:
         graph_version=ctx.graph_version,
     )
 
+
 @indexify_function()
 def simple_function_ctx_b(x: ComplexObject) -> int:
     ctx = get_ctx()
