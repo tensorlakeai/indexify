@@ -1,10 +1,10 @@
 import unittest
-
-from indexify.functions_sdk.image import Image
-from pydantic import BaseModel
-from indexify import indexify_function, Graph, RemoteGraph
 from typing import List
 
+from pydantic import BaseModel
+
+from indexify import Graph, RemoteGraph, indexify_function
+from indexify.functions_sdk.image import Image
 
 """
 How to run this test
@@ -54,7 +54,6 @@ def add(total: Total, new: int) -> Total:
 
 
 class TestGraphImageBuilderWorking(unittest.TestCase):
-
     def test_install_working_dependency(self):
         g = Graph(
             name="sequence_summer3",

@@ -55,15 +55,14 @@ pub async fn download_task_logs(
     }
     let payload = payload.unwrap();
 
-    let storage_reader = state.blob_storage.get(&payload.path);
-    let payload_stream = storage_reader
-        .get()
+    let storage_reader = state
+        .blob_storage
+        .get(&payload.path)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
-
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", payload.size.to_string())
-        .body(Body::from_stream(payload_stream))
+        .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }

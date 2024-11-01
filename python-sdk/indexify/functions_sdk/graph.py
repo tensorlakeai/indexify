@@ -33,6 +33,7 @@ from .indexify_functions import (
     IndexifyFunction,
     IndexifyFunctionWrapper,
     IndexifyRouter,
+    GraphInvocationContext,
 )
 from .local_cache import CacheAwareFunctionWrapper
 from .object_serializer import get_serializer
@@ -96,9 +97,9 @@ class Graph:
             return self
 
         if issubclass(indexify_fn, IndexifyFunction) and indexify_fn.accumulate:
-            self.accumulator_zero_values[indexify_fn.name] = (
-                indexify_fn.accumulate().model_dump()
-            )
+            self.accumulator_zero_values[
+                indexify_fn.name
+            ] = indexify_fn.accumulate().model_dump()
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -214,7 +215,13 @@ class Graph:
             }
         self._results[input.id] = outputs
         enable_cache = kwargs.get("enable_cache", True)
-        self._run(input, outputs, enable_cache)
+        ctx = GraphInvocationContext(
+            invocation_id=input.id,
+            graph_name=self.name,
+            graph_version="1",
+            indexify_client=None,
+        )
+        self._run(input, outputs, enable_cache, ctx)
         return input.id
 
     def _run(
@@ -222,6 +229,7 @@ class Graph:
         initial_input: IndexifyData,
         outputs: Dict[str, List[bytes]],
         enable_cache: bool,
+        ctx: GraphInvocationContext,
     ):
         accumulator_values = self._accumulator_values[initial_input.id]
         queue = deque([(self._start_node, initial_input)])
@@ -229,7 +237,7 @@ class Graph:
             node_name, input = queue.popleft()
             node = self.nodes[node_name]
             function_outputs: FunctionCallResult = IndexifyFunctionWrapper(
-                node
+                node, context=ctx
             ).invoke_fn_ser(node_name, input, accumulator_values.get(node_name, None))
             if function_outputs.traceback_msg is not None:
                 print(function_outputs.traceback_msg)

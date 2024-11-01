@@ -189,7 +189,6 @@ def executor(
         )
     )
 
-    function_worker = FunctionWorker(workers=workers)
     from pathlib import Path
 
     executor_cache = Path(executor_cache).expanduser().absolute()
@@ -200,7 +199,6 @@ def executor(
     agent = ExtractorAgent(
         id,
         num_workers=workers,
-        function_worker=function_worker,
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,

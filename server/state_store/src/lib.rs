@@ -36,6 +36,7 @@ use tokio::sync::{
 };
 
 pub mod invocation_events;
+pub mod kv;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;

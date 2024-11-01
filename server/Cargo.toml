@@ -47,6 +47,7 @@ bytes = "1.7.2"
 pin-project-lite = "0.2.14"
 async-trait = "0.1.83"
 tokio-stream = "0.1.16"
+slatedb = {git = "https://github.com/diptanu/slatedb"}
 rust-embed = {version="8.5.0", features=["mime-guess"]}
 reqwest = { version = "0.12.8", default-features = false, features = [
     "json",
@@ -64,6 +65,7 @@ ciborium = "0.2.2"
 opentelemetry_sdk = "0.26.0"
 opentelemetry = "0.26.0"
 uuid = { version = "1.10.0", features = ["v4"] }
+url = "2.5.2"
 
 [dependencies]
 async-stream = {workspace = true}
@@ -96,6 +98,7 @@ rand.workspace = true
 hex = "0.4.3"
 indexify_ui = {workspace=true}
 hyper = {workspace=true}
+url = {workspace=true}
 
 [dev-dependencies]
 tempfile = { workspace = true }
