@@ -354,7 +354,7 @@ class IndexifyFunctionWrapper:
 def get_ctx() -> GraphInvocationContext:
     frame = inspect.currentframe()
     caller_frame = frame.f_back.f_back
-    foo_instance = caller_frame.f_locals["self"]
+    function_instance = caller_frame.f_locals["self"]
     del frame
     del caller_frame
-    return foo_instance._ctx
+    return function_instance._ctx
