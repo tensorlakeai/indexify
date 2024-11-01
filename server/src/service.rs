@@ -40,7 +40,6 @@ impl Service {
         let kvs_manifest_path = kvs_manifest_path
             .to_str()
             .ok_or(anyhow!(format!("unable to create kv store pathl")))?;
-        println!("KVS manifest path: {}", kvs_manifest_path);
         let kvs = KVS::new(&format!("file://{}", &kvs_manifest_path.to_string())).await?;
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),

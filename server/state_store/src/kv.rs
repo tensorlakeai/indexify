@@ -30,7 +30,7 @@ impl KVS {
 
     pub async fn put_ctx_state(&self, req: WriteContextData) -> Result<()> {
         let key = format!(
-            "{}.{}.{}.{}",
+            "{}|{}|{}|{}",
             req.namespace, req.compute_graph, req.invocation_id, req.key
         );
         self.kv_store.put(key.as_bytes(), &req.value).await;
@@ -44,7 +44,7 @@ impl KVS {
         invocation_id: &str,
         key: &str,
     ) -> Result<Option<Bytes>> {
-        let key = format!("{}.{}.{}.{}", namespace, compute_graph, invocation_id, key);
+        let key = format!("{}|{}|{}|{}", namespace, compute_graph, invocation_id, key);
         let value = self.kv_store.get(key.as_bytes()).await?;
         Ok(value)
     }
