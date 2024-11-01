@@ -14,8 +14,8 @@ use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
     requests::{
         InvokeComputeGraphRequest,
+        ReplayComputeGraphRequest,
         RequestPayload,
-        RerunComputeGraphRequest,
         StateMachineUpdateRequest,
     },
 };
@@ -234,10 +234,10 @@ pub async fn invoke_with_object(
     )
 }
 
-/// Rerun compute graph with all existing payloads
+/// Replay compute graph with all existing payloads
 #[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/rerun",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/replay",
     request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
@@ -246,11 +246,11 @@ pub async fn invoke_with_object(
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
-pub async fn rerun_compute_graph(
+pub async fn replay_compute_graph(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::RerunComputeGraph(RerunComputeGraphRequest {
+    let request = RequestPayload::ReplayComputeGraph(ReplayComputeGraphRequest {
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.clone(),
     });
@@ -262,7 +262,7 @@ pub async fn rerun_compute_graph(
         })
         .await
         .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to create graph rerun task: {}", e))
+            IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))
         })?;
     Ok(())
 }

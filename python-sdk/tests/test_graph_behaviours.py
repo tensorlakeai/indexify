@@ -2,15 +2,14 @@ import sys
 import unittest
 from pathlib import Path
 from typing import List, Union
+
 from parameterized import parameterized
-
-
 from pydantic import BaseModel
 
 from indexify import (
     Graph,
-    IndexifyFunction,
     IndexifyClient,
+    IndexifyFunction,
     Pipeline,
     RemoteGraph,
     RemotePipeline,

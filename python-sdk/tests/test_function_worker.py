@@ -1,3 +1,4 @@
+import sys
 import tempfile
 import unittest
 from typing import List, Mapping, Union
@@ -12,7 +13,6 @@ from indexify.functions_sdk.indexify_functions import (
     IndexifyFunctionWrapper,
     indexify_function,
 )
-import sys
 
 
 @indexify_function()
@@ -75,7 +75,9 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
 
     async def test_function_worker_happy_path(self):
         with tempfile.NamedTemporaryFile(delete=True) as temp_file:
-            code_bytes = cloudpickle.dumps(self.g.serialize(additional_modules=[sys.modules[__name__]]))
+            code_bytes = cloudpickle.dumps(
+                self.g.serialize(additional_modules=[sys.modules[__name__]])
+            )
 
             temp_file.write(code_bytes)
             temp_file.flush()

@@ -187,6 +187,7 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            replay_running: false,
         }
     }
 
@@ -237,6 +238,7 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            replay_running: false,
         }
     }
 
@@ -269,6 +271,7 @@ pub mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            replay_running: false,
         }
     }
 

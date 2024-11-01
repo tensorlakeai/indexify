@@ -3,7 +3,7 @@ import unittest
 
 from pydantic import BaseModel
 
-from indexify import RemoteGraph, IndexifyClient
+from indexify import IndexifyClient, RemoteGraph
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 

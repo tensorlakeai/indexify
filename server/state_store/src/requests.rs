@@ -19,8 +19,8 @@ pub struct StateMachineUpdateRequest {
 
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
-    RerunComputeGraph(RerunComputeGraphRequest),
-    RerunInvocation(RerunInvocationRequest),
+    ReplayComputeGraph(ReplayComputeGraphRequest),
+    ReplayInvocation(ReplayInvocationRequest),
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
@@ -48,7 +48,7 @@ pub struct RemoveSystemTaskRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RerunInvocationRequest {
+pub struct ReplayInvocationRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub graph_version: GraphVersion,
@@ -75,7 +75,7 @@ pub struct InvokeComputeGraphRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RerunComputeGraphRequest {
+pub struct ReplayComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
 }

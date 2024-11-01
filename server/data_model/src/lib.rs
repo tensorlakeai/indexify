@@ -330,11 +330,17 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    #[serde(default)]
+    pub replay_running: bool,
 }
 
 impl ComputeGraph {
     pub fn key(&self) -> String {
-        format!("{}|{}", self.namespace, self.name)
+        ComputeGraph::key_from(&self.namespace, &self.name)
+    }
+
+    pub fn key_from(namespace: &str, name: &str) -> String {
+        format!("{}|{}", namespace, name)
     }
 }
 

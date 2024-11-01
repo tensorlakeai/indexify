@@ -61,7 +61,7 @@ use download::{
     download_invocation_payload,
 };
 use internal_ingest::ingest_files_from_executor;
-use invoke::{invoke_with_file, invoke_with_object, rerun_compute_graph};
+use invoke::{invoke_with_file, invoke_with_object, replay_compute_graph};
 use logs::download_task_logs;
 
 use crate::{
@@ -289,8 +289,8 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             post(invoke_with_object).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/rerun",
-            post(rerun_compute_graph).with_state(route_state.clone()),
+            "/compute_graphs/:compute_graph/replay",
+            post(replay_compute_graph).with_state(route_state.clone()),
         )
         .route(
             "/compute_graphs/:compute_graph/invocations/:invocation_id",

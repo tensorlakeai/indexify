@@ -43,8 +43,8 @@ use crate::requests::{
     ReductionTasks,
     RegisterExecutorRequest,
     RemoveSystemTaskRequest,
-    RerunComputeGraphRequest,
-    RerunInvocationRequest,
+    ReplayComputeGraphRequest,
+    ReplayInvocationRequest,
     UpdateSystemTaskRequest,
 };
 
@@ -124,6 +124,36 @@ pub fn remove_system_task(
 ) -> Result<()> {
     let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
     txn.delete_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
+
+    let key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let graph = txn
+        .get_for_update_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            &key,
+            false,
+        )?
+        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+    let mut graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
+
+    // If there are no pending invocations, mark graph as not replaying since it
+    // means all replaying invocations have finished and the system task won't
+    // start new ones.
+    //
+    // See also mark_invocation_as_finished where we verify if the system task was
+    // deleted before the invocations finished.
+    let pending_invocations =
+        get_pending_graph_replay_invocations(&db, txn, &req.namespace, &req.compute_graph_name)?;
+    if pending_invocations == 0 {
+        // mark graph as replaying
+        graph.replay_running = false;
+        let serialized_graph = JsonEncoder::encode(&graph)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            &key,
+            &serialized_graph,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -147,10 +177,10 @@ pub fn update_system_task(
     Ok(())
 }
 
-pub fn rerun_compute_graph(
+pub fn replay_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: RerunComputeGraphRequest,
+    req: ReplayComputeGraphRequest,
 ) -> Result<()> {
     let key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let graph = txn
@@ -160,7 +190,7 @@ pub fn rerun_compute_graph(
             false,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
+    let mut graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
     let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
     let existing_task = txn.get_for_update_cf(
         &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
@@ -185,13 +215,22 @@ pub fn rerun_compute_graph(
         &serialized_task,
     )?;
 
+    // mark graph as replaying
+    graph.replay_running = true;
+    let serialized_graph = JsonEncoder::encode(&graph)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+        &key,
+        &serialized_graph,
+    )?;
+
     Ok(())
 }
 
-pub fn rerun_invocation(
+pub fn replay_invocation(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: RerunInvocationRequest,
+    req: ReplayInvocationRequest,
 ) -> Result<Vec<StateChange>> {
     let graph_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph_name, &req.invocation_id);
@@ -205,7 +244,7 @@ pub fn rerun_invocation(
     let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     if graph_ctx.graph_version >= req.graph_version {
         tracing::info!(
-            "skipping rerun of invocation: {}, already latest version of invocation context",
+            "skipping replay of invocation: {}, already latest version of invocation context",
             req.invocation_id
         );
         return Ok(Vec::new());
@@ -225,7 +264,7 @@ pub fn rerun_invocation(
         let value: NodeOutput = JsonEncoder::decode(&value)?;
         if value.graph_version >= req.graph_version {
             tracing::info!(
-                "skipping rerun of invocation: {}, already latest version of outputs",
+                "skipping replay of invocation: {}, already latest version of outputs",
                 req.invocation_id
             );
             return Ok(Vec::new());
@@ -242,7 +281,7 @@ pub fn rerun_invocation(
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
     if graph.version > req.graph_version {
-        // Graph was updated after rerun task was created
+        // Graph was updated after replay task was created
         return Ok(Vec::new());
     }
 
@@ -279,21 +318,14 @@ pub fn rerun_invocation(
     )?;
 
     // Increment number of outstanding tasks
-    let cf = IndexifyObjectsColumns::Stats.cf_db(&db);
-    let key = b"pending_system_tasks";
-    let value = txn.get_for_update_cf(&cf, key, true)?;
-    let mut pending_system_tasks = match value {
-        Some(value) => {
-            let bytes: [u8; 8] = value
-                .as_slice()
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
-            usize::from_be_bytes(bytes)
-        }
-        None => 0,
-    };
-    pending_system_tasks += 1;
-    txn.put_cf(&cf, key, &pending_system_tasks.to_be_bytes())?;
+    update_pending_system_tasks(&db, txn, true)?;
+    update_pending_graph_replay_invocations(
+        &db,
+        txn,
+        &req.namespace,
+        &req.compute_graph_name,
+        true,
+    )?;
 
     let state_change = StateChangeBuilder::default()
         .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
@@ -374,15 +406,26 @@ pub(crate) fn delete_input_data_object(
 
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
     mut compute_graph: ComputeGraph,
 ) -> Result<()> {
-    let existing_compute_graph = db.get_cf(
+    let existing_compute_graph = txn.get_for_update_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
+        false,
     )?;
 
     if let Some(existing_compute_graph) = existing_compute_graph {
         let existing_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
+
+        // never allowing updates to immutable fields
+        compute_graph.created_at = existing_compute_graph.created_at;
+
+        // not allowing updates to internal fields
+        compute_graph.replay_running = existing_compute_graph.replay_running;
+        compute_graph.version = existing_compute_graph.version;
+
+        // if the code has changed, increment the version
         if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash ||
             compute_graph.edges != existing_compute_graph.edges ||
             compute_graph.nodes != existing_compute_graph.nodes ||
@@ -398,10 +441,10 @@ pub(crate) fn create_or_update_compute_graph(
                 }
             }
         }
-    };
+    }
 
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
-    db.put_cf(
+    txn.put_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
         &serialized_compute_graph,
@@ -824,25 +867,128 @@ fn mark_invocation_finished(
         serialized_graph_ctx,
     )?;
     if graph_ctx.is_system_task {
-        let cf = IndexifyObjectsColumns::Stats.cf_db(&db);
-        let key = b"pending_system_tasks";
-        let value = txn.get_cf(&cf, key)?;
-        let mut pending_system_tasks = match value {
-            Some(value) => {
-                let bytes: [u8; 8] = value
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
-                usize::from_be_bytes(bytes)
+        // Decrement number of outstanding tasks
+        update_pending_system_tasks(&db, txn, false)?;
+        // Decrement number of pending replay invocations
+        let num_replaying_invocations =
+            update_pending_graph_replay_invocations(&db, txn, namespace, compute_graph, false)?;
+
+        // If there are no pending replaying invocations and the system task was
+        // deleted, mark the graph as not replaying if the system task is
+        // deleted. This means that the system task has finished enqueueing all
+        // invocations and this is the last invocation.
+        // See also delete_system_task where we verify if invovations finished before
+        // the system task was deleted.
+        if num_replaying_invocations == 0 {
+            let system_task_key = SystemTask::key_from(namespace, compute_graph);
+            let system_task = txn.get_cf(
+                &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
+                &system_task_key,
+            )?;
+
+            if system_task.is_none() {
+                let graph_key = ComputeGraph::key_from(namespace, compute_graph);
+                let graph = txn
+                    .get_for_update_cf(
+                        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+                        &graph_key,
+                        false,
+                    )?
+                    .ok_or(anyhow::anyhow!("Compute graph not found"))?;
+                let mut graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
+                // mark graph as replaying
+                graph.replay_running = false;
+                let serialized_graph = JsonEncoder::encode(&graph)?;
+                txn.put_cf(
+                    &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+                    &graph_key,
+                    &serialized_graph,
+                )?;
             }
-            None => 0,
-        };
-        pending_system_tasks -= 1;
-        txn.put_cf(&cf, key, &pending_system_tasks.to_be_bytes())?;
+        }
         Ok(InvocationCompletion::System)
     } else {
         Ok(InvocationCompletion::User)
     }
+}
+
+fn update_pending_system_tasks(
+    db: &Arc<TransactionDB>,
+    txn: &Transaction<'_, TransactionDB>,
+    increment: bool,
+) -> Result<(), anyhow::Error> {
+    let stats_cf = IndexifyObjectsColumns::Stats.cf_db(&db);
+    let key = b"pending_system_tasks";
+    let value = txn.get_for_update_cf(&stats_cf, key, false)?;
+    let mut pending_system_tasks = match value {
+        Some(value) => {
+            let bytes: [u8; 8] = value
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+            usize::from_be_bytes(bytes)
+        }
+        None => 0,
+    };
+    if increment {
+        pending_system_tasks += 1;
+    } else {
+        pending_system_tasks -= 1;
+    }
+    txn.put_cf(&stats_cf, key, &pending_system_tasks.to_be_bytes())?;
+    Ok(())
+}
+
+fn get_pending_graph_replay_invocations(
+    db: &Arc<TransactionDB>,
+    txn: &Transaction<'_, TransactionDB>,
+    namespace: &str,
+    compute_graph: &str,
+) -> Result<usize, anyhow::Error> {
+    let stats_cf = IndexifyObjectsColumns::Stats.cf_db(&db);
+    let key = format!("{}|{}|pending_replay_invocations", namespace, compute_graph);
+    let value = txn.get_for_update_cf(&stats_cf, &key, false)?;
+    let num = match value {
+        Some(value) => {
+            let bytes: [u8; 8] = value
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+            usize::from_be_bytes(bytes)
+        }
+        None => 0,
+    };
+    Ok(num)
+}
+
+fn update_pending_graph_replay_invocations(
+    db: &Arc<TransactionDB>,
+    txn: &Transaction<'_, TransactionDB>,
+    namespace: &str,
+    compute_graph: &str,
+    increment: bool,
+) -> Result<usize, anyhow::Error> {
+    let stats_cf = IndexifyObjectsColumns::Stats.cf_db(&db);
+    let key = format!("{}|{}|pending_replay_invocations", namespace, compute_graph);
+    // exclusive lock to lock other get_for_update_cf
+    let value = txn.get_for_update_cf(&stats_cf, &key, true)?;
+    let mut num = match value {
+        Some(value) => {
+            let bytes: [u8; 8] = value
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
+            usize::from_be_bytes(bytes)
+        }
+        None => 0,
+    };
+    if increment {
+        num += 1;
+    } else {
+        num -= 1;
+    }
+    txn.put_cf(&stats_cf, &key, &num.to_be_bytes())?;
+    Ok(num)
 }
 
 pub(crate) fn register_executor(
