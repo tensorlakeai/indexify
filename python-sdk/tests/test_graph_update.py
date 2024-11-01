@@ -3,7 +3,7 @@ import unittest
 
 from pydantic import BaseModel
 
-from indexify import RemoteGraph
+from indexify import RemoteGraph, IndexifyClient
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 
@@ -19,21 +19,33 @@ def update(x: Object) -> Object:
 
 @indexify_function()
 def update2(x: Object) -> Object:
+    time.sleep(2)
     return Object(x=x.x + "c")
 
 
 class TestGraphUpdate(unittest.TestCase):
     def test_graph_update(self):
-        g = Graph(name="updategraph1", start_node=update)
+        graph_name = "updategraph1"
+
+        g = Graph(name=graph_name, start_node=update)
         g = RemoteGraph.deploy(g)
+
         invocation_id = g.run(block_until_done=True, x=Object(x="a"))
         output = g.output(invocation_id, fn_name="update")
         self.assertEqual(output[0], Object(x="ab"))
 
-        g = Graph(name="updategraph1", start_node=update2)
+        g = Graph(name=graph_name, start_node=update2)
         g = RemoteGraph.deploy(g)
-        g.rerun()
-        time.sleep(1)
+
+        g.replay_runs()
+        i = 0
+        while g.metadata().replay_running:
+            i += 1
+            if i % 2 == 0:  # print every 4 seconds
+                print("waiting for replay to finish")
+            if i == 15:  # wait for 30 seconds
+                raise Exception("Replay did not finish in time")
+            time.sleep(2)
         output = g.output(invocation_id, fn_name="update2")
         self.assertEqual(output[0], Object(x="ac"))
 

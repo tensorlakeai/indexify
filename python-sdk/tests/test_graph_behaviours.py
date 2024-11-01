@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from indexify import (
     Graph,
     IndexifyFunction,
+    IndexifyClient,
     Pipeline,
     RemoteGraph,
     RemotePipeline,
@@ -31,7 +32,7 @@ def simple_function(x: MyObject) -> MyObject:
 
 @indexify_function()
 def simple_function_multiple_inputs(x: MyObject, y: int) -> MyObject:
-    suf = ''.join(["b" for _ in range(y)])
+    suf = "".join(["b" for _ in range(y)])
     return MyObject(x=x.x + suf)
 
 
@@ -42,7 +43,7 @@ def simple_function_with_json_encoder(x: MyObject) -> MyObject:
 
 @indexify_function(encoder="json")
 def simple_function_multiple_inputs_json(x: MyObject, y: int) -> MyObject:
-    suf = ''.join(["b" for _ in range(y)])
+    suf = "".join(["b" for _ in range(y)])
     return MyObject(x=x.x + suf)
 
 
@@ -222,9 +223,23 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output, [MyObject(x="ab")])
 
     @parameterized.expand([(False), (True)])
+    def test_simple_function_in_namespace(self):
+        graph = Graph(
+            name="test_simple_function", description="test", start_node=simple_function
+        )
+        client = IndexifyClient(namespace="simple_function_namespace")
+        client.create_namespace("simple_function_namespace")
+        graph = RemoteGraph.deploy(graph, client=client)
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output = graph.output(invocation_id, "simple_function")
+        self.assertEqual(output, [MyObject(x="ab")])
+
+    @parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs(self, is_remote):
         graph = Graph(
-            name="test_simple_function2", description="test", start_node=simple_function_multiple_inputs
+            name="test_simple_function2",
+            description="test",
+            start_node=simple_function_multiple_inputs,
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"), y=10)
@@ -234,7 +249,9 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs_json(self, is_remote=False):
         graph = Graph(
-            name="test_simple_function2_json", description="test", start_node=simple_function_multiple_inputs_json
+            name="test_simple_function2_json",
+            description="test",
+            start_node=simple_function_multiple_inputs_json,
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"), y=10)

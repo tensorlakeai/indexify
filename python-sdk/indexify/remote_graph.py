@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 
 from .http_client import IndexifyClient
 from .settings import DEFAULT_SERVICE_URL
@@ -51,13 +51,20 @@ class RemoteGraph:
             self._name, block_until_done, **kwargs
         )
 
-    def rerun(self):
+    def replay_runs(self):
         """
-        Rerun the graph with the given invocation ID.
+        Replay all the graph runs on the latest version of the graph.
 
-        :param invocation_id: The invocation ID of the graph execution.
+        This is useful to make all the previous input data go through
+        an updated graph.
         """
-        self._client.rerun_graph(self._name)
+        self._client.replay_invocations(self._name)
+
+    def metadata(self) -> ComputeGraphMetadata:
+        """
+        Get the metadata of the graph.
+        """
+        return self._client.graph(self._name)
 
     @classmethod
     def deploy(

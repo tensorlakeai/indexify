@@ -197,6 +197,22 @@ class IndexifyClient:
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
 
+    def delete_graph(
+        self,
+        graph_name: str,
+    ) -> None:
+        """
+        Deletes a graph and all of its invocations from the namespace.
+
+        :param graph_name The name of the graph to delete.
+
+        WARNING: This operation is irreversible.
+        """
+        response = self._delete(
+            f"namespaces/{self.namespace}/compute_graphs/{graph_name}",
+        )
+        response.raise_for_status()
+
     def load_fn(self, name: str, fn_name: str) -> IndexifyFunction:
         response = self._get(
             f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
@@ -265,8 +281,14 @@ class IndexifyClient:
             print(f"failed to fetch logs: {e}")
             return None
 
-    def rerun_graph(self, graph: str):
-        self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/rerun")
+    def replay_invocations(self, graph: str):
+        """
+        Replay all the invocations on the latest version of the graph.
+
+        This is useful to make all the previous input data go through
+        an updated graph.
+        """
+        self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/replay")
 
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
