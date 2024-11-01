@@ -62,7 +62,6 @@ def _load_function(
     with open(code_path, "rb") as f:
         code = f.read()
         pickled_functions = cloudpickle.loads(code)
-    print("indexify client ", indexify_client)
     context = GraphInvocationContext(
         invocation_id=invocation_id,
         graph_name=graph_name,
