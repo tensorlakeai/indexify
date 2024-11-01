@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::info;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +34,7 @@ impl Default for BlobStorageConfig {
                 .to_str()
                 .unwrap()
         );
-        println!("Using blob store path: {}", blob_store_path);
+        info!("using blob store path: {}", blob_store_path);
         BlobStorageConfig {
             path: Some(blob_store_path),
         }
