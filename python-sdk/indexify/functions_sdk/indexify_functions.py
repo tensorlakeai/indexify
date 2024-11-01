@@ -357,4 +357,6 @@ def get_ctx() -> GraphInvocationContext:
     function_instance = caller_frame.f_locals["self"]
     del frame
     del caller_frame
+    if isinstance(function_instance, IndexifyFunctionWrapper):
+        return function_instance.indexify_function._ctx
     return function_instance._ctx
