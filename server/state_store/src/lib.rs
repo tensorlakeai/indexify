@@ -9,7 +9,7 @@ use std::{
     },
     vec,
 };
-
+use std::hash::{Hash, Hasher};
 use anyhow::{anyhow, Result};
 use data_model::{
     ChangeType,
@@ -29,11 +29,7 @@ use requests::StateMachineUpdateRequest;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
 use strum::IntoEnumIterator;
-use tokio::sync::{
-    broadcast,
-    watch::{Receiver, Sender},
-    RwLock,
-};
+use tokio::sync::{broadcast, watch::{Receiver, Sender}, RwLock};
 
 pub mod invocation_events;
 pub mod requests;
@@ -92,6 +88,37 @@ pub type StateChangeStream =
 
 pub struct InvocationChangeSubscriber {}
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnAllocatedTasks {
+    pub image_name: String,
+    pub image_version: String,
+    pub task_outcome: String,
+    // pub task_id: String,
+    // pub invocation_id: String
+}
+
+impl Hash for UnAllocatedTasks {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.image_name.hash(state);
+        self.image_version.hash(state);
+        self.task_outcome.hash(state);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MetricsData {
+    // pub unallocated_tasks: u64,
+    pub unallocated_tasks: HashMap<UnAllocatedTasks, u64>,
+}
+
+impl Default for MetricsData {
+    fn default() -> Self {
+        MetricsData {
+            unallocated_tasks: HashMap::new(),
+        }
+    }
+}
+
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
@@ -103,6 +130,7 @@ pub struct IndexifyState {
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub system_tasks_tx: tokio::sync::watch::Sender<()>,
     pub system_tasks_rx: tokio::sync::watch::Receiver<()>,
+    pub metrics_data: Arc<std::sync::Mutex<MetricsData>>,
 }
 
 impl IndexifyState {
@@ -124,6 +152,13 @@ impl IndexifyState {
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
+
+
+        // scanner::StateReader::new(Arc::new(self.db.clone())) // read metrics data from here
+        // constuct metrics data and pass it in.
+
+
+
         let s = Arc::new(Self {
             db: Arc::new(db),
             state_change_tx: tx,
@@ -135,7 +170,10 @@ impl IndexifyState {
             gc_rx,
             system_tasks_tx,
             system_tasks_rx,
+            metrics_data: Arc::new(std::sync::Mutex::new(MetricsData::default())),
         });
+
+
 
         let executors = s.reader().get_all_executors()?;
         for executor in executors.iter() {
@@ -165,6 +203,9 @@ impl IndexifyState {
         let mut allocated_tasks_by_executor = Vec::new();
         let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
         let txn = self.db.transaction();
+
+        let metrics_data = MetricsData::default();
+
         let new_state_changes = match &request.payload {
             requests::RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
                 let state_changes = self
@@ -264,7 +305,9 @@ impl IndexifyState {
             requests::RequestPayload::SchedulerUpdate(request) => {
                 let new_state_changes = self.change_events_for_scheduler_update(&request);
                 for req in &request.task_requests {
+
                     match state_machine::create_tasks(self.db.clone(), &txn, req)? {
+
                         Some(completion) => {
                             if let Err(err) = self.task_event_tx.send(
                                 InvocationStateChangeEvent::InvocationFinished(
@@ -347,7 +390,12 @@ impl IndexifyState {
             &txn,
             &request.state_changes_processed.clone(),
         )?;
+
         txn.commit()?;
+
+        // write inmemory stats here
+        self.db.write()
+
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
                 .write()
@@ -730,7 +778,7 @@ mod tests {
 
             // Verify the name is the same. Verify the version is different.
             assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-            // println!("compute graph {:?}", compute_graphs[0]);
+            // !("compute graph {:?}", compute_graphs[0]);
             let nodes = &compute_graphs[0].nodes;
             assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());

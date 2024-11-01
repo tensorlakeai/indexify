@@ -9,7 +9,6 @@ mod config;
 mod executors;
 mod gc;
 mod http_objects;
-mod metrics;
 mod routes;
 mod scheduler;
 mod server;

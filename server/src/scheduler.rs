@@ -83,6 +83,7 @@ impl Scheduler {
                 processed_reduction_tasks.extend(result.processed_reduction_tasks);
             }
         }
+
         let mut new_allocations = vec![];
         for state_change in &state_changes {
             let task_placement_result = match state_change.change_type {

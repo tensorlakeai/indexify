@@ -60,7 +60,7 @@ use download::{
 use internal_ingest::ingest_files_from_executor;
 use invoke::{invoke_with_file, invoke_with_object, rerun_compute_graph};
 use logs::download_task_logs;
-
+use metrics::as_metrics::MetricsData;
 use crate::{
     executors::ExecutorManager,
     http_objects::{
@@ -86,7 +86,6 @@ use crate::{
         TaskOutcome,
         Tasks,
     },
-    metrics::as_metrics::MetricsData,
 };
 
 #[derive(OpenApi)]
@@ -144,7 +143,7 @@ pub struct RouteState {
     pub blob_storage: Arc<blob_store::BlobStorage>,
     pub executor_manager: Arc<ExecutorManager>,
     pub metrics_registry: Arc<prometheus::Registry>,
-    pub metrics: Arc<MetricsData>,
+    pub metrics_data: Arc<MetricsData>,
 }
 
 pub fn create_routes(route_state: RouteState) -> Router {

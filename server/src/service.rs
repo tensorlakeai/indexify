@@ -3,19 +3,15 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::Result;
 use axum_server::Handle;
 use blob_store::BlobStorage;
-use state_store::{
-    requests::{NamespaceRequest, RequestPayload::CreateNameSpace, StateMachineUpdateRequest},
-    IndexifyState,
-};
+use state_store::{requests::{NamespaceRequest, RequestPayload::CreateNameSpace, StateMachineUpdateRequest}, IndexifyState};
 use tokio::{self, signal, sync::watch};
 use tracing::info;
-
+use metrics::{as_metrics, init_provider};
 use super::{routes::RouteState, scheduler::Scheduler};
 use crate::{
     config::ServerConfig,
     executors::ExecutorManager,
     gc::Gc,
-    metrics::{as_metrics::MetricsData, init_provider},
     routes::create_routes,
     system_tasks::SystemTasksExecutor,
 };
@@ -42,7 +38,7 @@ impl Service {
             blob_storage: blob_storage.clone(),
             executor_manager,
             metrics_registry: Arc::new(init_provider()),
-            metrics: Arc::new(MetricsData::new(indexify_state.clone())),
+            metrics_data: Arc::new(as_metrics::MetricsData::new(indexify_state.clone())),
         };
 
         let app = create_routes(route_state);

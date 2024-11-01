@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
+use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task, TaskOutcome};
 use rand::seq::SliceRandom;
-use state_store::{requests::TaskPlacement, IndexifyState};
+use state_store::{requests::TaskPlacement, IndexifyState, UnAllocatedTasks};
 use tracing::{error, info};
 
 pub mod task_creator;
@@ -39,6 +39,7 @@ impl TaskScheduler {
     }
 
     pub fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
+        println!("---- Running schedule_unplace_tasks");
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
         self.schedule_tasks(tasks)
     }
@@ -46,16 +47,32 @@ impl TaskScheduler {
     fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
         let mut task_allocations = Vec::new();
         let mut diagnostic_msgs = Vec::new();
+
+        let unallocated_tasks = &mut self.indexify_state.metrics_data.lock()
+            .map_err(|e| {
+                anyhow!("Could not read metrics {}", e)
+            })?.unallocated_tasks;
+        unallocated_tasks.clear();
+
+        if tasks.len() == 1 {
+            println!("That single task: {:?}", tasks);
+        }
+
+        println!("task len {:?}", tasks.len());
+
         for task in tasks {
             let cg = self
                 .indexify_state
+                .clone()
                 .reader()
                 .get_compute_graph(&task.namespace, &task.compute_graph_name)?
                 .ok_or(anyhow!("compute graph not found"))?;
+
             let compute_fn = cg
                 .nodes
                 .get(&task.compute_fn_name)
                 .ok_or(anyhow!("compute fn not found"))?;
+
             let filtered_executors = self.filter_executors(&compute_fn, &cg.runtime_information)?;
             if !filtered_executors.diagnostic_msgs.is_empty() {
                 diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
@@ -67,6 +84,14 @@ impl TaskScheduler {
                     task,
                     executor: executor_id.clone(),
                 });
+            } else {
+                println!("unassigned task {:?}", task);
+                let key = UnAllocatedTasks {
+                    image_name: compute_fn.image_name().to_string(),
+                    image_version: compute_fn.image_version().to_string(),
+                    task_outcome: format!("{:?}", task.outcome)
+                };
+                *unallocated_tasks.entry(key).or_insert(0) += 1;
             }
         }
         Ok(TaskPlacementResult {

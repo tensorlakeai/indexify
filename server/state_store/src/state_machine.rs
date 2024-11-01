@@ -31,7 +31,7 @@ use rocksdb::{
 };
 use strum::AsRefStr;
 use tracing::error;
-
+use crate::{MetricsData, UnAllocatedTasks};
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
     CreateTasksRequest,
@@ -595,6 +595,7 @@ pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &CreateTasksRequest,
+    mut metrics_data: MetricsData,
 ) -> Result<Option<InvocationCompletion>> {
     let ctx_key = format!(
         "{}|{}|{}",
@@ -621,6 +622,13 @@ pub(crate) fn create_tasks(
             task.key(),
             &[],
         )?;
+
+        let key = UnAllocatedTasks {
+            image_name: task.image_name().to_string(),
+            image_version: task.image_version().to_string(),
+            task_outcome: format!("{:?}", task.outcome)
+        };
+        *metrics_data.unallocated_tasks.entry(key).or_insert(0) += 1;
 
         let analytics = graph_ctx
             .fn_task_analytics

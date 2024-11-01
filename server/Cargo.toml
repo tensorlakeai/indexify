@@ -15,6 +15,7 @@ members = [
     "indexify_ui",
     "state_store",
     "task_scheduler",
+    "metrics",
     "utils",
 ]
 
@@ -29,6 +30,7 @@ indexify_utils = { path = "utils" }
 indexify_ui = {path = "indexify_ui"}
 hyper = "1.4.1"
 state_store = { path = "state_store" }
+metrics = { path = "metrics" }
 strum = { version = "0.26.3", features = ["derive"] }
 tracing = "0.1.40"
 rand = "0.8.5"
@@ -104,6 +106,7 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["rt-tokio"] }
 prometheus = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
+metrics = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
