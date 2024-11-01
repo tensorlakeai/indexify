@@ -60,6 +60,8 @@ class SimpleFunctionCtxC(IndexifyFunction):
         print(f"ctx: {ctx}")
         val = ctx.get_state_key("my_key")
         assert val == 10
+        not_present = ctx.get_state_key("not_present")
+        assert not_present is None
         return val + 1
 
 @indexify_function()
