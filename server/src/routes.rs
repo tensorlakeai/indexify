@@ -20,12 +20,15 @@ use axum::{
     Json,
     Router,
 };
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 use blob_store::PutResult;
 use data_model::ExecutorId;
 use futures::StreamExt;
+use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use nanoid::nanoid;
+use prometheus::Encoder;
 use state_store::{
     kv::{WriteContextData, KVS},
     requests::{
@@ -146,6 +149,7 @@ pub struct RouteState {
     pub blob_storage: Arc<blob_store::BlobStorage>,
     pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
+    pub registry: Arc<prometheus::Registry>,
 }
 
 pub fn create_routes(route_state: RouteState) -> Router {
@@ -154,8 +158,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .allow_origin(Any)
         .allow_headers(Any);
 
+    let axum_metrics = HttpMetricsLayerBuilder::new().build();
     Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
+        .merge(axum_metrics.routes())
         .route("/", get(index))
         .route(
             "/namespaces",
@@ -197,6 +203,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
+        .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
         .route("/ui", get(ui_index_handler))
         .route("/ui/*rest", get(ui_handler))
         .layer(
@@ -214,6 +221,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
                 })
         )
         .layer(cors)
+        .layer(axum_metrics)
         .layer(DefaultBodyLimit::disable())
 }
 
@@ -872,4 +880,21 @@ async fn get_ctx_state_key(
         .map_err(IndexifyAPIError::internal_error)?;
     let value = value.map(|v| serde_json::from_slice(&v.to_vec()).unwrap());
     Ok(Json(CtxStateGetResponse { value }))
+}
+
+#[axum::debug_handler]
+async fn service_metrics(
+    State(state): State<RouteState>,
+) -> Result<Response<Body>, IndexifyAPIError> {
+    let metric_families = state.registry.gather();
+    let mut buffer = vec![];
+    let encoder = prometheus::TextEncoder::new();
+    encoder.encode(&metric_families, &mut buffer).map_err(|_| {
+        IndexifyAPIError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to encode metrics",
+        )
+    })?;
+
+    Ok(Response::new(Body::from(buffer)))
 }

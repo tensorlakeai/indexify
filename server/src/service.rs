@@ -3,6 +3,8 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
+use opentelemetry::{global, KeyValue};
+use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource};
 use state_store::{
     kv::KVS,
     requests::{NamespaceRequest, RequestPayload::CreateNameSpace, StateMachineUpdateRequest},
@@ -21,6 +23,22 @@ use crate::{
 };
 
 const DEFAULT_NAMESPACE: &str = "default";
+
+fn init_meter_provider() -> Result<prometheus::Registry> {
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .build()?;
+    let provider = SdkMeterProvider::builder()
+        .with_reader(exporter)
+        .with_resource(Resource::new([KeyValue::new(
+            "service.name",
+            "indexify-server",
+        )]))
+        .build();
+    global::set_meter_provider(provider.clone());
+    Ok(registry)
+}
 
 pub struct Service {
     pub config: ServerConfig,
@@ -42,11 +60,13 @@ impl Service {
         let kvs = KVS::new(blob_storage.clone(), "graph_ctx_state")
             .await
             .context("error initializing KVS")?;
+        let metrics_registry = Arc::new(init_meter_provider()?);
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
             kvs: Arc::new(kvs),
             blob_storage: blob_storage.clone(),
             executor_manager,
+            registry: metrics_registry,
         };
         let app = create_routes(route_state);
         let handle = Handle::new();

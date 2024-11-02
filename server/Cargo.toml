@@ -62,10 +62,13 @@ tower-http = { version = "0.6.1", default-features = false, features = [
 ] }
 pin-project = "1.1.7"
 ciborium = "0.2.2"
-opentelemetry_sdk = "0.26.0"
-opentelemetry = "0.26.0"
 uuid = { version = "1.11.0", features = ["v4"] }
 url = "2.5.2"
+opentelemetry = { version="0.24.0", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.24.0", features = ["metrics"] }
+opentelemetry-prometheus = {version = "0.17.0"}
+prometheus = {version = "0.13.4"}
+axum-otel-metrics = { version = "0.8.1"}
 
 [dependencies]
 async-stream = {workspace = true}
@@ -99,6 +102,11 @@ hex = "0.4.3"
 indexify_ui = {workspace=true}
 hyper = {workspace=true}
 url = {workspace=true}
+opentelemetry = {workspace=true}
+opentelemetry-prometheus = {workspace=true}
+opentelemetry_sdk = { workspace=true }
+prometheus = {workspace=true}
+axum-otel-metrics = { workspace=true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
