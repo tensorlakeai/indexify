@@ -268,6 +268,9 @@ class IndexifyClient:
                 data=ser_input,
                 params=params,
             ) as event_source:
+                if not event_source.response.is_success:
+                    resp = event_source.response.read().decode("utf-8")
+                    raise Exception(f"failed to invoke graph: {resp}")
                 for sse in event_source.iter_sse():
                     obj = json.loads(sse.data)
                     for k, v in obj.items():
