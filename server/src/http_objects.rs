@@ -269,6 +269,8 @@ pub struct ComputeGraph {
     pub namespace: String,
     pub description: String,
     pub start_node: Node,
+    #[serde(skip_deserializing)]
+    pub version: u32,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     #[serde(default = "get_epoch_time_in_ms")]
@@ -324,6 +326,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             namespace: compute_graph.namespace,
             description: compute_graph.description,
             start_node: start_fn,
+            version: compute_graph.version.0,
             nodes,
             edges: compute_graph.edges,
             created_at: compute_graph.created_at,
@@ -348,6 +351,7 @@ pub struct DataObject {
     pub id: String,
     pub payload_size: u64,
     pub payload_sha_256: String,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -515,6 +519,28 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvocationQueryParams {
     pub block_until_finish: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtxStatePutRequest {
+    pub key: String,
+
+    // Could have encoded this as string but
+    // making sure we get valid json from user
+    // code
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtxStateGetRequest {
+    /// The key to retrieve, and if none, return all keys
+    pub key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtxStateGetResponse {
+    // Values indexed by key names
+    pub value: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

@@ -2,6 +2,8 @@ from . import data_loaders
 from .functions_sdk.graph import Graph
 from .functions_sdk.image import Image
 from .functions_sdk.indexify_functions import (
+    IndexifyFunction,
+    get_ctx,
     indexify_function,
     indexify_router,
 )
@@ -19,6 +21,8 @@ __all__ = [
     "RemotePipeline",
     "Image",
     "indexify_function",
+    "get_ctx",
+    "IndexifyFunction",
     "indexify_router",
     "DEFAULT_SERVICE_URL",
     "IndexifyClient",

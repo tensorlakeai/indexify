@@ -48,7 +48,6 @@ const ComputeGraphTable: React.FC<ComputeGraphTableProps> = ({ graphData, namesp
     }
   };
 
-
   return (
     <TableContainer component={Paper} sx={{borderRadius: '8px', mt: 2, boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset" }}>
       <Table sx={{ minWidth: 650 }} aria-label="compute graph table">

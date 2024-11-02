@@ -94,7 +94,7 @@ mod tests {
             .await
             .unwrap();
         let config =
-            blob_store::BlobStorageConfig::new_disk(temp_dir.path().join("blob").to_str().unwrap());
+            blob_store::BlobStorageConfig::new(temp_dir.path().join("blob").to_str().unwrap());
         let storage = Arc::new(BlobStorage::new(config)?);
         let (tx, rx) = watch::channel(());
         let mut gc = Gc::new(state.clone(), storage.clone(), rx);

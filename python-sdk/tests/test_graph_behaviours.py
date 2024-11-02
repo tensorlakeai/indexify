@@ -8,8 +8,10 @@ from indexify import (
     Graph,
     Pipeline,
     RemotePipeline,
+    get_ctx,
     indexify_function,
     indexify_router,
+    IndexifyFunction,
 )
 from indexify.functions_sdk.data_objects import File
 
@@ -29,6 +31,44 @@ def simple_function_with_json_encoder(x: MyObject) -> MyObject:
 @indexify_function(payload_encoder="invalid")
 def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
+
+class ComplexObject(BaseModel):
+    invocation_id: str
+    graph_name: str
+    graph_version: str
+
+
+@indexify_function()
+def simple_function_ctx(x: MyObject) -> ComplexObject:
+    ctx = get_ctx()
+    ctx.set_state_key("my_key", 10)
+    return ComplexObject(
+        invocation_id=ctx.invocation_id,
+        graph_name=ctx.graph_name,
+        graph_version=ctx.graph_version,
+    )
+
+
+@indexify_function()
+def simple_function_ctx_b(x: ComplexObject) -> int:
+    ctx = get_ctx()
+    val = ctx.get_state_key("my_key")
+    return val + 1
+
+class SimpleFunctionCtxC(IndexifyFunction):
+    name = "SimpleFunctionCtxC"
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self, x: ComplexObject) -> int:
+        ctx = get_ctx()
+        print(f"ctx: {ctx}")
+        val = ctx.get_state_key("my_key")
+        assert val == 10
+        not_present = ctx.get_state_key("not_present")
+        assert not_present is None
+        return val + 1
 
 @indexify_function()
 def generate_seq(x: int) -> List[int]:
@@ -241,6 +281,25 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=5)
         output = graph.output(invocation_id, "add_two")
         self.assertEqual(sorted(output), [2, 4, 6])
+
+    def test_graph_context(self):
+        graph = Graph(
+            name="test_context", description="test", start_node=simple_function_ctx
+        )
+        graph.add_edge(simple_function_ctx, simple_function_ctx_b)
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output2 = graph.output(invocation_id, "simple_function_ctx_b")
+        self.assertEqual(output2[0], 11)
+        graph1 = Graph(
+            name="test_context", description="test", start_node=simple_function_ctx
+        )
+        graph1.add_edge(simple_function_ctx, SimpleFunctionCtxC)
+        graph1 = RemoteGraph.deploy(graph1)
+        invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
+        output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
+        self.assertEqual(output2[0], 11)
+
 
 
 if __name__ == "__main__":

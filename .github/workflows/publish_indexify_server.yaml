@@ -102,22 +102,22 @@ jobs:
   #         path: server/target/release/indexify-server
   #         if-no-files-found: error
 
-  build-windows-package:
-    name: Build Windows Package
-    runs-on: windows-latest-large
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/setup-nasm@v1
-      - run: rustup toolchain install nightly --component rustfmt
-      - run: cargo +nightly fmt --check
-      - run: choco install protoc
-      - run: make package-ui
-      - run: cargo build --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: indexify-server-windows-amd64.exe
-          path: server/target/release/indexify-server.exe
-          if-no-files-found: error
+  # build-windows-package:
+  #   name: Build Windows Package
+  #   runs-on: windows-latest-large
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ilammy/setup-nasm@v1
+  #     - run: rustup toolchain install nightly --component rustfmt
+  #     - run: cargo +nightly fmt --check
+  #     - run: choco install protoc
+  #     - run: make package-ui
+  #     - run: cargo build --release
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: indexify-server-windows-amd64.exe
+  #         path: server/target/release/indexify-server.exe
+  #         if-no-files-found: error
 
   extract-version:
     name: Extract Version Number
@@ -135,7 +135,7 @@ jobs:
     needs:
       - build-linux-amd64-package
       - build-linux-arm64-package
-      - build-windows-package
+     # - build-windows-package
       - build-macos-package
       # - build-macos-package-x86
       - extract-version
@@ -148,7 +148,7 @@ jobs:
           path: /tmp/release/
       - name: Name Artifacts
         run: |
-          mv /tmp/release/indexify-server-windows-amd64.exe/indexify-server.exe /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+          # mv /tmp/release/indexify-server-windows-amd64.exe/indexify-server.exe /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
           mv /tmp/release/indexify-server-darwin-arm64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-darwin-arm64
           # mv /tmp/release/indexify-server-darwin-amd64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-darwin-amd64
           mv /tmp/release/indexify-server-linux-amd64/indexify-server /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-amd64
@@ -163,15 +163,15 @@ jobs:
           body: ${{ github.event.inputs.release_message }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload Windows Binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #- name: Upload Windows Binary
+      #  uses: actions/upload-release-asset@v1
+      #  with:
+      #    upload_url: ${{ steps.create_release.outputs.upload_url }}
+      #    asset_path: /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+      #    asset_name: indexify-server-${{ needs.extract-version.outputs.version }}-windows-amd64.exe
+      #    asset_content_type: application/octet-stream
+      #  env:
+      #    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload Linux Binary
         uses: actions/upload-release-asset@v1
         with:
@@ -265,16 +265,3 @@ jobs:
             fi
             docker buildx build --platform=linux/amd64,linux/arm64 --push . -t tensorlake/indexify-server:$tag -f dockerfiles/Dockerfile.release_server;
           done
-
-  vercel-cache-revalidation:
-    name: Vercel Cache
-    runs-on: ubuntu-latest
-    needs:
-      - create-release
-      - extract-version
-    env:
-      REVALIDATION_SECRET: ${{ secrets.REVALIDATION_SECRET }}
-    steps:
-      - name: Revalidate Cache
-        run: |
-          curl -X POST 'https://www.tensorlake.ai/api/revalidate?secret=d9f3116092236bbbd8d4fda96ffeebd3c64266c6d249e3c59e71c5d8bd695cc4'

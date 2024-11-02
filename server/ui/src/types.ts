@@ -24,6 +24,7 @@ export interface ComputeGraph {
   name: string;
   namespace: string;
   description: string;
+  version?: string;
   start_node: Node;
   nodes: Record<string, Node>;
   edges: Record<string, string[]>;
@@ -43,6 +44,7 @@ export interface DataObject {
   id: string;
   payload_size: number;
   payload_sha_256: string;
+  created_at?: number;
 }
 
 export interface GraphInvocations {

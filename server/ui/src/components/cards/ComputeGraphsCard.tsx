@@ -86,6 +86,9 @@ const ComputeGraphsCard = ({
                     </Box>
                   </div>
                   <Typography variant="subtitle2" color="text.secondary">
+                   Version: {graph.version}
+                  </Typography>
+                  <Typography variant="subtitle2" color="text.secondary">
                     Namespace: {graph.namespace}
                   </Typography>
                   <Typography variant="subtitle2" color="text.secondary">
