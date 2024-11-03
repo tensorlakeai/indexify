@@ -176,6 +176,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_simple_function", description="test", start_node=simple_function
         )
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
@@ -184,6 +185,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_simple_function_with_json_encoding", description="test", start_node=simple_function_with_json_encoder
         )
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id,
                               "simple_function_with_json_encoder")
@@ -193,10 +195,12 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_simple_function_with_invalid_encoding", description="test", start_node=simple_function_with_invalid_encoder
         )
+        graph = RemoteGraph.deploy(graph)
         self.assertRaises(ValueError, graph.run, block_until_done=True, x=MyObject(x="a"))
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_seq = graph.output(invocation_id, "generate_seq")
         self.assertEqual(sorted(output_seq), [0, 1, 2])
@@ -205,7 +209,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_map_reduce_operation(self):
         graph = create_pipeline_graph_with_map_reduce()
-
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_sum_sq = graph.output(invocation_id, "sum_of_squares")
         self.assertEqual(output_sum_sq, [Sum(val=5)])
@@ -214,6 +218,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_map_reduce_operation_with_json_encoding(self):
         graph = create_pipeline_graph_with_map_reduce_with_json_encoder()
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_square_sq_with_json_encoding = graph.output(invocation_id, "square_with_json_encoder")
         self.assertEqual(output_square_sq_with_json_encoding, [9])
@@ -222,6 +227,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_router_graph_behavior(self):
         graph = create_router_graph()
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
 
         output_add_two = graph.output(invocation_id, "add_two")
@@ -240,6 +246,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_handle_file", description="test", start_node=handle_file
         )
+        graph = RemoteGraph.deploy(graph)
         import os
 
         data = Path(os.path.dirname(__file__) + "/test_file").read_text()
@@ -255,6 +262,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_pipeline(self):
         p = create_simple_pipeline()
+        p = RemotePipeline.deploy(p)
         p.run(x=3)
         invocation_id = p.run(block_until_done=True, x=3)
         output = p.output(invocation_id, "make_it_string")
@@ -278,6 +286,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(name="test_ignore_none", description="test", start_node=gen_seq)
         graph.add_edge(gen_seq, ignore_none)
         graph.add_edge(ignore_none, add_two)
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=5)
         output = graph.output(invocation_id, "add_two")
         self.assertEqual(sorted(output), [2, 4, 6])
