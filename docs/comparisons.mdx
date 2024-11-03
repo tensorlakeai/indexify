@@ -8,4 +8,4 @@ LlamaIndex and Indexify are complementary, you can use LlamaIndex's query engine
 
 ## Indexify vs Spark
 
-Spark works well with tabular data and with compute functions written in Java. Indexify is faster than Spark as it doesn't rely on an external scheduler like Kubernetes for Mesos for task scheduling. Spark being only a compute engine doesn't remember where the extracted features are written, so you will also have to build a control plane to track data if deletion or updating them is necessary for your usecase. Indexify tracks data lineage and updates extracted content when the source changes.
+Spark works well with tabular data and with compute functions written in Java. Indexify is faster than Spark as it doesn't rely on an external scheduler like Kubernetes or Mesos for task scheduling. Spark being only a compute engine doesn't remember where the extracted features are written, so you will also have to build a control plane to track data if deletion or updating them is necessary for your usecase. Indexify tracks data lineage and updates extracted content when the source changes.
