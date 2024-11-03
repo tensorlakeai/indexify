@@ -8,6 +8,7 @@ from indexify import (
     Graph,
     Pipeline,
     RemotePipeline,
+    RemoteGraph,
     get_ctx,
     indexify_function,
     indexify_router,
