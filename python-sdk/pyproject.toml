@@ -23,6 +23,7 @@ docker = "^7.1.0"
 msgpack= "^1.1.0"
 typer = "^0.12.5"
 httpx-sse = "^0.4.0"
+jsonpickle = "^3.3.0"
 
 [tool.poetry.dev-dependencies]
 black = "^22.3.0"
