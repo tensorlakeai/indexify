@@ -379,7 +379,7 @@ impl StateReader {
     pub fn get_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
-    let mut state_changes = Vec::new();
+        let mut state_changes = Vec::new();
         let mut count = 0;
         for kv in iter {
             if let Ok((_, serialized_sc)) = kv {
