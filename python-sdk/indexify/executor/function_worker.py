@@ -110,7 +110,6 @@ class FunctionWorker:
             # TODO - bring back running in a separate process
         except Exception as e:
             return FunctionWorkerOutput(
-                exception=str(e),
                 stdout=e.stdout,
                 stderr=e.stderr,
                 reducer=e.is_reducer,
@@ -120,7 +119,6 @@ class FunctionWorker:
         return FunctionWorkerOutput(
             fn_outputs=result.fn_outputs,
             router_output=result.router_output,
-            exception=result.exception,
             stdout=result.stdout,
             stderr=result.stderr,
             reducer=result.reducer,
@@ -187,7 +185,6 @@ def _run_function(
                 if fn_call_result.traceback_msg is not None:
                     print(fn_call_result.traceback_msg, file=sys.stderr)
                     has_failed = True
-                    stderr_capture.write(fn_call_result.traceback_msg)
         except Exception:
             print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
