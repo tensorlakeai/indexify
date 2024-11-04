@@ -14,7 +14,6 @@ class CompletedTask(BaseModel):
     task_outcome: Literal["success", "failure"]
     outputs: Optional[List[IndexifyData]] = None
     router_output: Optional[RouterOutput] = None
-    errors: Optional[str] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     reducer: bool = False

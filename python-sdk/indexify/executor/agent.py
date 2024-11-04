@@ -18,7 +18,6 @@ from rich.theme import Theme
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
-    RouterOutput,
 )
 from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
 from indexify.http_client import IndexifyClient
@@ -315,7 +314,7 @@ class ExtractorAgent:
                             task=async_task.task,
                             task_outcome="failure",
                             outputs=[],
-                            errors=str(async_task.exception()),
+                            stderr=str(async_task.exception()),
                         )
                         self._task_store.complete(outcome=completed_task)
                         continue
@@ -332,7 +331,6 @@ class ExtractorAgent:
                             task_outcome=task_outcome,
                             outputs=outputs.fn_outputs,
                             router_output=outputs.router_output,
-                            errors=outputs.exception,
                             stdout=outputs.stdout,
                             stderr=outputs.stderr,
                             reducer=outputs.reducer,

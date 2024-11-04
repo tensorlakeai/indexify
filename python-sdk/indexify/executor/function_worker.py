@@ -178,7 +178,6 @@ def _run_function(
                 if router_call_result.traceback_msg is not None:
                     print(router_call_result.traceback_msg, file=sys.stderr)
                     has_failed = True
-                    stderr_capture.write(router_call_result.traceback_msg)
             else:
                 fn_call_result: FunctionCallResult = fn.invoke_fn_ser(
                     fn_name, input, init_value
