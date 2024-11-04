@@ -3,7 +3,15 @@ use std::{env, fmt::Debug, sync::Arc};
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
-use object_store::{parse_url, path::Path, ObjectStore, WriteMultipart};
+use object_store::{
+    aws::AmazonS3ConfigKey,
+    parse_url,
+    parse_url_opts,
+    path::Path,
+    ObjectStore,
+    ObjectStoreScheme,
+    WriteMultipart,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
@@ -56,11 +64,46 @@ pub struct BlobStorage {
 
 impl BlobStorage {
     pub fn new(config: BlobStorageConfig) -> Result<Self> {
-        let (object_store, path) = parse_url(&config.path.clone().unwrap().parse::<Url>()?)?;
+        let url = &config.path.clone().unwrap();
+        let (object_store, path) = Self::build_object_store(url)?;
         Ok(Self {
             object_store: Arc::new(object_store),
             path,
         })
+    }
+
+    pub fn build_object_store(url_str: &str) -> Result<(Box<dyn ObjectStore>, Path)> {
+        let url = &url_str.parse::<Url>()?;
+        let (scheme, _) = ObjectStoreScheme::parse(url)?;
+        match scheme {
+            ObjectStoreScheme::AmazonS3 => {
+                // inject AWS environment variables to prioritize keys over instance metadata
+                // credentials.
+                let opts: Vec<(AmazonS3ConfigKey, String)> = std::env::vars_os()
+                    .filter_map(|(os_key, os_value)| {
+                        if let (Some(key), Some(value)) = (os_key.to_str(), os_value.to_str()) {
+                            if key.starts_with("AWS_") {
+                                if let Ok(config_key) = key.to_ascii_lowercase().parse() {
+                                    return Some((config_key, String::from(value)));
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+
+                Ok(parse_url_opts(url, opts)?)
+            }
+            _ => Ok(parse_url(url)?),
+        }
+    }
+
+    pub fn get_object_store(&self) -> Arc<dyn ObjectStore> {
+        self.object_store.clone()
+    }
+
+    pub fn get_path(&self) -> Path {
+        self.path.clone()
     }
 
     pub async fn put(

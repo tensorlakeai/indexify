@@ -37,6 +37,6 @@ async fn main() {
     };
     let service = Service::new(config);
     if let Err(err) = service.start().await {
-        error!("Error starting service: {}", err);
+        error!("Error starting service: {:?}", err);
     }
 }
