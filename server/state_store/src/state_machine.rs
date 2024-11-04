@@ -464,7 +464,6 @@ pub fn delete_compute_graph(
         match &value.diagnostics {
             Some(diagnostics) => {
                 [
-                    diagnostics.exception.clone(),
                     diagnostics.stdout.clone(),
                     diagnostics.stderr.clone(),
                 ]
