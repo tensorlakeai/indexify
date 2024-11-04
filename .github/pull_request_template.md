@@ -1,25 +1,35 @@
-## Description
+## Context
 
-<!-- Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change. -->
+<!--
+In a few sentences or less, please explain the context behind this change to help answer why this change is needed.
 
-### Related PRs
+If this is a bug fix, make sure to include "fixes #xxxx", or
+"closes #xxxx".
 
-<!-- Please list any related PRs for this change. -->
+Screenshots, logs, code or other visual aids are greatly appreciated.
+ -->
 
-### Reviewer notes
+## What
 
-<!-- Please provide any notes that the reviewer should know before reviewing this PR. -->
+<!--
+In a few sentences, please summarize the change to help reviewers.
 
-## Checklist
+Consider providing screenshots, logs, code or other visual aids to help the reviewer understand the approach taken.
+-->
 
-- [ ] Run `make fmt`.
-- [ ] `pip install -e .`, start server and executor, cd to `python-sdk/tests`, `python test_graph_behaviours.py`.
+## Testing
 
-## How to test
+<!--
+Please include steps used to verify the change.
 
-<!-- Please describe in detail how to test the changes. -->
+Consider providing screenshots, logs, code or other visual aids to help the reviewer in their testing.
+-->
 
-## Screenshots
+## Contribution Checklist
 
-<!-- If applicable, add screenshots to help explain your problem. -->
+- [ ] If the python-sdk was changed, please run `make fmt` in `python-sdk/`.
+- [ ] If the server was changed, please run `make fmt` in `server/`.
+- [ ] Make sure all PR Checks are passing.
+<!-- You can run the tests manually:
+In `python-sdl/`, run the run `pip install -e .`, start the server and executor, `python test_graph_behaviours.py`.
 
