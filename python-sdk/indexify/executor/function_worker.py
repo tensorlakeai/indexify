@@ -40,7 +40,6 @@ class FunctionOutput(BaseModel):
     router_output: Optional[RouterOutput]
     reducer: bool = False
     success: bool = True
-    exception: Optional[str] = None
     stdout: str = ""
     stderr: str = ""
 
@@ -152,7 +151,6 @@ def _run_function(
     router_output = None
     fn_output = None
     has_failed = False
-    exception_msg = None
     print(
         f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}"
     )
@@ -180,7 +178,7 @@ def _run_function(
                 if router_call_result.traceback_msg is not None:
                     print(router_call_result.traceback_msg, file=sys.stderr)
                     has_failed = True
-                    exception_msg = router_call_result.traceback_msg
+                    stderr_capture.write(router_call_result.traceback_msg)
             else:
                 fn_call_result: FunctionCallResult = fn.invoke_fn_ser(
                     fn_name, input, init_value
@@ -190,11 +188,10 @@ def _run_function(
                 if fn_call_result.traceback_msg is not None:
                     print(fn_call_result.traceback_msg, file=sys.stderr)
                     has_failed = True
-                    exception_msg = fn_call_result.traceback_msg
-        except Exception as e:
+                    stderr_capture.write(fn_call_result.traceback_msg)
+        except Exception:
             print(traceback.format_exc(), file=sys.stderr)
             has_failed = True
-            exception_msg = str(e)
 
     # WARNING - IF THIS FAILS, WE WILL NOT BE ABLE TO RECOVER
     # ANY LOGS
@@ -202,7 +199,6 @@ def _run_function(
         return FunctionOutput(
             fn_outputs=None,
             router_output=None,
-            exception=exception_msg,
             stdout=stdout_capture.getvalue(),
             stderr=stderr_capture.getvalue(),
             reducer=is_reducer,
