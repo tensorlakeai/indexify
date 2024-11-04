@@ -31,5 +31,5 @@ Consider providing screenshots, logs, code or other visual aids to help the revi
 - [ ] If the server was changed, please run `make fmt` in `server/`.
 - [ ] Make sure all PR Checks are passing.
 <!-- You can run the tests manually:
-In `python-sdl/`, run the run `pip install -e .`, start the server and executor, `python test_graph_behaviours.py`.
+In `python-sdk/`, run the run `pip install -e .`, start the server and executor, `python test_graph_behaviours.py`.
 
