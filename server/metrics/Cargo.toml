@@ -1,0 +1,15 @@
+[package]
+name = "metrics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+opentelemetry = {workspace=true}
+opentelemetry-prometheus = {workspace=true}
+opentelemetry_sdk = { workspace=true }
+prometheus = {workspace=true}
+axum-otel-metrics = { workspace=true }
+pin-project-lite = {workspace=true}
+serde={workspace = true}
+once_cell = {workspace=true}
+state_store = {workspace=true}

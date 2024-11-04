@@ -25,6 +25,7 @@ use data_model::{
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
+use metrics::StateStoreMetrics;
 use requests::StateMachineUpdateRequest;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
@@ -42,6 +43,7 @@ pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
 pub mod test_state_store;
+pub mod metrics;
 
 #[derive(Debug)]
 pub struct ExecutorState {
@@ -104,6 +106,7 @@ pub struct IndexifyState {
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub system_tasks_tx: tokio::sync::watch::Sender<()>,
     pub system_tasks_rx: tokio::sync::watch::Receiver<()>,
+    pub metrics: Arc<StateStoreMetrics>
 }
 
 impl IndexifyState {
@@ -125,6 +128,7 @@ impl IndexifyState {
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
+        let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let s = Arc::new(Self {
             db: Arc::new(db),
             state_change_tx: tx,
@@ -136,6 +140,7 @@ impl IndexifyState {
             gc_rx,
             system_tasks_tx,
             system_tasks_rx,
+            metrics: state_store_metrics,
         });
 
         let executors = s.reader().get_all_executors()?;
