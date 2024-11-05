@@ -22,7 +22,7 @@ from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE_3_10, Image
-from .object_serializer import CloudPickleSerializer, get_serializer
+from .object_serializer import get_serializer
 
 
 class GraphInvocationContext(BaseModel):
@@ -207,7 +207,6 @@ def indexify_function(
         for key, value in args.items():
             if key != "fn" and key != "self":
                 setattr(IndexifyFn, key, value)
-
         IndexifyFn.image = image
         IndexifyFn.accumulate = accumulate
         IndexifyFn.payload_encoder = payload_encoder
@@ -314,7 +313,7 @@ class IndexifyFunctionWrapper:
             )
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
-            IndexifyData(payload=serializer.serialize(output)) for output in outputs
+            IndexifyData(payload=serializer.serialize(output), payload_encoding=self.indexify_function.payload_encoder) for output in outputs
         ]
         return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
@@ -324,32 +323,10 @@ class IndexifyFunctionWrapper:
         return RouterCallResult(edges=edges, traceback_msg=err)
 
     def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
-        if self.indexify_function.payload_encoder == "cloudpickle":
-            return CloudPickleSerializer.deserialize(indexify_data.payload)
-        payload = msgpack.unpackb(indexify_data.payload)
-        signature = inspect.signature(self.indexify_function.run)
-        arg_types = {}
-        for name, param in signature.parameters.items():
-            if (
-                param.annotation != inspect.Parameter.empty
-                and param.annotation != getattr(compute_fn, "accumulate", None)
-            ):
-                arg_types[name] = param.annotation
-        if len(arg_types) > 1:
-            raise ValueError(
-                f"Compute function {compute_fn} has multiple arguments, but only one is supported"
-            )
-        elif len(arg_types) == 0:
-            raise ValueError(f"Compute function {compute_fn} has no arguments")
-        arg_name, arg_type = next(iter(arg_types.items()))
-        if arg_type is None:
-            raise ValueError(f"Argument {arg_name} has no type annotation")
-        if is_pydantic_model_from_annotation(arg_type):
-            if len(payload.keys()) == 1 and isinstance(list(payload.values())[0], dict):
-                payload = list(payload.values())[0]
-            return arg_type.model_validate(payload)
-        return payload
-
+        payload_encoder = indexify_data.payload_encoding
+        payload = indexify_data.payload
+        serializer = get_serializer(payload_encoder)
+        return serializer.deserialize(payload)
 
 def get_ctx() -> GraphInvocationContext:
     frame = inspect.currentframe()

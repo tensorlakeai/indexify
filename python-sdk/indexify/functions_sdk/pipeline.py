@@ -28,3 +28,6 @@ class Pipeline:
     def run(self, **kwargs):
         invocation_id = self._graph.run(**kwargs)
         return invocation_id
+
+    def output(self, invocation_id: str, function_name: str):
+        return self._graph.output(invocation_id, function_name)
