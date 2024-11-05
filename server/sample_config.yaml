@@ -1,0 +1,7 @@
+state_store_path: indexify_server_state 
+listen_addr: 0.0.0.0:8900
+blob_storage:
+  path: "s3://indexifyblobs"
+  dynamodb_table: kvs_cas_table 
+
+
