@@ -374,6 +374,7 @@ pub struct NodeOutput {
     pub payload: OutputPayload,
     pub errors: Option<DataPayload>,
     pub reduced_state: bool,
+    pub created_at: u64,
 }
 
 impl NodeOutput {
@@ -422,6 +423,7 @@ impl NodeOutputBuilder {
         let graph_version = self.graph_version.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
+        let created_at: u64 = get_epoch_time_in_ms();
         let mut hasher = DefaultHasher::new();
         ns.hash(&mut hasher);
         cg_name.hash(&mut hasher);
@@ -446,6 +448,7 @@ impl NodeOutputBuilder {
             payload,
             errors,
             reduced_state,
+            created_at, 
         })
     }
 }
