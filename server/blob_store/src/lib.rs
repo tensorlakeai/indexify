@@ -21,14 +21,14 @@ use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlobStorageConfig {
-    pub path: Option<String>,
+    pub path: String,
     pub dynamodb_table: Option<String>,
 }
 
 impl BlobStorageConfig {
     pub fn new(path: &str, dynamodb_table: Option<String>) -> Self {
         BlobStorageConfig {
-            path: Some(format!("file://{}", path)),
+            path: format!("file://{}", path),
             dynamodb_table,
         }
     }
@@ -39,14 +39,14 @@ impl Default for BlobStorageConfig {
         let blob_store_path = format!(
             "file://{}",
             env::current_dir()
-                .unwrap()
+                .expect("unable to get current directory")
                 .join("indexify_storage/blobs")
                 .to_str()
-                .unwrap()
+                .expect("unable to get path as string")
         );
         info!("using blob store path: {}", blob_store_path);
         BlobStorageConfig {
-            path: Some(blob_store_path),
+            path: blob_store_path,
             dynamodb_table: None,
         }
     }
@@ -67,7 +67,7 @@ pub struct BlobStorage {
 
 impl BlobStorage {
     pub fn new(config: BlobStorageConfig) -> Result<Self> {
-        let url = &config.path.clone().unwrap();
+        let url = &config.path.clone();
         let (object_store, path) = Self::build_object_store(url, config.dynamodb_table)?;
         Ok(Self {
             object_store: Arc::new(object_store),
@@ -83,9 +83,8 @@ impl BlobStorage {
         let (scheme, _) = ObjectStoreScheme::parse(url)?;
         match scheme {
             ObjectStoreScheme::AmazonS3 => {
-                if ddb_table.is_none() {
-                    return Err(anyhow!("dynamodb_table is required for AmazonS3"));
-                }
+                let ddb_table =
+                    ddb_table.ok_or(anyhow!("dynamodb_table is required for AmazonS3"))?;
                 // inject AWS environment variables to prioritize keys over instance metadata
                 // credentials.
                 let opts: Vec<(AmazonS3ConfigKey, String)> = std::env::vars_os()
@@ -106,9 +105,7 @@ impl BlobStorage {
                     s3_builder = s3_builder.with_config(*key, value.clone());
                 }
                 let s3_builder = s3_builder
-                    .with_conditional_put(S3ConditionalPut::Dynamo(DynamoCommit::new(
-                        ddb_table.unwrap(),
-                    )))
+                    .with_conditional_put(S3ConditionalPut::Dynamo(DynamoCommit::new(ddb_table)))
                     .build()
                     .expect("failed to create object store");
                 let (_, path) = parse_url_opts(url, opts)?;
