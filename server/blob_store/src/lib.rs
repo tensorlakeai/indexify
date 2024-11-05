@@ -105,11 +105,13 @@ impl BlobStorage {
                 for (key, value) in opts.iter() {
                     s3_builder = s3_builder.with_config(*key, value.clone());
                 }
-                let s3_builder = s3_builder.with_conditional_put(S3ConditionalPut::Dynamo(DynamoCommit::new(
-                    ddb_table.unwrap(),
-                ))).build()
-                .expect("failed to create object store");
-                let(_, path) = parse_url_opts(url, opts)?;
+                let s3_builder = s3_builder
+                    .with_conditional_put(S3ConditionalPut::Dynamo(DynamoCommit::new(
+                        ddb_table.unwrap(),
+                    )))
+                    .build()
+                    .expect("failed to create object store");
+                let (_, path) = parse_url_opts(url, opts)?;
                 Ok((Box::new(s3_builder), path))
             }
             _ => Ok(parse_url(url)?),
