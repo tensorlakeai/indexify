@@ -97,7 +97,7 @@ def classify_meeting_intent(speech: Transcription) -> Transcription:
         )
         transcription_text = "\n".join([segment.text for segment in speech.segments])
         prompt = f"""
-        Classify the intent of the audio. Possible intents:
+        Analyze the audio transcript and classify the intent of the audio FROM THE FOLLOWING OPTIONS ONLY:
         - job-interview
         - sales-call
         - customer-support-call
@@ -105,10 +105,11 @@ def classify_meeting_intent(speech: Transcription) -> Transcription:
         - marketing-call
         - product-call
         - financial-call
-        Format: intent: <intent>
+        Required Output Format: intent: <intent>
 
         Transcription:
         {transcription_text}
+        DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT! Provide ONLY the intent in the required format.
         """
         output = model(prompt=prompt, max_tokens=50, stop=["\n"])
         response = output["choices"][0]["text"]
@@ -136,7 +137,7 @@ def summarize_job_interview(speech: Transcription) -> Summary:
     )
     transcription_text = "\n".join([segment.text for segment in speech.segments])
     prompt = f"""
-    Summarize the key points from this job interview transcript, including:
+    Analyze this job interview transcript and summarize the key points in the below format ONLY:
     1. Candidate's Strengths and Qualifications
     2. Key Responses and Insights
     3. Cultural Fit and Soft Skills
@@ -144,7 +145,8 @@ def summarize_job_interview(speech: Transcription) -> Summary:
     5. Overall Impression and Recommendation
 
     Transcript:
-    {transcription_text}
+    {transcription_text[:1000]}
+    DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT! 
     """
     output = model(prompt=prompt, max_tokens=30000, stop=["\n"])
     return Summary(summary=output["choices"][0]["text"])
@@ -161,15 +163,16 @@ def summarize_sales_call(speech: Transcription) -> Summary:
     )
     transcription_text = "\n".join([segment.text for segment in speech.segments])
     prompt = f"""
-    Summarize this sales call transcript, highlighting:
-    - Key details
-    - Client concerns
-    - Action items
-    - Next steps
-    - Recommendations for improving the approach
+    Analyze this sales call transcript and summarize in the below format ONLY:
+    1. Key details
+    2. Client concerns
+    3. Action items
+    4. Next steps
+    5. Recommendations for improving the approach
 
     Transcript:
     {transcription_text}
+    DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT!
     """
     output = model(prompt=prompt, max_tokens=30000, stop=["\n"])
     return Summary(summary=output["choices"][0]["text"])
