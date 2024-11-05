@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Literal
 
 from pydantic import BaseModel, Json
 
@@ -17,7 +17,7 @@ class RouterOutput(BaseModel):
 class IndexifyData(BaseModel):
     id: Optional[str] = None
     payload: bytes
-    payload_encoding: str = "cloudpickle"
+    payload_encoding: Literal["cloudpickle", "json"] = "cloudpickle"
 
 
 class FunctionWorkerOutput(BaseModel):

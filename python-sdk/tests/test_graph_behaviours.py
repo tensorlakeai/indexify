@@ -7,8 +7,8 @@ from pydantic import BaseModel
 from indexify import (
     Graph,
     Pipeline,
-    RemoteGraph,
     RemotePipeline,
+    RemoteGraph,
     get_ctx,
     indexify_function,
     indexify_router,
@@ -25,6 +25,13 @@ class MyObject(BaseModel):
 def simple_function(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
+@indexify_function(payload_encoder="json")
+def simple_function_with_json_encoder(x: MyObject) -> MyObject:
+    return MyObject(x=x.x + "b")
+
+@indexify_function(payload_encoder="invalid")
+def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
+    return MyObject(x=x.x + "b")
 
 class ComplexObject(BaseModel):
     invocation_id: str
@@ -73,6 +80,9 @@ def generate_seq(x: int) -> List[int]:
 def square(x: int) -> int:
     return x * x
 
+@indexify_function(payload_encoder="json")
+def square_with_json_encoder(x: int) -> int:
+    return x * x
 
 class Sum(BaseModel):
     val: int = 0
@@ -80,6 +90,11 @@ class Sum(BaseModel):
 
 @indexify_function(accumulate=Sum)
 def sum_of_squares(init_value: Sum, x: int) -> Sum:
+    init_value.val += x
+    return init_value
+
+@indexify_function(accumulate=Sum, payload_encoder="json")
+def sum_of_squares_with_json_encoding(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
 
@@ -131,6 +146,11 @@ def create_pipeline_graph_with_map_reduce():
     graph.add_edge(sum_of_squares, make_it_string)
     return graph
 
+def create_pipeline_graph_with_map_reduce_with_json_encoder():
+    graph = Graph(name="test_map_reduce", description="test",
+                  start_node=square_with_json_encoder)
+    graph.add_edge(square_with_json_encoder, sum_of_squares_with_json_encoding)
+    return graph
 
 def create_router_graph():
     graph = Graph(name="test_router", description="test", start_node=generate_seq)
@@ -162,6 +182,25 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
+    def test_simple_function_with_json_encoding(self):
+        graph = Graph(
+            name="test_simple_function_with_json_encoding", description="test", start_node=simple_function_with_json_encoder
+        )
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output = graph.output(invocation_id,
+                              "simple_function_with_json_encoder")
+        self.assertEqual(output, [MyObject(x='ab')])
+
+    def test_simple_function_with_invalid_encoding(self):
+        graph = Graph(
+            name="test_simple_function_with_invalid_encoding", description="test", start_node=simple_function_with_invalid_encoder
+        )
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
+        self.assertEqual(output, [])
+
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
         graph = RemoteGraph.deploy(graph)
@@ -174,15 +213,24 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_map_reduce_operation(self):
         graph = create_pipeline_graph_with_map_reduce()
         graph = RemoteGraph.deploy(graph)
-
         invocation_id = graph.run(block_until_done=True, x=3)
         output_sum_sq = graph.output(invocation_id, "sum_of_squares")
         self.assertEqual(output_sum_sq, [Sum(val=5)])
         output_str = graph.output(invocation_id, "make_it_string")
         self.assertEqual(output_str, ["5"])
 
+    def test_map_reduce_operation_with_json_encoding(self):
+        graph = create_pipeline_graph_with_map_reduce_with_json_encoder()
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=3)
+        output_square_sq_with_json_encoding = graph.output(invocation_id, "square_with_json_encoder")
+        self.assertEqual(output_square_sq_with_json_encoding, [9])
+        output_sum_sq_with_json_encoding = graph.output(invocation_id, "sum_of_squares_with_json_encoding")
+        self.assertEqual(output_sum_sq_with_json_encoding, [Sum(val=9)])
+
     def test_router_graph_behavior(self):
-        graph = RemoteGraph.deploy(create_router_graph())
+        graph = create_router_graph()
+        graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=3)
 
         output_add_two = graph.output(invocation_id, "add_two")
@@ -217,8 +265,8 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_pipeline(self):
         p = create_simple_pipeline()
-        p.run(x=3)
         p = RemotePipeline.deploy(p)
+        p.run(x=3)
         invocation_id = p.run(block_until_done=True, x=3)
         output = p.output(invocation_id, "make_it_string")
         self.assertEqual(output, ["5"])
