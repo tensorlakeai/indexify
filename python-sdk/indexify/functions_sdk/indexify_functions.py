@@ -22,7 +22,7 @@ from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE_3_10, Image
-from .object_serializer import CloudPickleSerializer, JsonSerializer, get_serializer
+from .object_serializer import get_serializer
 
 
 class GraphInvocationContext(BaseModel):
@@ -207,7 +207,6 @@ def indexify_function(
         for key, value in args.items():
             if key != "fn" and key != "self":
                 setattr(IndexifyFn, key, value)
-
         IndexifyFn.image = image
         IndexifyFn.accumulate = accumulate
         IndexifyFn.payload_encoder = payload_encoder
@@ -314,7 +313,7 @@ class IndexifyFunctionWrapper:
             )
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
-            IndexifyData(payload=serializer.serialize(output)) for output in outputs
+            IndexifyData(payload=serializer.serialize(output), payload_encoding=self.indexify_function.payload_encoder) for output in outputs
         ]
         return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
@@ -324,7 +323,7 @@ class IndexifyFunctionWrapper:
         return RouterCallResult(edges=edges, traceback_msg=err)
 
     def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
-        payload_encoder = self.indexify_function.payload_encoder
+        payload_encoder = indexify_data.payload_encoding
         payload = indexify_data.payload
         serializer = get_serializer(payload_encoder)
         return serializer.deserialize(payload)

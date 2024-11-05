@@ -197,7 +197,9 @@ class TestGraphBehaviors(unittest.TestCase):
             name="test_simple_function_with_invalid_encoding", description="test", start_node=simple_function_with_invalid_encoder
         )
         graph = RemoteGraph.deploy(graph)
-        self.assertRaises(ValueError, graph.run, block_until_done=True, x=MyObject(x="a"))
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
+        self.assertEqual(output, [])
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
