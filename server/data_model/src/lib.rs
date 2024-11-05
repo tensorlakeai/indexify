@@ -448,7 +448,7 @@ impl NodeOutputBuilder {
             payload,
             errors,
             reduced_state,
-            created_at, 
+            created_at,
         })
     }
 }
