@@ -37,17 +37,6 @@ class TaskReporter:
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )
 
-        if completed_task.errors:
-            print(
-                f"[bold]task-reporter[/bold] uploading error of size: {len(completed_task.errors)}"
-            )
-            fn_outputs.append(
-                (
-                    "exception_msg",
-                    (nanoid.generate(), io.BytesIO(completed_task.errors.encode())),
-                )
-            )
-
         if completed_task.stdout:
             print(
                 f"[bold]task-reporter[/bold] uploading stdout of size: {len(completed_task.stdout)}"

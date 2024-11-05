@@ -463,22 +463,18 @@ pub fn delete_compute_graph(
         // mark all diagnostics urls for gc.
         match &value.diagnostics {
             Some(diagnostics) => {
-                [
-                    diagnostics.exception.clone(),
-                    diagnostics.stdout.clone(),
-                    diagnostics.stderr.clone(),
-                ]
-                .iter()
-                .flatten()
-                .try_for_each(|data| -> Result<()> {
-                    txn.put_cf(
-                        &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                        data.path.as_bytes(),
-                        [],
-                    )?;
+                [diagnostics.stdout.clone(), diagnostics.stderr.clone()]
+                    .iter()
+                    .flatten()
+                    .try_for_each(|data| -> Result<()> {
+                        txn.put_cf(
+                            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                            data.path.as_bytes(),
+                            [],
+                        )?;
 
-                    Ok(())
-                })?;
+                        Ok(())
+                    })?;
             }
             None => {}
         }

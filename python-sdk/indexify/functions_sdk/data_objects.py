@@ -23,7 +23,6 @@ class IndexifyData(BaseModel):
 class FunctionWorkerOutput(BaseModel):
     fn_outputs: Optional[List[IndexifyData]]
     router_output: Optional[RouterOutput]
-    exception: Optional[str]
     stdout: Optional[str]
     stderr: Optional[str]
     reducer: bool = False
