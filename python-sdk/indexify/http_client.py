@@ -47,6 +47,7 @@ class IndexifyClient:
         service_url: str = DEFAULT_SERVICE_URL,
         config_path: Optional[str] = None,
         namespace: str = "default",
+        api_key: Optional[str] = None,
         **kwargs,
     ):
         if os.environ.get("INDEXIFY_URL"):
@@ -74,6 +75,10 @@ class IndexifyClient:
         self._timeout = kwargs.get("timeout")
         self._graphs: Dict[str, Graph] = {}
         self._fns: Dict[str, IndexifyFunction] = {}
+        self._api_key = api_key
+        if not self._api_key:
+            print("API key not provided. Trying to fetch from environment TENSORLAKE_API_KEY variable")
+            self._api_key = os.getenv("TENSORLAKE_API_KEY")
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
         try:
@@ -87,10 +92,9 @@ class IndexifyClient:
                 raise ApiException(response.text)
         except httpx.ConnectError:
             message = (
-                f"Make sure the server is running and accesible at {self._service_url}"
+                f"Make sure the server is running and accessible at {self._service_url}"
             )
             ex = ApiException(message=message)
-            print(ex)
             raise ex
         return response
 
@@ -140,17 +144,25 @@ class IndexifyClient:
             verify=verify_option,
         )
         return client
+    
+    def _add_api_key(self, kwargs):
+        if self._api_key:
+            kwargs["headers"] = {"Authorization": f"Bearer {self._api_key}"}
 
     def _get(self, endpoint: str, **kwargs) -> httpx.Response:
+        self._add_api_key(kwargs)
         return self._request("GET", url=f"{self._service_url}/{endpoint}", **kwargs)
 
     def _post(self, endpoint: str, **kwargs) -> httpx.Response:
+        self._add_api_key(kwargs)
         return self._request("POST", url=f"{self._service_url}/{endpoint}", **kwargs)
 
     def _put(self, endpoint: str, **kwargs) -> httpx.Response:
+        self._add_api_key(kwargs)
         return self._request("PUT", url=f"{self._service_url}/{endpoint}", **kwargs)
 
     def _delete(self, endpoint: str, **kwargs) -> httpx.Response:
+        self._add_api_key(kwargs)
         return self._request("DELETE", url=f"{self._service_url}/{endpoint}", **kwargs)
 
     def _close(self):
@@ -259,14 +271,14 @@ class IndexifyClient:
     ) -> str:
         ser_input = cloudpickle.dumps(kwargs)
         params = {"block_until_finish": block_until_done}
+        kwargs = {"headers": {"Content-Type": "application/cbor"}, "data": ser_input, "params":params}
+        self._add_api_key(kwargs)
         with httpx.Client() as client:
             with connect_sse(
                 client,
                 "POST",
                 f"{self.service_url}/namespaces/{self.namespace}/compute_graphs/{graph}/invoke_object",
-                headers={"Content-Type": "application/cbor"},
-                data=ser_input,
-                params=params,
+                **kwargs,
             ) as event_source:
                 if not event_source.response.is_success:
                     resp = event_source.response.read().decode("utf-8")
