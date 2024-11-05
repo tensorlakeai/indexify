@@ -93,8 +93,10 @@ mod tests {
         let state = IndexifyState::new(temp_dir.path().join("state"))
             .await
             .unwrap();
-        let config =
-            blob_store::BlobStorageConfig::new(temp_dir.path().join("blob").to_str().unwrap());
+        let config = blob_store::BlobStorageConfig::new(
+            temp_dir.path().join("blob").to_str().unwrap(),
+            None,
+        );
         let storage = Arc::new(BlobStorage::new(config)?);
         let (tx, rx) = watch::channel(());
         let mut gc = Gc::new(state.clone(), storage.clone(), rx);

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use blob_store::BlobStorage;
 use bytes::Bytes;
-use object_store::{parse_url, path::Path};
 use slatedb::{config::DbOptions, db::Db};
 
 pub struct WriteContextData {
@@ -12,17 +12,20 @@ pub struct WriteContextData {
     pub key: String,
     pub value: Vec<u8>,
 }
-use url::Url;
 pub struct KVS {
     kv_store: Arc<Db>,
 }
 
 impl KVS {
-    pub async fn new(path: &str) -> Result<Self> {
-        let (object_store, path) = parse_url(&path.parse::<Url>()?)?;
+    pub async fn new(blob_store: Arc<BlobStorage>, prefix: &str) -> Result<Self> {
         let options = DbOptions::default();
-        let kv_store =
-            Db::open_with_opts(Path::from(path), options, Arc::new(object_store)).await?;
+        let kv_store = Db::open_with_opts(
+            blob_store.get_path().child(prefix),
+            options,
+            Arc::new(blob_store.get_object_store()),
+        )
+        .await
+        .context("error opening kv store")?;
         Ok(KVS {
             kv_store: Arc::new(kv_store),
         })
