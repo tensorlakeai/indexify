@@ -21,10 +21,12 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { formatTimestamp } from '../../utils/helpers';
 
 interface Output {
   compute_fn: string;
   id: string;
+  created_at: string;
 }
 
 interface InvocationOutputTableProps {
@@ -124,7 +126,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
             id={`panel${index}-header`}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-              <Typography>Compute Function - {computeFn} ({outputs.length} outputs)</Typography>
+              <Typography>{computeFn} ({outputs.length} outputs)</Typography>
               <Box 
                 sx={{ display: 'flex', alignItems: 'center' }}
                 onClick={(e) => e.stopPropagation()}
@@ -152,6 +154,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
                   <TableRow>
                     <TableCell>Compute Function</TableCell>
                     <TableCell>ID</TableCell>
+                    <TableCell>Created At</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -159,6 +162,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
                     <TableRow key={idx}>
                       <TableCell>{output.compute_fn}</TableCell>
                       <TableCell>{output.id}</TableCell>
+                      <TableCell>{formatTimestamp(output.created_at)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

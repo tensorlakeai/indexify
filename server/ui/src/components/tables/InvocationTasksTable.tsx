@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Table,
   TableBody,
   TableCell,
@@ -16,6 +19,7 @@ import {
   InputAdornment,
   Button,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -39,7 +43,9 @@ interface InvocationTasksTableProps {
 
 const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
+  const [filteredTasks, setFilteredTasks] = useState<Record<string, Task[]>>({});
+  const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchTasks = async () => {
@@ -59,6 +65,56 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
 
     fetchTasks();
   }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
+
+  useEffect(() => {
+    const grouped = tasks.reduce((acc, task) => {
+      if (!acc[task.compute_fn]) {
+        acc[task.compute_fn] = [];
+      }
+      acc[task.compute_fn].push(task);
+      return acc;
+    }, {} as Record<string, Task[]>);
+
+    setFilteredTasks(grouped);
+
+    const initialExpandedState = Object.keys(grouped).reduce((acc, key) => {
+      acc[key] = true;
+      return acc;
+    }, {} as Record<string, boolean>);
+    setExpandedPanels(initialExpandedState);
+  }, [tasks]);
+
+  useEffect(() => {
+    const filtered = Object.keys(searchTerms).reduce((acc, computeFn) => {
+      const term = searchTerms[computeFn].toLowerCase();
+      acc[computeFn] = tasks.filter(task => 
+        task.compute_fn === computeFn && 
+        task.id.toLowerCase().includes(term)
+      );
+      return acc;
+    }, {} as Record<string, Task[]>);
+
+    tasks.forEach(task => {
+      if (!searchTerms[task.compute_fn]) {
+        if (!filtered[task.compute_fn]) {
+          filtered[task.compute_fn] = [];
+        }
+        if (!filtered[task.compute_fn].find(t => t.id === task.id)) {
+          filtered[task.compute_fn].push(task);
+        }
+      }
+    });
+
+    setFilteredTasks(filtered);
+  }, [tasks, searchTerms]);
+
+  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
+    const target = event.target as HTMLElement;
+    if (target.classList.contains('MuiAccordionSummary-expandIconWrapper') || 
+        target.closest('.MuiAccordionSummary-expandIconWrapper')) {
+      setExpandedPanels(prev => ({ ...prev, [panel]: isExpanded }));
+    }
+  };
 
   const viewLogs = async (task: Task, logType: 'stdout' | 'stderr') => {
     try {
@@ -108,14 +164,6 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
     }
   };
 
-  const filteredTasks = useMemo(() => {
-    return tasks.filter(task => 
-      task.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.compute_fn.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.input_key.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [tasks, searchTerm]);
-
   const getChipStyles = (outcome: string) => {
     const baseStyle = {
       borderRadius: '16px',
@@ -157,63 +205,81 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
 
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">Tasks for Invocation</Typography>
-        <TextField
-          size="small"
-          placeholder="Search tasks"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
-      </Box>
-      <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>Compute Function</TableCell>
-              <TableCell>Input Key</TableCell>
-              <TableCell>Outcome</TableCell>
-              <TableCell>Logs</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredTasks.map((task) => (
-              <TableRow key={task.id}>
-                <TableCell>{task.id}</TableCell>
-                <TableCell>{task.compute_fn}</TableCell>
-                <TableCell sx={{ wordBreak: 'break-all' }}>{task.input_key}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={task.outcome}
-                    sx={getChipStyles(task.outcome)}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Button 
-                    onClick={() => viewLogs(task, 'stdout')}
-                    sx={{ mr: 1 }}
-                  >
-                    View stdout
-                  </Button>
-                  <Button 
-                    onClick={() => viewLogs(task, 'stderr')}
-                  >
-                    View stderr
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <Typography variant="h6" gutterBottom>Tasks for Invocation</Typography>
+      {Object.entries(filteredTasks).map(([computeFn, tasks], index) => (
+        <Accordion 
+          key={index} 
+          expanded={expandedPanels[computeFn]}
+          onChange={handleAccordionChange(computeFn)}
+        >
+          <AccordionSummary
+            expandIcon={<ExpandMoreIcon />}
+            aria-controls={`panel${index}-content`}
+            id={`panel${index}-header`}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
+              <Typography>{computeFn} ({tasks.length} tasks)</Typography>
+              <Box 
+                sx={{ display: 'flex', alignItems: 'center' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <TextField
+                  size="small"
+                  placeholder="Search by ID"
+                  value={searchTerms[computeFn] || ''}
+                  onChange={(e) => setSearchTerms(prev => ({ ...prev, [computeFn]: e.target.value }))}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}} elevation={0}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>ID</TableCell>
+                    <TableCell>Outcome</TableCell>
+                    <TableCell>Logs</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {tasks.map((task) => (
+                    <TableRow key={task.id}>
+                      <TableCell>{task.id}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={task.outcome}
+                          sx={getChipStyles(task.outcome)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Button 
+                          onClick={() => viewLogs(task, 'stdout')}
+                          sx={{ mr: 1 }}
+                        >
+                          View stdout
+                        </Button>
+                        <Button 
+                          onClick={() => viewLogs(task, 'stderr')}
+                        >
+                          View stderr
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </AccordionDetails>
+        </Accordion>
+      ))}
       <ToastContainer position="top-right" />
     </Box>
   );
