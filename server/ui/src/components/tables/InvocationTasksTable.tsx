@@ -41,69 +41,64 @@ interface InvocationTasksTableProps {
   computeGraph: string;
 }
 
-const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
+const OUTCOME_STYLES = {
+  success: {
+    color: '#008000b8',
+    backgroundColor: 'rgb(0 200 0 / 19%)',
+  },
+  failed: {
+    color: 'red',
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+  },
+  default: {
+    color: 'blue',
+    backgroundColor: 'rgba(0, 0, 255, 0.1)',
+  },
+} as const;
+
+export function InvocationTasksTable({ indexifyServiceURL, invocationId, namespace, computeGraph }: InvocationTasksTableProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
   const [filteredTasks, setFilteredTasks] = useState<Record<string, Task[]>>({});
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    const fetchTasks = async () => {
-      try {
-        const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/tasks`;
-        const response = await axios.get<{ tasks: Task[] }>(url, {
-          headers: {
-            'accept': 'application/json'
-          }
-        });
-        setTasks(response.data.tasks);
-      } catch (error) {
-        console.error('Error fetching tasks:', error);
-        toast.error('Failed to fetch tasks. Please try again later.');
-      }
-    };
+  const fetchTasks = async () => {
+    try {
+      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/tasks`;
+      const response = await axios.get<{ tasks: Task[] }>(url, {
+        headers: { accept: 'application/json' }
+      });
+      setTasks(response.data.tasks);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      toast.error('Failed to fetch tasks. Please try again later.');
+    }
+  };
 
-    fetchTasks();
-  }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchTasks(); }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
 
   useEffect(() => {
-    const grouped = tasks.reduce((acc, task) => {
-      if (!acc[task.compute_fn]) {
-        acc[task.compute_fn] = [];
-      }
-      acc[task.compute_fn].push(task);
-      return acc;
-    }, {} as Record<string, Task[]>);
+    const grouped = tasks.reduce((acc, task) => ({
+      ...acc,
+      [task.compute_fn]: [...(acc[task.compute_fn] || []), task],
+    }), {} as Record<string, Task[]>);
 
     setFilteredTasks(grouped);
-
-    const initialExpandedState = Object.keys(grouped).reduce((acc, key) => {
-      acc[key] = true;
-      return acc;
-    }, {} as Record<string, boolean>);
-    setExpandedPanels(initialExpandedState);
+    setExpandedPanels(Object.keys(grouped).reduce((acc, key) => ({ ...acc, [key]: true }), {}));
   }, [tasks]);
 
   useEffect(() => {
-    const filtered = Object.keys(searchTerms).reduce((acc, computeFn) => {
-      const term = searchTerms[computeFn].toLowerCase();
-      acc[computeFn] = tasks.filter(task => 
-        task.compute_fn === computeFn && 
-        task.id.toLowerCase().includes(term)
-      );
+    const filtered = tasks.reduce((acc, task) => {
+      const searchTerm = searchTerms[task.compute_fn]?.toLowerCase();
+      if (!searchTerm || task.id.toLowerCase().includes(searchTerm)) {
+        return {
+          ...acc,
+          [task.compute_fn]: [...(acc[task.compute_fn] || []), task],
+        };
+      }
       return acc;
     }, {} as Record<string, Task[]>);
-
-    tasks.forEach(task => {
-      if (!searchTerms[task.compute_fn]) {
-        if (!filtered[task.compute_fn]) {
-          filtered[task.compute_fn] = [];
-        }
-        if (!filtered[task.compute_fn].find(t => t.id === task.id)) {
-          filtered[task.compute_fn].push(task);
-        }
-      }
-    });
 
     setFilteredTasks(filtered);
   }, [tasks, searchTerms]);
@@ -119,85 +114,52 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
   const viewLogs = async (task: Task, logType: 'stdout' | 'stderr') => {
     try {
       const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${task.compute_fn}/tasks/${task.id}/logs/${logType}`;
-      const response = await axios.get(url, {
+      const { data: logContent } = await axios.get(url, {
         responseType: 'text',
-        headers: {
-          'accept': 'text/plain'
-        }
+        headers: { accept: 'text/plain' }
       });
 
-      const logContent = response.data;
-
-      if (!logContent || logContent.trim() === '') {
+      if (!logContent?.trim()) {
         toast.info(`No ${logType} logs found for task ${task.id}.`);
         return;
       }
 
       const newWindow = window.open('', '_blank');
-      if (newWindow) {
-        newWindow.document.write(`
-          <html>
-            <head>
-              <title>Task ${task.id} - ${logType} Log</title>
-              <style>
-                body { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }
-              </style>
-            </head>
-            <body>${logContent}</body>
-          </html>
-        `);
-        newWindow.document.close();
-      } else {
+      if (!newWindow) {
         toast.error('Unable to open new window. Please check your browser settings.');
+        return;
       }
+
+      newWindow.document.write(`
+        <html>
+          <head>
+            <title>Task ${task.id} - ${logType} Log</title>
+            <style>body { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }</style>
+          </head>
+          <body>${logContent}</body>
+        </html>
+      `);
+      newWindow.document.close();
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response) {
-        if (error.response.status === 404) {
-          toast.info(`No ${logType} logs found for task ${task.id}.`);
-        } else {
-          toast.error(`Failed to fetch ${logType} logs for task ${task.id}. Please try again later.`);
-        }
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        toast.info(`No ${logType} logs found for task ${task.id}.`);
       } else {
-        toast.error(`An unexpected error occurred while fetching ${logType} logs for task ${task.id}.`);
+        toast.error(`Failed to fetch ${logType} logs for task ${task.id}. Please try again later.`);
+        console.error(`Error fetching ${logType} logs:`, error);
       }
-      console.error(`Error fetching ${logType} logs:`, error);
     }
   };
 
-  const getChipStyles = (outcome: string) => {
-    const baseStyle = {
-      borderRadius: '16px',
-      fontWeight: 'bold',
-    };
+  const getChipStyles = (outcome: string) => ({
+    borderRadius: '16px',
+    fontWeight: 'bold',
+    ...(OUTCOME_STYLES[outcome.toLowerCase() as keyof typeof OUTCOME_STYLES] || OUTCOME_STYLES.default),
+  });
 
-    switch (outcome.toLowerCase()) {
-      case 'success':
-        return {
-          ...baseStyle,
-          color: '#008000b8',
-          backgroundColor: 'rgb(0 200 0 / 19%)',
-        };
-      case 'failed':
-        return {
-          ...baseStyle,
-          color: 'red',
-          backgroundColor: 'rgba(255, 0, 0, 0.1)',
-        };
-      default:
-        return {
-          ...baseStyle,
-          color: 'blue',
-          backgroundColor: 'rgba(0, 0, 255, 0.1)',
-        };
-    }
-  };
-
-  if (!tasks || tasks.length === 0) {
+  if (!tasks?.length) {
     return (
       <Box mt={2} mb={2}>
-        <Alert variant="outlined" severity="info">
-          No Tasks Found
-        </Alert>
+        <Alert variant="outlined" severity="info">No Tasks Found</Alert>
         <ToastContainer position="top-right" />
       </Box>
     );
@@ -208,7 +170,7 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
       <Typography variant="h6" gutterBottom>Tasks for Invocation</Typography>
       {Object.entries(filteredTasks).map(([computeFn, tasks], index) => (
         <Accordion 
-          key={index} 
+          key={computeFn}
           expanded={expandedPanels[computeFn]}
           onChange={handleAccordionChange(computeFn)}
         >
@@ -283,6 +245,6 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
       <ToastContainer position="top-right" />
     </Box>
   );
-};
+}
 
 export default InvocationTasksTable;

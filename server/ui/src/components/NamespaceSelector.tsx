@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate, useParams, useLocation, useLoaderData } from 'react-router-dom';
 import { 
   FormControl,
@@ -19,7 +18,7 @@ interface LoaderData {
   namespace: string;
 }
 
-const NamespaceSelector = () => {
+export function NamespaceSelector() {
   const navigate = useNavigate();
   const location = useLocation();
   const { namespace } = useParams();
@@ -27,24 +26,18 @@ const NamespaceSelector = () => {
 
   const handleNamespaceChange = (event: SelectChangeEvent) => {
     const value = event.target.value;
-    const pathSegments = location.pathname.split('/').filter(Boolean);
-    
-    if (pathSegments[0] === 'namespaces') {
+    const [firstSegment, secondSegment, ...rest] = location.pathname
+      .split('/')
+      .filter(Boolean);
+
+    if (firstSegment === 'namespaces' || !secondSegment) {
       navigate(`/${value}/compute-graphs`);
       return;
     }
 
-    if (pathSegments.length >= 2) {
-      const currentRoute = pathSegments[1];
-      const remainingPath = pathSegments.slice(2).join('/');
-      const newPath = `/${value}/${currentRoute}${remainingPath ? '/' + remainingPath : ''}`;
-      navigate(newPath);
-    } else {
-      navigate(`/${value}/compute-graphs`);
-    }
+    const remainingPath = rest.length ? `/${rest.join('/')}` : '';
+    navigate(`/${value}/${secondSegment}${remainingPath}`);
   };
-
-  const currentNamespace = namespace || 'default';
 
   return (
     <Box sx={{ p: 2 }}>
@@ -52,24 +45,20 @@ const NamespaceSelector = () => {
         <InputLabel id="namespace-select-label">Select your namespace</InputLabel>
         <Select
           labelId="namespace-select-label"
-          value={currentNamespace}
+          value={namespace || 'default'}
           onChange={handleNamespaceChange}
           label="Select your namespace"
-          sx={{
-            '& .MuiSelect-select': {
-              py: 1,
-            }
-          }}
+          sx={{ '& .MuiSelect-select': { py: 1 } }}
         >
-          {namespaces?.map((ns) => (
-            <MenuItem key={ns.name} value={ns.name}>
-              {ns.name}
+          {namespaces?.map(({ name }) => (
+            <MenuItem key={name} value={name}>
+              {name}
             </MenuItem>
           ))}
         </Select>
       </FormControl>
     </Box>
   );
-};
+}
 
 export default NamespaceSelector;

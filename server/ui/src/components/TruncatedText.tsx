@@ -1,13 +1,17 @@
 import { Tooltip, Typography } from '@mui/material';
 
-const TruncatedText = ({ text, maxLength = 25 }: { text: string, maxLength: number}) => {
+interface TruncatedTextProps {
+  text: string;
+  maxLength?: number;
+}
 
+export function TruncatedText({ text, maxLength = 25 }: TruncatedTextProps) {
   const truncatedText = text.length > maxLength 
     ? `${text.slice(0, maxLength)}...` 
     : text;
 
   return (
-    <Tooltip content={text} title={text}>
+    <Tooltip title={text}>
       <Typography
         variant="h6"
         component="div"
@@ -17,6 +21,6 @@ const TruncatedText = ({ text, maxLength = 25 }: { text: string, maxLength: numb
       </Typography>
     </Tooltip>
   );
-};
+}
 
 export default TruncatedText;

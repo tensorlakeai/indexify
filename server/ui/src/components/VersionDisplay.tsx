@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Alert, Typography, IconButton, Box } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -40,118 +40,112 @@ interface VersionDisplayProps {
   drawerWidth: number;
 }
 
-const VersionDisplay: React.FC<VersionDisplayProps> = ({ owner, repo, variant = 'sidebar', serviceUrl, drawerWidth }) => {
-  const [openApiVersion, setOpenApiVersion] = useState<string | null>(null);
-  const [githubVersion, setGithubVersion] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [dismissed, setDismissed] = useState<boolean>(false);
+interface VersionState {
+  openApi: string | null;
+  github: string | null;
+  error: string | null;
+  isLoading: boolean;
+  isDismissed: boolean;
+}
+
+export function VersionDisplay({ owner, repo, variant = 'sidebar', serviceUrl, drawerWidth }: VersionDisplayProps) {
+  const [state, setState] = useState<VersionState>({
+    openApi: null,
+    github: null,
+    error: null,
+    isLoading: true,
+    isDismissed: false,
+  });
 
   useEffect(() => {
-    const fetchOpenApiVersion = async () => {
+    async function fetchVersions() {
       try {
-        const response = await fetch(`${serviceUrl}/docs/openapi.json`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch OpenAPI version');
-        }
-        const data = await response.json();
-        setOpenApiVersion(data.info.version);
+        const [openApiResponse, githubResponse] = await Promise.all([
+          fetch(`${serviceUrl}/docs/openapi.json`),
+          fetch(`https://api.github.com/repos/${owner}/${repo}/releases/latest`)
+        ]);
+
+        if (!openApiResponse.ok || !githubResponse.ok) 
+          throw new Error('Failed to fetch versions');
+
+        const [openApiData, githubData] = await Promise.all([
+          openApiResponse.json(),
+          githubResponse.json()
+        ]);
+
+        setState(prev => ({
+          ...prev,
+          openApi: openApiData.info.version,
+          github: githubData.tag_name,
+          isLoading: false
+        }));
       } catch (error) {
-        console.error('Error fetching OpenAPI version:', error);
-        setError('Failed to fetch OpenAPI version');
+        setState(prev => ({
+          ...prev,
+          error: 'Failed to fetch version information',
+          isLoading: false
+        }));
       }
-    };
+    }
 
-    const fetchGithubVersion = async () => {
-      try {
-        const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/releases/latest`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch GitHub version');
-        }
-        const data = await response.json();
-        setGithubVersion(data.tag_name);
-      } catch (error) {
-        console.error('Error fetching GitHub version:', error);
-        setError('Failed to fetch GitHub version');
-      }
-    };
-
-    Promise.all([fetchOpenApiVersion(), fetchGithubVersion()])
-      .then(() => setLoading(false))
-      .catch(() => setLoading(false));
-
-    // Check if the announcement has been dismissed
     const dismissedData = localStorage.getItem('versionAnnouncementDismissed');
     if (dismissedData) {
       const { timestamp, dismissed } = JSON.parse(dismissedData);
       const today = new Date().toDateString();
       if (new Date(timestamp).toDateString() === today && dismissed) {
-        setDismissed(true);
+        setState(prev => ({ ...prev, isDismissed: true }));
       } else {
         localStorage.removeItem('versionAnnouncementDismissed');
       }
     }
+
+    void fetchVersions();
   }, [owner, repo, serviceUrl]);
 
-  const compareVersions = (v1: string, v2: string): number => {
-    const v1Parts = v1.replace('v', '').split('.').map(Number);
-    const v2Parts = v2.replace('v', '').split('.').map(Number);
+  function compareVersions(v1: string, v2: string): number {
+    const normalize = (v: string) => v.replace('v', '').split('.').map(Number);
+    const [parts1, parts2] = [normalize(v1), normalize(v2)];
     
-    for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
-      const part1 = v1Parts[i] || 0;
-      const part2 = v2Parts[i] || 0;
-      if (part1 > part2) return 1;
-      if (part1 < part2) return -1;
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const diff = (parts1[i] || 0) - (parts2[i] || 0);
+      if (diff !== 0) return diff > 0 ? 1 : -1;
     }
     return 0;
+  }
+
+  function getAlertSeverity(): 'info' | 'warning' | 'error' {
+    if (!state.openApi || !state.github) return 'info';
+    const comparison = compareVersions(state.github, state.openApi);
+    return comparison === 0 ? 'info' : comparison === 1 ? 'warning' : 'error';
+  }
+
+  const alertIcons = {
+    warning: <WarningIcon fontSize="small" />,
+    error: <ErrorIcon fontSize="small" />,
+    info: <InfoIcon fontSize="small" />
   };
 
-  const getAlertSeverity = (): 'info' | 'warning' | 'error' => {
-    if (!openApiVersion || !githubVersion) return 'info';
-    const comparison = compareVersions(githubVersion, openApiVersion);
-    if (comparison === 0) return 'info';
-    if (comparison === 1) return 'warning';
-    return 'error';
-  };
-
-  const getAlertIcon = (severity: 'info' | 'warning' | 'error') => {
-    switch (severity) {
-      case 'warning':
-        return <WarningIcon fontSize="small" />;
-      case 'error':
-        return <ErrorIcon fontSize="small" />;
-      default:
-        return <InfoIcon fontSize="small" />;
-    }
-  };
-
-  const handleDismiss = () => {
-    setDismissed(true);
-    const dismissData = {
+  function handleDismiss() {
+    setState(prev => ({ ...prev, isDismissed: true }));
+    localStorage.setItem('versionAnnouncementDismissed', JSON.stringify({
       timestamp: new Date().toISOString(),
       dismissed: true
-    };
-    localStorage.setItem('versionAnnouncementDismissed', JSON.stringify(dismissData));
-  };
-
-  if (loading) {
-    return <Typography variant="caption">Loading version...</Typography>;
+    }));
   }
 
-  if (error) {
-    return <Typography variant="caption">Error: {error}</Typography>;
-  }
+  if (state.isLoading) return <Typography variant="caption">Loading version...</Typography>;
+  if (state.error) return <Typography variant="caption">Error: {state.error}</Typography>;
 
   const severity = getAlertSeverity();
 
   if (variant === 'announcement') {
-    if (severity === 'info' || dismissed) return null;
+    if (severity === 'info' || state.isDismissed) return null;
     
     return (
       <Box sx={{ marginLeft: `${drawerWidth}px`, width: `calc(100% - ${drawerWidth}px)` }}>
         <Alert 
-          severity={severity} 
-          icon={getAlertIcon(severity)}
+          severity={severity}
+          icon={alertIcons[severity]}
           action={
             <IconButton
               aria-label="close"
@@ -162,25 +156,21 @@ const VersionDisplay: React.FC<VersionDisplayProps> = ({ owner, repo, variant = 
               <CloseIcon fontSize="inherit" />
             </IconButton>
           }
-          sx={{
-            ...alertStyle,
-            width: '100%',
-          }}
+          sx={{ ...alertStyle, width: '100%' }}
         >
           <Typography sx={textStyle}>
-            A new version of Indexify <Link href={`https://github.com/${owner}/${repo}/releases`} target="_blank" rel="noopener noreferrer">({githubVersion})</Link> is available. Your current version: v{openApiVersion}
+            A new version of Indexify <Link href={`https://github.com/${owner}/${repo}/releases`} target="_blank" rel="noopener noreferrer">({state.github})</Link> is available. Your current version: v{state.openApi}
           </Typography>
         </Alert>
       </Box>
     );
   }
 
-  // Sidebar version
   return (
     <Alert severity="info" icon={<InfoIcon fontSize="small" />} sx={alertStyle}>
-      <Typography sx={textStyle}>Indexify Version: {openApiVersion}</Typography>
+      <Typography sx={textStyle}>Indexify Version: {state.openApi}</Typography>
     </Alert>
   );
-};
+}
 
 export default VersionDisplay;

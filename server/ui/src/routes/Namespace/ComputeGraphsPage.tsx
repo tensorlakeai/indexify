@@ -1,19 +1,17 @@
 import { Box, Alert } from "@mui/material";
-import { ComputeGraphsList, IndexifyClient } from "getindexify";
 import { useLoaderData } from "react-router-dom";
-import ComputeGraphsCard from "../../components/cards/ComputeGraphsCard";
+import { ComputeGraphsCard } from "../../components/cards/ComputeGraphsCard";
+import type { ComputeGraphLoaderData } from "./types";
 
 const ComputeGraphsPage = () => {
-  const { client, computeGraphs, namespace } = useLoaderData() as {
-    client: IndexifyClient;
-    computeGraphs: ComputeGraphsList;
-    namespace: string;
-  };
+  const { client, computeGraphs, namespace } = useLoaderData() as ComputeGraphLoaderData;
 
   if (!client || !computeGraphs || !namespace) {
     return (
       <Box>
-        <Alert severity="error">Failed to load compute graphs data. Please try again.</Alert>
+        <Alert severity="error">
+          Failed to load compute graphs data. Please try again.
+        </Alert>
       </Box>
     );
   }

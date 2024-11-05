@@ -1,21 +1,30 @@
 import { IndexifyClient } from 'getindexify'
 import { LoaderFunctionArgs, redirect } from 'react-router-dom'
 import { getIndexifyServiceURL } from './helpers'
-import axios from 'axios';
-import { ComputeGraph, ComputeGraphsList } from '../types';
+import axios from 'axios'
+import { ComputeGraph, ComputeGraphsList } from '../types'
 
-const indexifyServiceURL = getIndexifyServiceURL();
+const indexifyServiceURL = getIndexifyServiceURL()
 
 export const apiClient = axios.create({
   baseURL: indexifyServiceURL,
-});
+})
 
+async function apiGet<T>(url: string): Promise<T> {
+  try {
+    const response = await apiClient.get<T>(url)
+    return response.data
+  } catch (error) {
+    console.error(`Error fetching ${url}:`, error)
+    throw error
+  }
+}
 
 function createClient(namespace: string) {
   return IndexifyClient.createClient({
     serviceUrl: indexifyServiceURL,
     namespace: namespace || 'default',
-  });
+  })
 }
 
 export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
@@ -25,23 +34,14 @@ export async function ContentsPageLoader({ params }: LoaderFunctionArgs) {
 }
 
 export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
-  const namespace = params.namespace || 'default';
-  const client = createClient(namespace);
+  const namespace = params.namespace || 'default'
+  const client = createClient(namespace)
   
   try {
-    const computeGraphs = await apiClient.get<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`);
-    return {
-      client,
-      computeGraphs: computeGraphs.data,
-      namespace,
-    }
-  } catch (error) {
-    console.error("Error fetching compute graphs:", error)
-    return {
-      client,
-      computeGraphs: { compute_graphs: [] },
-      namespace,
-    }
+    const computeGraphs = await apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`)
+    return { client, computeGraphs, namespace }
+  } catch {
+    return { client, computeGraphs: { compute_graphs: [] }, namespace }
   }
 }
 
@@ -50,25 +50,27 @@ export async function IndividualComputeGraphPageLoader({ params }: LoaderFunctio
   if (!namespace) return redirect('/')
   
   try {
-    const [computeGraphsResponse, invocationsResponse] = await Promise.all([
-      apiClient.get<ComputeGraphsList>(`/namespaces/${params.namespace}/compute_graphs`),
-      apiClient.get(`/namespaces/${params.namespace}/compute_graphs/${computeGraph}/invocations`)
-    ]);
+    const [computeGraphs, invocations] = await Promise.all([
+      apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`),
+      apiGet<{ invocations: unknown[] }>(`/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations`)
+    ])
 
-    const localComputeGraph = computeGraphsResponse.data.compute_graphs.find((graph: ComputeGraph) => graph.name === computeGraph);
+    const localComputeGraph = computeGraphs.compute_graphs.find(
+      (graph: ComputeGraph) => graph.name === computeGraph
+    )
     
     if (!localComputeGraph) {
-      throw new Error(`Compute graph ${computeGraph} not found`);
+      throw new Error(`Compute graph ${computeGraph} not found`)
     }
 
     return {
-      invocationsList: invocationsResponse.data.invocations,
+      invocationsList: invocations.invocations,
       computeGraph: localComputeGraph,
       namespace,
     }
   } catch (error) {
-    console.error("Error fetching compute graph data:", error);
-    throw error;
+    console.error("Error fetching compute graph data:", error)
+    throw error
   }
 }
 
@@ -83,12 +85,12 @@ export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
 }
 
 export async function NamespacesPageLoader() {
-  const namespaces = (await apiClient.get(`/namespaces`)).data.namespaces;
+  const { namespaces } = await apiGet<{ namespaces: string[] }>('/namespaces')
   return { namespaces }
 }
 
 export async function ExecutorsPageLoader() {
-  const executors = (await apiClient.get(`/internal/executors`)).data;
+  const executors = await apiGet<unknown>('/internal/executors')
   return { executors }
 }
 

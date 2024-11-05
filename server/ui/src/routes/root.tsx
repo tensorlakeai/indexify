@@ -1,55 +1,83 @@
+import { type ReactElement } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import Box from '@mui/material/Box';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
+import { 
+  Box, 
+  CssBaseline, 
+  Toolbar, 
+  Typography,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemText,
+  Divider
+} from '@mui/material';
 import {
   LoaderFunctionArgs,
   Outlet,
   redirect,
   useLoaderData,
   useLocation,
+  Link
 } from 'react-router-dom';
-import theme from '../theme';
-import { Stack } from '@mui/system';
+import { Cpu, TableDocument, Setting4 } from 'iconsax-react';
 import { IndexifyClient } from 'getindexify';
 import { getIndexifyServiceURL } from '../utils/helpers';
+import theme from '../theme';
+
+// Components
 import Footer from '../components/Footer';
-import {
-  Divider,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemText,
-} from '@mui/material';
-import { Link } from 'react-router-dom';
-import { Cpu, TableDocument, Setting4 } from 'iconsax-react';
 import VersionDisplay from '../components/VersionDisplay';
 import NamespaceSelector from '../components/NamespaceSelector';
 
-const indexifyServiceURL = getIndexifyServiceURL();
+// Constants
+const DRAWER_WIDTH = 240;
+const SERVICE_URL = getIndexifyServiceURL();
+
+interface LoaderData {
+  namespace: string;
+}
+
+interface NavItem {
+  path: string;
+  icon: ReactElement;
+  label: string;
+}
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const response = await IndexifyClient.namespaces({
-    serviceUrl: indexifyServiceURL,
+    serviceUrl: SERVICE_URL,
   });
   
   const namespaceNames = response.map((repo) => repo.name);
   
   if (!params.namespace || !namespaceNames.includes(params.namespace)) {
-    return redirect(`/default/compute-graphs`);
+    return redirect('/default/compute-graphs');
   }
   
-  return { namespaces: response, namespace: params.namespace || 'default' };
+  return { namespace: params.namespace || 'default' };
 }
 
-const drawerWidth = 240;
-
-export default function Dashboard() {
-  const { namespace } = useLoaderData() as {
-    namespace: string;
-  };
+function Dashboard() {
+  const { namespace } = useLoaderData() as LoaderData;
   const location = useLocation();
+
+  const navItems: NavItem[] = [
+    {
+      path: `/${namespace}/compute-graphs`,
+      icon: <Cpu size="20" className="drawer-logo" variant="Outline" />,
+      label: 'Compute Graphs'
+    },
+    {
+      path: '/namespaces',
+      icon: <TableDocument size="20" className="drawer-logo" variant="Outline" />,
+      label: 'Namespaces'
+    },
+    {
+      path: '/executors',
+      icon: <Setting4 size="20" className="drawer-logo" variant="Outline" />,
+      label: 'Executors'
+    }
+  ];
 
   return (
     <ThemeProvider theme={theme}>
@@ -59,50 +87,50 @@ export default function Dashboard() {
           flexDirection: 'column',
           height: '100vh',
           backgroundColor: (theme) =>
-            theme.palette.mode === 'light'
-              ? '#F7F9FC'
-              : theme.palette.grey[900],
+            theme.palette.mode === 'light' ? '#F7F9FC' : theme.palette.grey[900],
         }}
       >
         <CssBaseline />
-        <VersionDisplay owner="tensorlakeai" repo="indexify" variant="announcement" serviceUrl={indexifyServiceURL} drawerWidth={240} />
+        <VersionDisplay 
+          owner="tensorlakeai" 
+          repo="indexify" 
+          variant="announcement" 
+          serviceUrl={SERVICE_URL} 
+          drawerWidth={DRAWER_WIDTH} 
+        />
+
         <Box sx={{ display: 'flex', flex: 1 }}>
           <Drawer
             variant="permanent"
             sx={{
-              width: drawerWidth,
+              width: DRAWER_WIDTH,
               flexShrink: 0,
-              [`& .MuiDrawer-paper`]: {
-                width: drawerWidth,
+              '& .MuiDrawer-paper': {
+                width: DRAWER_WIDTH,
                 boxSizing: 'border-box',
               },
             }}
           >
             <Toolbar>
-              <Stack
-                direction={'row'}
-                display={'flex'}
-                alignItems={'center'}
-                justifyContent={'flex-start'}
-                spacing={2}
+              <Box 
+                display="flex" 
+                alignItems="center" 
+                gap={2}
               >
                 <img src="/ui/logo.svg" alt="logo" />
-                <a
-                  href={'/ui'}
-                  style={{ textDecoration: 'none', color: 'white' }}
-                >
+                <Link to="/ui" style={{ textDecoration: 'none' }}>
                   <Typography
                     component="h1"
                     variant="h6"
                     color="#060D3F"
                     noWrap
-                    sx={{ flexGrow: 1 }}
                   >
                     Indexify
                   </Typography>
-                </a>
-              </Stack>
+                </Link>
+              </Box>
             </Toolbar>
+
             <Box
               sx={{
                 display: 'flex',
@@ -113,44 +141,39 @@ export default function Dashboard() {
             >
               <List sx={{ flexGrow: 1 }}>
                 <NamespaceSelector />
-                <ListItemButton
-                  to={`/${namespace}/compute-graphs`}
-                  component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/compute-graphs`)}
-                  className={location.pathname.startsWith(`/${namespace}/compute-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
-                >
-                  <Cpu size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Compute Graphs'} />
-                </ListItemButton>
-                <ListItemButton
-                  to={`/namespaces`}
-                  component={Link}
-                  selected={location.pathname.startsWith(`/namespaces`)}
-                  className={location.pathname.startsWith(`/namespaces`) ? "selected-navbar-items navbar-items" : "navbar-items"}
-                >
-                  <TableDocument size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Namespaces'} />
-                </ListItemButton>
-                <ListItemButton
-                  to={`/executors`}
-                  component={Link}
-                  selected={location.pathname.startsWith(`/executors`)}
-                  className={location.pathname.startsWith(`/executors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
-                >
-                  <Setting4 size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Executors'} />
-                </ListItemButton>
+                {navItems.map(({ path, icon, label }) => (
+                  <ListItemButton
+                    key={path}
+                    to={path}
+                    component={Link}
+                    selected={location.pathname.startsWith(path)}
+                    className={location.pathname.startsWith(path) 
+                      ? "selected-navbar-items navbar-items" 
+                      : "navbar-items"
+                    }
+                  >
+                    {icon}
+                    <ListItemText primary={label} />
+                  </ListItemButton>
+                ))}
               </List>
+
               <Box sx={{ mt: 'auto', pb: 1 }}>
-                <VersionDisplay owner="tensorlakeai" repo="indexify" variant="sidebar" serviceUrl={indexifyServiceURL} drawerWidth={240} />
+                <VersionDisplay 
+                  owner="tensorlakeai" 
+                  repo="indexify" 
+                  variant="sidebar" 
+                  serviceUrl={SERVICE_URL} 
+                  drawerWidth={DRAWER_WIDTH} 
+                />
               </Box>
             </Box>
           </Drawer>
-          {/* page content */}
+
           <Box
             component="main"
             display="flex"
-            flexDirection={'column'}
+            flexDirection="column"
             sx={{
               flexGrow: 1,
               height: '100vh',
@@ -169,3 +192,5 @@ export default function Dashboard() {
     </ThemeProvider>
   );
 }
+
+export default Dashboard;

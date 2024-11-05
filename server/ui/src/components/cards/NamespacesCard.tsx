@@ -4,75 +4,94 @@ import { TableDocument, InfoCircle } from 'iconsax-react';
 import { formatTimestamp } from '../../utils/helpers';
 import { Namespace } from '../../types';
 
-const NamespacesCard = ({ namespaces }: { namespaces: Namespace[] }) => {
-  const renderContent = () => {
-    if (namespaces.length === 0) {
-      return (
-        <Box mt={2} mb={2}>
-          <Alert variant="outlined" severity="info">
-            No Namespaces Found
-          </Alert>
-        </Box>
-      );
-    }
-    return (
-      <Box sx={{ width: '100%', marginTop: '1rem' }}>
-        <Grid container spacing={2}>
-          {namespaces.map((namespace) => (
-            <Grid item xs={12} sm={12} md={12} lg={12} key={namespace.name}>
-              <Paper
-                sx={{
-                  p: 2,
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  borderRadius: '8px',
-                  boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"
-                }}
-                elevation={0}
-              >
-                <Grid container spacing={2} alignItems="center" mb={1}>
-                  <Grid item>
-                    <div className="heading-icon-container">
-                      <TableDocument size="16" variant="Outline"  />
-                    </div>
-                  </Grid>
-                  <Grid item xs>
-                    <Typography gutterBottom variant="subtitle2" component="span">
-                      {namespace.name}
-                    </Typography>
-                  </Grid>
-                </Grid>
-                <Box sx={{ display: 'flex', alignItems: { xs: 'left', lg: 'flex-start' }, flexDirection: { xs: 'column', lg: 'row' }, mt: 1 }}>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Created At: &nbsp;
-                  </Typography>
-                  {formatTimestamp(namespace.created_at)}
-                </Box>
-              </Paper>
-            </Grid>
-          ))}
+interface NamespacesCardProps {
+  namespaces: Namespace[];
+}
+
+function TableDocumentIcon({ size }: { size: string }) {
+  return (
+    <div className="heading-icon-container">
+      <TableDocument size={size} variant="Outline" />
+    </div>
+  );
+}
+
+function NamespaceItem({ namespace }: { namespace: Namespace }) {
+  return (
+    <Grid item xs={12} key={namespace.name}>
+      <Paper
+        sx={{
+          p: 2,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: '8px',
+          boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"
+        }}
+        elevation={0}
+      >
+        <Grid container spacing={2} alignItems="center" mb={1}>
+          <Grid item>
+            <TableDocumentIcon size="16" />
+          </Grid>
+          <Grid item xs>
+            <Typography variant="subtitle2" component="span">
+              {namespace.name}
+            </Typography>
+          </Grid>
         </Grid>
+        <Box 
+          sx={{ 
+            display: 'flex', 
+            alignItems: { xs: 'left', lg: 'flex-start' }, 
+            flexDirection: { xs: 'column', lg: 'row' }, 
+            mt: 1 
+          }}
+        >
+          <Typography variant="subtitle2" color="text.secondary">
+            Created At: &nbsp;
+          </Typography>
+          {formatTimestamp(namespace.created_at)}
+        </Box>
+      </Paper>
+    </Grid>
+  );
+}
+
+function NamespacesCard({ namespaces }: NamespacesCardProps) {
+  if (namespaces.length === 0) 
+    return (
+      <Box mt={2} mb={2}>
+        <Alert variant="outlined" severity="info">
+          No Namespaces Found
+        </Alert>
       </Box>
     );
-  };
 
   return (
     <>
-      <Stack display="flex" direction="row" alignItems="center" spacing={2}>
-        <div className="heading-icon-container">
-          <TableDocument size="25" className="heading-icons" variant="Outline" />
-        </div>
+      <Stack direction="row" alignItems="center" spacing={2}>
+        <TableDocumentIcon size="25" />
         <Typography variant="h4">
           Namespaces
-          <IconButton href="https://docs.getindexify.ai/concepts/#namespaces" target="_blank">
+          <IconButton 
+            href="https://docs.getindexify.ai/concepts/#namespaces" 
+            target="_blank"
+            aria-label="Learn more about namespaces"
+          >
             <InfoCircle size="20" variant="Outline" />
           </IconButton>
         </Typography>
       </Stack>
-      {renderContent()}
+      <Box sx={{ width: '100%', marginTop: '1rem' }}>
+        <Grid container spacing={2}>
+          {namespaces.map((namespace) => (
+            <NamespaceItem namespace={namespace} key={namespace.name} />
+          ))}
+        </Grid>
+      </Box>
     </>
   );
-};
+}
 
 export default NamespacesCard;
