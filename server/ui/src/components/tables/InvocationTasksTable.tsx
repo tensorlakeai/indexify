@@ -88,10 +88,8 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
     const filtered = Object.keys(searchTerms).reduce((acc, computeFn) => {
       const term = searchTerms[computeFn].toLowerCase();
       acc[computeFn] = tasks.filter(task => 
-        task.compute_fn === computeFn && (
-          task.id.toLowerCase().includes(term) ||
-          task.input_key.toLowerCase().includes(term)
-        )
+        task.compute_fn === computeFn && 
+        task.id.toLowerCase().includes(term)
       );
       return acc;
     }, {} as Record<string, Task[]>);
@@ -227,7 +225,7 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
               >
                 <TextField
                   size="small"
-                  placeholder="Search by ID or Input Key"
+                  placeholder="Search by ID"
                   value={searchTerms[computeFn] || ''}
                   onChange={(e) => setSearchTerms(prev => ({ ...prev, [computeFn]: e.target.value }))}
                   InputProps={{
@@ -247,7 +245,6 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
                 <TableHead>
                   <TableRow>
                     <TableCell>ID</TableCell>
-                    <TableCell>Input Key</TableCell>
                     <TableCell>Outcome</TableCell>
                     <TableCell>Logs</TableCell>
                   </TableRow>
@@ -256,7 +253,6 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifySer
                   {tasks.map((task) => (
                     <TableRow key={task.id}>
                       <TableCell>{task.id}</TableCell>
-                      <TableCell sx={{ wordBreak: 'break-all' }}>{task.input_key}</TableCell>
                       <TableCell>
                         <Chip
                           label={task.outcome}
