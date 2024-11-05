@@ -145,7 +145,7 @@ def summarize_job_interview(speech: Transcription) -> Summary:
     5. Overall Impression and Recommendation
 
     Transcript:
-    {transcription_text[:1000]}
+    {transcription_text}
     DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT! 
     """
     output = model(prompt=prompt, max_tokens=30000, stop=["\n"])
