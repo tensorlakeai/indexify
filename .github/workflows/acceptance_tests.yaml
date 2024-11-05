@@ -114,6 +114,7 @@ jobs:
       - name: Run Acceptance Tests
         run: |
           cd python-sdk
+          export INDEXIFY_URL=http://localhost:8900
           poetry run python tests/test_graph_behaviours.py
           poetry run python tests/test_graph_update.py
           poetry run python tests/test_graph_validation.py
