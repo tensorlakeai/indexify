@@ -137,6 +137,7 @@ mod tests {
             }),
             errors: None,
             reduced_state: false,
+            created_at: 5,
         };
         let key = output.key(&output.invocation_id);
         let serialized_output = JsonEncoder::encode(&output)?;
