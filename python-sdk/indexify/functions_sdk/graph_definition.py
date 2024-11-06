@@ -14,7 +14,7 @@ class FunctionMetadata(BaseModel):
     reducer: bool = False
     image_name: str
     image_information: ImageInformation
-    encoder: str = "cloudpickle"
+    payload_encoder: str = "cloudpickle"
 
 
 class RouterMetadata(BaseModel):
@@ -24,7 +24,7 @@ class RouterMetadata(BaseModel):
     target_fns: List[str]
     image_name: str
     image_information: ImageInformation
-    encoder: str = "cloudpickle"
+    payload_encoder: str = "cloudpickle"
 
 
 class NodeMetadata(BaseModel):

@@ -160,7 +160,7 @@ class Graph:
             reducer=start_node.accumulate is not None,
             image_name=start_node.image._image_name,
             image_information=start_node.image.to_image_information(),
-            encoder=start_node.encoder
+            payload_encoder=start_node.encoder
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -172,7 +172,7 @@ class Graph:
                         description=node.description or "",
                         source_fn=node_name,
                         target_fns=self.routers[node_name],
-                        encoder=node.encoder,
+                        payload_encoder=node.encoder,
                         image_name=node.image._image_name,
                         image_information=node.image.to_image_information(),
                     )
