@@ -15,7 +15,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import CopyText from '../CopyText';
-import { formatTimestamp, getIndexifyServiceURL } from '../../utils/helpers';
+import { formatBytes, formatTimestamp, getIndexifyServiceURL } from '../../utils/helpers';
 import { DataObject } from '../../types';
 
 interface InvocationsTableProps {
@@ -70,7 +70,7 @@ const InvocationsTable: React.FC<InvocationsTableProps> = ({ invocationsList, co
                   </Box>
                 </TableCell>
                 <TableCell>{formatTimestamp(invocation.created_at)}</TableCell>
-                <TableCell>{invocation.payload_size} bytes</TableCell>
+                <TableCell>{formatBytes(invocation.payload_size)}</TableCell>
                 <TableCell>
                   <IconButton onClick={() => handleDelete(invocation.id)} color="error" size="small">
                     <DeleteIcon />

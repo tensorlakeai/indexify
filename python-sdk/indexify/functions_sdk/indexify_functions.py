@@ -22,7 +22,7 @@ from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE_3_10, Image
-from .object_serializer import CloudPickleSerializer, get_serializer
+from .object_serializer import get_serializer
 
 
 class GraphInvocationContext(BaseModel):
@@ -119,7 +119,7 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    payload_encoder: Optional[str] = "cloudpickle"
+    encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -131,7 +131,7 @@ class IndexifyFunction:
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
-        serializer = get_serializer(cls.payload_encoder)
+        serializer = get_serializer(cls.encoder)
         return serializer.deserialize(output.payload)
 
 
@@ -140,7 +140,7 @@ class IndexifyRouter:
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
-    payload_encoder: Optional[str] = "cloudpickle"
+    encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
@@ -151,7 +151,7 @@ def indexify_router(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     placement_constraints: List[PlacementConstraints] = [],
-    payload_encoder: Optional[str] = "cloudpickle",
+    encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         args = locals().copy()
@@ -174,7 +174,7 @@ def indexify_router(
                 setattr(IndexifyRo, key, value)
 
         IndexifyRo.image = image
-        IndexifyRo.payload_encoder = payload_encoder
+        IndexifyRo.encoder = encoder
         return IndexifyRo
 
     return construct
@@ -185,7 +185,7 @@ def indexify_function(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     accumulate: Optional[Type[BaseModel]] = None,
-    payload_encoder: Optional[str] = "cloudpickle",
+    encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -207,10 +207,9 @@ def indexify_function(
         for key, value in args.items():
             if key != "fn" and key != "self":
                 setattr(IndexifyFn, key, value)
-
         IndexifyFn.image = image
         IndexifyFn.accumulate = accumulate
-        IndexifyFn.payload_encoder = payload_encoder
+        IndexifyFn.encoder = encoder
         return IndexifyFn
 
     return construct
@@ -303,7 +302,7 @@ class IndexifyFunctionWrapper:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> FunctionCallResult:
         input = self.deserialize_input(name, input)
-        serializer = get_serializer(self.indexify_function.payload_encoder)
+        serializer = get_serializer(self.indexify_function.encoder)
         if acc is not None:
             acc = self.indexify_function.accumulate.model_validate(
                 serializer.deserialize(acc.payload)
@@ -314,7 +313,7 @@ class IndexifyFunctionWrapper:
             )
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
-            IndexifyData(payload=serializer.serialize(output)) for output in outputs
+            IndexifyData(payload=serializer.serialize(output), encoder=self.indexify_function.encoder) for output in outputs
         ]
         return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
@@ -324,32 +323,10 @@ class IndexifyFunctionWrapper:
         return RouterCallResult(edges=edges, traceback_msg=err)
 
     def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
-        if self.indexify_function.payload_encoder == "cloudpickle":
-            return CloudPickleSerializer.deserialize(indexify_data.payload)
-        payload = msgpack.unpackb(indexify_data.payload)
-        signature = inspect.signature(self.indexify_function.run)
-        arg_types = {}
-        for name, param in signature.parameters.items():
-            if (
-                param.annotation != inspect.Parameter.empty
-                and param.annotation != getattr(compute_fn, "accumulate", None)
-            ):
-                arg_types[name] = param.annotation
-        if len(arg_types) > 1:
-            raise ValueError(
-                f"Compute function {compute_fn} has multiple arguments, but only one is supported"
-            )
-        elif len(arg_types) == 0:
-            raise ValueError(f"Compute function {compute_fn} has no arguments")
-        arg_name, arg_type = next(iter(arg_types.items()))
-        if arg_type is None:
-            raise ValueError(f"Argument {arg_name} has no type annotation")
-        if is_pydantic_model_from_annotation(arg_type):
-            if len(payload.keys()) == 1 and isinstance(list(payload.values())[0], dict):
-                payload = list(payload.values())[0]
-            return arg_type.model_validate(payload)
-        return payload
-
+        encoder = indexify_data.encoder
+        payload = indexify_data.payload
+        serializer = get_serializer(encoder)
+        return serializer.deserialize(payload)
 
 def get_ctx() -> GraphInvocationContext:
     frame = inspect.currentframe()

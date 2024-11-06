@@ -48,4 +48,4 @@ class ComputeGraphMetadata(BaseModel):
     runtime_information: RuntimeInformation
 
     def get_input_payload_serializer(self):
-        return get_serializer(self.start_node.compute_fn.payload_encoder)
+        return get_serializer(self.start_node.compute_fn.encoder)

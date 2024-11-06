@@ -470,6 +470,7 @@ pub struct Tasks {
 pub struct FnOutput {
     pub compute_fn: String,
     pub id: String,
+    pub created_at: u64,
 }
 
 impl From<data_model::NodeOutput> for FnOutput {
@@ -477,6 +478,7 @@ impl From<data_model::NodeOutput> for FnOutput {
         Self {
             compute_fn: output.compute_fn_name,
             id: output.id.to_string(),
+            created_at: output.created_at,
         }
     }
 }
