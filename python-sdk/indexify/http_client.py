@@ -14,8 +14,7 @@ from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from indexify.settings import DEFAULT_SERVICE_URL, DEFAULT_SERVICE_URL_HTTPS
-
+from indexify.settings import DEFAULT_SERVICE_URL
 
 class InvocationEventPayload(BaseModel):
     invocation_id: str
@@ -104,7 +103,7 @@ class IndexifyClient:
         cert_path: str,
         key_path: str,
         ca_bundle_path: Optional[str] = None,
-        service_url: str = DEFAULT_SERVICE_URL_HTTPS,
+        service_url: str = DEFAULT_SERVICE_URL,
         *args,
         **kwargs,
     ) -> "IndexifyClient":
