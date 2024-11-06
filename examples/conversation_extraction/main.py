@@ -298,7 +298,7 @@ def deploy_graphs(server_url: str):
     RemoteGraph.deploy(graph, server_url=server_url)
     logging.info("Graph deployed successfully")
 
-def run_workflow(mode: str, server_url: str = 'http://localhost:8950', bucket_name: str = None, file_key: str = None):
+def run_workflow(mode: str, server_url: str = 'http://localhost:8900', bucket_name: str = None, file_key: str = None):
     if mode == 'in-process-run':
         graph = create_graph()
     elif mode == 'remote-run':
