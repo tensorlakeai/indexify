@@ -17,7 +17,7 @@ class RouterOutput(BaseModel):
 class IndexifyData(BaseModel):
     id: Optional[str] = None
     payload: bytes
-    payload_encoding: Literal["cloudpickle", "json"] = "cloudpickle"
+    encoder: Literal["cloudpickle", "json"] = "cloudpickle"
 
 
 class FunctionWorkerOutput(BaseModel):

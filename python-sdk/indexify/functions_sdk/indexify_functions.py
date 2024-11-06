@@ -119,7 +119,7 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    payload_encoder: Optional[str] = "cloudpickle"
+    encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -131,7 +131,7 @@ class IndexifyFunction:
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
-        serializer = get_serializer(cls.payload_encoder)
+        serializer = get_serializer(cls.encoder)
         return serializer.deserialize(output.payload)
 
 
@@ -140,7 +140,7 @@ class IndexifyRouter:
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
-    payload_encoder: Optional[str] = "cloudpickle"
+    encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
@@ -151,7 +151,7 @@ def indexify_router(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     placement_constraints: List[PlacementConstraints] = [],
-    payload_encoder: Optional[str] = "cloudpickle",
+    encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         args = locals().copy()
@@ -174,7 +174,7 @@ def indexify_router(
                 setattr(IndexifyRo, key, value)
 
         IndexifyRo.image = image
-        IndexifyRo.payload_encoder = payload_encoder
+        IndexifyRo.encoder = encoder
         return IndexifyRo
 
     return construct
@@ -185,7 +185,7 @@ def indexify_function(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     accumulate: Optional[Type[BaseModel]] = None,
-    payload_encoder: Optional[str] = "cloudpickle",
+    encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -209,7 +209,7 @@ def indexify_function(
                 setattr(IndexifyFn, key, value)
         IndexifyFn.image = image
         IndexifyFn.accumulate = accumulate
-        IndexifyFn.payload_encoder = payload_encoder
+        IndexifyFn.encoder = encoder
         return IndexifyFn
 
     return construct
@@ -302,7 +302,7 @@ class IndexifyFunctionWrapper:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> FunctionCallResult:
         input = self.deserialize_input(name, input)
-        serializer = get_serializer(self.indexify_function.payload_encoder)
+        serializer = get_serializer(self.indexify_function.encoder)
         if acc is not None:
             acc = self.indexify_function.accumulate.model_validate(
                 serializer.deserialize(acc.payload)
@@ -313,7 +313,7 @@ class IndexifyFunctionWrapper:
             )
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
-            IndexifyData(payload=serializer.serialize(output), payload_encoding=self.indexify_function.payload_encoder) for output in outputs
+            IndexifyData(payload=serializer.serialize(output), encoder=self.indexify_function.encoder) for output in outputs
         ]
         return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
@@ -323,9 +323,9 @@ class IndexifyFunctionWrapper:
         return RouterCallResult(edges=edges, traceback_msg=err)
 
     def deserialize_input(self, compute_fn: str, indexify_data: IndexifyData) -> Any:
-        payload_encoder = indexify_data.payload_encoding
+        encoder = indexify_data.encoder
         payload = indexify_data.payload
-        serializer = get_serializer(payload_encoder)
+        serializer = get_serializer(encoder)
         return serializer.deserialize(payload)
 
 def get_ctx() -> GraphInvocationContext:

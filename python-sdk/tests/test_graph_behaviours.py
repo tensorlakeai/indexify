@@ -25,11 +25,11 @@ class MyObject(BaseModel):
 def simple_function(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
-@indexify_function(payload_encoder="json")
+@indexify_function(encoder="json")
 def simple_function_with_json_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
-@indexify_function(payload_encoder="invalid")
+@indexify_function(encoder="invalid")
 def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
@@ -80,7 +80,7 @@ def generate_seq(x: int) -> List[int]:
 def square(x: int) -> int:
     return x * x
 
-@indexify_function(payload_encoder="json")
+@indexify_function(encoder="json")
 def square_with_json_encoder(x: int) -> int:
     return x * x
 
@@ -93,7 +93,7 @@ def sum_of_squares(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
 
-@indexify_function(accumulate=Sum, payload_encoder="json")
+@indexify_function(accumulate=Sum, encoder="json")
 def sum_of_squares_with_json_encoding(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
