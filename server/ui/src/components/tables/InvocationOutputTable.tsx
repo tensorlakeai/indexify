@@ -131,7 +131,7 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
             id={`panel${index}-header`}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-              <Typography>{computeFn} ({outputs.length} outputs)</Typography>
+              <Typography>Compute Function - {computeFn} ({outputs.length} outputs)</Typography>
               <Box 
                 sx={{ display: 'flex', alignItems: 'center' }}
                 onClick={(e) => e.stopPropagation()}
@@ -157,7 +157,6 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Compute Function</TableCell>
                     <TableCell>ID</TableCell>
                     <TableCell>Created At</TableCell>
                   </TableRow>
@@ -165,7 +164,6 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
                 <TableBody>
                   {outputs.map((output, idx) => (
                     <TableRow key={idx}>
-                      <TableCell>{output.compute_fn}</TableCell>
                       <TableCell>{output.id}</TableCell>
                       <TableCell>{formatTimestamp(output.created_at)}</TableCell>
                     </TableRow>
