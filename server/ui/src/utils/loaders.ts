@@ -84,11 +84,6 @@ export async function InvocationsPageLoader({ params }: LoaderFunctionArgs) {
   return { namespace, computeGraph, invocationsList }
 }
 
-export async function NamespacesPageLoader() {
-  const { namespaces } = await apiGet<{ namespaces: string[] }>('/namespaces')
-  return { namespaces }
-}
-
 export async function ExecutorsPageLoader() {
   const executors = await apiGet<unknown>('/internal/executors')
   return { executors }

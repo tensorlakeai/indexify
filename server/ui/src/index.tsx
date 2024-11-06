@@ -17,11 +17,9 @@ import {
   ExecutorsPageLoader,
   IndividualComputeGraphPageLoader,
   IndividualInvocationPageLoader,
-  NamespacesPageLoader,
 } from "./utils/loaders";
 import {
   ComputeGraphsPage,
-  NamespacesPage,
   IndividualComputeGraphPage,
   IndividualInvocationPage,
   ExecutorsPage,
@@ -64,12 +62,6 @@ const router = createBrowserRouter(
         {
           path: "/:namespace",
           element: <RedirectToComputeGraphs />,
-          errorElement: <ErrorPage />
-        },
-        {
-          path: "/namespaces",
-          element: <NamespacesPage />,
-          loader: NamespacesPageLoader,
           errorElement: <ErrorPage />
         },
         {

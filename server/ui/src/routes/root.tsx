@@ -15,27 +15,18 @@ import {
   LoaderFunctionArgs,
   Outlet,
   redirect,
-  useLoaderData,
   useLocation,
   Link
 } from 'react-router-dom';
-import { Cpu, TableDocument, Setting4 } from 'iconsax-react';
-import { IndexifyClient } from 'getindexify';
+import { Cpu, Setting4 } from 'iconsax-react';
 import { getIndexifyServiceURL } from '../utils/helpers';
 import theme from '../theme';
 
-// Components
 import Footer from '../components/Footer';
 import VersionDisplay from '../components/VersionDisplay';
-import NamespaceSelector from '../components/NamespaceSelector';
 
-// Constants
 const DRAWER_WIDTH = 240;
 const SERVICE_URL = getIndexifyServiceURL();
-
-interface LoaderData {
-  namespace: string;
-}
 
 interface NavItem {
   path: string;
@@ -44,33 +35,17 @@ interface NavItem {
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const response = await IndexifyClient.namespaces({
-    serviceUrl: SERVICE_URL,
-  });
-  
-  const namespaceNames = response.map((repo) => repo.name);
-  
-  if (!params.namespace || !namespaceNames.includes(params.namespace)) {
-    return redirect('/default/compute-graphs');
-  }
-  
-  return { namespace: params.namespace || 'default' };
+  return redirect('/default/compute-graphs');
 }
 
 function Dashboard() {
-  const { namespace } = useLoaderData() as LoaderData;
   const location = useLocation();
 
   const navItems: NavItem[] = [
     {
-      path: `/${namespace}/compute-graphs`,
+      path: '/default/compute-graphs',
       icon: <Cpu size="20" className="drawer-logo" variant="Outline" />,
       label: 'Compute Graphs'
-    },
-    {
-      path: '/namespaces',
-      icon: <TableDocument size="20" className="drawer-logo" variant="Outline" />,
-      label: 'Namespaces'
     },
     {
       path: '/executors',
@@ -140,7 +115,6 @@ function Dashboard() {
               }}
             >
               <List sx={{ flexGrow: 1 }}>
-                <NamespaceSelector />
                 {navItems.map(({ path, icon, label }) => (
                   <ListItemButton
                     key={path}

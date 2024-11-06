@@ -33,6 +33,7 @@ const TYPE_COLORS = {
 const CELL_STYLES = { fontSize: 14, pt: 1 } as const;
 const CHIP_STYLES = {
   height: '16px',
+  width: 'fit-content',
   fontSize: '0.625rem',
   '& .MuiChip-label': { padding: '0 6px' },
 } as const;
