@@ -83,7 +83,7 @@ export function ExecutorsCard({ executors }: ExecutorsCardProps) {
         <Typography variant="h4">
           Executors
           <IconButton 
-            href="https://docs.getindexify.ai/concepts/#executors" 
+            href="https://docs.tensorlake.ai/architecture#executors" 
             target="_blank"
             rel="noopener noreferrer"
             sx={{ ml: 1 }}

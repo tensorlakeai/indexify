@@ -90,7 +90,7 @@ export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeG
         <Typography variant="h4">
           Compute Graphs
           <IconButton
-            href="https://docs.getindexify.ai/concepts/#compute-graphs"
+            href="https://docs.tensorlake.ai/key-concepts#graphs"
             target="_blank"
           >
             <InfoCircle size="20" variant="Outline" />
