@@ -77,6 +77,7 @@ llama_cpp_image = (
     .run("apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*")
 )
 
+
 def get_chat_completion(prompt: str) -> str:
     model = Llama.from_pretrained(
         repo_id="NousResearch/Hermes-3-Llama-3.1-8B-GGUF",
@@ -96,7 +97,7 @@ def transcribe_audio(file: File) -> Transcription:
     audio_segments = [SpeechSegment(text=segment.text, start_ts=segment.start, end_ts=segment.end) for segment in segments]
     return Transcription(segments=audio_segments)
 
-@indexify_function(image=groq_image)  
+@indexify_function(image=llama_cpp_image)  
 def classify_meeting_intent(speech: Transcription) -> Transcription:
     try:
         """Classify the intent of the audio."""
@@ -112,7 +113,7 @@ def classify_meeting_intent(speech: Transcription) -> Transcription:
 
         Transcription:
         {transcription_text}
-        DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT! ONLY the Intent in the required format.
+        DO NOT ATTACH ANY OTHER PHRASES, symbols OR ANNOTATIONS WITH THE OUTPUT! ONLY the Intent in the required format.
         """
         response = get_chat_completion(prompt)
         intent = response.split(":")[-1].strip()  
@@ -120,14 +121,14 @@ def classify_meeting_intent(speech: Transcription) -> Transcription:
             speech.classification = SpeechClassification(classification=intent, confidence=0.8)
         else:
             speech.classification = SpeechClassification(classification="unknown", confidence=0.5)
-        
+
         return speech
     except Exception as e:
         logging.error(f"Error classifying meeting intent: {e}")
         speech.classification = SpeechClassification(classification="unknown", confidence=0.5)
         return speech
 
-@indexify_function(image=groq_image)  
+@indexify_function(image=llama_cpp_image)  
 def summarize_strategy_meeting(speech: Transcription) -> StrategyMeetingSchema:
     """Summarize the strategy meeting."""
     transcription_text = "\n".join([segment.text for segment in speech.segments])
@@ -140,7 +141,7 @@ def summarize_strategy_meeting(speech: Transcription) -> StrategyMeetingSchema:
 
     Transcript:
     {transcription_text}
-    DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT! 
+    DO NOT ATTACH ANY OTHER PHRASES, symbols OR ANNOTATIONS WITH THE OUTPUT! 
     """
     summary = get_chat_completion(prompt)
     lines = summary.split('\n')
@@ -176,21 +177,20 @@ def summarize_strategy_meeting(speech: Transcription) -> StrategyMeetingSchema:
         action_items=action_items
     )
 
-@indexify_function(image=groq_image) 
+@indexify_function(image=llama_cpp_image) 
 def summarize_sales_call(speech: Transcription) -> SalesCallSchema:
     """Summarize the sales call according to SalesCallSchema."""
     transcription_text = "\n".join([segment.text for segment in speech.segments])
     prompt = f"""
     Analyze this sales call transcript and extract data ONLY in this format only:
-    1. Key details
-    2. Client concerns
-    3. Action items
-    4. Next steps
-    5. Recommendations for improving the approach
+    1. Customer Pain Points:
+    2. Proposed Solutions:
+    3. Objections:
+    4. Next Steps:
 
     Transcript:
     {transcription_text}
-    DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT!
+    DO NOT ATTACH ANY OTHER PHRASES, symbols OR ANNOTATIONS WITH THE OUTPUT!
     """
     summary = get_chat_completion(prompt)
     lines = summary.split('\n')
@@ -226,12 +226,12 @@ def summarize_sales_call(speech: Transcription) -> SalesCallSchema:
         next_steps=next_steps
     )
 
-@indexify_function(image=groq_image) 
+@indexify_function(image=llama_cpp_image) 
 def summarize_rd_brainstorm(speech: Transcription) -> RDBrainstormSchema:
     """Summarize the R&D brainstorming session according to RDBrainstormSchema."""
     transcription_text = "\n".join([segment.text for segment in speech.segments])
     prompt = f"""
-    Analyze this sales call transcript and extract data ONLY in this format only:
+    Analyze this R&D brainstorming transcript and extract data ONLY in this format only:
     1. Innovative Ideas:
     2. Technical Challenges:
     3. Resource Requirements:
@@ -239,7 +239,7 @@ def summarize_rd_brainstorm(speech: Transcription) -> RDBrainstormSchema:
 
     Transcript:
     {transcription_text}
-    DO NOT ATTATCH ANY OTHER PHRASES,* symbols OR ANNOTATIONS WITH THE OUTPUT!
+    DO NOT ATTACH ANY OTHER PHRASES, symbols OR ANNOTATIONS WITH THE OUTPUT!
     """
     summary = get_chat_completion(prompt)
     lines = summary.split('\n')
@@ -306,7 +306,7 @@ def run_workflow(mode: str, server_url: str = 'http://localhost:8900', bucket_na
     else:
         raise ValueError("Invalid mode. Choose 'in-process-run' or 'remote-run'.")
 
-    file_path = "data/audiofile"  #replace
+    file_path = "data/audiofile"  #replace with your file path
     with open(file_path, 'rb') as audio_file:
         audio_data = audio_file.read()
     file = File(path=file_path, data=audio_data)
@@ -337,6 +337,7 @@ def run_workflow(mode: str, server_url: str = 'http://localhost:8900', bucket_na
         logging.error(f"Error in workflow execution: {str(e)}")
         logging.error(f"Graph output for classify_meeting_intent: {graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)}")
 
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run Conversation Extractor")
@@ -352,8 +353,6 @@ if __name__ == "__main__":
         logging.info("Operation completed successfully!")
     except Exception as e:
         logging.error(f"An error occurred during execution: {str(e)}")
-
-
 
 
 

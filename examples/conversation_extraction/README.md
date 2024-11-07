@@ -69,11 +69,11 @@ This project demonstrates how to build a meeting conversation extraction pipelin
    python main.py --mode remote-run
    ```
 
-## How it Works
+## Workflow
 
 1. **Audio Processing:**
    - Transcription: Converts speech to text using Faster Whisper, including speaker diarization
-   - Meeting Classification: Uses Llama.cpp to determine the type of meeting
+   - Meeting Classification: Uses LLM to determine the type of meeting
 
 2. **Content Analysis:**
    Based on the meeting type classification, the system generates structured summaries:
