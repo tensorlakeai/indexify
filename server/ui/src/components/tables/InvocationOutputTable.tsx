@@ -36,54 +36,69 @@ interface InvocationOutputTableProps {
   computeGraph: string;
 }
 
-const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
+interface GroupedOutputs {
+  [key: string]: Output[];
+}
+
+interface ExpandedPanels {
+  [key: string]: boolean;
+}
+
+interface SearchTerms {
+  [key: string]: string;
+}
+
+function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, computeGraph }: InvocationOutputTableProps) {
   const [outputs, setOutputs] = useState<Output[]>([]);
-  const [searchTerms, setSearchTerms] = useState<Record<string, string>>({});
-  const [filteredOutputs, setFilteredOutputs] = useState<Record<string, Output[]>>({});
-  const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+  const [searchTerms, setSearchTerms] = useState<SearchTerms>({});
+  const [filteredOutputs, setFilteredOutputs] = useState<GroupedOutputs>({});
+  const [expandedPanels, setExpandedPanels] = useState<ExpandedPanels>({});
 
-  useEffect(() => {
-    const fetchOutputs = async () => {
-      try {
-        const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/outputs`;
-        const response = await axios.get<{ outputs: Output[] }>(url, {
-          headers: {
-            'accept': 'application/json'
-          }
-        });
-        setOutputs(response.data.outputs);
-      } catch (error) {
-        console.error('Error fetching outputs:', error);
-        toast.error('Failed to fetch outputs. Please try again later.');
-      }
-    };
-
-    fetchOutputs();
+  const fetchOutputs = useCallback(async () => {
+    try {
+      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/outputs`;
+      const response = await axios.get<{ outputs: Output[] }>(url, {
+        headers: { accept: 'application/json' }
+      });
+      setOutputs(response.data.outputs);
+    } catch (error) {
+      console.error('Error fetching outputs:', error);
+      toast.error('Failed to fetch outputs. Please try again later.');
+    }
   }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
 
   const handleSearch = useCallback((computeFn: string, term: string) => {
     const filtered = outputs.filter(output => 
-      output.compute_fn === computeFn && output.id.toLowerCase().includes(term.toLowerCase())
+      output.compute_fn === computeFn && 
+      output.id.toLowerCase().includes(term.toLowerCase())
     );
     setFilteredOutputs(prev => ({ ...prev, [computeFn]: filtered }));
   }, [outputs]);
 
+  const handleAccordionChange = useCallback((panel: string) => 
+    (event: React.SyntheticEvent, isExpanded: boolean) => {
+      const target = event.target as HTMLElement;
+      if (target.classList.contains('MuiAccordionSummary-expandIconWrapper') || 
+          target.closest('.MuiAccordionSummary-expandIconWrapper')) {
+        setExpandedPanels(prev => ({ ...prev, [panel]: isExpanded }));
+      }
+  }, []);
+
+  useEffect(() => {
+    fetchOutputs();
+  }, [fetchOutputs]);
+
   useEffect(() => {
     const grouped = outputs.reduce((acc, output) => {
-      if (!acc[output.compute_fn]) {
-        acc[output.compute_fn] = [];
-      }
+      if (!acc[output.compute_fn]) acc[output.compute_fn] = [];
       acc[output.compute_fn].push(output);
       return acc;
-    }, {} as Record<string, Output[]>);
+    }, {} as GroupedOutputs);
 
     setFilteredOutputs(grouped);
-
-    const initialExpandedState = Object.keys(grouped).reduce((acc, key) => {
-      acc[key] = true;
-      return acc;
-    }, {} as Record<string, boolean>);
-    setExpandedPanels(initialExpandedState);
+    setExpandedPanels(
+      Object.keys(grouped).reduce((acc, key) => ({ ...acc, [key]: true }), {})
+    );
   }, [outputs]);
 
   useEffect(() => {
@@ -92,20 +107,10 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
     });
   }, [searchTerms, handleSearch]);
 
-  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
-    const target = event.target as HTMLElement;
-    if (target.classList.contains('MuiAccordionSummary-expandIconWrapper') || 
-        target.closest('.MuiAccordionSummary-expandIconWrapper')) {
-      setExpandedPanels(prev => ({ ...prev, [panel]: isExpanded }));
-    }
-  };
-
-  if (!outputs || outputs.length === 0) {
+  if (!outputs.length) {
     return (
       <Box mt={2} mb={2}>
-        <Alert variant="outlined" severity="info">
-          No Outputs Found
-        </Alert>
+        <Alert variant="outlined" severity="info">No Outputs Found</Alert>
         <ToastContainer position="top-right" />
       </Box>
     );
@@ -116,7 +121,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
       <Typography variant="h6" gutterBottom>Outputs for Invocation</Typography>
       {Object.entries(filteredOutputs).map(([computeFn, outputs], index) => (
         <Accordion 
-          key={index} 
+          key={index}
           expanded={expandedPanels[computeFn]}
           onChange={handleAccordionChange(computeFn)}
         >
@@ -126,7 +131,7 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
             id={`panel${index}-header`}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-              <Typography>{computeFn} ({outputs.length} outputs)</Typography>
+              <Typography>Compute Function - {computeFn} ({outputs.length} outputs)</Typography>
               <Box 
                 sx={{ display: 'flex', alignItems: 'center' }}
                 onClick={(e) => e.stopPropagation()}
@@ -148,11 +153,10 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
             </Box>
           </AccordionSummary>
           <AccordionDetails>
-            <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset",}} elevation={0}>
+            <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}} elevation={0}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Compute Function</TableCell>
                     <TableCell>ID</TableCell>
                     <TableCell>Created At</TableCell>
                   </TableRow>
@@ -160,7 +164,6 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
                 <TableBody>
                   {outputs.map((output, idx) => (
                     <TableRow key={idx}>
-                      <TableCell>{output.compute_fn}</TableCell>
                       <TableCell>{output.id}</TableCell>
                       <TableCell>{formatTimestamp(output.created_at)}</TableCell>
                     </TableRow>
@@ -174,6 +177,6 @@ const InvocationOutputTable: React.FC<InvocationOutputTableProps> = ({ indexifyS
       <ToastContainer position="top-right" />
     </Box>
   );
-};
+}
 
 export default InvocationOutputTable;

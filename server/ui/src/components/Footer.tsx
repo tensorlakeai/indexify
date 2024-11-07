@@ -1,19 +1,20 @@
 import { Box, Typography } from "@mui/material";
 import Link from "@mui/material/Link";
 
-const Footer = () => {
+export function Footer() {
+  const currentYear = new Date().getFullYear();
+
   return (
-    <Box py={2} textAlign={"center"}>
+    <Box py={2} textAlign="center">
       <Typography variant="caption" color="CaptionText" align="center">
-        {"Copyright © "}
+        Copyright © 
         <Link color="inherit" href="https://tensorlake.ai/">
           Tensorlake
-        </Link>{" "}
-        {new Date().getFullYear()}
-        {"."}
+        </Link>
+        {` ${currentYear}.`}
       </Typography>
     </Box>
   );
-};
+}
 
 export default Footer;

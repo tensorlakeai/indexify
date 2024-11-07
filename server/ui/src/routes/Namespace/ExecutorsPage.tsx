@@ -1,15 +1,15 @@
-import { Box } from '@mui/material'
-import { useLoaderData } from 'react-router-dom'
-import ExecutorsCard from '../../components/cards/ExecutorsCard'
-import { ExecutorMetadata } from '../../types'
+import { Box } from '@mui/material';
+import { useLoaderData } from 'react-router-dom';
+import { ExecutorsCard } from '../../components/cards/ExecutorsCard';
+import type { ExecutorsLoaderData } from './types';
 
 const ExecutorsPage = () => {
-  const {
-    executors
-  } = useLoaderData() as {
-    executors: ExecutorMetadata[]
-  }
-  return <Box><ExecutorsCard executors={executors}/></Box>
-}
+  const { executors } = useLoaderData() as ExecutorsLoaderData;
+  return (
+    <Box>
+      <ExecutorsCard executors={executors} />
+    </Box>
+  );
+};
 
 export default ExecutorsPage;

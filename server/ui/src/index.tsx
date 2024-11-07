@@ -17,11 +17,9 @@ import {
   ExecutorsPageLoader,
   IndividualComputeGraphPageLoader,
   IndividualInvocationPageLoader,
-  NamespacesPageLoader,
 } from "./utils/loaders";
 import {
   ComputeGraphsPage,
-  NamespacesPage,
   IndividualComputeGraphPage,
   IndividualInvocationPage,
   ExecutorsPage,
@@ -30,26 +28,27 @@ import { IndexifyClient } from "getindexify";
 import { getIndexifyServiceURL } from "./utils/helpers";
 
 function RedirectToComputeGraphs() {
-  const { namespace } = useParams();
-  const currentNamespace = namespace || 'default';
+  const { namespace } = useParams<{ namespace: string }>();
   
-  if (namespace === "namespaces") {
-    return null;
-  } else {
-    return <Navigate to={`/${currentNamespace}/compute-graphs`} replace />;
-  }
+  if (namespace === "namespaces") return null;
+  
+  const currentNamespace = namespace || 'default';
+  return <Navigate to={`/${currentNamespace}/compute-graphs`} replace />;
 }
 
 async function rootLoader({ params }: LoaderFunctionArgs) {
-  const response = await IndexifyClient.namespaces({
-    serviceUrl: getIndexifyServiceURL(),
-  });
-  
-  const namespace = params.namespace || 'default';
-  return { 
-    namespaces: response, 
-    namespace 
-  };
+  try {
+    const serviceUrl = getIndexifyServiceURL();
+    const response = await IndexifyClient.namespaces({ serviceUrl });
+    
+    return { 
+      namespaces: response, 
+      namespace: params.namespace || 'default'
+    };
+  } catch (error) {
+    console.error('Failed to load namespaces:', error);
+    throw new Error('Failed to load namespaces. Please try again later.');
+  }
 }
 
 const router = createBrowserRouter(
@@ -62,12 +61,7 @@ const router = createBrowserRouter(
       children: [
         {
           path: "/:namespace",
-          element: <RedirectToComputeGraphs />
-        },
-        {
-          path: "/namespaces",
-          element: <NamespacesPage />,
-          loader: NamespacesPageLoader,
+          element: <RedirectToComputeGraphs />,
           errorElement: <ErrorPage />
         },
         {
@@ -103,6 +97,7 @@ const router = createBrowserRouter(
 const root = ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement
 );
+
 root.render(
   <React.StrictMode>
     <RouterProvider router={router} />

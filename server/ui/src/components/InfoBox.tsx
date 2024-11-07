@@ -1,4 +1,3 @@
-import React from 'react';
 import { Box, Typography } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 
@@ -6,7 +5,7 @@ interface InfoBoxProps {
     text?: string;
 }
 
-const InfoBox: React.FC<InfoBoxProps> = ({text}) => {
+export function InfoBox({ text }: InfoBoxProps) {
   return (
     <Box
       sx={{
@@ -18,7 +17,7 @@ const InfoBox: React.FC<InfoBoxProps> = ({text}) => {
         justifyContent: 'center',
         maxWidth: '500px',
         margin: '10px',
-        boxShadow: "0px 1px 2px 0px #00000040 inset",
+        boxShadow: '0px 1px 2px 0px #00000040 inset',
       }}
     >
       <AccessTimeIcon
@@ -34,6 +33,6 @@ const InfoBox: React.FC<InfoBoxProps> = ({text}) => {
       </Typography>
     </Box>
   );
-};
+}
 
 export default InfoBox;
