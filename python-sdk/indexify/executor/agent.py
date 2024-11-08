@@ -5,6 +5,7 @@ import traceback
 from concurrent.futures.process import BrokenProcessPool
 from importlib.metadata import version
 from typing import Dict, List, Optional
+from pathlib import Path
 
 import httpx
 import yaml
@@ -58,7 +59,7 @@ class ExtractorAgent:
         self,
         executor_id: str,
         num_workers,
-        code_path: str,
+        code_path: Path,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
         name_alias: Optional[str] = None,
@@ -114,7 +115,8 @@ class ExtractorAgent:
         self._function_worker = FunctionWorker(
             workers=num_workers,
             indexify_client=IndexifyClient(
-                service_url=f"{self._protocol}://{server_addr}"
+                service_url=f"{self._protocol}://{server_addr}",
+                config_path=config_path,
             ),
         )
         self._has_registered = False
