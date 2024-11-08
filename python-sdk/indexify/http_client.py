@@ -58,8 +58,8 @@ class IndexifyClient:
         if config_path:
             with open(config_path, "r") as file:
                 config = yaml.safe_load(file)
-
             if config.get("use_tls", False):
+                print(f'Configuring client with TLS config: {config}')
                 tls_config = config["tls_config"]
                 self._client = httpx.Client(
                     http2=True,
@@ -143,7 +143,7 @@ class IndexifyClient:
             verify=verify_option,
         )
         return client
-    
+
     def _add_api_key(self, kwargs):
         if self._api_key:
             kwargs["headers"] = {"Authorization": f"Bearer {self._api_key}"}
