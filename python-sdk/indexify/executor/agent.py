@@ -67,7 +67,7 @@ class ExtractorAgent:
     ):
         self.name_alias = name_alias
         self.image_version = image_version
-
+        self._config_path = config_path
         self._probe = RuntimeProbes()
 
         runtime_probe: ProbeInfo = self._probe.probe()
@@ -199,7 +199,7 @@ class ExtractorAgent:
                 if self._require_image_bootstrap:
                     try:
                         image_info = await _get_image_info_for_compute_graph(
-                            task, self._protocol, self._server_addr
+                            task, self._protocol, self._server_addr, self._config_path
                         )
                         image_dependency_installer.executor_image_builder(
                             image_info, self.name_alias, self.image_version
@@ -455,14 +455,15 @@ class ExtractorAgent:
 
 
 async def _get_image_info_for_compute_graph(
-    task: Task, protocol, server_addr
+    task: Task, protocol, server_addr, config_path: str
 ) -> ImageInformation:
     namespace = task.namespace
     graph_name: str = task.compute_graph
     compute_fn_name: str = task.compute_fn
 
     http_client = IndexifyClient(
-        service_url=f"{protocol}://{server_addr}", namespace=namespace
+        service_url=f"{protocol}://{server_addr}", namespace=namespace,
+        config_path=config_path
     )
     compute_graph: ComputeGraphMetadata = http_client.graph(graph_name)
 

@@ -2,6 +2,7 @@ import ssl
 import unittest
 from pathlib import Path
 from unittest.mock import patch, mock_open
+
 from indexify.executor.agent import ExtractorAgent
 
 class TestExtractorAgent(unittest.TestCase):
@@ -17,48 +18,50 @@ class TestExtractorAgent(unittest.TestCase):
                     key_path: /path/to/key.pem
                 '''
     )
-    @patch('yaml.safe_load')
     @patch('ssl.create_default_context')
-    # @patch('httpx.Client')
+    @patch('httpx.Client')
     def test_tls_configuration(
         self,
-        mock_file,
-        mock_yaml_load,
+        mock_client,
         mock_create_default_context,
-        # mock_client
+        mock_file
     ):
-        # Mock the YAML file content with TLS enabled
         tls_config = {
-            'use_tls': True,
-            'tls_config': {
-                'ca_bundle_path': '/path/to/ca_bundle.pem',
-                'cert_path': '/path/to/cert.pem',
-                'key_path': '/path/to/key.pem'
-            }
-        }
-        mock_yaml_load.return_value = tls_config
+            "use_tls": True,
+            "tls_config": {
+                "ca_bundle_path": "/path/to/ca_bundle.pem",
+                "cert_path": "/path/to/cert.pem",
+                "key_path": "/path/to/key.pem"
+        }}
 
         # Create an instance of ExtractorAgent with the mock config
+        service_url = "localhost:8900"
+        config_path = "test"
         agent = ExtractorAgent(
             executor_id="unit-test",
             num_workers=1,
             code_path=Path("test"),
-            server_addr="localhost:8900",
-            config_path="test"
+            server_addr=service_url,
+            config_path=config_path
         )
+
+        # Verify that the correct file was loaded from the config_path
+        mock_file.assert_called()
 
         # Verify that the SSL context was created correctly
         mock_create_default_context.assert_called_with(ssl.Purpose.SERVER_AUTH,
             cafile='/path/to/ca_bundle.pem')
         agent._ssl_context.load_cert_chain.assert_called_with(
             certfile='/path/to/cert.pem', keyfile='/path/to/key.pem')
-        # mock_client.assert_called_with(
-        #     http2=True,
-        #     cert=('/path/to/cert.pem', '/path/to/key.pem'),
-        #     verify='/path/to/ca_bundle.pem'
-        # )
 
-        # Verify TLS config
+        # Verify TLS config in IndexifyClient
+        mock_client.assert_called_with(
+            http2=True,
+            cert=(tls_config["tls_config"]["cert_path"], tls_config["tls_config"]["key_path"]),
+            verify=tls_config["tls_config"]["ca_bundle_path"],
+        )
+
+        # Verify TLS config in Agent
         self.assertTrue(agent._use_tls)
         self.assertEqual(agent._config, tls_config)
         self.assertEqual(agent._server_addr, "localhost:8900")
