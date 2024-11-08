@@ -250,7 +250,6 @@ WORKDIR /app
 
     docker_file += "\n".join(run_strs)
     print(os.getcwd())
-    import docker
     import docker.api.build
 
     docker.api.build.process_dockerfile = lambda dockerfile, path: (
@@ -265,7 +264,10 @@ WORKDIR /app
         docker_file += f"\nCOPY {python_sdk_path} /app/python-sdk"
         docker_file += f"\nRUN (cd /app/python-sdk && pip install .)"
     else:
-        docker_file += f"\nRUN pip install indexify"
+        if image._indexify_version is None:
+            docker_file += "\nRUN pip install indexify"
+        else:
+            docker_file += f"\nRUN pip install indexify=={image._indexify_version}"
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
     print(f"{docker_file}")
