@@ -12,7 +12,7 @@ from indexify import (
     get_ctx,
     indexify_function,
     indexify_router,
-    IndexifyFunction,
+    IndexifyFunction, RemotePipeline,
 )
 from indexify.functions_sdk.data_objects import File
 
@@ -189,6 +189,13 @@ def remote_or_local_graph(g: Graph, is_local_run) -> Graph:
         return RemoteGraph.deploy(g)
 
 
+def remote_or_local_pipeline(p: Pipeline, is_local_run) -> Graph:
+    if is_local_run:
+        return p
+    else:
+        return RemotePipeline.deploy(p)
+
+
 class TestGraphBehaviors(unittest.TestCase):
     is_local_run = None
 
@@ -225,11 +232,16 @@ class TestGraphBehaviors(unittest.TestCase):
         )
         graph = remote_or_local_graph(graph, self.is_local_run)
 
-        with self.assertRaises(ValueError) as ve:
+        if self.is_local_run:
+            with self.assertRaises(ValueError) as ve:
+                invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+                output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
+                self.assertEqual(output, [])
+            self.assertEqual("Unknown serializer type: invalid", str(ve.exception))
+        else:
             invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
             output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
             self.assertEqual(output, [])
-        self.assertEqual("Unknown serializer type: invalid", str(ve.exception))
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
@@ -295,7 +307,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_pipeline(self):
         p = create_simple_pipeline()
-        p = remote_or_local_graph(p, self.is_local_run)
+        p = remote_or_local_pipeline(p, self.is_local_run)
         p.run(x=3)
         invocation_id = p.run(block_until_done=True, x=3)
         output = p.output(invocation_id, "make_it_string")
@@ -340,7 +352,6 @@ class TestGraphBehaviors(unittest.TestCase):
         graph1.add_edge(simple_function_ctx, SimpleFunctionCtxC)
         graph1 = remote_or_local_graph(graph1, self.is_local_run)
         invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
-        print(graph1._results)
         output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
         self.assertEqual(output2[0], 11)
 
