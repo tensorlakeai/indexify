@@ -10,6 +10,7 @@ from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
 
+from indexify.common_util import get_httpx_client
 from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
@@ -54,18 +55,7 @@ class IndexifyClient:
             service_url = os.environ["INDEXIFY_URL"]
 
         self.service_url = service_url
-        self._client = httpx.Client()
-        if config_path:
-            with open(config_path, "r") as file:
-                config = yaml.safe_load(file)
-            if config.get("use_tls", False):
-                print(f'Configuring client with TLS config: {config}')
-                tls_config = config["tls_config"]
-                self._client = httpx.Client(
-                    http2=True,
-                    cert=(tls_config["cert_path"], tls_config["key_path"]),
-                    verify=tls_config.get("ca_bundle_path", True),
-                )
+        self._client = get_httpx_client(config_path)
 
         self.namespace: str = namespace
         self.compute_graphs: List[Graph] = []
