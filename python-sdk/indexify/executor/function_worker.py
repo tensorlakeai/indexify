@@ -17,6 +17,8 @@ from indexify.functions_sdk.indexify_functions import (
     GraphInvocationContext,
     IndexifyFunctionWrapper,
     RouterCallResult,
+    IndexifyRouter,
+    IndexifyFunction,
 )
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
@@ -169,7 +171,7 @@ def _run_function(
             fn = function_wrapper_map[key]
             if (
                 str(type(fn.indexify_function))
-                == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRo'>"
+                == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"
             ):
                 router_call_result: RouterCallResult = fn.invoke_router(fn_name, input)
                 router_output = RouterOutput(edges=router_call_result.edges)

@@ -6,13 +6,13 @@ from pydantic import BaseModel
 
 from indexify import (
     Graph,
+    IndexifyFunction,
     Pipeline,
-    RemotePipeline,
     RemoteGraph,
+    RemotePipeline,
     get_ctx,
     indexify_function,
     indexify_router,
-    IndexifyFunction,
 )
 from indexify.functions_sdk.data_objects import File
 
@@ -25,13 +25,16 @@ class MyObject(BaseModel):
 def simple_function(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
+
 @indexify_function(encoder="json")
 def simple_function_with_json_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
+
 @indexify_function(encoder="invalid")
 def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
+
 
 class ComplexObject(BaseModel):
     invocation_id: str
@@ -56,6 +59,7 @@ def simple_function_ctx_b(x: ComplexObject) -> int:
     val = ctx.get_state_key("my_key")
     return val + 1
 
+
 class SimpleFunctionCtxC(IndexifyFunction):
     name = "SimpleFunctionCtxC"
 
@@ -71,6 +75,7 @@ class SimpleFunctionCtxC(IndexifyFunction):
         assert not_present is None
         return val + 1
 
+
 @indexify_function()
 def generate_seq(x: int) -> List[int]:
     return list(range(x))
@@ -80,9 +85,11 @@ def generate_seq(x: int) -> List[int]:
 def square(x: int) -> int:
     return x * x
 
+
 @indexify_function(encoder="json")
 def square_with_json_encoder(x: int) -> int:
     return x * x
+
 
 class Sum(BaseModel):
     val: int = 0
@@ -92,6 +99,7 @@ class Sum(BaseModel):
 def sum_of_squares(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
+
 
 @indexify_function(accumulate=Sum, encoder="json")
 def sum_of_squares_with_json_encoding(init_value: Sum, x: int) -> Sum:
@@ -146,11 +154,14 @@ def create_pipeline_graph_with_map_reduce():
     graph.add_edge(sum_of_squares, make_it_string)
     return graph
 
+
 def create_pipeline_graph_with_map_reduce_with_json_encoder():
-    graph = Graph(name="test_map_reduce", description="test",
-                  start_node=square_with_json_encoder)
+    graph = Graph(
+        name="test_map_reduce", description="test", start_node=square_with_json_encoder
+    )
     graph.add_edge(square_with_json_encoder, sum_of_squares_with_json_encoding)
     return graph
+
 
 def create_router_graph():
     graph = Graph(name="test_router", description="test", start_node=generate_seq)
@@ -311,6 +322,14 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
         output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
         self.assertEqual(output2[0], 11)
+
+    def test_graph_router_start_node(self):
+        graph = Graph(name="test_router", description="test", start_node=route_if_even)
+        graph.route(route_if_even, [add_two, add_three])
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=Sum(val=2))
+        output = graph.output(invocation_id, "add_three")
+        self.assertEqual(output, [5])
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 from indexify.settings import DEFAULT_SERVICE_URL
 
+
 class InvocationEventPayload(BaseModel):
     invocation_id: str
     fn_name: str
@@ -76,7 +77,9 @@ class IndexifyClient:
         self._fns: Dict[str, IndexifyFunction] = {}
         self._api_key = api_key
         if not self._api_key:
-            print("API key not provided. Trying to fetch from environment TENSORLAKE_API_KEY variable")
+            print(
+                "API key not provided. Trying to fetch from environment TENSORLAKE_API_KEY variable"
+            )
             self._api_key = os.getenv("TENSORLAKE_API_KEY")
 
     def _request(self, method: str, **kwargs) -> httpx.Response:
@@ -143,7 +146,7 @@ class IndexifyClient:
             verify=verify_option,
         )
         return client
-    
+
     def _add_api_key(self, kwargs):
         if self._api_key:
             kwargs["headers"] = {"Authorization": f"Bearer {self._api_key}"}
@@ -213,16 +216,16 @@ class IndexifyClient:
         self, compute_graph: str, invocation_id: str, key: str, value: Json
     ) -> None:
         response = self._post(
-                f"internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx",
-                json={"key": key, "value": value},
-            )
+            f"internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx",
+            json={"key": key, "value": value},
+        )
         response.raise_for_status()
 
     def get_state_key(self, compute_graph: str, invocation_id: str, key: str) -> Json:
         response = self._get(
-                f"internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx",
-                json={"key": key},
-            )
+            f"internal/namespaces/{self.namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx",
+            json={"key": key},
+        )
         response.raise_for_status()
         return response.json().get("value")
 
@@ -270,7 +273,11 @@ class IndexifyClient:
     ) -> str:
         ser_input = cloudpickle.dumps(kwargs)
         params = {"block_until_finish": block_until_done}
-        kwargs = {"headers": {"Content-Type": "application/cbor"}, "data": ser_input, "params":params}
+        kwargs = {
+            "headers": {"Content-Type": "application/cbor"},
+            "data": ser_input,
+            "params": params,
+        }
         self._add_api_key(kwargs)
         with httpx.Client() as client:
             with connect_sse(

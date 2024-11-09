@@ -30,10 +30,11 @@ from .graph_definition import (
 from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
     FunctionCallResult,
+    GraphInvocationContext,
     IndexifyFunction,
     IndexifyFunctionWrapper,
     IndexifyRouter,
-    GraphInvocationContext,
+    RouterCallResult,
 )
 from .local_cache import CacheAwareFunctionWrapper
 from .object_serializer import get_serializer
@@ -73,6 +74,8 @@ class Graph:
         self.accumulator_zero_values: Dict[str, Any] = {}
 
         self.add_node(start_node)
+        if issubclass(start_node, IndexifyRouter):
+            self.routers[start_node.name] = []
         self._start_node: str = start_node.name
 
         # Storage for local execution
@@ -154,14 +157,17 @@ class Graph:
 
     def definition(self) -> ComputeGraphMetadata:
         start_node = self.nodes[self._start_node]
+        is_reducer = False
+        if hasattr(start_node, 'accumulate'):
+            is_reducer = start_node.accumulate is not None
         start_node = FunctionMetadata(
             name=start_node.name,
             fn_name=start_node.name,
             description=start_node.description,
-            reducer=start_node.accumulate is not None,
+            reducer=is_reducer,
             image_name=start_node.image._image_name,
             image_information=start_node.image.to_image_information(),
-            payload_encoder=start_node.encoder
+            payload_encoder=start_node.encoder,
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -206,7 +212,11 @@ class Graph:
     def run(self, block_until_done: bool = False, **kwargs) -> str:
         start_node = self.nodes[self._start_node]
         serializer = get_serializer(start_node.encoder)
-        input = IndexifyData(id=generate(), payload=serializer.serialize(kwargs), encoder=start_node.encoder)
+        input = IndexifyData(
+            id=generate(),
+            payload=serializer.serialize(kwargs),
+            encoder=start_node.encoder,
+        )
         print(f"[bold] Invoking {self._start_node}[/bold]")
         outputs = defaultdict(list)
         self._accumulator_values[input.id] = {}
@@ -217,7 +227,6 @@ class Graph:
                 k: IndexifyData(payload=serializer.serialize(v), encoder=node.encoder)
             }
         self._results[input.id] = outputs
-        enable_cache = kwargs.get("enable_cache", True)
         ctx = GraphInvocationContext(
             invocation_id=input.id,
             graph_name=self.name,
@@ -225,30 +234,28 @@ class Graph:
             indexify_client=None,
         )
         self._local_graph_ctx = ctx
-        self._run(input, outputs, enable_cache, self._local_graph_ctx)
+        self._run(input, outputs)
         return input.id
 
     def _run(
         self,
         initial_input: IndexifyData,
         outputs: Dict[str, List[bytes]],
-        enable_cache: bool,
-        ctx: GraphInvocationContext,
     ):
         accumulator_values = self._accumulator_values[initial_input.id]
         queue = deque([(self._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
-            node = self.nodes[node_name]
-            function_outputs: FunctionCallResult = IndexifyFunctionWrapper(
-                node, context=ctx
-            ).invoke_fn_ser(node_name, input, accumulator_values.get(node_name, None))
-            if function_outputs.traceback_msg is not None:
-                print(function_outputs.traceback_msg)
-                import os
-
-                print("exiting local execution due to error")
-                os._exit(1)
+            function_outputs: Union[
+                FunctionCallResult, RouterCallResult
+            ] = self._invoke_fn(node_name, input)
+            self._log_local_exec_tracebacks(function_outputs)
+            if isinstance(function_outputs, RouterCallResult):
+                for edge in function_outputs.edges:
+                    if edge in self.nodes:
+                        queue.append((edge, input))
+                continue
+            out_edges = self.edges.get(node_name, [])
             fn_outputs = function_outputs.ser_outputs
             print(f"ran {node_name}: num outputs: {len(fn_outputs)}")
             if accumulator_values.get(node_name, None) is not None:
@@ -262,26 +269,37 @@ class Graph:
                 )
                 continue
 
-            out_edges = self.edges.get(node_name, [])
-            # Figure out if there are any routers for this node
-            for i, edge in enumerate(out_edges):
-                if edge in self.routers:
-                    out_edges.remove(edge)
-                    for output in fn_outputs:
-                        dynamic_edges = self._route(edge, output) or []
-                        for dynamic_edge in dynamic_edges.edges:
-                            if dynamic_edge in self.nodes:
-                                print(
-                                    f"[bold]dynamic router returned node: {dynamic_edge}[/bold]"
-                                )
-                                out_edges.append(dynamic_edge)
             for out_edge in out_edges:
                 for output in fn_outputs:
                     queue.append((out_edge, output))
 
-    def _route(self, node_name: str, input: IndexifyData) -> Optional[RouterOutput]:
-        router = self.nodes[node_name]
-        return IndexifyFunctionWrapper(router, self._local_graph_ctx).invoke_router(node_name, input)
+    def _invoke_fn(
+        self, node_name: str, input: IndexifyData
+    ) -> Optional[Union[RouterCallResult, FunctionCallResult]]:
+        node = self.nodes[node_name]
+        if node_name in self.routers:
+            result = IndexifyFunctionWrapper(node, self._local_graph_ctx).invoke_router(
+                node_name, input
+            )
+            for dynamic_edge in result.edges:
+                if dynamic_edge in self.nodes:
+                    print(f"[bold]dynamic router returned node: {dynamic_edge}[/bold]")
+            return result
+
+        acc_value = self._accumulator_values.get(node_name, None)
+        return IndexifyFunctionWrapper(
+            node, context=self._local_graph_ctx
+        ).invoke_fn_ser(node_name, input, acc_value)
+
+    def _log_local_exec_tracebacks(
+        self, results: Union[FunctionCallResult, RouterCallResult]
+    ):
+        if results.traceback_msg is not None:
+            print(results.traceback_msg)
+            import os
+
+            print("exiting local execution due to error")
+            os._exit(1)
 
     def output(
         self,
