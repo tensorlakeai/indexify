@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 import cloudpickle
 import httpx
 import msgpack
-import yaml
 from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
@@ -55,6 +54,7 @@ class IndexifyClient:
             service_url = os.environ["INDEXIFY_URL"]
 
         self.service_url = service_url
+        self._config_path = config_path
         self._client = get_httpx_client(config_path)
 
         self.namespace: str = namespace
@@ -262,7 +262,7 @@ class IndexifyClient:
         params = {"block_until_finish": block_until_done}
         kwargs = {"headers": {"Content-Type": "application/cbor"}, "data": ser_input, "params":params}
         self._add_api_key(kwargs)
-        with httpx.Client() as client:
+        with get_httpx_client(self._config_path) as client:
             with connect_sse(
                 client,
                 "POST",

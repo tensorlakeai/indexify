@@ -7,7 +7,6 @@ from importlib.metadata import version
 from typing import Dict, List, Optional
 from pathlib import Path
 
-import httpx
 import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
@@ -22,6 +21,7 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
 from indexify.http_client import IndexifyClient
+from indexify.common_util import get_httpx_client
 
 from ..functions_sdk.image import ImageInformation
 from . import image_dependency_installer
@@ -126,7 +126,9 @@ class ExtractorAgent:
         self._downloader = Downloader(code_path=code_path, base_url=self._base_url)
         self._max_queued_tasks = 10
         self._task_reporter = TaskReporter(
-            base_url=self._base_url, executor_id=self._executor_id
+            base_url=self._base_url,
+            executor_id=self._executor_id,
+            config_path=self._config_path
         )
 
     async def task_completion_reporter(self):
@@ -409,9 +411,8 @@ class ExtractorAgent:
                     border_style="cyan",
                 )
             )
-
             try:
-                async with httpx.AsyncClient() as client:
+                async with get_httpx_client(self._config_path, True) as client:
                     async with aconnect_sse(
                         client,
                         "POST",
