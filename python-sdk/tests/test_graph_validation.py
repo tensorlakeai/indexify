@@ -128,6 +128,23 @@ class TestValidations(unittest.TestCase):
         msg = "Unable to find node3 in to_nodes ['node1', 'node2']"
         self.assertEqual(msg, str(cm.exception))
 
+    def test_route_validation_with_valid_return_type_signature(self):
+        @indexify_function()
+        def start() -> int:
+            return 1
+
+        @indexify_function()
+        def end () -> int:
+            return 1
+
+        @indexify_router()
+        def route1(**kwargs: dict) -> Union[int, float]:
+            return 10
+
+        g = Graph(name="test", start_node=start)
+        g.add_edge(start, route1)
+        g.route(route1, [end, end])
+
 
 if __name__ == "__main__":
     unittest.main()

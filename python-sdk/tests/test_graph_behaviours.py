@@ -313,6 +313,5 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output2[0], 11)
 
 
-
 if __name__ == "__main__":
     unittest.main()
