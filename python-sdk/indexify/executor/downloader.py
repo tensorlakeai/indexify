@@ -11,6 +11,7 @@ from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 from .api_objects import Task
+from ..common_util import get_httpx_client
 
 custom_theme = Theme(
     {
@@ -29,9 +30,10 @@ class DownloadedInputs(BaseModel):
 
 
 class Downloader:
-    def __init__(self, code_path: str, base_url: str):
+    def __init__(self, code_path: str, base_url: str, config_path: Optional[str] = None):
         self.code_path = code_path
         self.base_url = base_url
+        self._client = get_httpx_client(config_path)
 
     async def download_graph(self, namespace: str, name: str, version: int) -> str:
         path = os.path.join(self.code_path, namespace, f"{name}.{version}")
@@ -46,7 +48,7 @@ class Downloader:
             )
         )
 
-        response = httpx.get(
+        response = self._client.get(
             f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
         )
         try:
@@ -85,7 +87,7 @@ class Downloader:
             )
         )
 
-        response = httpx.get(url)
+        response = self._client.get(url)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
