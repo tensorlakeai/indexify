@@ -134,7 +134,7 @@ class TestValidations(unittest.TestCase):
             return 1
 
         @indexify_function()
-        def end () -> int:
+        def end() -> int:
             return 1
 
         @indexify_router()

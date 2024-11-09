@@ -1,3 +1,4 @@
+import os
 import unittest
 from pathlib import Path
 from typing import List, Union
@@ -25,13 +26,16 @@ class MyObject(BaseModel):
 def simple_function(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
+
 @indexify_function(encoder="json")
 def simple_function_with_json_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
+
 @indexify_function(encoder="invalid")
 def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
+
 
 class ComplexObject(BaseModel):
     invocation_id: str
@@ -56,6 +60,7 @@ def simple_function_ctx_b(x: ComplexObject) -> int:
     val = ctx.get_state_key("my_key")
     return val + 1
 
+
 class SimpleFunctionCtxC(IndexifyFunction):
     name = "SimpleFunctionCtxC"
 
@@ -71,6 +76,7 @@ class SimpleFunctionCtxC(IndexifyFunction):
         assert not_present is None
         return val + 1
 
+
 @indexify_function()
 def generate_seq(x: int) -> List[int]:
     return list(range(x))
@@ -80,9 +86,11 @@ def generate_seq(x: int) -> List[int]:
 def square(x: int) -> int:
     return x * x
 
+
 @indexify_function(encoder="json")
 def square_with_json_encoder(x: int) -> int:
     return x * x
+
 
 class Sum(BaseModel):
     val: int = 0
@@ -139,6 +147,9 @@ def create_pipeline_graph_with_map():
     return graph
 
 
+
+
+
 def create_pipeline_graph_with_map_reduce():
     graph = Graph(name="test_map_reduce", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, square)
@@ -172,38 +183,54 @@ def create_simple_pipeline():
     return p
 
 
+def remote_or_local_graph(g: Graph, is_local_run) -> Graph:
+    if is_local_run:
+        return g
+    else:
+        return RemoteGraph.deploy(g)
+
+
 class TestGraphBehaviors(unittest.TestCase):
+    is_local_run = None
+
+    def setUp(self):
+        self.is_local_run = bool(os.getenv('TEST_LOCAL_RUN', "False"))
+
     def test_simple_function(self):
         graph = Graph(
             name="test_simple_function", description="test", start_node=simple_function
         )
-        graph = RemoteGraph.deploy(graph)
+
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
     def test_simple_function_with_json_encoding(self):
         graph = Graph(
-            name="test_simple_function_with_json_encoding", description="test", start_node=simple_function_with_json_encoder
+            name="test_simple_function_with_json_encoding",
+            description="test",
+            start_node=simple_function_with_json_encoder,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
-        output = graph.output(invocation_id,
-                              "simple_function_with_json_encoder")
-        self.assertEqual(output, [MyObject(x='ab')])
+        output = graph.output(invocation_id, "simple_function_with_json_encoder")
+        self.assertEqual(output, [MyObject(x="ab")])
 
     def test_simple_function_with_invalid_encoding(self):
         graph = Graph(
-            name="test_simple_function_with_invalid_encoding", description="test", start_node=simple_function_with_invalid_encoder
+            name="test_simple_function_with_invalid_encoding",
+            description="test",
+            start_node=simple_function_with_invalid_encoder,
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
         self.assertEqual(output, [])
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_seq = graph.output(invocation_id, "generate_seq")
         self.assertEqual(sorted(output_seq), [0, 1, 2])
@@ -212,7 +239,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_map_reduce_operation(self):
         graph = create_pipeline_graph_with_map_reduce()
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_sum_sq = graph.output(invocation_id, "sum_of_squares")
         self.assertEqual(output_sum_sq, [Sum(val=5)])
@@ -221,7 +248,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_map_reduce_operation_with_json_encoding(self):
         graph = create_pipeline_graph_with_map_reduce_with_json_encoder()
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_square_sq_with_json_encoding = graph.output(invocation_id, "square_with_json_encoder")
         self.assertEqual(output_square_sq_with_json_encoding, [9])
@@ -230,7 +257,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_router_graph_behavior(self):
         graph = create_router_graph()
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=3)
 
         output_add_two = graph.output(invocation_id, "add_two")
@@ -249,7 +276,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_handle_file", description="test", start_node=handle_file
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         import os
 
         data = Path(os.path.dirname(__file__) + "/test_file").read_text()
@@ -265,7 +292,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_pipeline(self):
         p = create_simple_pipeline()
-        p = RemotePipeline.deploy(p)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         p.run(x=3)
         invocation_id = p.run(block_until_done=True, x=3)
         output = p.output(invocation_id, "make_it_string")
@@ -289,7 +316,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(name="test_ignore_none", description="test", start_node=gen_seq)
         graph.add_edge(gen_seq, ignore_none)
         graph.add_edge(ignore_none, add_two)
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=5)
         output = graph.output(invocation_id, "add_two")
         self.assertEqual(sorted(output), [2, 4, 6])
@@ -299,7 +326,7 @@ class TestGraphBehaviors(unittest.TestCase):
             name="test_context", description="test", start_node=simple_function_ctx
         )
         graph.add_edge(simple_function_ctx, simple_function_ctx_b)
-        graph = RemoteGraph.deploy(graph)
+        graph = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output2 = graph.output(invocation_id, "simple_function_ctx_b")
         self.assertEqual(output2[0], 11)
@@ -307,11 +334,12 @@ class TestGraphBehaviors(unittest.TestCase):
             name="test_context", description="test", start_node=simple_function_ctx
         )
         graph1.add_edge(simple_function_ctx, SimpleFunctionCtxC)
-        graph1 = RemoteGraph.deploy(graph1)
+        graph1 = remote_or_local_graph(graph, self.is_local_run)
         invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
         output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
         self.assertEqual(output2[0], 11)
 
 
 if __name__ == "__main__":
+    os.environ['TEST_LOCAL_RUN'] = 'True'
     unittest.main()
