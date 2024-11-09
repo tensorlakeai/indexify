@@ -79,11 +79,12 @@ class Graph:
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper("./indexify_local_runner_cache")
         self._accumulator_values: Dict[str, Dict[str, IndexifyData]] = {}
+        self._local_graph_ctx: Optional[GraphInvocationContext] = None
 
     def get_function(self, name: str) -> IndexifyFunctionWrapper:
         if name not in self.nodes:
             raise ValueError(f"Function {name} not found in graph")
-        return IndexifyFunctionWrapper(self.nodes[name])
+        return IndexifyFunctionWrapper(self.nodes[name], self._local_graph_ctx)
 
     def get_accumulators(self) -> Dict[str, Any]:
         return self.accumulator_zero_values
@@ -223,7 +224,8 @@ class Graph:
             graph_version="1",
             indexify_client=None,
         )
-        self._run(input, outputs, enable_cache, ctx)
+        self._local_graph_ctx = ctx
+        self._run(input, outputs, enable_cache, self._local_graph_ctx)
         return input.id
 
     def _run(
@@ -279,7 +281,7 @@ class Graph:
 
     def _route(self, node_name: str, input: IndexifyData) -> Optional[RouterOutput]:
         router = self.nodes[node_name]
-        return IndexifyFunctionWrapper(router).invoke_router(node_name, input)
+        return IndexifyFunctionWrapper(router, self._local_graph_ctx).invoke_router(node_name, input)
 
     def output(
         self,

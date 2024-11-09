@@ -48,37 +48,6 @@ class GraphInvocationContext(BaseModel):
         )
 
 
-def format_filtered_traceback(exc_info=None):
-    """
-    Format a traceback excluding indexify_functions.py lines.
-    Can be used in exception handlers to replace traceback.format_exc()
-    """
-    if exc_info is None:
-        exc_info = sys.exc_info()
-
-    # Get the full traceback as a string
-    full_traceback = traceback.format_exception(*exc_info)
-
-    # Filter out lines containing indexify_functions.py
-    filtered_lines = []
-    skip_next = False
-
-    for line in full_traceback:
-        if "indexify_functions.py" in line:
-            skip_next = True
-            continue
-        if skip_next:
-            if line.strip().startswith("File "):
-                skip_next = False
-            else:
-                continue
-        filtered_lines.append(line)
-
-    # Clean up any double blank lines that might have been created
-    cleaned = re.sub(r"\n\s*\n\s*\n", "\n\n", "".join(filtered_lines))
-    return cleaned
-
-
 def is_pydantic_model_from_annotation(type_annotation):
     # If it's a string representation
     if isinstance(type_annotation, str):
@@ -266,7 +235,7 @@ class IndexifyFunctionWrapper:
         try:
             extracted_data = self.indexify_function.run(*args, **kwargs)
         except Exception as e:
-            return [], format_filtered_traceback()
+            return [], traceback.format_exc()
         if not isinstance(extracted_data, list) and extracted_data is not None:
             return [extracted_data.name], None
         edges = []
@@ -289,7 +258,7 @@ class IndexifyFunctionWrapper:
         try:
             extracted_data = self.indexify_function.run(*args, **kwargs)
         except Exception as e:
-            return [], format_filtered_traceback()
+            return [], traceback.format_exc()
         if extracted_data is None:
             return [], None
 

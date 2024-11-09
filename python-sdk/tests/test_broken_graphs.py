@@ -52,12 +52,18 @@ def create_broken_graph():
 
 class TestBrokenGraphs(unittest.TestCase):
     def test_broken_graph(self):
-        g = RemoteGraph.deploy(create_broken_graph())
+        g = create_broken_graph()
+        g = RemoteGraph.deploy(g)
 
-        invocation_id = g.run(
+        self.assertRaises(g.run(
             block_until_done=True,
             url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
-        )
+        ))
+
+        self.assertRaises(g.run(
+            block_until_done=True,
+            maybe="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
+        ))
 
 
 if __name__ == "__main__":
