@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch, mock_open
 
 from indexify.executor.agent import ExtractorAgent
+from test_constants import tls_config, service_url, config_path, cert_path, key_path, ca_bundle_path
 
 class TestExtractorAgent(unittest.TestCase):
 
@@ -26,17 +27,7 @@ class TestExtractorAgent(unittest.TestCase):
         mock_create_default_context,
         mock_file
     ):
-        tls_config = {
-            "use_tls": True,
-            "tls_config": {
-                "ca_bundle_path": "/path/to/ca_bundle.pem",
-                "cert_path": "/path/to/cert.pem",
-                "key_path": "/path/to/key.pem"
-        }}
-
         # Create an instance of ExtractorAgent with the mock config
-        service_url = "localhost:8900"
-        config_path = "test"
         agent = ExtractorAgent(
             executor_id="unit-test",
             num_workers=1,
@@ -50,21 +41,21 @@ class TestExtractorAgent(unittest.TestCase):
 
         # Verify that the SSL context was created correctly
         mock_create_default_context.assert_called_with(ssl.Purpose.SERVER_AUTH,
-            cafile='/path/to/ca_bundle.pem')
+            cafile=ca_bundle_path)
         agent._ssl_context.load_cert_chain.assert_called_with(
-            certfile='/path/to/cert.pem', keyfile='/path/to/key.pem')
+            certfile=cert_path, keyfile=key_path)
 
-        # Verify TLS config in IndexifyClient
+        # Verify TLS config in httpsx Client
         mock_client.assert_called_with(
             http2=True,
-            cert=(tls_config["tls_config"]["cert_path"], tls_config["tls_config"]["key_path"]),
-            verify=tls_config["tls_config"]["ca_bundle_path"],
+            cert=(cert_path, key_path),
+            verify=ca_bundle_path,
         )
 
         # Verify TLS config in Agent
         self.assertTrue(agent._use_tls)
         self.assertEqual(agent._config, tls_config)
-        self.assertEqual(agent._server_addr, "localhost:8900")
+        self.assertEqual(agent._server_addr, service_url)
         self.assertEqual(agent._protocol, "wss")
         self.assertEqual(agent._tls_config, tls_config["tls_config"])
 
