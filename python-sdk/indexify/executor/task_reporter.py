@@ -5,6 +5,7 @@ import httpx
 import nanoid
 from rich import print
 
+from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import Task, TaskResult
 from indexify.executor.task_store import CompletedTask
@@ -22,9 +23,10 @@ FORCE_MULTIPART = ForceMultipartDict()
 
 
 class TaskReporter:
-    def __init__(self, base_url: str, executor_id: str):
+    def __init__(self, base_url: str, executor_id: str, config_path: Optional[str] = None):
         self._base_url = base_url
         self._executor_id = executor_id
+        self._client = get_httpx_client(config_path)
 
     def report_task_outcome(self, completed_task: CompletedTask):
         fn_outputs = []
@@ -84,7 +86,7 @@ class TaskReporter:
         else:
             kwargs["files"] = FORCE_MULTIPART
         try:
-            response = httpx.post(
+            response = self._client.post(
                 url=f"{self._base_url}/internal/ingest_files",
                 **kwargs,
             )
