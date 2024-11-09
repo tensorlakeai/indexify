@@ -55,15 +55,19 @@ class TestBrokenGraphs(unittest.TestCase):
         g = create_broken_graph()
         g = RemoteGraph.deploy(g)
 
-        self.assertRaises(g.run(
-            block_until_done=True,
-            url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
-        ))
+        self.assertRaises(
+            g.run(
+                block_until_done=True,
+                url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
+            )
+        )
 
-        self.assertRaises(g.run(
-            block_until_done=True,
-            maybe="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
-        ))
+        self.assertRaises(
+            g.run(
+                block_until_done=True,
+                maybe="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
+            )
+        )
 
 
 if __name__ == "__main__":

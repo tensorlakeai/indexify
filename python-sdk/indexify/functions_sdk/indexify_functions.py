@@ -115,6 +115,11 @@ class IndexifyRouter:
         pass
 
 
+from inspect import signature
+
+from typing_extensions import get_type_hints
+
+
 def indexify_router(
     name: Optional[str] = None,
     description: Optional[str] = "",
@@ -123,28 +128,30 @@ def indexify_router(
     encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
-        args = locals().copy()
-        args["name"] = args["name"] if args.get("name", None) else fn.__name__
-        args["fn_name"] = fn.__name__
-        args["description"] = (
-            args["description"]
-            if args.get("description", None)
-            else (fn.__doc__ or "").strip().replace("\n", "")
-        )
+        # Get function signature using inspect.signature
+        fn_sig = signature(fn)
+        fn_hints = get_type_hints(fn)
 
-        class IndexifyRo(IndexifyRouter):
-            def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
-                return fn(*args, **kwargs)
+        # Create run method that preserves signature
+        def run(self, *args, **kwargs):
+            return fn(*args, **kwargs)
 
-            update_wrapper(run, fn)
+        # Apply original signature and annotations to run method
+        run.__signature__ = fn_sig
+        run.__annotations__ = fn_hints
 
-        for key, value in args.items():
-            if key != "fn" and key != "self":
-                setattr(IndexifyRo, key, value)
+        attrs = {
+            "name": name if name else fn.__name__,
+            "description": description
+            if description
+            else (fn.__doc__ or "").strip().replace("\n", ""),
+            "image": image,
+            "placement_constraints": placement_constraints,
+            "encoder": encoder,
+            "run": run,
+        }
 
-        IndexifyRo.image = image
-        IndexifyRo.encoder = encoder
-        return IndexifyRo
+        return type("IndexifyRouter", (IndexifyRouter,), attrs)
 
     return construct
 
@@ -158,28 +165,31 @@ def indexify_function(
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
-        args = locals().copy()
-        args["name"] = args["name"] if args.get("name", None) else fn.__name__
-        args["fn_name"] = fn.__name__
-        args["description"] = (
-            args["description"]
-            if args.get("description", None)
-            else (fn.__doc__ or "").strip().replace("\n", "")
-        )
+        # Get function signature using inspect.signature
+        fn_sig = signature(fn)
+        fn_hints = get_type_hints(fn)
 
-        class IndexifyFn(IndexifyFunction):
-            def run(self, *args, **kwargs) -> Union[List[Any], Any]:
-                return fn(*args, **kwargs)
+        # Create run method that preserves signature
+        def run(self, *args, **kwargs):
+            return fn(*args, **kwargs)
 
-            update_wrapper(run, fn)
+        # Apply original signature and annotations to run method
+        run.__signature__ = fn_sig
+        run.__annotations__ = fn_hints
 
-        for key, value in args.items():
-            if key != "fn" and key != "self":
-                setattr(IndexifyFn, key, value)
-        IndexifyFn.image = image
-        IndexifyFn.accumulate = accumulate
-        IndexifyFn.encoder = encoder
-        return IndexifyFn
+        attrs = {
+            "name": name if name else fn.__name__,
+            "description": description
+            if description
+            else (fn.__doc__ or "").strip().replace("\n", ""),
+            "image": image,
+            "placement_constraints": placement_constraints,
+            "accumulate": accumulate,
+            "encoder": encoder,
+            "run": run,
+        }
+
+        return type("IndexifyFunction", (IndexifyFunction,), attrs)
 
     return construct
 
@@ -282,7 +292,11 @@ class IndexifyFunctionWrapper:
             )
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
-            IndexifyData(payload=serializer.serialize(output), encoder=self.indexify_function.encoder) for output in outputs
+            IndexifyData(
+                payload=serializer.serialize(output),
+                encoder=self.indexify_function.encoder,
+            )
+            for output in outputs
         ]
         return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
@@ -296,6 +310,7 @@ class IndexifyFunctionWrapper:
         payload = indexify_data.payload
         serializer = get_serializer(encoder)
         return serializer.deserialize(payload)
+
 
 def get_ctx() -> GraphInvocationContext:
     frame = inspect.currentframe()

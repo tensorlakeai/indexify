@@ -7,12 +7,13 @@ from pydantic import BaseModel
 
 from indexify import (
     Graph,
+    IndexifyFunction,
     Pipeline,
     RemoteGraph,
+    RemotePipeline,
     get_ctx,
     indexify_function,
     indexify_router,
-    IndexifyFunction, RemotePipeline,
 )
 from indexify.functions_sdk.data_objects import File
 
@@ -60,7 +61,10 @@ def simple_function_ctx_b(x: ComplexObject) -> int:
     return val + 1
 
 
-class SimpleFunctionCtxC(IndexifyFunction):
+class SimpleFunctionCtxC(
+
+
+):
     name = "SimpleFunctionCtxC"
 
     def __init__(self):
@@ -99,6 +103,7 @@ class Sum(BaseModel):
 def sum_of_squares(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
+
 
 @indexify_function(accumulate=Sum, encoder="json")
 def sum_of_squares_with_json_encoding(init_value: Sum, x: int) -> Sum:
@@ -156,11 +161,14 @@ def create_pipeline_graph_with_map_reduce():
     graph.add_edge(sum_of_squares, make_it_string)
     return graph
 
+
 def create_pipeline_graph_with_map_reduce_with_json_encoder():
-    graph = Graph(name="test_map_reduce", description="test",
-                  start_node=square_with_json_encoder)
+    graph = Graph(
+        name="test_map_reduce", description="test", start_node=square_with_json_encoder
+    )
     graph.add_edge(square_with_json_encoder, sum_of_squares_with_json_encoding)
     return graph
+
 
 def create_router_graph():
     graph = Graph(name="test_router", description="test", start_node=generate_seq)
@@ -354,6 +362,14 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
         output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
         self.assertEqual(output2[0], 11)
+
+    def test_graph_router_start_node(self):
+        graph = Graph(name="test_router", description="test", start_node=route_if_even)
+        graph.route(route_if_even, [add_two, add_three])
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(block_until_done=True, x=Sum(val=2))
+        output = graph.output(invocation_id, "add_three")
+        self.assertEqual(output, [5])
 
 
 if __name__ == "__main__":

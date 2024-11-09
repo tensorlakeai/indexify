@@ -418,7 +418,7 @@ class ExtractorAgent:
                         headers={"Content-Type": "application/json"},
                     ) as event_source:
                         if not event_source.response.is_success:
-                            resp = await event_source.response.aread().decode('utf-8')
+                            resp = await event_source.response.aread().decode("utf-8")
                             console.print(f"failed to register: {str(resp)}")
                             await asyncio.sleep(5)
                             continue

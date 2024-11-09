@@ -1,7 +1,7 @@
 from typing import Any, List
 
-import jsonpickle
 import cloudpickle
+import jsonpickle
 import msgpack
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ def get_serializer(serializer_type: str) -> Any:
     elif serializer_type == "json":
         return JsonSerializer()
     raise ValueError(f"Unknown serializer type: {serializer_type}")
+
 
 class JsonSerializer:
     @staticmethod
