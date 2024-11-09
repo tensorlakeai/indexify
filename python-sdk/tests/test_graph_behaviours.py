@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from indexify import (
     Graph,
     Pipeline,
-    RemotePipeline,
     RemoteGraph,
     get_ctx,
     indexify_function,
@@ -194,7 +193,8 @@ class TestGraphBehaviors(unittest.TestCase):
     is_local_run = None
 
     def setUp(self):
-        self.is_local_run = bool(os.getenv('TEST_LOCAL_RUN', "False"))
+        print("setup {}", os.getenv('TEST_LOCAL_RUN'))
+        self.is_local_run = True if os.getenv('TEST_LOCAL_RUN') == "True" else False
 
     def test_simple_function(self):
         graph = Graph(
@@ -224,9 +224,12 @@ class TestGraphBehaviors(unittest.TestCase):
             start_node=simple_function_with_invalid_encoder,
         )
         graph = remote_or_local_graph(graph, self.is_local_run)
-        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
-        output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
-        self.assertEqual(output, [])
+
+        with self.assertRaises(ValueError) as ve:
+            invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+            output = graph.output(invocation_id, "simple_function_with_invalid_encoder")
+            self.assertEqual(output, [])
+        self.assertEqual("Unknown serializer type: invalid", str(ve.exception))
 
     def test_map_operation(self):
         graph = create_pipeline_graph_with_map()
@@ -292,7 +295,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     def test_pipeline(self):
         p = create_simple_pipeline()
-        graph = remote_or_local_graph(graph, self.is_local_run)
+        p = remote_or_local_graph(p, self.is_local_run)
         p.run(x=3)
         invocation_id = p.run(block_until_done=True, x=3)
         output = p.output(invocation_id, "make_it_string")
@@ -330,16 +333,17 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output2 = graph.output(invocation_id, "simple_function_ctx_b")
         self.assertEqual(output2[0], 11)
+
         graph1 = Graph(
             name="test_context", description="test", start_node=simple_function_ctx
         )
         graph1.add_edge(simple_function_ctx, SimpleFunctionCtxC)
-        graph1 = remote_or_local_graph(graph, self.is_local_run)
+        graph1 = remote_or_local_graph(graph1, self.is_local_run)
         invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
+        print(graph1._results)
         output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
         self.assertEqual(output2[0], 11)
 
 
 if __name__ == "__main__":
-    os.environ['TEST_LOCAL_RUN'] = 'True'
     unittest.main()
