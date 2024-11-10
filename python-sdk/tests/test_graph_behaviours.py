@@ -61,10 +61,7 @@ def simple_function_ctx_b(x: ComplexObject) -> int:
     return val + 1
 
 
-class SimpleFunctionCtxC(
-
-
-):
+class SimpleFunctionCtxC(IndexifyFunction):
     name = "SimpleFunctionCtxC"
 
     def __init__(self):
@@ -101,6 +98,12 @@ class Sum(BaseModel):
 
 @indexify_function(accumulate=Sum)
 def sum_of_squares(init_value: Sum, x: int) -> Sum:
+    init_value.val += x
+    return init_value
+
+
+@indexify_function(accumulate=Sum, encoder="json")
+def accumulate_int_input(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
 
@@ -151,9 +154,6 @@ def create_pipeline_graph_with_map():
     return graph
 
 
-
-
-
 def create_pipeline_graph_with_map_reduce():
     graph = Graph(name="test_map_reduce", description="test", start_node=generate_seq)
     graph.add_edge(generate_seq, square)
@@ -187,6 +187,13 @@ def create_simple_pipeline():
     p.add_step(square)
     p.add_step(sum_of_squares)
     p.add_step(make_it_string)
+    return p
+
+
+def create_simple_pipeline_for_acc_ints():
+    p = Pipeline("simple_pipeline", "A simple pipeline")
+    p.add_step(generate_seq)
+    p.add_step(accumulate_int_input)
     return p
 
 
@@ -314,12 +321,20 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output, [11])
 
     def test_pipeline(self):
+        self.is_local_run = True
         p = create_simple_pipeline()
         p = remote_or_local_pipeline(p, self.is_local_run)
-        p.run(x=3)
         invocation_id = p.run(block_until_done=True, x=3)
         output = p.output(invocation_id, "make_it_string")
         self.assertEqual(output, ["5"])
+
+    def test_pipeline_with_simple_steps(self):
+        self.is_local_run = True
+        p = create_simple_pipeline_for_acc_ints()
+        p = remote_or_local_pipeline(p, self.is_local_run)
+        invocation_id = p.run(block_until_done=True, x=5)
+        output = p.output(invocation_id, "accumulate_int_input")
+        self.assertEqual([Sum(val=10)], output)
 
     def test_ignore_none_in_map(self):
         @indexify_function()

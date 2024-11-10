@@ -219,13 +219,15 @@ class Graph:
         )
         print(f"[bold] Invoking {self._start_node}[/bold]")
         outputs = defaultdict(list)
-        self._accumulator_values[input.id] = {}
+
+        # No accumulator for the start node
+        self._accumulator_values[self._start_node] = None
         for k, v in self.accumulator_zero_values.items():
             node = self.nodes[k]
             serializer = get_serializer(node.encoder)
-            self._accumulator_values[input.id] = {
-                k: IndexifyData(payload=serializer.serialize(v), encoder=node.encoder)
-            }
+            # TODO why was this a map?
+            self._accumulator_values[node.name] = IndexifyData(payload=serializer.serialize(v), encoder=node.encoder)
+
         self._results[input.id] = outputs
         ctx = GraphInvocationContext(
             invocation_id=input.id,
@@ -242,7 +244,6 @@ class Graph:
         initial_input: IndexifyData,
         outputs: Dict[str, List[bytes]],
     ):
-        accumulator_values = self._accumulator_values[initial_input.id]
         queue = deque([(self._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
@@ -258,12 +259,17 @@ class Graph:
             out_edges = self.edges.get(node_name, [])
             fn_outputs = function_outputs.ser_outputs
             print(f"ran {node_name}: num outputs: {len(fn_outputs)}")
-            if accumulator_values.get(node_name, None) is not None:
-                accumulator_values[node_name] = fn_outputs[-1].model_copy()
-                outputs[node_name] = []
-            if fn_outputs:
+
+            if self._accumulator_values.get(node_name, None) is not None:
+                # NOTE: if this is an accumulated value simply take the last item.
+                # It will be the only item returned. In the future we could
+                # support multiple accumulator values. Ideally you'd just put it
+                # in one "acc" object anyhow.
+                self._accumulator_values[node_name] = fn_outputs[-1].model_copy()
+                outputs[node_name] = [fn_outputs[-1].model_copy()]
+            if fn_outputs and self._accumulator_values.get(node_name, None) is None:
                 outputs[node_name].extend(fn_outputs)
-            if accumulator_values.get(node_name, None) is not None and queue:
+            if self._accumulator_values.get(node_name, None) is not None and queue:
                 print(
                     f"accumulator not none for {node_name}, continuing, len queue: {len(queue)}"
                 )
@@ -287,9 +293,11 @@ class Graph:
             return result
 
         acc_value = self._accumulator_values.get(node_name, None)
-        return IndexifyFunctionWrapper(
+        function_output: FunctionCallResult = IndexifyFunctionWrapper(
             node, context=self._local_graph_ctx
         ).invoke_fn_ser(node_name, input, acc_value)
+
+        return function_output
 
     def _log_local_exec_tracebacks(
         self, results: Union[FunctionCallResult, RouterCallResult]
