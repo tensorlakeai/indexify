@@ -11,7 +11,6 @@ import io
 import re
 import datetime
 from indexify import RemoteGraph
-from dotenv import load_dotenv
 import os
 from llama_cpp import Llama
 
@@ -24,7 +23,6 @@ class BaseConversationSchema(BaseModel):
     duration: int
     participants: List[str]
     meeting_type: str
-    summary: str
 
     class Config:
         arbitrary_types_allowed = True  
@@ -76,7 +74,6 @@ llama_cpp_image = (
     .run("pip install llama-cpp-python huggingface_hub")
     .run("apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*")
 )
-
 
 def get_chat_completion(prompt: str) -> str:
     model = Llama.from_pretrained(
@@ -306,7 +303,7 @@ def run_workflow(mode: str, server_url: str = 'http://localhost:8900', bucket_na
     else:
         raise ValueError("Invalid mode. Choose 'in-process-run' or 'remote-run'.")
 
-    file_path = "data/audiofile"  #replace with your file path
+    file_path = "data/audiofile" #replace with your file path
     with open(file_path, 'rb') as audio_file:
         audio_data = audio_file.read()
     file = File(path=file_path, data=audio_data)
@@ -323,16 +320,48 @@ def run_workflow(mode: str, server_url: str = 'http://localhost:8900', bucket_na
         logging.info(f"Transcription Classification: {classification.classification}")
 
         if classification.classification == "strategy-meeting":
-            summary = graph.output(invocation_id=invocation_id, fn_name=summarize_strategy_meeting.name)[0]
+            result = graph.output(invocation_id=invocation_id, fn_name=summarize_strategy_meeting.name)[0]
+            logging.info("\nExtracted information:")
+            print(f"Meeting ID: {result.meeting_id}")
+            print(f"Date: {result.date.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Duration: {result.duration} seconds")
+            print(f"Participants: {repr(result.participants) if result.participants else 'None'}")
+            print(f"Meeting Type: {result.meeting_type}")
+            print(f"Key Decisions: {repr(result.key_decisions)}")
+            print(f"Risk Assessments: {repr(result.risk_assessments)}")
+            print(f"Strategic Initiatives: {repr(result.strategic_initiatives)}")
+            print(f"Action Items: {repr(result.action_items)}")
+            
         elif classification.classification in ["sales-call", "marketing-call", "product-call"]:
-            summary = graph.output(invocation_id=invocation_id, fn_name=summarize_sales_call.name)[0]
+            result = graph.output(invocation_id=invocation_id, fn_name=summarize_sales_call.name)[0]
+            logging.info("\nExtracted information:")
+            print(f"Meeting ID: {result.meeting_id}")
+            print(f"Date: {result.date.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Duration: {result.duration} seconds")
+            print(f"Participants: {repr(result.participants) if result.participants else 'None'}")
+            print(f"Meeting Type: {result.meeting_type}")
+            print(f"Customer Pain Points: {repr(result.customer_pain_points)}")
+            print(f"Proposed Solutions: {repr(result.proposed_solutions)}")
+            print(f"Objections: {repr(result.objections)}")
+            print(f"Next Steps: {repr(result.next_steps)}")
+            
         elif classification.classification == "rd-brainstorm":
-            summary = graph.output(invocation_id=invocation_id, fn_name=summarize_rd_brainstorm.name)[0]    
+            result = graph.output(invocation_id=invocation_id, fn_name=summarize_rd_brainstorm.name)[0]
+            logging.info("\nExtracted information:")
+            print(f"Meeting ID: {result.meeting_id}")
+            print(f"Date: {result.date.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Duration: {result.duration} seconds")
+            print(f"Participants: {repr(result.participants) if result.participants else 'None'}")
+            print(f"Meeting Type: {result.meeting_type}")
+            print(f"Innovative Ideas: {repr(result.innovative_ideas)}")
+            print(f"Technical Challenges: {repr(result.technical_challenges)}")
+            print(f"Resource Requirements: {repr(result.resource_requirements)}")
+            print(f"Potential Impacts: {repr(result.potential_impacts)}")
+            
         else:
             logging.warning(f"No suitable summarization found for the classification: {classification.classification}")
             return
-
-        logging.info(f"\nExtracted information:\n{summary.summary}")
+        
     except Exception as e:
         logging.error(f"Error in workflow execution: {str(e)}")
         logging.error(f"Graph output for classify_meeting_intent: {graph.output(invocation_id=invocation_id, fn_name=classify_meeting_intent.name)}")
