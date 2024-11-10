@@ -81,7 +81,7 @@ class Graph:
         # Storage for local execution
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
         self._cache = CacheAwareFunctionWrapper("./indexify_local_runner_cache")
-        self._accumulator_values: Dict[str, Dict[str, IndexifyData]] = {}
+        self._accumulator_values: Dict[str, IndexifyData] = {}
         self._local_graph_ctx: Optional[GraphInvocationContext] = None
 
     def get_function(self, name: str) -> IndexifyFunctionWrapper:
@@ -158,7 +158,7 @@ class Graph:
     def definition(self) -> ComputeGraphMetadata:
         start_node = self.nodes[self._start_node]
         is_reducer = False
-        if hasattr(start_node, 'accumulate'):
+        if hasattr(start_node, "accumulate"):
             is_reducer = start_node.accumulate is not None
         start_node = FunctionMetadata(
             name=start_node.name,
@@ -219,13 +219,12 @@ class Graph:
         )
         print(f"[bold] Invoking {self._start_node}[/bold]")
         outputs = defaultdict(list)
-        self._accumulator_values[input.id] = {}
         for k, v in self.accumulator_zero_values.items():
             node = self.nodes[k]
             serializer = get_serializer(node.encoder)
-            self._accumulator_values[input.id] = {
-                k: IndexifyData(payload=serializer.serialize(v), encoder=node.encoder)
-            }
+            self._accumulator_values[k] = IndexifyData(
+                payload=serializer.serialize(v), encoder=node.encoder
+            )
         self._results[input.id] = outputs
         ctx = GraphInvocationContext(
             invocation_id=input.id,
@@ -242,7 +241,6 @@ class Graph:
         initial_input: IndexifyData,
         outputs: Dict[str, List[bytes]],
     ):
-        accumulator_values = self._accumulator_values[initial_input.id]
         queue = deque([(self._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
@@ -258,12 +256,12 @@ class Graph:
             out_edges = self.edges.get(node_name, [])
             fn_outputs = function_outputs.ser_outputs
             print(f"ran {node_name}: num outputs: {len(fn_outputs)}")
-            if accumulator_values.get(node_name, None) is not None:
-                accumulator_values[node_name] = fn_outputs[-1].model_copy()
+            if self._accumulator_values.get(node_name, None) is not None:
+                self._accumulator_values[node_name] = fn_outputs[-1].model_copy()
                 outputs[node_name] = []
             if fn_outputs:
                 outputs[node_name].extend(fn_outputs)
-            if accumulator_values.get(node_name, None) is not None and queue:
+            if self._accumulator_values.get(node_name, None) is not None and queue:
                 print(
                     f"accumulator not none for {node_name}, continuing, len queue: {len(queue)}"
                 )
