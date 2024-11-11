@@ -9,7 +9,7 @@ from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
 
-from indexify.common_util import get_httpx_client
+from indexify.common_util import get_httpx_client, get_sync_or_async_client
 from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
@@ -122,17 +122,15 @@ class IndexifyClient:
         if not (cert_path and key_path):
             raise ValueError("Both cert and key must be provided for mTLS")
 
-        client_certs = (cert_path, key_path)
-        verify_option = ca_bundle_path if ca_bundle_path else True
-        client = IndexifyClient(
-            *args,
-            **kwargs,
-            service_url=service_url,
-            http2=True,
-            cert=client_certs,
-            verify=verify_option,
+        client = get_sync_or_async_client(
+            cert_path=cert_path,
+            key_path=key_path,
+            ca_bundle_path=ca_bundle_path
         )
-        return client
+
+        indexify_client = IndexifyClient(service_url, *args, **kwargs)
+        indexify_client._client = client
+        return indexify_client
 
     def _add_api_key(self, kwargs):
         if self._api_key:
