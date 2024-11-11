@@ -48,37 +48,6 @@ class GraphInvocationContext(BaseModel):
         )
 
 
-def format_filtered_traceback(exc_info=None):
-    """
-    Format a traceback excluding indexify_functions.py lines.
-    Can be used in exception handlers to replace traceback.format_exc()
-    """
-    if exc_info is None:
-        exc_info = sys.exc_info()
-
-    # Get the full traceback as a string
-    full_traceback = traceback.format_exception(*exc_info)
-
-    # Filter out lines containing indexify_functions.py
-    filtered_lines = []
-    skip_next = False
-
-    for line in full_traceback:
-        if "indexify_functions.py" in line:
-            skip_next = True
-            continue
-        if skip_next:
-            if line.strip().startswith("File "):
-                skip_next = False
-            else:
-                continue
-        filtered_lines.append(line)
-
-    # Clean up any double blank lines that might have been created
-    cleaned = re.sub(r"\n\s*\n\s*\n", "\n\n", "".join(filtered_lines))
-    return cleaned
-
-
 def is_pydantic_model_from_annotation(type_annotation):
     # If it's a string representation
     if isinstance(type_annotation, str):
@@ -146,6 +115,11 @@ class IndexifyRouter:
         pass
 
 
+from inspect import signature
+
+from typing_extensions import get_type_hints
+
+
 def indexify_router(
     name: Optional[str] = None,
     description: Optional[str] = "",
@@ -154,28 +128,30 @@ def indexify_router(
     encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
-        args = locals().copy()
-        args["name"] = args["name"] if args.get("name", None) else fn.__name__
-        args["fn_name"] = fn.__name__
-        args["description"] = (
-            args["description"]
-            if args.get("description", None)
-            else (fn.__doc__ or "").strip().replace("\n", "")
-        )
+        # Get function signature using inspect.signature
+        fn_sig = signature(fn)
+        fn_hints = get_type_hints(fn)
 
-        class IndexifyRo(IndexifyRouter):
-            def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
-                return fn(*args, **kwargs)
+        # Create run method that preserves signature
+        def run(self, *args, **kwargs):
+            return fn(*args, **kwargs)
 
-            update_wrapper(run, fn)
+        # Apply original signature and annotations to run method
+        run.__signature__ = fn_sig
+        run.__annotations__ = fn_hints
 
-        for key, value in args.items():
-            if key != "fn" and key != "self":
-                setattr(IndexifyRo, key, value)
+        attrs = {
+            "name": name if name else fn.__name__,
+            "description": description
+            if description
+            else (fn.__doc__ or "").strip().replace("\n", ""),
+            "image": image,
+            "placement_constraints": placement_constraints,
+            "encoder": encoder,
+            "run": run,
+        }
 
-        IndexifyRo.image = image
-        IndexifyRo.encoder = encoder
-        return IndexifyRo
+        return type("IndexifyRouter", (IndexifyRouter,), attrs)
 
     return construct
 
@@ -189,28 +165,31 @@ def indexify_function(
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
-        args = locals().copy()
-        args["name"] = args["name"] if args.get("name", None) else fn.__name__
-        args["fn_name"] = fn.__name__
-        args["description"] = (
-            args["description"]
-            if args.get("description", None)
-            else (fn.__doc__ or "").strip().replace("\n", "")
-        )
+        # Get function signature using inspect.signature
+        fn_sig = signature(fn)
+        fn_hints = get_type_hints(fn)
 
-        class IndexifyFn(IndexifyFunction):
-            def run(self, *args, **kwargs) -> Union[List[Any], Any]:
-                return fn(*args, **kwargs)
+        # Create run method that preserves signature
+        def run(self, *args, **kwargs):
+            return fn(*args, **kwargs)
 
-            update_wrapper(run, fn)
+        # Apply original signature and annotations to run method
+        run.__signature__ = fn_sig
+        run.__annotations__ = fn_hints
 
-        for key, value in args.items():
-            if key != "fn" and key != "self":
-                setattr(IndexifyFn, key, value)
-        IndexifyFn.image = image
-        IndexifyFn.accumulate = accumulate
-        IndexifyFn.encoder = encoder
-        return IndexifyFn
+        attrs = {
+            "name": name if name else fn.__name__,
+            "description": description
+            if description
+            else (fn.__doc__ or "").strip().replace("\n", ""),
+            "image": image,
+            "placement_constraints": placement_constraints,
+            "accumulate": accumulate,
+            "encoder": encoder,
+            "run": run,
+        }
+
+        return type("IndexifyFunction", (IndexifyFunction,), attrs)
 
     return construct
 
@@ -266,7 +245,7 @@ class IndexifyFunctionWrapper:
         try:
             extracted_data = self.indexify_function.run(*args, **kwargs)
         except Exception as e:
-            return [], format_filtered_traceback()
+            return [], traceback.format_exc()
         if not isinstance(extracted_data, list) and extracted_data is not None:
             return [extracted_data.name], None
         edges = []
@@ -289,7 +268,7 @@ class IndexifyFunctionWrapper:
         try:
             extracted_data = self.indexify_function.run(*args, **kwargs)
         except Exception as e:
-            return [], format_filtered_traceback()
+            return [], traceback.format_exc()
         if extracted_data is None:
             return [], None
 
@@ -313,7 +292,11 @@ class IndexifyFunctionWrapper:
             )
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
-            IndexifyData(payload=serializer.serialize(output), encoder=self.indexify_function.encoder) for output in outputs
+            IndexifyData(
+                payload=serializer.serialize(output),
+                encoder=self.indexify_function.encoder,
+            )
+            for output in outputs
         ]
         return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
 
@@ -327,6 +310,7 @@ class IndexifyFunctionWrapper:
         payload = indexify_data.payload
         serializer = get_serializer(encoder)
         return serializer.deserialize(payload)
+
 
 def get_ctx() -> GraphInvocationContext:
     frame = inspect.currentframe()

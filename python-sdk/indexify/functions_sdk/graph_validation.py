@@ -55,8 +55,7 @@ def validate_route(
                     raise Exception(
                         f"Unable to find {arg.name} in to_nodes {[node.name for node in to_nodes]}"
                     )
-
-    if (
+    elif (
         hasattr(return_annotation, "__origin__")
         and return_annotation.__origin__ is list
     ):
