@@ -31,22 +31,13 @@ jobs:
               - 'python-sdk/**'
               - '.github/**'
 
-  test:
-    name: Run Tests
+  build:
+    name: Build
     needs: changes
     if: ${{ needs.changes.outputs.indexify == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      #   - name: Update APT package list
-      # run: sudo apt-get update || true # skip errors as temp workaround for https://github.com/tensorlakeai/indexify/actions/runs/8814655533/job/24194983960#step:3:33
-      - name: Install poetry
-        run: pipx install poetry
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: 'poetry'
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
       - name: Setup Rust
@@ -54,20 +45,44 @@ jobs:
         with:
           cache-directories: |
             server/target
-      - name: Install python dependencies
-        run: |
-          cd python-sdk
-          poetry install
       - name: Build indexify-server
         run: |
           cd server
           cargo build
+      - name: Upload indexify-server
+        uses: actions/upload-artifact@v4
+        with:
+          name: indexify-server
+          path: server/target/debug/indexify-server
+
+  acceptance_tests:
+    name: Run Acceptance Tests
+    needs: [changes, build]
+    if: ${{ needs.changes.outputs.indexify == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Download indexify-server
+        uses: actions/download-artifact@v4
+        with:
+          name: indexify-server
+      - name: Install poetry
+        run: pipx install poetry
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'poetry'
+      - name: Install python dependencies
+        run: |
+          cd python-sdk
+          poetry install
       - name: Start Background Indexify Server
         uses: JarvusInnovations/background-action@v1
         with:
           run: |
-            cd server
-            RUST_LOG=debug cargo run &
+            chmod u+x ./indexify-server
+            RUST_LOG=debug ./indexify-server &
 
           wait-on: |
             tcp:localhost:8900
@@ -111,10 +126,116 @@ jobs:
                 sleep 5
             fi
           done
-      - name: Run Acceptance Tests
+
+      - name: Run Acceptance Tests (graph behaviours)
         run: |
           cd python-sdk
           export INDEXIFY_URL=http://localhost:8900
           poetry run python tests/test_graph_behaviours.py
+
+      - name: Run Acceptance Tests (update)
+        run: |
+          cd python-sdk
+          export INDEXIFY_URL=http://localhost:8900
           poetry run python tests/test_graph_update.py
+
+      - name: Run Acceptance Tests (validation)
+        run: |
+          cd python-sdk
+          export INDEXIFY_URL=http://localhost:8900
+          poetry run python tests/test_graph_validation.py
+
+  last_release_acceptance_tests:
+    name: Run Acceptance Tests of Last Release
+    needs: [changes, build]
+    if: ${{ needs.changes.outputs.indexify == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Checkout latest
+        run: |
+          git fetch --tags
+          latestTag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
+          git checkout $latestTag
+      - name: Download indexify-server
+        uses: actions/download-artifact@v4
+        with:
+          name: indexify-server
+      - name: Install poetry
+        run: pipx install poetry
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'poetry'
+      - name: Install python dependencies
+        run: |
+          cd python-sdk
+          poetry install
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            RUST_LOG=debug ./indexify-server &
+
+          wait-on: |
+            tcp:localhost:8900
+
+          tail: true
+          wait-for: 30s
+          log-output: true
+          # always logging the output to debug test failures.
+          log-output-if: true
+      - name: Start Background Indexify Executor
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd python-sdk
+            poetry run indexify-cli executor &
+
+          wait-on: |
+            tcp:localhost:8900
+
+          tail: true
+          wait-for: 10s
+          log-output: true
+          # always logging the output to debug test failures.
+          log-output-if: true
+      - name: Wait for readiness
+        run: |
+          serverReady=false
+          counter=0
+          while [ "$serverReady" != true ]; do
+            output=$(curl --silent --fail http://localhost:8900/internal/executors | jq '. | length' 2>/dev/null)
+            if [[ $? -eq 0 && "$output" -ge 1 ]]; then
+                echo "Server ready with executors."
+                serverReady=true
+            else
+                echo 'Waiting for executors to join server...'
+                counter=$((counter+1))
+                if [ $counter -gt 6 ]; then
+                    echo "Timeout waiting for executors to join server."
+                    exit 1
+                fi
+                sleep 5
+            fi
+          done
+
+      - name: Run Acceptance Tests (graph behaviours)
+        run: |
+          cd python-sdk
+          export INDEXIFY_URL=http://localhost:8900
+          poetry run python tests/test_graph_behaviours.py
+
+      - name: Run Acceptance Tests (update)
+        run: |
+          cd python-sdk
+          export INDEXIFY_URL=http://localhost:8900
+          poetry run python tests/test_graph_update.py
+
+      - name: Run Acceptance Tests (validation)
+        run: |
+          cd python-sdk
+          export INDEXIFY_URL=http://localhost:8900
           poetry run python tests/test_graph_validation.py
