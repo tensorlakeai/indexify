@@ -5,11 +5,11 @@ from typing import Any, Dict, List, Optional
 import cloudpickle
 import httpx
 import msgpack
-import yaml
 from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
 
+from indexify.common_util import get_httpx_client, get_sync_or_async_client
 from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
@@ -55,18 +55,8 @@ class IndexifyClient:
             service_url = os.environ["INDEXIFY_URL"]
 
         self.service_url = service_url
-        self._client = httpx.Client()
-        if config_path:
-            with open(config_path, "r") as file:
-                config = yaml.safe_load(file)
-
-            if config.get("use_tls", False):
-                tls_config = config["tls_config"]
-                self._client = httpx.Client(
-                    http2=True,
-                    cert=(tls_config["cert_path"], tls_config["key_path"]),
-                    verify=tls_config.get("ca_bundle_path", True),
-                )
+        self._config_path = config_path
+        self._client = get_httpx_client(config_path)
 
         self.namespace: str = namespace
         self.compute_graphs: List[Graph] = []
@@ -135,17 +125,15 @@ class IndexifyClient:
         if not (cert_path and key_path):
             raise ValueError("Both cert and key must be provided for mTLS")
 
-        client_certs = (cert_path, key_path)
-        verify_option = ca_bundle_path if ca_bundle_path else True
-        client = IndexifyClient(
-            *args,
-            **kwargs,
-            service_url=service_url,
-            http2=True,
-            cert=client_certs,
-            verify=verify_option,
+        client = get_sync_or_async_client(
+            cert_path=cert_path,
+            key_path=key_path,
+            ca_bundle_path=ca_bundle_path
         )
-        return client
+
+        indexify_client = IndexifyClient(service_url, *args, **kwargs)
+        indexify_client._client = client
+        return indexify_client
 
     def _add_api_key(self, kwargs):
         if self._api_key:
@@ -279,7 +267,7 @@ class IndexifyClient:
             "params": params,
         }
         self._add_api_key(kwargs)
-        with httpx.Client() as client:
+        with get_httpx_client(self._config_path) as client:
             with connect_sse(
                 client,
                 "POST",

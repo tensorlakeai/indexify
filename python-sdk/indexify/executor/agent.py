@@ -1,13 +1,11 @@
 import asyncio
 import json
-import ssl
 import traceback
 from concurrent.futures.process import BrokenProcessPool
 from importlib.metadata import version
 from typing import Dict, List, Optional
+from pathlib import Path
 
-import httpx
-import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
 from rich.console import Console
@@ -21,6 +19,7 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
 from indexify.http_client import IndexifyClient
+from indexify.common_util import get_httpx_client
 
 from ..functions_sdk.image import ImageInformation
 from . import image_dependency_installer
@@ -58,7 +57,7 @@ class ExtractorAgent:
         self,
         executor_id: str,
         num_workers,
-        code_path: str,
+        code_path: Path,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
         name_alias: Optional[str] = None,
@@ -66,7 +65,7 @@ class ExtractorAgent:
     ):
         self.name_alias = name_alias
         self.image_version = image_version
-
+        self._config_path = config_path
         self._probe = RuntimeProbes()
 
         runtime_probe: ProbeInfo = self._probe.probe()
@@ -82,39 +81,21 @@ class ExtractorAgent:
         )
 
         self.num_workers = num_workers
-        self._use_tls = False
         if config_path:
-            with open(config_path, "r") as f:
-                config = yaml.safe_load(f)
-                self._config = config
-            if config.get("use_tls", False):
-                console.print(
-                    "Running the extractor with TLS enabled", style="cyan bold"
-                )
-                self._use_tls = True
-                tls_config = config["tls_config"]
-                self._ssl_context = ssl.create_default_context(
-                    ssl.Purpose.SERVER_AUTH, cafile=tls_config["ca_bundle_path"]
-                )
-                self._ssl_context.load_cert_chain(
-                    certfile=tls_config["cert_path"], keyfile=tls_config["key_path"]
-                )
-                self._protocol = "wss"
-                self._tls_config = tls_config
-            else:
-                self._ssl_context = None
-                self._protocol = "ws"
+            console.print(
+                "Running the extractor with TLS enabled", style="cyan bold"
+            )
+            self._protocol = "https"
         else:
-            self._ssl_context = None
             self._protocol = "http"
-            self._config = {}
 
         self._task_store: TaskStore = TaskStore()
         self._executor_id = executor_id
         self._function_worker = FunctionWorker(
             workers=num_workers,
             indexify_client=IndexifyClient(
-                service_url=f"{self._protocol}://{server_addr}"
+                service_url=f"{self._protocol}://{server_addr}",
+                config_path=config_path,
             ),
         )
         self._has_registered = False
@@ -124,7 +105,9 @@ class ExtractorAgent:
         self._downloader = Downloader(code_path=code_path, base_url=self._base_url)
         self._max_queued_tasks = 10
         self._task_reporter = TaskReporter(
-            base_url=self._base_url, executor_id=self._executor_id
+            base_url=self._base_url,
+            executor_id=self._executor_id,
+            config_path=self._config_path
         )
 
     async def task_completion_reporter(self):
@@ -197,7 +180,7 @@ class ExtractorAgent:
                 if self._require_image_bootstrap:
                     try:
                         image_info = await _get_image_info_for_compute_graph(
-                            task, self._protocol, self._server_addr
+                            task, self._protocol, self._server_addr, self._config_path
                         )
                         image_dependency_installer.executor_image_builder(
                             image_info, self.name_alias, self.image_version
@@ -365,8 +348,8 @@ class ExtractorAgent:
         asyncio.create_task(self.task_completion_reporter())
         self._should_run = True
         while self._should_run:
-            self._protocol = "http"
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
+            print(f'calling url: {url}')
 
             def to_sentence_case(snake_str):
                 words = snake_str.split("_")
@@ -407,9 +390,8 @@ class ExtractorAgent:
                     border_style="cyan",
                 )
             )
-
             try:
-                async with httpx.AsyncClient() as client:
+                async with get_httpx_client(self._config_path, True) as client:
                     async with aconnect_sse(
                         client,
                         "POST",
@@ -453,14 +435,15 @@ class ExtractorAgent:
 
 
 async def _get_image_info_for_compute_graph(
-    task: Task, protocol, server_addr
+    task: Task, protocol, server_addr, config_path: str
 ) -> ImageInformation:
     namespace = task.namespace
     graph_name: str = task.compute_graph
     compute_fn_name: str = task.compute_fn
 
     http_client = IndexifyClient(
-        service_url=f"{protocol}://{server_addr}", namespace=namespace
+        service_url=f"{protocol}://{server_addr}", namespace=namespace,
+        config_path=config_path
     )
     compute_graph: ComputeGraphMetadata = http_client.graph(graph_name)
 
