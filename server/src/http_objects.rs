@@ -276,7 +276,7 @@ pub struct ComputeGraph {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub runtime_information: RuntimeInformation,
-    #[serde(default)]
+    #[serde(default, skip_deserializing)]
     pub replay_running: bool,
 }
 

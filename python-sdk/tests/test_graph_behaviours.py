@@ -221,7 +221,6 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
-    @parameterized.expand([(False), (True)])
     def test_simple_function_in_namespace(self):
         graph = Graph(
             name="test_simple_function", description="test", start_node=simple_function
