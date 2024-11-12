@@ -5,8 +5,12 @@ build:
 	@poetry build
 
 fmt:
-	black .
-	isort . --profile black
+	@poetry run black .
+	@poetry run isort . --profile black
+
+check:
+	@poetry run black --check .
+	@poetry run isort . --check-only --profile black
 
 lint:
 	@poetry run pylint ./indexify

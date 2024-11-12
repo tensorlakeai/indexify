@@ -6,8 +6,7 @@ from httpx import AsyncClient, Client
 
 
 def get_httpx_client(
-    config_path: Optional[str] = None,
-    make_async: Optional[bool] = False
+    config_path: Optional[str] = None, make_async: Optional[bool] = False
 ) -> AsyncClient | Client:
     """
     Creates and returns an httpx.Client instance, optionally configured with TLS settings from a YAML config file.
@@ -44,10 +43,11 @@ def get_httpx_client(
         with open(config_path, "r") as file:
             config = yaml.safe_load(file)
         if config.get("use_tls", False):
-            print(f'Configuring client with TLS config: {config}')
+            print(f"Configuring client with TLS config: {config}")
             tls_config = config["tls_config"]
             return get_sync_or_async_client(make_async, **tls_config)
     return get_sync_or_async_client(make_async)
+
 
 def get_sync_or_async_client(
     make_async: Optional[bool] = False,
@@ -56,18 +56,18 @@ def get_sync_or_async_client(
     ca_bundle_path: Optional[str] = None,
 ) -> AsyncClient | Client:
     """
-       Creates and returns either a synchronous or asynchronous httpx client with optional TLS configuration.
+    Creates and returns either a synchronous or asynchronous httpx client with optional TLS configuration.
 
-       Args:
-           make_async (Optional[bool]): If True, returns an AsyncClient; if False, returns a synchronous Client.
-               Defaults to False.
-           cert_path (Optional[str]): Path to the client certificate file. Required for TLS configuration
-               when key_path is also provided.
-           key_path (Optional[str]): Path to the client private key file. Required for TLS configuration
-               when cert_path is also provided.
-           ca_bundle_path (Optional[str]): Path to the CA bundle file for certificate verification.
-               If not provided, defaults to system CA certificates.
-   """
+    Args:
+        make_async (Optional[bool]): If True, returns an AsyncClient; if False, returns a synchronous Client.
+            Defaults to False.
+        cert_path (Optional[str]): Path to the client certificate file. Required for TLS configuration
+            when key_path is also provided.
+        key_path (Optional[str]): Path to the client private key file. Required for TLS configuration
+            when cert_path is also provided.
+        ca_bundle_path (Optional[str]): Path to the CA bundle file for certificate verification.
+            If not provided, defaults to system CA certificates.
+    """
     if make_async:
         if cert_path and key_path:
             return httpx.AsyncClient(
@@ -82,7 +82,7 @@ def get_sync_or_async_client(
             return httpx.Client(
                 http2=True,
                 cert=(cert_path, key_path),
-                verify=ca_bundle_path if ca_bundle_path else True
+                verify=ca_bundle_path if ca_bundle_path else True,
             )
         else:
             return httpx.Client()

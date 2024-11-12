@@ -1,37 +1,41 @@
 import ssl
 import unittest
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
+
+from test_constants import (
+    ca_bundle_path,
+    cert_path,
+    config_path,
+    key_path,
+    service_url,
+    tls_config,
+)
 
 from indexify.executor.agent import ExtractorAgent
-from test_constants import tls_config, service_url, config_path, cert_path, key_path, ca_bundle_path
+
 
 class TestExtractorAgent(unittest.TestCase):
-
     @patch(
-        'builtins.open',
+        "builtins.open",
         new_callable=mock_open,
-        read_data='''
+        read_data="""
                 use_tls: true
                 tls_config:
                     ca_bundle_path: /path/to/ca_bundle.pem
                     cert_path: /path/to/cert.pem
                     key_path: /path/to/key.pem
-                '''
+                """,
     )
-    @patch('httpx.Client')
-    def test_tls_configuration(
-        self,
-        mock_client,
-        mock_file
-    ):
+    @patch("httpx.Client")
+    def test_tls_configuration(self, mock_client, mock_file):
         # Create an instance of ExtractorAgent with the mock config
         agent = ExtractorAgent(
             executor_id="unit-test",
             num_workers=1,
             code_path=Path("test"),
             server_addr=service_url,
-            config_path=config_path
+            config_path=config_path,
         )
 
         # Verify that the correct file was loaded from the config_path
@@ -58,7 +62,8 @@ class TestExtractorAgent(unittest.TestCase):
         )
 
         # Verify the protocol is set to "http"
-        self.assertEqual(agent._protocol, 'http')
+        self.assertEqual(agent._protocol, "http")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

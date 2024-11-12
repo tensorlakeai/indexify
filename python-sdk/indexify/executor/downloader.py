@@ -10,8 +10,8 @@ from rich.theme import Theme
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
-from .api_objects import Task
 from ..common_util import get_httpx_client
+from .api_objects import Task
 
 custom_theme = Theme(
     {
@@ -30,7 +30,9 @@ class DownloadedInputs(BaseModel):
 
 
 class Downloader:
-    def __init__(self, code_path: str, base_url: str, config_path: Optional[str] = None):
+    def __init__(
+        self, code_path: str, base_url: str, config_path: Optional[str] = None
+    ):
         self.code_path = code_path
         self.base_url = base_url
         self._client = get_httpx_client(config_path)
