@@ -467,7 +467,7 @@ impl StateReader {
     }
 
     pub fn get_compute_graph(&self, namespace: &str, name: &str) -> Result<Option<ComputeGraph>> {
-        let key = format!("{}|{}", namespace, name);
+        let key = ComputeGraph::key_from(namespace, name);
         let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
         Ok(compute_graph)
     }

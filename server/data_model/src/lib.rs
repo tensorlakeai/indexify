@@ -334,7 +334,11 @@ pub struct ComputeGraph {
 
 impl ComputeGraph {
     pub fn key(&self) -> String {
-        format!("{}|{}", self.namespace, self.name)
+        ComputeGraph::key_from(&self.namespace, &self.name)
+    }
+
+    pub fn key_from(namespace: &str, name: &str) -> String {
+        format!("{}|{}", namespace, name)
     }
 }
 
