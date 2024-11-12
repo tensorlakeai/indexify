@@ -152,7 +152,7 @@ pub fn rerun_compute_graph(
     txn: &Transaction<TransactionDB>,
     req: RerunComputeGraphRequest,
 ) -> Result<()> {
-    let key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
     let graph = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -232,7 +232,8 @@ pub fn rerun_invocation(
         }
     }
 
-    let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let compute_graph_key =
+        ComputeGraph::key_from(req.namespace.as_str(), req.compute_graph_name.as_str());
     let graph = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -315,7 +316,8 @@ pub fn create_graph_input(
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
-    let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let compute_graph_key =
+        ComputeGraph::key_from(req.namespace.as_str(), req.compute_graph_name.as_str());
     let cg = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -436,7 +438,7 @@ pub fn delete_compute_graph(
 ) -> Result<()> {
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        format!("{}|{}", namespace, name),
+        ComputeGraph::key_from(namespace, name),
     )?;
     let prefix = format!("{}|{}|", namespace, name);
     delete_cf_prefix(
