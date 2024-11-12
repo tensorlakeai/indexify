@@ -64,8 +64,8 @@ impl SystemTasksExecutor {
                 tracing::info!("Executing invocation {:?}", invocation);
                 self.state
                     .write(state_store::requests::StateMachineUpdateRequest {
-                        payload: state_store::requests::RequestPayload::RerunInvocation(
-                            state_store::requests::RerunInvocationRequest {
+                        payload: state_store::requests::RequestPayload::ReplayInvocation(
+                            state_store::requests::ReplayInvocationRequest {
                                 namespace: task.namespace.clone(),
                                 compute_graph_name: task.compute_graph_name.clone(),
                                 graph_version: task.graph_version.clone(),
@@ -145,8 +145,8 @@ mod tests {
         CreateComputeGraphRequest,
         FinalizeTaskRequest,
         InvokeComputeGraphRequest,
+        ReplayComputeGraphRequest,
         RequestPayload,
-        RerunComputeGraphRequest,
         StateMachineUpdateRequest,
     };
     use tracing_subscriber::{layer::SubscriberExt, Layer};
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_graph_rerun() -> Result<()> {
+    async fn test_graph_replay() -> Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
         let _ = tracing::subscriber::set_global_default(
@@ -332,7 +332,7 @@ mod tests {
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?;
         assert_eq!(graph_ctx.unwrap().outstanding_tasks, 0);
 
-        let request = RequestPayload::RerunComputeGraph(RerunComputeGraphRequest {
+        let request = RequestPayload::ReplayComputeGraph(ReplayComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph_name: graph.name.clone(),
         });
@@ -382,7 +382,7 @@ mod tests {
 
         let graph = graphs[0].clone();
 
-        let request = RequestPayload::RerunComputeGraph(RerunComputeGraphRequest {
+        let request = RequestPayload::ReplayComputeGraph(ReplayComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph_name: graph.name.clone(),
         });
@@ -550,7 +550,7 @@ mod tests {
     // tasks in progress should stays at or below MAX_PENDING_TASKS
     // all tasks should complete eventually
     #[tokio::test]
-    async fn test_graph_flow_control_rerun() -> Result<()> {
+    async fn test_graph_flow_control_replay() -> Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
         let _ = tracing::subscriber::set_global_default(
@@ -637,7 +637,7 @@ mod tests {
 
         let graph = graphs[0].clone();
 
-        let request = RequestPayload::RerunComputeGraph(RerunComputeGraphRequest {
+        let request = RequestPayload::ReplayComputeGraph(ReplayComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph_name: graph.name.clone(),
         });

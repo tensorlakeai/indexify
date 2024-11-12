@@ -39,7 +39,6 @@ class RemoteGraph:
         :return: The invocation ID of the graph execution.
 
         Example:
-
             @indexify_function()
             def foo(x: int) -> int:
                 return x + 1
@@ -51,13 +50,14 @@ class RemoteGraph:
             self._name, block_until_done, **kwargs
         )
 
-    def rerun(self):
+    def replay_invocations(self):
         """
-        Rerun the graph with the given invocation ID.
+        Replay all the graph previous runs/invocations on the latest version of the graph.
 
-        :param invocation_id: The invocation ID of the graph execution.
+        This is useful to make all the previous invocations go through
+        an updated graph to take advantage of graph improvements.
         """
-        self._client.rerun_graph(self._name)
+        self._client.replay_invocations(self._name)
 
     @classmethod
     def deploy(
