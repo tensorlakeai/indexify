@@ -130,7 +130,7 @@ class IndexifyClient:
             key_path=key_path,
             ca_bundle_path=ca_bundle_path
         )
-        
+
         indexify_client = IndexifyClient(service_url, *args, **kwargs)
         indexify_client._client = client
         return indexify_client

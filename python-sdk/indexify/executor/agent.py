@@ -1,13 +1,11 @@
 import asyncio
 import json
-import ssl
 import traceback
 from concurrent.futures.process import BrokenProcessPool
 from importlib.metadata import version
 from typing import Dict, List, Optional
 from pathlib import Path
 
-import yaml
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
 from rich.console import Console
@@ -83,32 +81,13 @@ class ExtractorAgent:
         )
 
         self.num_workers = num_workers
-        self._use_tls = False
         if config_path:
-            with open(config_path, "r") as f:
-                config = yaml.safe_load(f)
-                self._config = config
-            if config.get("use_tls", False):
-                console.print(
-                    "Running the extractor with TLS enabled", style="cyan bold"
-                )
-                self._use_tls = True
-                tls_config = config["tls_config"]
-                self._ssl_context = ssl.create_default_context(
-                    ssl.Purpose.SERVER_AUTH, cafile=tls_config["ca_bundle_path"]
-                )
-                self._ssl_context.load_cert_chain(
-                    certfile=tls_config["cert_path"], keyfile=tls_config["key_path"]
-                )
-                self._protocol = "wss"
-                self._tls_config = tls_config
-            else:
-                self._ssl_context = None
-                self._protocol = "ws"
+            console.print(
+                "Running the extractor with TLS enabled", style="cyan bold"
+            )
+            self._protocol = "https"
         else:
-            self._ssl_context = None
             self._protocol = "http"
-            self._config = {}
 
         self._task_store: TaskStore = TaskStore()
         self._executor_id = executor_id
@@ -369,8 +348,8 @@ class ExtractorAgent:
         asyncio.create_task(self.task_completion_reporter())
         self._should_run = True
         while self._should_run:
-            self._protocol = "http"
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
+            print(f'calling url: {url}')
 
             def to_sentence_case(snake_str):
                 words = snake_str.split("_")
