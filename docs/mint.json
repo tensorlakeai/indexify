@@ -109,40 +109,37 @@
       ]
     },
     {
-      "group": "operations",
+      "group": "upload",
       "pages": [
-        "api-reference/operations/list-executors",
-        "api-reference/operations/list-all-namespaces",
-        "api-reference/operations/create-a-new-namespace",
-        "api-reference/operations/list-compute-graphs",
-        "api-reference/operations/create-compute-graph",
-        "api-reference/operations/get-a-compute-graph-definition",
-        "api-reference/operations/delete-compute-graph",
-        "api-reference/operations/delete-a-specific-invocation",
-        "api-reference/operations/get-the-logs-of-a-function",
-        "api-reference/operations/list-tasks-for-an-invocation"
+        "api-reference/upload/upload-file"
       ]
     },
     {
-      "group": "ingestion",
+      "group": "parse",
       "pages": [
-        "api-reference/ingestion/list-graph-invocations",
-        "api-reference/ingestion/invoke-compute-graph"
+        "api-reference/documents/process/parse-file-sync",
+        "api-reference/documents/process/parse-file-async"
+      ]
+    },
+    {
+      "group": "extract",
+      "pages": [
+        "api-reference/documents/extract/extract-file-sync",
+        "api-reference/documents/extract/extract-file-async"
       ]
     },
     {
       "group": "retrieve",
       "pages": [
-        "api-reference/retrieve/get-function-output",
-        "api-reference/retrieve/get-outputs-of-a-function"
+        "api-reference/documents/retrieve/retrieve-result"
       ]
     }
   ],
   "api": {
     "playground": {
-      "mode": "hide"
+      "mode": "show"
     },
-    "baseUrl": "https://indexify-server.api.tensorlake.ai/",
+    "baseUrl": "https://api.tensorlake.ai/",
     "auth": {
       "method": "bearer"
     }

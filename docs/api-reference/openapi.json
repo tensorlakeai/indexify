@@ -1,1026 +1,513 @@
 {
-  "openapi": "3.0.3",
-  "info": {
-    "title": "indexify-server",
-    "description": "",
-    "contact": {
-      "name": "Tensorlake Inc.",
-      "email": "support@tensorlake.ai"
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Inkwell-Server",
+        "version": "0.0.1"
     },
-    "license": {
-      "name": "Apache-2.0"
-    },
-    "version": "0.2.3"
-  },
-  "paths": {
-    "/internal/executors": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "List executors",
-        "operationId": "list_executors",
-        "responses": {
-          "200": {
-            "description": "List all executors",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ExecutorMetadata"
-                  }
+    "paths": {
+        "/documents/v1/upload": {
+            "post": {
+                "tags": [
+                    "upload"
+                ],
+                "summary": "Upload File",
+                "description": "Upload a file to Tensorlake.",
+                "operationId": "upload_file_api_v1_upload_post",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_upload_file_api_v1_upload_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UploadResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
                 }
-              }
             }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "List all namespaces",
-        "operationId": "namespaces",
-        "responses": {
-          "200": {
-            "description": "List all namespaces",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NamespaceList"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Unable to list namespace"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "Create a new namespace",
-        "operationId": "create_namespace",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateNamespace"
-              }
-            }
-          },
-          "required": true
         },
-        "responses": {
-          "200": {
-            "description": "Namespace created successfully"
-          },
-          "500": {
-            "description": "Unable to create namespace"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "List compute graphs",
-        "operationId": "list_compute_graphs",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Lists Compute Graph",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ComputeGraphsList"
+        "/documents/v1/parse": {
+            "post": {
+                "tags": [
+                    "process"
+                ],
+                "summary": "Parse File Sync",
+                "operationId": "parse_file_sync_api_v1_parse_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ParseRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ParseResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
                 }
-              }
             }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
+        },
+        "/documents/v1/parse_async": {
+            "post": {
+                "tags": [
+                    "process"
+                ],
+                "summary": "Parse File Async",
+                "operationId": "parse_file_async_api_v1_parse_async_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ParseRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ParseResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/v1/extract": {
+            "post": {
+                "tags": [
+                    "extract"
+                ],
+                "summary": "Extract File Sync",
+                "operationId": "extract_file_sync_api_v1_extract_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExtractRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExtractResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/v1/extract_async": {
+            "post": {
+                "tags": [
+                    "extract"
+                ],
+                "summary": "Extract File Async",
+                "operationId": "extract_file_async_api_v1_extract_async_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExtractRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExtractResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/v1/parse/retrieve/{job_id}/": {
+            "get": {
+                "tags": [
+                    "retrieve"
+                ],
+                "summary": "Retrieve Result",
+                "operationId": "retrieve_result_api_v1_parse_retrieve__job_id___get",
+                "parameters": [
+                    {
+                        "name": "job_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Job Id"
+                        }
+                    },
+                    {
+                        "name": "output_mode",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/components/schemas/OutputMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Output Mode"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ParseResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/": {
+            "get": {
+                "summary": "Root",
+                "description": "Root endpoint",
+                "operationId": "root__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
         }
-      },
-      "post": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "Create compute graph",
-        "operationId": "create_compute_graph",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
+    },
+    "components": {
+        "schemas": {
+            "Body_upload_file_api_v1_upload_post": {
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "title": "File"
+                    }
+                },
                 "type": "object",
                 "required": [
-                  "compute_graph",
-                  "code"
+                    "file"
                 ],
+                "title": "Body_upload_file_api_v1_upload_post"
+            },
+            "ExtractRequest": {
                 "properties": {
-                  "code": {
-                    "type": "string",
-                    "format": "binary"
-                  },
-                  "compute_graph": {
-                    "$ref": "#/components/schemas/ComputeGraph"
-                  }
-                }
-              }
+                    "file_path": {
+                        "type": "string",
+                        "title": "File Path"
+                    },
+                    "json_schema": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "object"
+                            }
+                        ],
+                        "title": "Json Schema"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "file_path",
+                    "json_schema"
+                ],
+                "title": "ExtractRequest"
+            },
+            "ExtractResponse": {
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "title": "Job Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "result": {
+                        "anyOf": [
+                            {
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Result"
+                    },
+                    "error_message": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Error Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "job_id",
+                    "status"
+                ],
+                "title": "ExtractResponse"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "OutputMode": {
+                "type": "string",
+                "enum": [
+                    "json",
+                    "markdown"
+                ],
+                "title": "OutputMode"
+            },
+            "ParseRequest": {
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "title": "File Path"
+                    },
+                    "output_mode": {
+                        "$ref": "#/components/schemas/OutputMode"
+                    },
+                    "pages": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Pages"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "file_path",
+                    "output_mode"
+                ],
+                "title": "ParseRequest"
+            },
+            "ParseResponse": {
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "title": "Job Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "result": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Result"
+                    },
+                    "error_message": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Error Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "job_id",
+                    "status"
+                ],
+                "title": "ParseResponse"
+            },
+            "UploadResponse": {
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "title": "Filename"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "filename",
+                    "message"
+                ],
+                "title": "UploadResponse"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
             }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Create a Compute Graph"
-          },
-          "500": {
-            "description": "Unable to create compute graphs"
-          }
         }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "Get a compute graph definition",
-        "operationId": "get_compute_graph",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Compute Graph Definition",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ComputeGraph"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "Delete compute graph",
-        "operationId": "delete_compute_graph",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Extraction graph deleted successfully"
-          },
-          "400": {
-            "description": "Unable to delete extraction graph"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations": {
-      "get": {
-        "tags": [
-          "ingestion"
-        ],
-        "summary": "List Graph invocations",
-        "operationId": "graph_invocations",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Compute Graph Definition",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GraphInvocations"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}": {
-      "delete": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "Delete a specific invocation",
-        "operationId": "delete_invocation",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "invocation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Invocation has been deleted"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/logs/{file}": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "Get the logs of a function",
-        "operationId": "download_logs",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "invocation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "fn_name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "file",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Log file"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}": {
-      "get": {
-        "tags": [
-          "retrieve"
-        ],
-        "summary": "Get function output",
-        "operationId": "download_fn_output_payload",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "invocation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "fn_name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Function output"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs": {
-      "get": {
-        "tags": [
-          "retrieve"
-        ],
-        "summary": "Get outputs of a function",
-        "operationId": "list_outputs",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "invocation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List outputs for a given invocation id",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Tasks"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks": {
-      "get": {
-        "tags": [
-          "operations"
-        ],
-        "summary": "List tasks for an invocation",
-        "operationId": "list_tasks",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "invocation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List tasks for a given invocation id",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Tasks"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
-    },
-    "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object": {
-      "post": {
-        "tags": [
-          "ingestion"
-        ],
-        "summary": "Invoke Compute Graph",
-        "operationId": "invoke_with_object",
-        "parameters": [
-          {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "compute_graph",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/cbor": {
-              "schema": {
-
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "invocation successful"
-          },
-          "400": {
-            "description": "bad request"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        }
-      }
     }
-  },
-  "components": {
-    "schemas": {
-      "ComputeFn": {
-        "type": "object",
-        "required": [
-          "name",
-          "fn_name",
-          "description",
-          "reducer",
-          "payload_encoder",
-          "image_name"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "fn_name": {
-            "type": "string"
-          },
-          "image_name": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "payload_encoder": {
-            "type": "string"
-          },
-          "reducer": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ComputeGraph": {
-        "type": "object",
-        "required": [
-          "name",
-          "namespace",
-          "description",
-          "start_node",
-          "nodes",
-          "edges",
-          "runtime_information"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "description": {
-            "type": "string"
-          },
-          "edges": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "name": {
-            "type": "string"
-          },
-          "namespace": {
-            "type": "string"
-          },
-          "nodes": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Node"
-            }
-          },
-          "runtime_information": {
-            "$ref": "#/components/schemas/RuntimeInformation"
-          },
-          "start_node": {
-            "$ref": "#/components/schemas/Node"
-          }
-        }
-      },
-      "ComputeGraphCreateType": {
-        "type": "object",
-        "required": [
-          "compute_graph",
-          "code"
-        ],
-        "properties": {
-          "code": {
-            "type": "string",
-            "format": "binary"
-          },
-          "compute_graph": {
-            "$ref": "#/components/schemas/ComputeGraph"
-          }
-        }
-      },
-      "ComputeGraphsList": {
-        "type": "object",
-        "required": [
-          "compute_graphs"
-        ],
-        "properties": {
-          "compute_graphs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ComputeGraph"
-            }
-          },
-          "cursor": {
-            "type": "string",
-            "format": "binary",
-            "nullable": true
-          }
-        }
-      },
-      "CreateNamespace": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "DataObject": {
-        "type": "object",
-        "required": [
-          "id",
-          "payload_size",
-          "payload_sha_256",
-          "created_at"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "payload_sha_256": {
-            "type": "string"
-          },
-          "payload_size": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "created_at": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "DynamicRouter": {
-        "type": "object",
-        "required": [
-          "name",
-          "source_fn",
-          "description",
-          "target_fns",
-          "payload_encoder",
-          "image_name"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "image_name": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "payload_encoder": {
-            "type": "string"
-          },
-          "source_fn": {
-            "type": "string"
-          },
-          "target_fns": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ExecutorMetadata": {
-        "type": "object",
-        "required": [
-          "id",
-          "addr",
-          "image_name",
-          "labels"
-        ],
-        "properties": {
-          "addr": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "image_name": {
-            "type": "string"
-          },
-          "labels": {
-            "type": "object",
-            "additionalProperties": {
-
-            }
-          }
-        }
-      },
-      "GraphInvocations": {
-        "type": "object",
-        "required": [
-          "invocations"
-        ],
-        "properties": {
-          "cursor": {
-            "type": "string",
-            "format": "binary",
-            "nullable": true
-          },
-          "invocations": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataObject"
-            }
-          }
-        }
-      },
-      "GraphVersion": {
-        "type": "integer",
-        "format": "int32",
-        "minimum": 0
-      },
-      "IndexifyAPIError": {
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          }
-        }
-      },
-      "InvocationResult": {
-        "type": "object",
-        "required": [
-          "outputs"
-        ],
-        "properties": {
-          "cursor": {
-            "type": "string",
-            "nullable": true
-          },
-          "outputs": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/DataObject"
-              }
-            }
-          }
-        }
-      },
-      "Namespace": {
-        "type": "object",
-        "required": [
-          "name",
-          "created_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "NamespaceList": {
-        "type": "object",
-        "required": [
-          "namespaces"
-        ],
-        "properties": {
-          "namespaces": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Namespace"
-            }
-          }
-        }
-      },
-      "Node": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "dynamic_router"
-            ],
-            "properties": {
-              "dynamic_router": {
-                "$ref": "#/components/schemas/DynamicRouter"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "compute_fn"
-            ],
-            "properties": {
-              "compute_fn": {
-                "$ref": "#/components/schemas/ComputeFn"
-              }
-            }
-          }
-        ]
-      },
-      "RuntimeInformation": {
-        "type": "object",
-        "required": [
-          "major_version",
-          "minor_version"
-        ],
-        "properties": {
-          "major_version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "minor_version": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "Task": {
-        "type": "object",
-        "required": [
-          "id",
-          "namespace",
-          "compute_fn",
-          "compute_graph",
-          "invocation_id",
-          "input_key",
-          "outcome",
-          "graph_version"
-        ],
-        "properties": {
-          "compute_fn": {
-            "type": "string"
-          },
-          "compute_graph": {
-            "type": "string"
-          },
-          "graph_version": {
-            "$ref": "#/components/schemas/GraphVersion"
-          },
-          "id": {
-            "type": "string"
-          },
-          "input_key": {
-            "type": "string"
-          },
-          "invocation_id": {
-            "type": "string"
-          },
-          "namespace": {
-            "type": "string"
-          },
-          "outcome": {
-            "$ref": "#/components/schemas/TaskOutcome"
-          },
-          "reducer_output_id": {
-            "type": "string",
-            "nullable": true
-          }
-        }
-      },
-      "TaskOutcome": {
-        "type": "string",
-        "enum": [
-          "Unknown",
-          "Success",
-          "Failure"
-        ]
-      },
-      "Tasks": {
-        "type": "object",
-        "required": [
-          "tasks"
-        ],
-        "properties": {
-          "cursor": {
-            "type": "string",
-            "format": "binary",
-            "nullable": true
-          },
-          "tasks": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Task"
-            }
-          }
-        }
-      }
-    }
-  },
-  "tags": [
-    {
-      "name": "indexify",
-      "description": "Indexify API"
-    }
-  ]
 }
