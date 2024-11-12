@@ -43,8 +43,8 @@ use crate::requests::{
     ReductionTasks,
     RegisterExecutorRequest,
     RemoveSystemTaskRequest,
-    RerunComputeGraphRequest,
-    RerunInvocationRequest,
+    ReplayComputeGraphRequest,
+    ReplayInvocationRequest,
     UpdateSystemTaskRequest,
 };
 
@@ -147,10 +147,10 @@ pub fn update_system_task(
     Ok(())
 }
 
-pub fn rerun_compute_graph(
+pub fn replay_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: RerunComputeGraphRequest,
+    req: ReplayComputeGraphRequest,
 ) -> Result<()> {
     let key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
     let graph = txn
@@ -188,10 +188,10 @@ pub fn rerun_compute_graph(
     Ok(())
 }
 
-pub fn rerun_invocation(
+pub fn replay_invocation(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: RerunInvocationRequest,
+    req: ReplayInvocationRequest,
 ) -> Result<Vec<StateChange>> {
     let graph_ctx_key =
         GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph_name, &req.invocation_id);
@@ -205,7 +205,7 @@ pub fn rerun_invocation(
     let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     if graph_ctx.graph_version >= req.graph_version {
         tracing::info!(
-            "skipping rerun of invocation: {}, already latest version of invocation context",
+            "skipping replay of invocation: {}, already latest version of invocation context",
             req.invocation_id
         );
         return Ok(Vec::new());
@@ -225,7 +225,7 @@ pub fn rerun_invocation(
         let value: NodeOutput = JsonEncoder::decode(&value)?;
         if value.graph_version >= req.graph_version {
             tracing::info!(
-                "skipping rerun of invocation: {}, already latest version of outputs",
+                "skipping replay of invocation: {}, already latest version of outputs",
                 req.invocation_id
             );
             return Ok(Vec::new());
@@ -243,7 +243,7 @@ pub fn rerun_invocation(
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
     if graph.version > req.graph_version {
-        // Graph was updated after rerun task was created
+        // Graph was updated after replay task was created
         return Ok(Vec::new());
     }
 

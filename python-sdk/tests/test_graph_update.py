@@ -32,7 +32,7 @@ class TestGraphUpdate(unittest.TestCase):
 
         g = Graph(name="updategraph1", start_node=update2)
         g = RemoteGraph.deploy(g)
-        g.rerun()
+        g.replay_invocations()
         time.sleep(1)
         output = g.output(invocation_id, fn_name="update2")
         self.assertEqual(output[0], Object(x="ac"))

@@ -178,15 +178,15 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            requests::RequestPayload::RerunComputeGraph(rerun_compute_graph_request) => {
+            requests::RequestPayload::ReplayComputeGraph(replay_compute_graph_request) => {
                 tracing::info!(
-                    "rerun compute graph: {:?}",
-                    rerun_compute_graph_request.compute_graph_name
+                    "replay compute graph: {:?}",
+                    replay_compute_graph_request.compute_graph_name
                 );
-                state_machine::rerun_compute_graph(
+                state_machine::replay_compute_graph(
                     self.db.clone(),
                     &txn,
-                    rerun_compute_graph_request.clone(),
+                    replay_compute_graph_request.clone(),
                 )?;
                 let _ = self.system_tasks_tx.send(());
                 vec![]
@@ -207,11 +207,11 @@ impl IndexifyState {
                 )?;
                 vec![]
             }
-            requests::RequestPayload::RerunInvocation(rerun_invocation_request) => {
-                let mut state_changes = state_machine::rerun_invocation(
+            requests::RequestPayload::ReplayInvocation(replay_invocation_request) => {
+                let mut state_changes = state_machine::replay_invocation(
                     self.db.clone(),
                     &txn,
-                    rerun_invocation_request.clone(),
+                    replay_invocation_request.clone(),
                 )?;
                 for state_change in &mut state_changes {
                     let last_change_id = self

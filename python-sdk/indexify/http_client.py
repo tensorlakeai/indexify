@@ -126,9 +126,7 @@ class IndexifyClient:
             raise ValueError("Both cert and key must be provided for mTLS")
 
         client = get_sync_or_async_client(
-            cert_path=cert_path,
-            key_path=key_path,
-            ca_bundle_path=ca_bundle_path
+            cert_path=cert_path, key_path=key_path, ca_bundle_path=ca_bundle_path
         )
 
         indexify_client = IndexifyClient(service_url, *args, **kwargs)
@@ -253,8 +251,8 @@ class IndexifyClient:
             print(f"failed to fetch logs: {e}")
             return None
 
-    def rerun_graph(self, graph: str):
-        self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/rerun")
+    def replay_invocations(self, graph: str):
+        self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/replay")
 
     def invoke_graph_with_object(
         self, graph: str, block_until_done: bool = False, **kwargs
