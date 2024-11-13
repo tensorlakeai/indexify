@@ -1,16 +1,13 @@
 import io
-from typing import List, Optional
+from typing import Optional
 
-import httpx
 import nanoid
 from rich import print
 
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
-from indexify.executor.api_objects import Task, TaskResult
+from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
-from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -36,7 +33,6 @@ class TaskReporter:
             print(
                 f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
-            output_bytes = MsgPackSerializer.serialize(output)
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )
