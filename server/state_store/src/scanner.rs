@@ -346,6 +346,12 @@ impl StateReader {
         Ok(None)
     }
 
+    pub fn get_system_task(&self, namespace: &str, name: &str) -> Result<Option<SystemTask>> {
+        let key = SystemTask::key_from(namespace, name);
+        let system_task = self.get_from_cf(&IndexifyObjectsColumns::SystemTasks, key)?;
+        Ok(system_task)
+    }
+
     pub fn get_system_tasks(
         &self,
         limit: Option<usize>,

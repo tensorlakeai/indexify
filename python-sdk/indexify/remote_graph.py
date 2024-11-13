@@ -1,6 +1,7 @@
 from typing import Any, List, Optional
 
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
+from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
 
 from .http_client import IndexifyClient
 from .settings import DEFAULT_SERVICE_URL
@@ -54,6 +55,12 @@ class RemoteGraph:
             self._graph_definition.get_input_encoder(),
             **kwargs
         )
+
+    def metadata(self) -> ComputeGraphMetadata:
+        """
+        Get the metadata of the graph.
+        """
+        return self._client.graph(self._name)
 
     def replay_invocations(self):
         """

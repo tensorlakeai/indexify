@@ -184,7 +184,7 @@ impl IndexifyState {
                 state_changes
             }
             requests::RequestPayload::ReplayComputeGraph(replay_compute_graph_request) => {
-                tracing::info!(
+                tracing::trace!(
                     "replay compute graph: {:?}",
                     replay_compute_graph_request.compute_graph_name
                 );
@@ -210,10 +210,16 @@ impl IndexifyState {
                     &txn,
                     remove_system_task_request.clone(),
                 )?;
+
+                // Notify the system task handler that it possibly can start new tasks since
+                // a system task was removed.
+                let _ = self.system_tasks_tx.send(());
+
                 vec![]
             }
-            requests::RequestPayload::ReplayInvocation(replay_invocation_request) => {
-                let mut state_changes = state_machine::replay_invocation(
+            requests::RequestPayload::ReplayInvocations(replay_invocation_request) => {
+                tracing::trace!("replay invocation: {:?}", replay_invocation_request);
+                let mut state_changes = state_machine::replay_invocations(
                     self.db.clone(),
                     &txn,
                     replay_invocation_request.clone(),

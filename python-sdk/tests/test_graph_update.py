@@ -24,22 +24,43 @@ def update2(x: Object) -> Object:
 
 class TestGraphUpdate(unittest.TestCase):
     def test_graph_update(self):
-        g = Graph(
-            name="updategraph1", description="test graph update", start_node=update
-        )
+        g = Graph(name=self.id(), description="test graph update", start_node=update)
         g = RemoteGraph.deploy(g)
         invocation_id = g.run(block_until_done=True, x=Object(x="a"))
         output = g.output(invocation_id, fn_name="update")
         self.assertEqual(output[0], Object(x="ab"))
 
+        # Update the graph and rerun the invocation
         g = Graph(
-            name="updategraph1", description="test graph update (2)", start_node=update2
+            name=self.id(),
+            description="test graph update (2)",
+            start_node=update2,
         )
         g = RemoteGraph.deploy(g)
         g.replay_invocations()
-        time.sleep(1)
+        while g.metadata().replaying:
+            time.sleep(1)
+            print("Replaying...")
         output = g.output(invocation_id, fn_name="update2")
         self.assertEqual(output[0], Object(x="ac"))
+
+        # Create more invocations to trigger server queueing.
+        for i in range(10):
+            invocation_id = g.run(block_until_done=True, x=Object(x=f"{i}"))
+
+        output = g.output(invocation_id, fn_name="update2")
+        self.assertEqual(output[0], Object(x="9c"))
+
+        # Update the graph and rerun the invocation
+        g = Graph(name=self.id(), description="test graph update", start_node=update)
+        g = RemoteGraph.deploy(g)
+
+        g.replay_invocations()
+        while g.metadata().replaying:
+            time.sleep(2)
+            print("Replaying...")
+        output = g.output(invocation_id, fn_name="update")
+        self.assertEqual(output[0], Object(x="9b"))
 
 
 if __name__ == "__main__":

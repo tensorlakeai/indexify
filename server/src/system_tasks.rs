@@ -1,113 +1,147 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use state_store::IndexifyState;
+use tokio::{self, sync::watch::Receiver};
+use tracing::{error, info, info_span};
 
 pub struct SystemTasksExecutor {
     state: Arc<IndexifyState>,
     rx: tokio::sync::watch::Receiver<()>,
-    shutdown_rx: tokio::sync::watch::Receiver<()>,
-    should_shutdown: AtomicBool,
+    shutdown_rx: Receiver<()>,
 }
 
 const MAX_PENDING_TASKS: usize = 10;
 
 impl SystemTasksExecutor {
-    pub fn new(state: Arc<IndexifyState>, shutdown_rx: tokio::sync::watch::Receiver<()>) -> Self {
+    pub fn new(state: Arc<IndexifyState>, shutdown_rx: Receiver<()>) -> Self {
         let rx = state.get_system_tasks_watcher();
         Self {
             state,
             rx,
             shutdown_rx,
-            should_shutdown: AtomicBool::new(false),
         }
     }
 
     pub async fn start(&mut self) -> Result<()> {
         loop {
-            if self
-                .should_shutdown
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                return Ok(());
+            // executing a first run on startup
+            if let Err(err) = self.run().await {
+                error!("error processing system tasks work: {:?}", err);
             }
-
-            self.run().await?;
+            tokio::select! {
+                _ = self.rx.changed() => {
+                       self.rx.borrow_and_update();
+                },
+                _ = self.shutdown_rx.changed() => {
+                    info!("system tasks executor shutting down");
+                    break;
+                }
+            }
         }
+        Ok(())
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let pending_tasks = self.state.reader().get_pending_system_tasks()?;
+        // TODO: support concurrent running system tasks
         let (tasks, _) = self.state.reader().get_system_tasks(Some(1))?;
-        if tasks.is_empty() || pending_tasks >= MAX_PENDING_TASKS {
-            tokio::select! {
-                _ = self.rx.changed() => {
-                    println!("GC signal received.");
-                    self.rx.borrow_and_update();
-                }
-                _ = self.shutdown_rx.changed() => {
-                    self.should_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-                    println!("shutdown signal received.");
-                    return Ok(());
-                }
+
+        if let Some(task) = tasks.first() {
+            let task_span = info_span!("system_task", task = task.key(), "type" = "replay");
+            let _span_guard = task_span.enter();
+
+            // Check if first current system task can be completed.
+            if task.waiting_for_running_invocations {
+                self.handle_completion(&task.namespace, &task.compute_graph_name)
+                    .await?;
+                return Ok(());
+            }
+
+            let pending_tasks = self.state.reader().get_pending_system_tasks()?;
+            if pending_tasks >= MAX_PENDING_TASKS {
+                info!(pending_tasks = pending_tasks, "max pending tasks reached");
+                return Ok(());
+            }
+
+            let all_queued = self.queue_invocations(task, pending_tasks).await?;
+            // handle completion right away if all invocations are completed
+            if all_queued {
+                self.handle_completion(&task.namespace, &task.compute_graph_name)
+                    .await?
             }
         } else {
-            let task = tasks.first().unwrap();
-            tracing::info!("Executing task {:?}", task);
-            let (invocations, restart_key) = self.state.reader().list_invocations(
-                &task.namespace,
-                &task.compute_graph_name,
-                task.restart_key.as_deref(),
-                Some(MAX_PENDING_TASKS - pending_tasks),
-            )?;
-            for invocation in invocations {
-                tracing::info!("Executing invocation {:?}", invocation);
+            info!("no system tasks to process");
+        }
+
+        Ok(())
+    }
+
+    async fn queue_invocations(
+        &mut self,
+        task: &data_model::SystemTask,
+        pending_tasks: usize,
+    ) -> Result<bool> {
+        let (invocations, restart_key) = self.state.reader().list_invocations(
+            &task.namespace,
+            &task.compute_graph_name,
+            task.restart_key.as_deref(),
+            Some(MAX_PENDING_TASKS - pending_tasks),
+        )?;
+
+        info!(queuing = invocations.len(), "queueing invocations");
+
+        self.state
+            .write(state_store::requests::StateMachineUpdateRequest {
+                payload: state_store::requests::RequestPayload::ReplayInvocations(
+                    state_store::requests::ReplayInvocationsRequest {
+                        namespace: task.namespace.clone(),
+                        compute_graph_name: task.compute_graph_name.clone(),
+                        graph_version: task.graph_version,
+                        invocation_ids: invocations.iter().map(|i| i.id.clone()).collect(),
+                        restart_key: restart_key.clone(),
+                    },
+                ),
+                state_changes_processed: vec![],
+            })
+            .await?;
+
+        Ok(restart_key.is_none())
+    }
+
+    async fn handle_completion(&mut self, namespace: &str, compute_graph_name: &str) -> Result<()> {
+        if let Some(task) = self
+            .state
+            .reader()
+            .get_system_task(namespace, compute_graph_name)?
+        {
+            if task.num_running_invocations == 0 {
+                tracing::info!("completed",);
+                // remove the task if reached the end of invocations column
                 self.state
                     .write(state_store::requests::StateMachineUpdateRequest {
-                        payload: state_store::requests::RequestPayload::ReplayInvocation(
-                            state_store::requests::ReplayInvocationRequest {
+                        payload: state_store::requests::RequestPayload::RemoveSystemTask(
+                            state_store::requests::RemoveSystemTaskRequest {
                                 namespace: task.namespace.clone(),
                                 compute_graph_name: task.compute_graph_name.clone(),
-                                graph_version: task.graph_version,
-                                invocation_id: invocation.id.clone(),
                             },
                         ),
                         state_changes_processed: vec![],
                     })
                     .await?;
-            }
-            match restart_key {
-                Some(restart_key) => {
-                    // Update task with new restart key for subsequent invocations
-                    tracing::info!(
-                        "updating system task for graph {} for restart",
-                        task.compute_graph_name
-                    );
+            } else {
+                tracing::info!(
+                    running_invocations = task.num_running_invocations,
+                    "waiting for all invotations to finish before completing the task",
+                );
+                // Mark task as completing so that it gets removed on last finished invocation.
+                if !task.waiting_for_running_invocations {
                     self.state
                         .write(state_store::requests::StateMachineUpdateRequest {
                             payload: state_store::requests::RequestPayload::UpdateSystemTask(
                                 state_store::requests::UpdateSystemTaskRequest {
                                     namespace: task.namespace.clone(),
                                     compute_graph_name: task.compute_graph_name.clone(),
-                                    restart_key,
-                                },
-                            ),
-                            state_changes_processed: vec![],
-                        })
-                        .await?;
-                }
-                None => {
-                    tracing::info!(
-                        "system task for graph {} completed",
-                        task.compute_graph_name
-                    );
-                    // remove the task if reached the end of invocations column
-                    self.state
-                        .write(state_store::requests::StateMachineUpdateRequest {
-                            payload: state_store::requests::RequestPayload::RemoveSystemTask(
-                                state_store::requests::RemoveSystemTaskRequest {
-                                    namespace: task.namespace.clone(),
-                                    compute_graph_name: task.compute_graph_name.clone(),
+                                    waiting_for_running_invocations: true,
                                 },
                             ),
                             state_changes_processed: vec![],
@@ -115,7 +149,8 @@ impl SystemTasksExecutor {
                         .await?;
                 }
             }
-        }
+        };
+
         Ok(())
     }
 }
@@ -405,9 +440,9 @@ mod tests {
 
         executor.run().await?;
 
-        // task should be deleted since all entries are processed
+        // task should still exist since there are still invocations to process
         let system_tasks = state.reader().get_system_tasks(None).unwrap().0;
-        assert_eq!(system_tasks.len(), 0);
+        assert_eq!(system_tasks.len(), 1);
 
         // Since graph version is different new changes should be generated
         let state_changes = state.reader().get_unprocessed_state_changes()?;
@@ -504,6 +539,15 @@ mod tests {
         // Number of pending system tasks should be decremented after graph completion
         let num_pending_tasks = state.reader().get_pending_system_tasks()?;
         assert_eq!(num_pending_tasks, 0);
+
+        executor.run().await?;
+
+        let system_tasks = state.reader().get_system_tasks(None).unwrap().0;
+        assert_eq!(
+            system_tasks.len(),
+            0,
+            "task should not exist anymore since all invocations are processed"
+        );
 
         Ok(())
     }
@@ -607,7 +651,6 @@ mod tests {
         loop {
             finalize_incomplete_tasks(&state, &graph.namespace).await?;
 
-            scheduler.run_scheduler().await?;
             scheduler.run_scheduler().await?;
             let tasks = state
                 .reader()
