@@ -384,22 +384,13 @@ pub(crate) fn create_or_update_compute_graph(
     )?;
 
     if let Some(existing_compute_graph) = existing_compute_graph {
-        let existing_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
-        if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash ||
-            compute_graph.edges != existing_compute_graph.edges ||
-            compute_graph.nodes != existing_compute_graph.nodes ||
-            compute_graph.start_fn != existing_compute_graph.start_fn
-        {
-            compute_graph.version = existing_compute_graph.version.next();
-        }
+        let mut existing_compute_graph: ComputeGraph =
+            JsonEncoder::decode(&existing_compute_graph)?;
 
-        for (node_name, node) in compute_graph.nodes.iter_mut() {
-            if let Some(existing_node) = existing_compute_graph.nodes.get(node_name) {
-                if node.image_hash() != existing_node.image_hash() {
-                    node.set_image_version(existing_node.clone().image_version_next());
-                }
-            }
-        }
+        // Merge the existing compute graph with the new one containing updated fields
+        // Not allowing changes to internal fields.
+        existing_compute_graph.update(compute_graph.clone());
+        compute_graph = existing_compute_graph;
     };
 
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
