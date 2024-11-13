@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional
 
 import cloudpickle
 import httpx
-import msgpack
 from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
@@ -343,8 +342,7 @@ class IndexifyClient:
             f"namespaces/{namespace}/compute_graphs/{graph}/invocations/{invocation_id}/fn/{fn_name}/output/{output_id}",
         )
         response.raise_for_status()
-        data_dict = msgpack.unpackb(response.content)
-        return IndexifyData.model_validate(data_dict)
+        return IndexifyData.model_validate(response.content)
 
     def graph_outputs(
         self,
