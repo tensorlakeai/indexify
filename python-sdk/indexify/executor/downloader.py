@@ -8,7 +8,6 @@ from rich.panel import Panel
 from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
-from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 from ..common_util import get_httpx_client
 from .api_objects import Task
@@ -108,6 +107,7 @@ class Downloader:
             )
 
         init_value = None
+
         if reducer_url:
             init_value = httpx.get(reducer_url)
             try:
@@ -121,8 +121,8 @@ class Downloader:
                     )
                 )
                 raise
-            init_value = MsgPackSerializer.deserialize(init_value.content)
+            init_value = init_value.content
 
         return DownloadedInputs(
-            input=MsgPackSerializer.deserialize(response.content), init_value=init_value
+            input=response.content, init_value=init_value
         )
