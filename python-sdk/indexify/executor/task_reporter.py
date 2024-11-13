@@ -2,12 +2,14 @@ import io
 from typing import Optional
 
 import nanoid
+from cloudpickle import cloudpickle
 from rich import print
 
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask
+from indexify.functions_sdk.object_serializer import get_serializer
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -33,6 +35,14 @@ class TaskReporter:
             print(
                 f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
+            serializer = get_serializer(output.encoder)
+            serialized_output = serializer.serialize(output)
+
+            # if the serializer is cloudpickle, the serialized_output will
+            # be in bytes
+
+            output_bytes = serialized_output if output.encoder == "cloudpickle" \
+                else serialized_output.encode()
             fn_outputs.append(
                 ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
             )

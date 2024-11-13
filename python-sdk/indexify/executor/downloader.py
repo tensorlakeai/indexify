@@ -101,6 +101,8 @@ class Downloader:
             )
             raise
 
+        response.content.decode("utf-8")
+
         if task.invocation_id == input_id:
             return DownloadedInputs(
                 input=IndexifyData(payload=response.content, id=input_id)
