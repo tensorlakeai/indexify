@@ -15,7 +15,7 @@ use axum::{
     },
     http::{Method, Response},
     middleware::{self, Next},
-    response::{sse::Event, IntoResponse},
+    response::{sse::Event, Html, IntoResponse},
     routing::{delete, get, post},
     Json,
     Router,
@@ -218,8 +218,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .layer(DefaultBodyLimit::disable())
 }
 
-async fn index() -> &'static str {
-    "Indexify Server"
+async fn index() -> impl IntoResponse {
+    Html(include_str!("./index.html"))
 }
 
 #[axum::debug_handler]
