@@ -340,6 +340,45 @@ impl ComputeGraph {
     pub fn key_from(namespace: &str, name: &str) -> String {
         format!("{}|{}", namespace, name)
     }
+
+    /// Update a compute graph by computing fields and ignoring immutable
+    /// fields.
+    ///
+    /// Assumes validated update values.
+    pub fn update(&mut self, update: ComputeGraph) -> &Self {
+        // immutable fields
+        // self.namespace = other.namespace;
+        // self.name = other.name;
+        // self.created_at = other.created_at;
+
+        self.description = update.description;
+        self.runtime_information = update.runtime_information;
+
+        if self.code.sha256_hash != update.code.sha256_hash ||
+            self.edges != update.edges ||
+            self.nodes != update.nodes ||
+            self.start_fn != update.start_fn
+        {
+            // if the code has changed, increment the version.
+            self.version = self.version.next();
+            self.code = update.code;
+            self.edges = update.edges;
+            self.start_fn = update.start_fn;
+        }
+
+        // if the image has changed, increment the version.
+        let mut new_nodes = update.nodes.clone();
+        for (node_name, node) in new_nodes.iter_mut() {
+            if let Some(existing_node) = self.nodes.get(node_name) {
+                if existing_node.image_hash() != node.image_hash() {
+                    node.set_image_version(existing_node.clone().image_version_next());
+                }
+            }
+        }
+        self.nodes = new_nodes;
+
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -888,7 +927,20 @@ pub struct Namespace {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ComputeFn, ExecutorMetadata, ImageInformation, ImageVersion};
+    use std::collections::HashMap;
+
+    use crate::{
+        test_objects::tests::test_compute_fn,
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphCode,
+        ExecutorMetadata,
+        GraphVersion,
+        ImageInformation,
+        ImageVersion,
+        Node,
+        RuntimeInformation,
+    };
 
     #[test]
     fn test_compute_fn_neq_executor_for_image_name() {
@@ -929,5 +981,95 @@ mod tests {
         };
 
         assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+    }
+
+    #[test]
+    fn test_compute_graph_update() {
+        const TEST_NAMESPACE: &str = "namespace1";
+        let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
+        let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
+        let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
+
+        let mut graph = ComputeGraph {
+            namespace: TEST_NAMESPACE.to_string(),
+            name: "graph1".to_string(),
+            description: "description1".to_string(),
+            nodes: HashMap::from([
+                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+            ]),
+            version: crate::GraphVersion(1),
+            edges: HashMap::from([(
+                "fn_a".to_string(),
+                vec!["fn_b".to_string(), "fn_c".to_string()],
+            )]),
+            code: ComputeGraphCode {
+                path: "cgc_path".to_string(),
+                size: 23,
+                sha256_hash: "hash_code".to_string(),
+            },
+            created_at: 5,
+            start_fn: Node::Compute(fn_a.clone()),
+            runtime_information: RuntimeInformation {
+                major_version: 3,
+                minor_version: 10,
+            },
+        };
+
+        let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b2".to_string()));
+        let fn_d = test_compute_fn("fn_d", Some("some_hash_fn_d".to_string()));
+        let update = ComputeGraph {
+            namespace: TEST_NAMESPACE.to_string(),
+            name: "graph1".to_string(),
+            description: "description2".to_string(),
+            nodes: HashMap::from([
+                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                ("fn_d".to_string(), Node::Compute(fn_d.clone())), // added
+            ]),
+            // should get computed and ignored.
+            version: crate::GraphVersion(100),
+            // changed
+            edges: HashMap::from([(
+                "fn_c".to_string(),
+                vec!["fn_b".to_string(), "fn_d".to_string(), "fn_a".to_string()],
+            )]),
+            // changed
+            code: ComputeGraphCode {
+                path: "cgc_path".to_string(),
+                size: 23,
+                sha256_hash: "hash_code2".to_string(),
+            },
+            created_at: 10, // different
+            start_fn: Node::Compute(fn_a),
+            runtime_information: RuntimeInformation {
+                major_version: 3,
+                minor_version: 12, // updated
+            },
+            ..graph.clone()
+        };
+
+        graph.update(update);
+
+        assert_eq!(graph.description, "description2", "update description");
+        assert_eq!(graph.code.sha256_hash, "hash_code2", "update code");
+        assert_eq!(graph.start_fn.name(), "fn_a", "update start_fn");
+        assert_eq!(graph.version, GraphVersion(2), "update version");
+        assert_eq!(
+            graph.runtime_information.minor_version, 12,
+            "update runtime_information"
+        );
+        let fn_b_image_version = graph
+            .nodes
+            .iter()
+            .find(|(k, _)| *k == "fn_b")
+            .unwrap()
+            .1
+            .image_version();
+        assert_eq!(*fn_b_image_version, 2, "update node fn_b image version");
+
+        assert_eq!(graph.created_at, 5, "created_at should not change");
     }
 }

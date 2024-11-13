@@ -47,7 +47,7 @@ pub mod tests {
             .unwrap()
     }
 
-    fn test_compute_fn(name: &str, image_hash: Option<String>) -> ComputeFn {
+    pub fn test_compute_fn(name: &str, image_hash: Option<String>) -> ComputeFn {
         match image_hash {
             Some(image_hash) => {
                 let mut image_information = ImageInformation::default();
