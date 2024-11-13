@@ -1,8 +1,5 @@
 import inspect
-import re
-import sys
 import traceback
-from functools import update_wrapper
 from typing import (
     Any,
     Callable,
@@ -16,9 +13,7 @@ from typing import (
     get_origin,
 )
 
-import msgpack
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
-from typing_extensions import get_type_hints
+from pydantic import BaseModel, Field, PrivateAttr
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE_3_10, Image
