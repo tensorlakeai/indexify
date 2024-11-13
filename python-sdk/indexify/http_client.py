@@ -175,6 +175,20 @@ class IndexifyClient:
         for fn_name, fn in graph.nodes.items():
             self._fns[f"{graph.name}/{fn_name}"] = fn
 
+    def delete_compute_graph(
+        self,
+        graph_name: str,
+    ) -> None:
+        """
+        Deletes a graph and all of its invocations from the namespace.
+        :param graph_name The name of the graph to delete.
+        WARNING: This operation is irreversible.
+        """
+        response = self._delete(
+            f"namespaces/{self.namespace}/compute_graphs/{graph_name}",
+        )
+        response.raise_for_status()
+
     def graphs(self) -> List[str]:
         response = self._get(f"graphs")
         return response.json()["graphs"]

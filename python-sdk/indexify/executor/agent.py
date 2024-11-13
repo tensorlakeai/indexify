@@ -3,8 +3,8 @@ import json
 import traceback
 from concurrent.futures.process import BrokenProcessPool
 from importlib.metadata import version
-from typing import Dict, List, Optional
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
@@ -13,13 +13,13 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
+from indexify.common_util import get_httpx_client
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
 )
 from indexify.functions_sdk.graph_definition import ComputeGraphMetadata
 from indexify.http_client import IndexifyClient
-from indexify.common_util import get_httpx_client
 
 from ..functions_sdk.image import ImageInformation
 from . import image_dependency_installer
@@ -82,9 +82,7 @@ class ExtractorAgent:
 
         self.num_workers = num_workers
         if config_path:
-            console.print(
-                "Running the extractor with TLS enabled", style="cyan bold"
-            )
+            console.print("Running the extractor with TLS enabled", style="cyan bold")
             self._protocol = "https"
         else:
             self._protocol = "http"
@@ -107,7 +105,7 @@ class ExtractorAgent:
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
             executor_id=self._executor_id,
-            config_path=self._config_path
+            config_path=self._config_path,
         )
 
     async def task_completion_reporter(self):
@@ -349,7 +347,7 @@ class ExtractorAgent:
         self._should_run = True
         while self._should_run:
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
-            print(f'calling url: {url}')
+            print(f"calling url: {url}")
 
             def to_sentence_case(snake_str):
                 words = snake_str.split("_")
@@ -442,8 +440,9 @@ async def _get_image_info_for_compute_graph(
     compute_fn_name: str = task.compute_fn
 
     http_client = IndexifyClient(
-        service_url=f"{protocol}://{server_addr}", namespace=namespace,
-        config_path=config_path
+        service_url=f"{protocol}://{server_addr}",
+        namespace=namespace,
+        config_path=config_path,
     )
     compute_graph: ComputeGraphMetadata = http_client.graph(graph_name)
 

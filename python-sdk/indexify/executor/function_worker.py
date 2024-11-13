@@ -15,10 +15,10 @@ from indexify.functions_sdk.data_objects import (
 from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
     GraphInvocationContext,
-    IndexifyFunctionWrapper,
-    RouterCallResult,
-    IndexifyRouter,
     IndexifyFunction,
+    IndexifyFunctionWrapper,
+    IndexifyRouter,
+    RouterCallResult,
 )
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}

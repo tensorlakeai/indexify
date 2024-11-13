@@ -23,7 +23,9 @@ FORCE_MULTIPART = ForceMultipartDict()
 
 
 class TaskReporter:
-    def __init__(self, base_url: str, executor_id: str, config_path: Optional[str] = None):
+    def __init__(
+        self, base_url: str, executor_id: str, config_path: Optional[str] = None
+    ):
         self._base_url = base_url
         self._executor_id = executor_id
         self._client = get_httpx_client(config_path)

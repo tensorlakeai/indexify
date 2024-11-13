@@ -2,9 +2,8 @@ import sys
 import unittest
 from pathlib import Path
 from typing import List, Union
+
 from parameterized import parameterized
-
-
 from pydantic import BaseModel
 
 from indexify import (
@@ -31,7 +30,7 @@ def simple_function(x: MyObject) -> MyObject:
 
 @indexify_function()
 def simple_function_multiple_inputs(x: MyObject, y: int) -> MyObject:
-    suf = ''.join(["b" for _ in range(y)])
+    suf = "".join(["b" for _ in range(y)])
     return MyObject(x=x.x + suf)
 
 
@@ -42,7 +41,7 @@ def simple_function_with_json_encoder(x: MyObject) -> MyObject:
 
 @indexify_function(encoder="json")
 def simple_function_multiple_inputs_json(x: MyObject, y: int) -> MyObject:
-    suf = ''.join(["b" for _ in range(y)])
+    suf = "".join(["b" for _ in range(y)])
     return MyObject(x=x.x + suf)
 
 
@@ -224,7 +223,9 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs(self, is_remote):
         graph = Graph(
-            name="test_simple_function2", description="test", start_node=simple_function_multiple_inputs
+            name="test_simple_function2",
+            description="test",
+            start_node=simple_function_multiple_inputs,
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"), y=10)
@@ -234,7 +235,9 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs_json(self, is_remote=False):
         graph = Graph(
-            name="test_simple_function2_json", description="test", start_node=simple_function_multiple_inputs_json
+            name="test_simple_function2_json",
+            description="test",
+            start_node=simple_function_multiple_inputs_json,
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"), y=10)

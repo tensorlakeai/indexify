@@ -30,6 +30,14 @@ Consider providing screenshots, logs, code or other visual aids to help the revi
 - [ ] If the python-sdk was changed, please run `make fmt` in `python-sdk/`.
 - [ ] If the server was changed, please run `make fmt` in `server/`.
 - [ ] Make sure all PR Checks are passing.
-<!-- You can run the tests manually:
-In `python-sdk/`, run the run `pip install -e .`, start the server and executor, `python test_graph_behaviours.py`.
+<!--
+You can run the tests manually:
 
+Notes:
+
+- Tests can be run manually: in `python-sdk/`, run the run `pip install -e .`,
+  start the server and executor, and run `python test_graph_behaviours.py`.
+- To test if changes to the server are backward compatible with the latest
+  release, label the PR with `ci_compat_test`. This might report failures
+  unrelated to your change if previous incompatible changes were pushed without
+  being released yet -->
