@@ -11,6 +11,7 @@ from indexify.functions_sdk.data_objects import IndexifyData
 
 from ..common_util import get_httpx_client
 from .api_objects import Task
+from ..functions_sdk.object_serializer import CloudPickleSerializer
 
 custom_theme = Theme(
     {
@@ -69,7 +70,7 @@ class Downloader:
             f.write(response.content)
         return path
 
-    async def download_input(self, task: Task) -> IndexifyData:
+    async def download_input(self, task: Task) -> DownloadedInputs:
         input_id = task.input_key.split("|")[-1]
         if task.invocation_id == input_id:
             url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/payload"
@@ -101,13 +102,12 @@ class Downloader:
             )
             raise
 
-        response.content.decode("utf-8")
-
         if task.invocation_id == input_id:
             return DownloadedInputs(
                 input=IndexifyData(payload=response.content, id=input_id)
             )
 
+        deserialized_content = CloudPickleSerializer.deserialize(response.content)
         init_value = None
 
         if reducer_url:
@@ -123,8 +123,9 @@ class Downloader:
                     )
                 )
                 raise
-            init_value = init_value.content
+            init_value = CloudPickleSerializer.deserialize(init_value.content)
 
         return DownloadedInputs(
-            input=response.content, init_value=init_value
+            input=deserialized_content,
+            init_value=init_value
         )
