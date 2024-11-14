@@ -269,10 +269,7 @@ class IndexifyClient:
         self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/replay")
 
     def invoke_graph_with_object(
-        self,
-        graph: str,
-        block_until_done: bool = False,
-        **kwargs
+        self, graph: str, block_until_done: bool = False, **kwargs
     ) -> str:
         ser_input = CloudPickleSerializer.serialize(kwargs)
         params = {"block_until_finish": block_until_done}

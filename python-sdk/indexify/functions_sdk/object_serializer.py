@@ -3,6 +3,7 @@ from typing import Any, List
 import cloudpickle
 import jsonpickle
 
+
 def get_serializer(serializer_type: str) -> Any:
     if serializer_type == "cloudpickle":
         return CloudPickleSerializer()

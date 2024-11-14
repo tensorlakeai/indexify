@@ -10,8 +10,8 @@ from rich.theme import Theme
 from indexify.functions_sdk.data_objects import IndexifyData
 
 from ..common_util import get_httpx_client
-from .api_objects import Task
 from ..functions_sdk.object_serializer import CloudPickleSerializer
+from .api_objects import Task
 
 custom_theme = Theme(
     {
@@ -125,7 +125,4 @@ class Downloader:
                 raise
             init_value = CloudPickleSerializer.deserialize(init_value.content)
 
-        return DownloadedInputs(
-            input=deserialized_content,
-            init_value=init_value
-        )
+        return DownloadedInputs(input=deserialized_content, init_value=init_value)
