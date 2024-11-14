@@ -83,7 +83,7 @@ axum ={workspace=true}
 tokio = {workspace=true}
 axum-server={workspace=true}
 futures = "0.3.30"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json" ] }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 sha2={workspace=true}
