@@ -202,17 +202,16 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &Request| {
-                    let method = req.method();
-                    let uri = req.uri();
+                    let method = req.method().as_str();
+                    let uri = req.uri().to_string();
 
                     let matched_path = req
                         .extensions()
                         .get::<MatchedPath>()
-                        .map(|matched_path| matched_path.as_str());
+                        .map(MatchedPath::as_str);
 
-                    tracing::debug_span!("request", %method, %uri, matched_path)
+                    tracing::info_span!("request", method, uri, matched_path)
                 })
-                .on_failure(()),
         )
         .layer(cors)
         .layer(DefaultBodyLimit::disable())
