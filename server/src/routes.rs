@@ -158,7 +158,9 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .allow_origin(Any)
         .allow_headers(Any);
 
-    let axum_metrics = HttpMetricsLayerBuilder::new().build();
+    let axum_metrics = HttpMetricsLayerBuilder::new()
+        .with_path("/metrics/http".to_string())
+        .build();
     Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
         .merge(axum_metrics.routes())

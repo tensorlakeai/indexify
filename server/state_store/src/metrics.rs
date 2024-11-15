@@ -64,7 +64,7 @@ impl StateStoreMetrics {
         }
     }
 
-    pub fn update_task_completion(&mut self, outcome: TaskOutcome, task: Task, executor_id: &str) {
+    pub fn update_task_completion(&self, outcome: TaskOutcome, task: Task, executor_id: &str) {
         self.tasks_by_executor
             .write()
             .unwrap()
@@ -85,7 +85,9 @@ impl StateStoreMetrics {
         }
         let id = FnMetricsId::from_task(&task);
         let mut count = self.assigned_tasks.write().unwrap();
-        *count.entry(id).or_insert(0) -= 1;
+        if *count.entry(id.clone()).or_insert(0) > 0 {
+            *count.entry(id).or_insert(0) -= 1;
+        }
     }
 
     pub fn task_unassigned(&self, tasks: Vec<Task>) {
@@ -108,7 +110,9 @@ impl StateStoreMetrics {
             let mut count_assigned = self.assigned_tasks.write().unwrap();
             *count_assigned.entry(id.clone()).or_insert(0) += 1;
             let mut count_unassigned = self.unassigned_tasks.write().unwrap();
-            *count_unassigned.entry(id).or_insert(0) -= 1;
+            if *count_unassigned.entry(id.clone()).or_insert(0) > 0 {
+                *count_unassigned.entry(id).or_insert(0) -= 1;
+            }
         }
     }
 
@@ -120,6 +124,8 @@ impl StateStoreMetrics {
     pub fn remove_executor(&self, executor_id: &str) {
         let mut executors_online = self.executors_online.write().unwrap();
         self.tasks_by_executor.write().unwrap().remove(executor_id);
-        *executors_online -= 1;
+        if *executors_online > 0 {
+            *executors_online -= 1;
+        }
     }
 }

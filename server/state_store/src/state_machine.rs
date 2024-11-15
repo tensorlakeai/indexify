@@ -666,6 +666,7 @@ pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: FinalizeTaskRequest,
+    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<bool> {
     let task_key = format!(
         "{}|{}|{}|{}|{}",
@@ -746,6 +747,7 @@ pub fn mark_task_completed(
         task.key(),
         task_bytes,
     )?;
+    sm_metrics.update_task_completion(req.task_outcome, task.clone(), req.executor_id.get());
     Ok(true)
 }
 

@@ -231,6 +231,7 @@ impl IndexifyState {
                     self.db.clone(),
                     &txn,
                     finalize_task.clone(),
+                    self.metrics.clone(),
                 )? {
                     self.finalize_task(&finalize_task).await?
                 } else {
