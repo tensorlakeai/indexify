@@ -35,9 +35,7 @@ class TaskReporter:
                 f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
             serialized_output = get_serializer(output.encoder).serialize(output)
-            fn_outputs.append(
-                ("node_outputs", (nanoid.generate(), serialized_output))
-            )
+            fn_outputs.append(("node_outputs", (nanoid.generate(), serialized_output)))
 
         if completed_task.stdout:
             print(
