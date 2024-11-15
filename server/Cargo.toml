@@ -28,6 +28,7 @@ rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "87b6b2d
 data_model = { path = "data_model" }
 indexify_utils = { path = "utils" }
 indexify_ui = {path = "indexify_ui"}
+metrics = {path = "metrics"}
 hyper = "1.5.0"
 state_store = { path = "state_store" }
 strum = { version = "0.26.3", features = ["derive"] }
@@ -108,6 +109,7 @@ opentelemetry-prometheus = {workspace=true}
 opentelemetry_sdk = { workspace=true }
 prometheus = {workspace=true}
 axum-otel-metrics = { workspace=true }
+metrics = {workspace=true}
 
 [dev-dependencies]
 tempfile = { workspace = true }

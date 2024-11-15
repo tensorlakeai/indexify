@@ -1294,6 +1294,7 @@ dependencies = [
  "hyper",
  "indexify_ui",
  "indexify_utils",
+ "metrics",
  "nanoid",
  "object_store",
  "opentelemetry 0.24.0",

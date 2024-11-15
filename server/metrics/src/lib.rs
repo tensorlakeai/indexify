@@ -201,7 +201,6 @@ pub mod scheduler_stats {
         metrics::{Histogram, ObservableCounter, ObservableGauge},
         KeyValue,
     };
-
     use state_store::IndexifyState;
 
     #[derive(Debug)]
@@ -217,25 +216,19 @@ pub mod scheduler_stats {
 
     impl Metrics {
         pub fn new(indexify_state: Arc<IndexifyState>) -> Metrics {
-            let meter = opentelemetry::global::meter("indexify-coordinator");
+            let meter = opentelemetry::global::meter("state_machine_stats");
 
             let prev_value = Arc::new(Mutex::new(0));
             let tasks_completed = meter
-                .u64_observable_counter("indexify.coordinator.tasks_completed")
+                .u64_observable_counter("tasks_completed")
                 .with_callback({
                     let app = indexify_state.clone();
                     let prev_value = prev_value.clone();
                     move |observer| {
                         let mut prev_value = prev_value.lock().unwrap();
-                        let value = app
-                            .data
-                            .indexify_state
-                            .metrics
-                            .lock()
-                            .unwrap()
-                            .tasks_completed;
-                        observer.observe(value - *prev_value, &[]);
-                        *prev_value = value;
+                        let value = app.metrics.tasks_completed.read().unwrap();
+                        observer.observe(*value - *prev_value, &[]);
+                        *prev_value = *value;
                     }
                 })
                 .with_description("Number of tasks completed")
@@ -243,19 +236,13 @@ pub mod scheduler_stats {
 
             let prev_value = Arc::new(Mutex::new(0));
             let tasks_errored = meter
-                .u64_observable_counter("indexify.coordinator.tasks_errored")
+                .u64_observable_counter("tasks_errored")
                 .with_callback({
                     let app = indexify_state.clone();
                     let prev_value = prev_value.clone();
                     move |observer| {
                         let mut prev_value = prev_value.lock().unwrap();
-                        let value = app
-                            .data
-                            .indexify_state
-                            .metrics
-                            .lock()
-                            .unwrap()
-                            .tasks_completed_with_errors;
+                        let value = *app.metrics.tasks_completed_with_errors.read().unwrap();
                         observer.observe(value - *prev_value, &[]);
                         *prev_value = value;
                     }
@@ -264,49 +251,49 @@ pub mod scheduler_stats {
                 .init();
 
             let tasks_in_progress = meter
-                .u64_observable_gauge("indexify.coordinator.tasks_in_progress")
+                .u64_observable_gauge("tasks_in_progress")
                 .with_callback({
                     let app = indexify_state.clone();
                     move |observer| {
-                        app.data
-                            .indexify_state
-                            .unfinished_tasks_by_extractor
-                            .observe_task_counts(observer);
+                        app.metrics
+                            .assigned_tasks
+                            .read()
+                            .unwrap()
+                            .iter()
+                            .for_each(|(k, v)| {
+                                let k = k.to_string();
+                                observer.observe(*v as u64, &[KeyValue::new("task_type", k)]);
+                            });
                     }
                 })
                 .with_description("Number of tasks in progress")
                 .init();
             let executors_online = meter
-                .u64_observable_gauge("indexify.coordinator.executors_online")
+                .u64_observable_gauge("executors_online")
                 .with_callback({
                     let app = indexify_state.clone();
                     move |observer| {
-                        let value = app.data.indexify_state.executor_count();
-                        observer.observe(value as u64, &[]);
+                        let value = app.metrics.executors_online.read().unwrap();
+                        observer.observe(*value as u64, &[]);
                     }
                 })
                 .with_description("Number of executors online")
                 .init();
 
             let scheduler_invocations = meter
-                .f64_histogram("indexify.coordinator.scheduler_invocations")
+                .f64_histogram("scheduler_invocations")
                 .with_description("Scheduler invocation latencies in seconds")
                 .init();
 
             let tasks_per_executor = meter
-                .u64_observable_gauge("indexify.coordinator.tasks_per_executor")
+                .u64_observable_gauge("tasks_per_executor")
                 .with_callback({
                     let app = indexify_state.clone();
                     move |observer| {
-                        let counts = app
-                            .data
-                            .indexify_state
-                            .unfinished_tasks_by_executor
-                            .read()
-                            .unwrap();
+                        let counts = app.metrics.tasks_by_executor.read().unwrap();
                         for (executor_id, tasks) in counts.iter() {
                             observer.observe(
-                                tasks.tasks.len() as u64,
+                                tasks.clone(),
                                 &[KeyValue::new("executor_id", executor_id.to_string())],
                             );
                         }
@@ -314,9 +301,9 @@ pub mod scheduler_stats {
                 })
                 .with_description("Number of tasks per executor")
                 .init();
-            
+
             let state_machine_apply = meter
-                .f64_histogram("indexify.state_machine_apply")
+                .f64_histogram("state_machine_apply")
                 .with_description("State machine apply changes latencies in seconds")
                 .init();
             Metrics {
@@ -361,10 +348,7 @@ pub mod kv_storage {
                 .with_description("k/v store add latencies in seconds")
                 .init();
 
-            Metrics {
-                reads,
-                writes,
-            }
+            Metrics { reads, writes }
         }
     }
 }

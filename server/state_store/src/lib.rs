@@ -38,12 +38,12 @@ use tokio::sync::{
 
 pub mod invocation_events;
 pub mod kv;
+pub mod metrics;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;
 pub mod state_machine;
 pub mod test_state_store;
-pub mod metrics;
 
 #[derive(Debug)]
 pub struct ExecutorState {
@@ -106,7 +106,7 @@ pub struct IndexifyState {
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub system_tasks_tx: tokio::sync::watch::Sender<()>,
     pub system_tasks_rx: tokio::sync::watch::Receiver<()>,
-    pub metrics: Arc<StateStoreMetrics>
+    pub metrics: Arc<StateStoreMetrics>,
 }
 
 impl IndexifyState {
@@ -270,7 +270,12 @@ impl IndexifyState {
             requests::RequestPayload::SchedulerUpdate(request) => {
                 let new_state_changes = self.change_events_for_scheduler_update(&request);
                 for req in &request.task_requests {
-                    match state_machine::create_tasks(self.db.clone(), &txn, req)? {
+                    match state_machine::create_tasks(
+                        self.db.clone(),
+                        &txn,
+                        req,
+                        self.metrics.clone().clone(),
+                    )? {
                         Some(completion) => {
                             if let Err(err) = self.task_event_tx.send(
                                 InvocationStateChangeEvent::InvocationFinished(
@@ -304,6 +309,7 @@ impl IndexifyState {
                         &txn,
                         &allocation.task,
                         &allocation.executor,
+                        self.metrics.clone(),
                     )?;
                     allocated_tasks_by_executor.push(allocation.executor.clone());
                 }
@@ -315,7 +321,12 @@ impl IndexifyState {
                     let entry = states.entry(request.executor.id.clone()).or_default();
                     entry.num_registered += 1;
                 }
-                state_machine::register_executor(self.db.clone(), &txn, &request)?;
+                state_machine::register_executor(
+                    self.db.clone(),
+                    &txn,
+                    &request,
+                    self.metrics.clone(),
+                )?;
                 self.register_executor(&request)
             }
             requests::RequestPayload::DeregisterExecutor(request) => {
@@ -336,7 +347,12 @@ impl IndexifyState {
                 };
                 if removed {
                     tracing::info!("de-registering executor: {}", request.executor_id);
-                    state_machine::deregister_executor(self.db.clone(), &txn, &request)?;
+                    state_machine::deregister_executor(
+                        self.db.clone(),
+                        &txn,
+                        &request,
+                        self.metrics.clone(),
+                    )?;
                 }
                 state_changes
             }

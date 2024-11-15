@@ -68,11 +68,14 @@ async fn main() {
         Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
         None => config::ServerConfig::default(),
     };
-
     setup_tracing(!cli.dev);
 
-    let service = Service::new(config);
-    if let Err(err) = service.start().await {
+    let service = Service::new(config).await;
+    if let Err(err) = service {
+        error!("Error creating service: {:?}", err);
+        return;
+    }
+    if let Err(err) = service.unwrap().start().await {
         error!("Error starting service: {:?}", err);
     }
 }
