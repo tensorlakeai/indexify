@@ -69,7 +69,11 @@ impl StateStoreMetrics {
             .write()
             .unwrap()
             .entry(executor_id.to_string())
-            .and_modify(|e| *e -= 1)
+            .and_modify(|e| {
+                if *e > 0 {
+                    *e -= 1
+                }
+            })
             .or_insert(0);
         match outcome {
             TaskOutcome::Success => {

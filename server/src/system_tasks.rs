@@ -140,6 +140,7 @@ mod tests {
         TaskId,
         TaskOutcome,
     };
+    use metrics::scheduler_stats;
     use rand::Rng;
     use state_store::requests::{
         CreateComputeGraphRequest,
@@ -215,7 +216,10 @@ mod tests {
             .await
             .unwrap();
         let shutdown_rx = tokio::sync::watch::channel(()).1;
-        let scheduler = Scheduler::new(state.clone());
+        let scheduler = Scheduler::new(
+            state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+        );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
         let graph = mock_graph_a(None);
@@ -563,7 +567,10 @@ mod tests {
             .await
             .unwrap();
         let shutdown_rx = tokio::sync::watch::channel(()).1;
-        let scheduler = Scheduler::new(state.clone());
+        let scheduler = Scheduler::new(
+            state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+        );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
         let graph = mock_graph_a(None);
