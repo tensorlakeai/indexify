@@ -1,1 +1,1 @@
-DEFAULT_SERVICE_URL = "https://api.tensorlake.ai"
+DEFAULT_SERVICE_URL = "http://localhost:8900"

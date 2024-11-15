@@ -8,7 +8,7 @@ from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask
-from indexify.functions_sdk.object_serializer import CloudPickleSerializer
+from indexify.functions_sdk.object_serializer import get_serializer
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -34,9 +34,9 @@ class TaskReporter:
             print(
                 f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
-            serialized_output = CloudPickleSerializer.serialize(output)
+            serialized_output = get_serializer(output.encoder).serialize(output)
             fn_outputs.append(
-                ("node_outputs", (nanoid.generate(), io.BytesIO(serialized_output)))
+                ("node_outputs", (nanoid.generate(), serialized_output))
             )
 
         if completed_task.stdout:
@@ -46,7 +46,7 @@ class TaskReporter:
             fn_outputs.append(
                 (
                     "stdout",
-                    (nanoid.generate(), io.BytesIO(completed_task.stdout.encode())),
+                    (nanoid.generate(), completed_task.stdout.encode()),
                 )
             )
 
@@ -57,7 +57,7 @@ class TaskReporter:
             fn_outputs.append(
                 (
                     "stderr",
-                    (nanoid.generate(), io.BytesIO(completed_task.stderr.encode())),
+                    (nanoid.generate(), completed_task.stderr.encode()),
                 )
             )
 

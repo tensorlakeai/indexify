@@ -1,4 +1,3 @@
-import sys
 import unittest
 from pathlib import Path
 from typing import List, Union

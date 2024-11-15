@@ -10,7 +10,7 @@ from rich.theme import Theme
 from indexify.functions_sdk.data_objects import IndexifyData
 
 from ..common_util import get_httpx_client
-from ..functions_sdk.object_serializer import CloudPickleSerializer
+from ..functions_sdk.object_serializer import CloudPickleSerializer, JsonSerializer
 from .api_objects import Task
 
 custom_theme = Theme(
@@ -90,6 +90,7 @@ class Downloader:
         )
 
         response = self._client.get(url)
+
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -102,12 +103,19 @@ class Downloader:
             )
             raise
 
+        if response.headers['content-type'] == JsonSerializer.content_type:
+            serializer = JsonSerializer()
+            encoder = "json"
+        else:
+            serializer = CloudPickleSerializer()
+            encoder = "cloudpickle"
+
         if task.invocation_id == input_id:
             return DownloadedInputs(
-                input=IndexifyData(payload=response.content, id=input_id)
+                input=IndexifyData(payload=response.content, id=input_id, encoder=encoder),
             )
 
-        deserialized_content = CloudPickleSerializer.deserialize(response.content)
+        deserialized_content = serializer.deserialize(response.content)
         init_value = None
 
         if reducer_url:
@@ -123,6 +131,6 @@ class Downloader:
                     )
                 )
                 raise
-            init_value = CloudPickleSerializer.deserialize(init_value.content)
+            init_value = serializer.deserialize(init_value.content)
 
         return DownloadedInputs(input=deserialized_content, init_value=init_value)

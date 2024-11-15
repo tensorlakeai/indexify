@@ -9,10 +9,16 @@ def get_serializer(serializer_type: str) -> Any:
         return CloudPickleSerializer()
     elif serializer_type == "json":
         return JsonSerializer()
+    elif serializer_type == JsonSerializer.content_type:
+        return JsonSerializer()
+    elif serializer_type ==  CloudPickleSerializer.content_type:
+        return CloudPickleSerializer()
     raise ValueError(f"Unknown serializer type: {serializer_type}")
 
 
 class JsonSerializer:
+    content_type = "application/json"
+
     @staticmethod
     def serialize(data: Any) -> str:
         return jsonpickle.encode(data)
@@ -31,6 +37,8 @@ class JsonSerializer:
 
 
 class CloudPickleSerializer:
+    content_type =  "application/cbor"
+
     @staticmethod
     def serialize(data: Any) -> bytes:
         return cloudpickle.dumps(data)
