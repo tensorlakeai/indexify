@@ -1,5 +1,4 @@
 use std::{collections::HashMap, fmt};
-
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},

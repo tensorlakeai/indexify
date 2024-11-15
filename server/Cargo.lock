@@ -1274,6 +1274,7 @@ dependencies = [
  "hyper",
  "indexify_ui",
  "indexify_utils",
+ "log",
  "nanoid",
  "object_store",
  "rand",

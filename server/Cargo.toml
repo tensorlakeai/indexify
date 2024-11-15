@@ -99,6 +99,7 @@ hex = "0.4.3"
 indexify_ui = {workspace=true}
 hyper = {workspace=true}
 url = {workspace=true}
+log = "0.4.22"
 
 [dev-dependencies]
 tempfile = { workspace = true }
