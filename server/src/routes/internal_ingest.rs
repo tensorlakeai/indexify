@@ -157,6 +157,15 @@ pub async fn ingest_files_from_executor(
         }
     }
 
+    state
+        .metrics
+        .fn_outputs
+        .add(output_objects.len() as u64, &[]);
+    state.metrics.fn_output_bytes.add(
+        output_objects.iter().map(|e| e.size_bytes).sum::<u64>(),
+        &[],
+    );
+
     // Save metadata in rocksdb for the objects in the blob store.
     let task_result =
         task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;

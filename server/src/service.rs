@@ -60,6 +60,7 @@ impl Service {
             blob_storage: blob_storage.clone(),
             executor_manager,
             registry: self.metrics_registry.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
         };
         let app = create_routes(route_state);
         let handle = Handle::new();

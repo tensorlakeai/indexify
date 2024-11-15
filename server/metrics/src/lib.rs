@@ -126,21 +126,21 @@ pub mod api_io_stats {
 
     impl Metrics {
         pub fn new() -> Metrics {
-            let meter = opentelemetry::global::meter("indexify-server");
+            let meter = opentelemetry::global::meter("service-api");
             let invocations = meter
-                .u64_counter("indexify.server.invocations")
+                .u64_counter("invocations")
                 .with_description("number of invocations")
                 .init();
             let invocation_bytes = meter
-                .u64_counter("indexify.server.invocation_bytes")
+                .u64_counter("invocation_bytes")
                 .with_description("number of bytes ingested during invocations")
                 .init();
             let fn_outputs = meter
-                .u64_counter("indexify.server.fn_outputs")
+                .u64_counter("fn_outputs")
                 .with_description("number of fn outputs")
                 .init();
             let fn_output_bytes = meter
-                .u64_counter("indexify.server.fn_output_bytes")
+                .u64_counter("fn_output_bytes")
                 .with_description("number of bytes ingested for fn outputs")
                 .init();
             Metrics {

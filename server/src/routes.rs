@@ -27,6 +27,7 @@ use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
+use metrics::api_io_stats;
 use nanoid::nanoid;
 use prometheus::Encoder;
 use state_store::{
@@ -150,6 +151,7 @@ pub struct RouteState {
     pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
     pub registry: Arc<prometheus::Registry>,
+    pub metrics: Arc<api_io_stats::Metrics>,
 }
 
 pub fn create_routes(route_state: RouteState) -> Router {
