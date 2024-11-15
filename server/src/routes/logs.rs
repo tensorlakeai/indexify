@@ -59,7 +59,7 @@ pub async fn download_task_logs(
         .blob_storage
         .get(&payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", payload.size.to_string())

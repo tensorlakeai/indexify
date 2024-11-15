@@ -435,7 +435,7 @@ async fn create_compute_graph(
                     .blob_storage
                     .put(&file_name, stream)
                     .await
-                    .map_err(|e| IndexifyAPIError::internal_error(e))?;
+                    .map_err(IndexifyAPIError::internal_error)?;
                 put_result = Some(result);
             } else if name == "compute_graph" {
                 let text = field
@@ -882,7 +882,7 @@ async fn get_ctx_state_key(
         .get_ctx_state_key(&namespace, &compute_graph, &invocation_id, &request.key)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    let value = value.map(|v| serde_json::from_slice(&v.to_vec()).unwrap());
+    let value = value.map(|v| serde_json::from_slice(&v).unwrap());
     Ok(Json(CtxStateGetResponse { value }))
 }
 

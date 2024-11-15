@@ -101,7 +101,7 @@ pub async fn ingest_files_from_executor(
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
-    let diagnostics_keys = vec!["stdout", "stderr"];
+    let diagnostics_keys = ["stdout", "stderr"];
     while let Some(mut field) = files.next_field().await.unwrap() {
         if let Some(name) = field.name() {
             let name_ref = name.to_string();
@@ -253,7 +253,7 @@ async fn write_to_disk<'a>(
         .to_string();
     info!("writing to blob store, file name = {:?}", file_name);
     let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-    blob_storage.put(&file_name, stream).await.map_err(|e| {
+    blob_storage.put(file_name, stream).await.map_err(|e| {
         error!("failed to write to blob store: {}", e);
         IndexifyAPIError::internal_error(anyhow!("failed to write to blob store: {}", e))
     })

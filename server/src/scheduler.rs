@@ -48,7 +48,7 @@ impl Scheduler {
         let mut processed_reduction_tasks = vec![];
         let mut diagnostic_msgs = vec![];
         for state_change in &state_changes {
-            processed_state_changes.push(state_change.id.clone());
+            processed_state_changes.push(state_change.id);
             let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
                     handle_invoke_compute_graph(
@@ -61,7 +61,7 @@ impl Scheduler {
                     let task = self
                         .indexify_state
                         .reader()
-                        .get_task_from_finished_event(&task_finished_event)?
+                        .get_task_from_finished_event(task_finished_event)?
                         .ok_or(anyhow!("task not found {}", task_finished_event.task_id))?;
                     let compute_graph = self
                         .indexify_state
@@ -315,7 +315,7 @@ mod tests {
 
         let task = tasks.first().unwrap();
         state_store
-            .finalize_task(&task, 1, TaskOutcome::Success, false)
+            .finalize_task(task, 1, TaskOutcome::Success, false)
             .await?;
 
         let executor_tasks = indexify_state
