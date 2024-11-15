@@ -13,33 +13,35 @@ members = [
     "blob_store",
     "data_model",
     "indexify_ui",
+    "metrics",
     "state_store",
     "task_scheduler",
     "utils",
 ]
 
 [workspace.dependencies]
-serde = { version = "1.0.214", features = ["derive"] }
-anyhow = "1.0.92"
+serde = { version = "1.0.215", features = ["derive"] }
+anyhow = "1.0.93"
 serde_json = "1.0.132"
 # https://github.com/rust-rocksdb/rust-rocksdb/issues/881
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "87b6b2df89c1fafcfb53129f8c3304d636a94f2e", features=["multi-threaded-cf"]}
 data_model = { path = "data_model" }
 indexify_utils = { path = "utils" }
 indexify_ui = {path = "indexify_ui"}
+metrics = {path = "metrics"}
 hyper = "1.5.0"
 state_store = { path = "state_store" }
 strum = { version = "0.26.3", features = ["derive"] }
 tracing = "0.1.40"
 rand = "0.8.5"
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full"] }
 once_cell = "1.20.2"
 serde_yml = "0.0.12"
 figment = {version="0.10.19",features=["yaml"]}
 axum = {version = "0.7.7", features = ["multipart", "macros", "tokio"]}
 axum-server = "0.7.1"
-tempfile = "3.13.0"
-utoipa = { version = "5.1.3", features = ["axum_extras"] }
+tempfile = "3.14.0"
+utoipa = { version = "5.2.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
 object_store = {version= "0.11.1", features = ["aws"]}
 futures = "0.3.31"
@@ -62,10 +64,13 @@ tower-http = { version = "0.6.1", default-features = false, features = [
 ] }
 pin-project = "1.1.7"
 ciborium = "0.2.2"
-opentelemetry_sdk = "0.26.0"
-opentelemetry = "0.26.0"
 uuid = { version = "1.11.0", features = ["v4"] }
-url = "2.5.2"
+url = "2.5.3"
+opentelemetry = { version="0.24.0", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.24.0", features = ["metrics"] }
+opentelemetry-prometheus = {version = "0.17.0"}
+prometheus = {version = "0.13.4"}
+axum-otel-metrics = { version = "0.8.1"}
 
 [dependencies]
 async-stream = {workspace = true}
@@ -77,7 +82,7 @@ serde={workspace = true}
 serde_json={workspace = true}
 anyhow = {workspace=true}
 figment = {workspace=true}
-clap = { version = "4.5.20", features = ["derive"] }
+clap = { version = "4.5.21", features = ["derive"] }
 tracing ={workspace=true}
 axum ={workspace=true}
 tokio = {workspace=true}
@@ -99,6 +104,12 @@ hex = "0.4.3"
 indexify_ui = {workspace=true}
 hyper = {workspace=true}
 url = {workspace=true}
+opentelemetry = {workspace=true}
+opentelemetry-prometheus = {workspace=true}
+opentelemetry_sdk = { workspace=true }
+prometheus = {workspace=true}
+axum-otel-metrics = { workspace=true }
+metrics = {workspace=true}
 
 [dev-dependencies]
 tempfile = { workspace = true }

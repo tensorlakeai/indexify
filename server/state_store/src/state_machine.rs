@@ -33,19 +33,22 @@ use strum::AsRefStr;
 use tracing::error;
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::requests::{
-    CreateTasksRequest,
-    DeleteInvocationRequest,
-    DeregisterExecutorRequest,
-    FinalizeTaskRequest,
-    InvokeComputeGraphRequest,
-    NamespaceRequest,
-    ReductionTasks,
-    RegisterExecutorRequest,
-    RemoveSystemTaskRequest,
-    ReplayComputeGraphRequest,
-    ReplayInvocationRequest,
-    UpdateSystemTaskRequest,
+use crate::{
+    metrics::StateStoreMetrics,
+    requests::{
+        CreateTasksRequest,
+        DeleteInvocationRequest,
+        DeregisterExecutorRequest,
+        FinalizeTaskRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
+        ReductionTasks,
+        RegisterExecutorRequest,
+        RemoveSystemTaskRequest,
+        ReplayComputeGraphRequest,
+        ReplayInvocationRequest,
+        UpdateSystemTaskRequest,
+    },
 };
 
 pub type ContentId = String;
@@ -316,8 +319,7 @@ pub fn create_graph_input(
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
-    let compute_graph_key =
-        ComputeGraph::key_from(req.namespace.as_str(), req.compute_graph_name.as_str());
+    let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let cg = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -384,13 +386,22 @@ pub(crate) fn create_or_update_compute_graph(
     )?;
 
     if let Some(existing_compute_graph) = existing_compute_graph {
-        let mut existing_compute_graph: ComputeGraph =
-            JsonEncoder::decode(&existing_compute_graph)?;
+        let existing_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
+        if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash ||
+            compute_graph.edges != existing_compute_graph.edges ||
+            compute_graph.nodes != existing_compute_graph.nodes ||
+            compute_graph.start_fn != existing_compute_graph.start_fn
+        {
+            compute_graph.version = existing_compute_graph.version.next();
+        }
 
-        // Merge the existing compute graph with the new one containing updated fields
-        // Not allowing changes to internal fields.
-        existing_compute_graph.update(compute_graph.clone());
-        compute_graph = existing_compute_graph;
+        for (node_name, node) in compute_graph.nodes.iter_mut() {
+            if let Some(existing_node) = existing_compute_graph.nodes.get(node_name) {
+                if node.image_hash() != existing_node.image_hash() {
+                    node.set_image_version(existing_node.clone().image_version_next());
+                }
+            }
+        }
     };
 
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
@@ -429,7 +440,7 @@ pub fn delete_compute_graph(
 ) -> Result<()> {
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        ComputeGraph::key_from(namespace, name),
+        format!("{}|{}", namespace, name),
     )?;
     let prefix = format!("{}|{}|", namespace, name);
     delete_cf_prefix(
@@ -572,6 +583,7 @@ pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &CreateTasksRequest,
+    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<Option<InvocationCompletion>> {
     let ctx_key = format!(
         "{}|{}|{}",
@@ -614,6 +626,7 @@ pub(crate) fn create_tasks(
         ctx_key,
         serialized_analytics,
     )?;
+    sm_metrics.task_unassigned(req.tasks.clone());
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(
             db,
@@ -632,6 +645,7 @@ pub fn allocate_tasks(
     txn: &Transaction<TransactionDB>,
     task: &Task,
     executor_id: &ExecutorId,
+    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
     txn.put_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
@@ -642,6 +656,7 @@ pub fn allocate_tasks(
         &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
         task.key(),
     )?;
+    sm_metrics.task_assigned(vec![task.clone()], executor_id.get());
     Ok(())
 }
 
@@ -651,6 +666,7 @@ pub fn mark_task_completed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: FinalizeTaskRequest,
+    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<bool> {
     let task_key = format!(
         "{}|{}|{}|{}|{}",
@@ -731,6 +747,7 @@ pub fn mark_task_completed(
         task.key(),
         task_bytes,
     )?;
+    sm_metrics.update_task_completion(req.task_outcome, task.clone(), req.executor_id.get());
     Ok(true)
 }
 
@@ -842,6 +859,7 @@ pub(crate) fn register_executor(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &RegisterExecutorRequest,
+    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
     let serialized_executor_metadata = JsonEncoder::encode(&req.executor)?;
     txn.put_cf(
@@ -849,6 +867,7 @@ pub(crate) fn register_executor(
         req.executor.key(),
         serialized_executor_metadata,
     )?;
+    sm_metrics.add_executor();
     Ok(())
 }
 
@@ -856,6 +875,7 @@ pub(crate) fn deregister_executor(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &DeregisterExecutorRequest,
+    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
@@ -880,5 +900,6 @@ pub(crate) fn deregister_executor(
         &IndexifyObjectsColumns::Executors.cf_db(&db),
         req.executor_id.to_string(),
     )?;
+    sm_metrics.remove_executor(req.executor_id.get());
     Ok(())
 }

@@ -68,7 +68,7 @@ impl SystemTasksExecutor {
                             state_store::requests::ReplayInvocationRequest {
                                 namespace: task.namespace.clone(),
                                 compute_graph_name: task.compute_graph_name.clone(),
-                                graph_version: task.graph_version.clone(),
+                                graph_version: task.graph_version,
                                 invocation_id: invocation.id.clone(),
                             },
                         ),
@@ -140,6 +140,7 @@ mod tests {
         TaskId,
         TaskOutcome,
     };
+    use metrics::scheduler_stats;
     use rand::Rng;
     use state_store::requests::{
         CreateComputeGraphRequest,
@@ -215,7 +216,10 @@ mod tests {
             .await
             .unwrap();
         let shutdown_rx = tokio::sync::watch::channel(()).1;
-        let scheduler = Scheduler::new(state.clone());
+        let scheduler = Scheduler::new(
+            state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+        );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
         let graph = mock_graph_a(None);
@@ -563,7 +567,10 @@ mod tests {
             .await
             .unwrap();
         let shutdown_rx = tokio::sync::watch::channel(()).1;
-        let scheduler = Scheduler::new(state.clone());
+        let scheduler = Scheduler::new(
+            state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+        );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
         let graph = mock_graph_a(None);
@@ -608,7 +615,7 @@ mod tests {
                 .0;
             let incomplete_tasks = tasks.iter().filter(|t| t.outcome == TaskOutcome::Unknown);
             let state_changes = state.reader().get_unprocessed_state_changes()?;
-            if state_changes.len() == 0 && incomplete_tasks.count() == 0 {
+            if state_changes.is_empty() && incomplete_tasks.count() == 0 {
                 break;
             }
         }
@@ -678,7 +685,7 @@ mod tests {
             let system_tasks = state.reader().get_system_tasks(None).unwrap().0;
 
             let state_changes = state.reader().get_unprocessed_state_changes()?;
-            if state_changes.len() == 0 && num_incomplete_tasks == 0 && system_tasks.len() == 0 {
+            if state_changes.is_empty() && num_incomplete_tasks == 0 && system_tasks.is_empty() {
                 break;
             }
         }

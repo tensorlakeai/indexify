@@ -2,6 +2,7 @@ use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{ChangeType, StateChangeId};
+use metrics::{scheduler_stats, Timer};
 use state_store::{
     requests::{
         CreateTasksRequest,
@@ -22,18 +23,21 @@ use tracing::{error, info};
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
     task_allocator: Arc<TaskScheduler>,
+    metrics: Arc<scheduler_stats::Metrics>,
 }
 
 impl Scheduler {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>, metrics: Arc<scheduler_stats::Metrics>) -> Self {
         let task_allocator = Arc::new(TaskScheduler::new(indexify_state.clone()));
         Self {
             indexify_state,
             task_allocator,
+            metrics,
         }
     }
 
     pub async fn run_scheduler(&self) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.scheduler_invocations);
         let state_changes = self
             .indexify_state
             .reader()
@@ -44,7 +48,7 @@ impl Scheduler {
         let mut processed_reduction_tasks = vec![];
         let mut diagnostic_msgs = vec![];
         for state_change in &state_changes {
-            processed_state_changes.push(state_change.id.clone());
+            processed_state_changes.push(state_change.id);
             let result = match &state_change.change_type {
                 ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
                     handle_invoke_compute_graph(
@@ -57,7 +61,7 @@ impl Scheduler {
                     let task = self
                         .indexify_state
                         .reader()
-                        .get_task_from_finished_event(&task_finished_event)?
+                        .get_task_from_finished_event(task_finished_event)?
                         .ok_or(anyhow!("task not found {}", task_finished_event.task_id))?;
                     let compute_graph = self
                         .indexify_state
@@ -158,7 +162,10 @@ mod tests {
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
@@ -180,7 +187,10 @@ mod tests {
     async fn create_tasks_when_after_fn_finishes() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
@@ -216,7 +226,10 @@ mod tests {
     async fn handle_failed_tasks() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
         let tasks = indexify_state
@@ -275,7 +288,10 @@ mod tests {
     async fn test_task_remove() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let invocation_id = state_store.with_simple_graph().await;
         ex.register_executor(mock_executor()).await?;
@@ -299,7 +315,7 @@ mod tests {
 
         let task = tasks.first().unwrap();
         state_store
-            .finalize_task(&task, 1, TaskOutcome::Success, false)
+            .finalize_task(task, 1, TaskOutcome::Success, false)
             .await?;
 
         let executor_tasks = indexify_state
@@ -317,7 +333,10 @@ mod tests {
     async fn test_task_unassign() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let invocation_id = state_store.with_simple_graph().await;
         ex.register_executor(mock_executor()).await?;
@@ -356,7 +375,10 @@ mod tests {
     async fn test_add_executor() -> Result<()> {
         let state_store = TestStateStore::new().await?;
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let invocation_id = state_store.with_simple_graph().await;
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
 
@@ -415,7 +437,10 @@ mod tests {
     async fn test_create_tasks_for_router_tasks() {
         let state_store = TestStateStore::new().await.unwrap();
         let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(
+            indexify_state.clone(),
+            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+        );
         let invocation_id = state_store.with_router_graph().await;
         scheduler.run_scheduler().await.unwrap();
         let tasks = indexify_state

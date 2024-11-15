@@ -157,6 +157,7 @@ pub async fn invoke_with_object(
     State(state): State<RouteState>,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    state.metrics.invocations.add(1, &[]);
     let should_block = params.block_until_finish.unwrap_or(false);
     let payload_key = Uuid::new_v4().to_string();
     let payload_stream = body
@@ -175,6 +176,7 @@ pub async fn invoke_with_object(
         size: put_result.size_bytes,
         sha256_hash: put_result.sha256_hash,
     };
+    state.metrics.invocation_bytes.add(data_payload.size, &[]);
     let invocation_payload = InvocationPayloadBuilder::default()
         .namespace(namespace.clone())
         .compute_graph_name(compute_graph.clone())

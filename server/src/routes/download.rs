@@ -26,7 +26,7 @@ pub async fn download_invocation_payload(
         .blob_storage
         .get(&output.payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", output.payload.size.to_string())
@@ -84,7 +84,7 @@ pub async fn download_fn_output_payload(
         .blob_storage
         .get(&payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", payload.size.to_string())
@@ -119,7 +119,7 @@ pub async fn download_fn_output_by_key(
         .blob_storage
         .get(&payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
     Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", payload.size.to_string())
