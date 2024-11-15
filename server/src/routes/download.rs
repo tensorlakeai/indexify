@@ -1,12 +1,13 @@
 use anyhow::anyhow;
 use axum::{
-    body::{Body},
+    body::Body,
     extract::{Path, State},
     response::Response,
 };
 use futures::TryStreamExt;
 use log::info;
 use serde_json::Value;
+
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
@@ -93,15 +94,15 @@ pub async fn download_fn_output_payload(
             .as_str(),
         ))?;
     let invoke_graph_output = state
-            .indexify_state
-            .reader()
-            .invocation_payload(&namespace, &compute_graph, &invocation_id)
-            .map_err(|e| {
-                IndexifyAPIError::internal_error(anyhow!(
-                    "failed to download invocation payload: {}",
-                    e
-                ))
-            })?;
+        .indexify_state
+        .reader()
+        .invocation_payload(&namespace, &compute_graph, &invocation_id)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!(
+                "failed to download invocation payload: {}",
+                e
+            ))
+        })?;
     let content_type = invoke_graph_output.content_type.clone();
 
     let payload = match output.payload {
@@ -119,7 +120,10 @@ pub async fn download_fn_output_payload(
         .await
         .map_err(|e| IndexifyAPIError::internal_error(e))?;
 
-    info!("content type: {} for namesace: {}, compute graph: {}, invocation id: {}", content_type, fn_name, compute_graph, invocation_id);
+    info!(
+        "content type: {} for namesace: {}, compute graph: {}, invocation id: {}",
+        content_type, fn_name, compute_graph, invocation_id
+    );
 
     // Check if the content type is JSON
     if content_type == "application/json" {
@@ -173,12 +177,16 @@ pub async fn download_fn_output_by_key(
     let invoke_graph_output = state
         .indexify_state
         .reader()
-        .invocation_payload(output.namespace.as_str(), output.compute_graph_name.as_str(), output.invocation_id.as_str())
+        .invocation_payload(
+            output.namespace.as_str(),
+            output.compute_graph_name.as_str(),
+            output.invocation_id.as_str(),
+        )
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
-                    "failed to download invocation payload: {}",
-                    e
-                ))
+                "failed to download invocation payload: {}",
+                e
+            ))
         })?;
     let content_type = invoke_graph_output.content_type.clone();
 

@@ -504,7 +504,7 @@ pub struct InvocationPayload {
     pub compute_graph_name: String,
     pub payload: DataPayload,
     pub created_at: u64,
-    pub content_type: String
+    pub content_type: String,
 }
 
 impl InvocationPayload {
