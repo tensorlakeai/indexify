@@ -28,7 +28,7 @@ pub struct Service {
     pub config: ServerConfig,
     pub indexify_state: Arc<IndexifyState>,
     metrics_registry: Arc<Registry>,
-    _sched_metrics: Arc<SchedulerMetrics>,
+    sched_metrics: Arc<SchedulerMetrics>,
 }
 
 impl Service {
@@ -40,7 +40,7 @@ impl Service {
             config,
             indexify_state,
             metrics_registry,
-            _sched_metrics: sched_metrics,
+            sched_metrics,
         })
     }
 
@@ -64,7 +64,7 @@ impl Service {
         let app = create_routes(route_state);
         let handle = Handle::new();
         let handle_sh = handle.clone();
-        let scheduler = Scheduler::new(self.indexify_state.clone());
+        let scheduler = Scheduler::new(self.indexify_state.clone(), self.sched_metrics.clone());
 
         let mut gc = Gc::new(
             self.indexify_state.clone(),

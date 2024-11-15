@@ -2,6 +2,7 @@ use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{ChangeType, StateChangeId};
+use metrics::{scheduler_stats, Timer};
 use state_store::{
     requests::{
         CreateTasksRequest,
@@ -22,18 +23,21 @@ use tracing::{error, info};
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
     task_allocator: Arc<TaskScheduler>,
+    metrics: Arc<scheduler_stats::Metrics>,
 }
 
 impl Scheduler {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>, metrics: Arc<scheduler_stats::Metrics>) -> Self {
         let task_allocator = Arc::new(TaskScheduler::new(indexify_state.clone()));
         Self {
             indexify_state,
             task_allocator,
+            metrics,
         }
     }
 
     pub async fn run_scheduler(&self) -> Result<()> {
+        let _timer = Timer::start(&self.metrics.scheduler_invocations);
         let state_changes = self
             .indexify_state
             .reader()
