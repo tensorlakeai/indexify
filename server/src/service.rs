@@ -3,6 +3,8 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
+use metrics::{init_provider, scheduler_stats::Metrics as SchedulerMetrics};
+use prometheus::Registry;
 use state_store::{
     kv::KVS,
     requests::{NamespaceRequest, RequestPayload::CreateNameSpace, StateMachineUpdateRequest},
@@ -24,44 +26,56 @@ const DEFAULT_NAMESPACE: &str = "default";
 
 pub struct Service {
     pub config: ServerConfig,
+    pub indexify_state: Arc<IndexifyState>,
+    metrics_registry: Arc<Registry>,
+    sched_metrics: Arc<SchedulerMetrics>,
 }
 
 impl Service {
-    pub fn new(config: ServerConfig) -> Self {
-        Self { config }
+    pub async fn new(config: ServerConfig) -> Result<Self> {
+        let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
+        let metrics_registry = Arc::new(init_provider());
+        let sched_metrics = Arc::new(SchedulerMetrics::new(indexify_state.clone()));
+        Ok(Self {
+            config,
+            indexify_state,
+            metrics_registry,
+            sched_metrics,
+        })
     }
 
     pub async fn start(&self) -> Result<()> {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let indexify_state = IndexifyState::new(self.config.state_store_path.parse()?).await?;
         let blob_storage = Arc::new(
             BlobStorage::new(self.config.blob_storage.clone())
                 .context("error initializing BlobStorage")?,
         );
-        let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
+        let executor_manager = Arc::new(ExecutorManager::new(self.indexify_state.clone()).await);
         let kvs = KVS::new(blob_storage.clone(), "graph_ctx_state")
             .await
             .context("error initializing KVS")?;
         let route_state = RouteState {
-            indexify_state: indexify_state.clone(),
+            indexify_state: self.indexify_state.clone(),
             kvs: Arc::new(kvs),
             blob_storage: blob_storage.clone(),
             executor_manager,
+            registry: self.metrics_registry.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
         };
         let app = create_routes(route_state);
         let handle = Handle::new();
         let handle_sh = handle.clone();
-        let scheduler = Scheduler::new(indexify_state.clone());
+        let scheduler = Scheduler::new(self.indexify_state.clone(), self.sched_metrics.clone());
 
         let mut gc = Gc::new(
-            indexify_state.clone(),
+            self.indexify_state.clone(),
             blob_storage.clone(),
             shutdown_rx.clone(),
         );
         let mut system_tasks_executor =
-            SystemTasksExecutor::new(indexify_state.clone(), shutdown_rx.clone());
+            SystemTasksExecutor::new(self.indexify_state.clone(), shutdown_rx.clone());
 
-        let state_watcher_rx = indexify_state.get_state_change_watcher();
+        let state_watcher_rx = self.indexify_state.get_state_change_watcher();
         tokio::spawn(async move {
             info!("starting scheduler");
             let _ = scheduler.start(shutdown_rx, state_watcher_rx).await;
@@ -84,7 +98,7 @@ impl Service {
         });
 
         // State initialization
-        initialize_indexify_state(indexify_state.clone()).await?;
+        initialize_indexify_state(self.indexify_state.clone()).await?;
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);

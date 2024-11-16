@@ -29,7 +29,7 @@ pub async fn download_invocation_payload(
         .blob_storage
         .get(&output.payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     if output.content_type == "application/json" {
         let json_bytes = storage_reader
@@ -46,9 +46,9 @@ pub async fn download_invocation_payload(
         return Ok(Response::builder()
             .header("Content-Type", "application/json")
             .body(Body::from(serde_json::to_vec(&json).unwrap()))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
+            .map_err(IndexifyAPIError::internal_error)?;
     }
-
+        
     Response::builder()
         .header("Content-Type", "application/cbor")
         .header("Content-Length", output.payload.size.to_string())
@@ -118,7 +118,7 @@ pub async fn download_fn_output_payload(
         .blob_storage
         .get(&payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     info!(
         "content type: {} for namesace: {}, compute graph: {}, invocation id: {}",
@@ -194,7 +194,7 @@ pub async fn download_fn_output_by_key(
         .blob_storage
         .get(&payload.path)
         .await
-        .map_err(|e| IndexifyAPIError::internal_error(e))?;
+        .map_err(IndexifyAPIError::internal_error)?;
 
     if content_type == "application/json" {
         let json_bytes = storage_reader
@@ -213,7 +213,6 @@ pub async fn download_fn_output_by_key(
             .body(Body::from(serde_json::to_vec(&json).unwrap()))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
     }
-
     Response::builder()
         .header("Content-Type", "application/cbor")
         .header("Content-Length", payload.size.to_string())
