@@ -18,6 +18,7 @@ def get_serializer(serializer_type: str) -> Any:
 
 class JsonSerializer:
     content_type = "application/json"
+    encoding_type = "json"
 
     @staticmethod
     def serialize(data: Any) -> str:
@@ -38,6 +39,7 @@ class JsonSerializer:
 
 class CloudPickleSerializer:
     content_type = "application/cbor"
+    encoding_type = "cloudpickle"
 
     @staticmethod
     def serialize(data: Any) -> bytes:
