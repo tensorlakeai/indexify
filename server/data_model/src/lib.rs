@@ -497,7 +497,7 @@ impl NodeOutputBuilder {
             errors,
             reduced_state,
             created_at,
-            encoding
+            encoding,
         })
     }
 }
@@ -554,7 +554,7 @@ impl InvocationPayloadBuilder {
             namespace: ns,
             compute_graph_name: cg_name,
             payload,
-            encoding: encoding,
+            encoding,
             created_at,
         })
     }

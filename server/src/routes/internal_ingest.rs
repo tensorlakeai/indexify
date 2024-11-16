@@ -126,7 +126,12 @@ pub async fn ingest_files_from_executor(
                     ));
                 };
                 // If there is no content_type, set it as octet-stream.
-                output_encoding.push(field.content_type().unwrap_or_else(|| "application/octet-stream").to_string());
+                output_encoding.push(
+                    field
+                        .content_type()
+                        .unwrap_or_else(|| "application/octet-stream")
+                        .to_string(),
+                );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 node_output_sequence += 1;
                 output_objects.push(res.clone());

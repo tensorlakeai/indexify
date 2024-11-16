@@ -5,6 +5,7 @@ use axum::{
     response::Response,
 };
 use futures::TryStreamExt;
+
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
@@ -40,7 +41,7 @@ pub async fn download_invocation_payload(
             .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
     }
-        
+
     Response::builder()
         .header("Content-Type", output.encoding)
         .header("Content-Length", output.payload.size.to_string())
