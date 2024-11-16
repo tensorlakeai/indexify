@@ -138,4 +138,14 @@ class Downloader:
                 raise
             init_value = serializer.deserialize(init_value.content)
 
-        return DownloadedInputs(input=deserialized_content, init_value=init_value)
+        if init_value:
+            return DownloadedInputs(
+            input=IndexifyData(input_id=task.invocation_id, payload=deserialized_content, encoder=encoder),
+            init_value=IndexifyData(input_id=task.invocation_id, payload=init_value, encoder=encoder)
+        )
+        else:
+            return DownloadedInputs(
+                input=IndexifyData(input_id=task.invocation_id,
+                                   payload=deserialized_content,
+                                   encoder=encoder)
+            )
