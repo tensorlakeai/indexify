@@ -43,6 +43,9 @@ def simple_function_multiple_inputs_json(x: str, y: int) -> str:
     suf = "".join(["b" for _ in range(y)])
     return x + suf
 
+@indexify_function()
+def simple_function_with_str_as_input(x: str) -> str:
+    return x + "cc"
 
 @indexify_function(encoder="invalid")
 def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
@@ -175,6 +178,12 @@ def create_pipeline_graph_with_map_reduce_with_json_encoder():
     graph.add_edge(square_with_json_encoder, sum_of_squares_with_json_encoding)
     return graph
 
+def create_pipeline_graph_with_different_encoders():
+    graph = Graph(
+        name="test_different_encoders", description="test", start_node=simple_function_multiple_inputs_json
+    )
+    graph.add_edge(simple_function_multiple_inputs_json, simple_function_with_str_as_input)
+    return graph
 
 def create_router_graph():
     graph = Graph(name="test_router", description="test", start_node=generate_seq)
@@ -300,6 +309,20 @@ class TestGraphBehaviors(unittest.TestCase):
             invocation_id, "sum_of_squares_with_json_encoding"
         )
         self.assertEqual(output_sum_sq_with_json_encoding, [Sum(val=9)])
+
+    @parameterized.expand([(False), (True)])
+    def test_graph_with_different_encoders(self, is_remote=False):
+        graph = create_pipeline_graph_with_different_encoders()
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x="a", y=10)
+        simple_fn_multiple_input_output = graph.output(invocation_id,
+                              "simple_function_multiple_inputs_json")
+        simple_function_output = graph.output(invocation_id,
+                               "simple_function_with_str_as_input")
+        print(f'simple_fn_multiple_input_output: {simple_fn_multiple_input_output}')
+        self.assertEqual(simple_fn_multiple_input_output, ["abbbbbbbbbb"])
+        self.assertEqual(simple_function_output, ["abbbbbbbbbbcc"])
+
 
     @parameterized.expand([(False), (True)])
     def test_router_graph_behavior(self, is_remote):
