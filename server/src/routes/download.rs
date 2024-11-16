@@ -5,9 +5,6 @@ use axum::{
     response::Response,
 };
 use futures::TryStreamExt;
-use log::info;
-use serde_json::Value;
-
 use super::RouteState;
 use crate::http_objects::IndexifyAPIError;
 
@@ -31,26 +28,21 @@ pub async fn download_invocation_payload(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    if output.content_type == "application/json" {
+    if output.encoding == "application/json" {
         let json_bytes = storage_reader
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
 
-        let json: Value = serde_json::from_slice(&json_bytes)
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Invalid JSON format: {}", e)))?;
-
-        info!("json output: {}", String::from_utf8(json_bytes).unwrap());
-
         return Ok(Response::builder()
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_vec(&json).unwrap()))
-            .map_err(IndexifyAPIError::internal_error)?;
+            .header("Content-Type", output.encoding)
+            .body(Body::from(json_bytes))
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
     }
         
     Response::builder()
-        .header("Content-Type", "application/cbor")
+        .header("Content-Type", output.encoding)
         .header("Content-Length", output.payload.size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
@@ -103,7 +95,7 @@ pub async fn download_fn_output_payload(
                 e
             ))
         })?;
-    let content_type = invoke_graph_output.content_type.clone();
+    let encoding = invoke_graph_output.encoding.clone();
 
     let payload = match output.payload {
         data_model::OutputPayload::Fn(payload) => payload,
@@ -120,31 +112,21 @@ pub async fn download_fn_output_payload(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    info!(
-        "content type: {} for namesace: {}, compute graph: {}, invocation id: {}",
-        content_type, fn_name, compute_graph, invocation_id
-    );
-
     // Check if the content type is JSON
-    if content_type == "application/json" {
+    if encoding == "application/json" {
         let json_bytes = storage_reader
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
 
-        let json: Value = serde_json::from_slice(&json_bytes)
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Invalid JSON format: {}", e)))?;
-
-        info!("json output: {}", String::from_utf8(json_bytes).unwrap());
-
         return Ok(Response::builder()
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_vec(&json).unwrap()))
+            .header("Content-Type", encoding)
+            .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
     }
     Response::builder()
-        .header("Content-Type", "application/cbor")
+        .header("Content-Type", encoding)
         .header("Content-Length", payload.size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
@@ -188,7 +170,7 @@ pub async fn download_fn_output_by_key(
                 e
             ))
         })?;
-    let content_type = invoke_graph_output.content_type.clone();
+    let encoding = invoke_graph_output.encoding.clone();
 
     let storage_reader = state
         .blob_storage
@@ -196,25 +178,20 @@ pub async fn download_fn_output_by_key(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    if content_type == "application/json" {
+    if encoding == "application/json" {
         let json_bytes = storage_reader
             .map_ok(|chunk| chunk.to_vec())
             .try_concat()
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
 
-        let json: Value = serde_json::from_slice(&json_bytes)
-            .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Invalid JSON format: {}", e)))?;
-
-        info!("json output: {}", String::from_utf8(json_bytes).unwrap());
-
         return Ok(Response::builder()
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_vec(&json).unwrap()))
+            .header("Content-Type", encoding)
+            .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
     }
     Response::builder()
-        .header("Content-Type", "application/cbor")
+        .header("Content-Type", encoding)
         .header("Content-Length", payload.size.to_string())
         .body(Body::from_stream(storage_reader))
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))

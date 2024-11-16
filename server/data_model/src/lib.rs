@@ -504,7 +504,7 @@ pub struct InvocationPayload {
     pub compute_graph_name: String,
     pub payload: DataPayload,
     pub created_at: u64,
-    pub content_type: String,
+    pub encoding: String,
 }
 
 impl InvocationPayload {
@@ -531,8 +531,8 @@ impl InvocationPayloadBuilder {
             .compute_graph_name
             .clone()
             .ok_or(anyhow!("compute_graph_name is required"))?;
-        let content_type = self
-            .content_type
+        let encoding = self
+            .encoding
             .clone()
             .ok_or(anyhow!("content_type is required"))?;
         let created_at: u64 = get_epoch_time_in_ms();
@@ -548,7 +548,7 @@ impl InvocationPayloadBuilder {
             namespace: ns,
             compute_graph_name: cg_name,
             payload,
-            content_type,
+            encoding: encoding,
             created_at,
         })
     }

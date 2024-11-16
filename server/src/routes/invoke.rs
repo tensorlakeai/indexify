@@ -159,7 +159,7 @@ pub async fn invoke_with_object(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let content_type = headers
+    let encoding = headers
         .get("Content-Type")
         .and_then(|value| value.to_str().ok())
         .map(|s| s.to_string())
@@ -189,7 +189,7 @@ pub async fn invoke_with_object(
         .namespace(namespace.clone())
         .compute_graph_name(compute_graph.clone())
         .payload(data_payload)
-        .content_type(content_type)
+        .encoding(encoding)
         .build()
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
