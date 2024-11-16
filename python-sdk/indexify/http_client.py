@@ -356,7 +356,9 @@ class IndexifyClient:
         content_type = response.headers.get("Content-Type")
         serializer = get_serializer(content_type)
         decoded_response = serializer.deserialize(response.content)
-        return IndexifyData(id=output_id, payload=decoded_response, encoder=serializer.encoding_type)
+        return IndexifyData(
+            id=output_id, payload=decoded_response, encoder=serializer.encoding_type
+        )
 
     def graph_outputs(
         self,

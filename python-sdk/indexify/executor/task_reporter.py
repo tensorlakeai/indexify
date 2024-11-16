@@ -20,6 +20,7 @@ class ForceMultipartDict(dict):
 FORCE_MULTIPART = ForceMultipartDict()
 UTF_8_CONTENT_TYPE = "application/octet-stream"
 
+
 class TaskReporter:
     def __init__(
         self, base_url: str, executor_id: str, config_path: Optional[str] = None
@@ -38,7 +39,8 @@ class TaskReporter:
             serialized_output = serializer.serialize(output.payload)
             fn_outputs.append(
                 (
-                    "node_outputs", (nanoid.generate(), serialized_output, serializer.content_type)
+                    "node_outputs",
+                    (nanoid.generate(), serialized_output, serializer.content_type),
                 )
             )
 
@@ -49,7 +51,11 @@ class TaskReporter:
             fn_outputs.append(
                 (
                     "stdout",
-                    (nanoid.generate(), completed_task.stdout.encode(), UTF_8_CONTENT_TYPE),
+                    (
+                        nanoid.generate(),
+                        completed_task.stdout.encode(),
+                        UTF_8_CONTENT_TYPE,
+                    ),
                 )
             )
 
@@ -60,7 +66,11 @@ class TaskReporter:
             fn_outputs.append(
                 (
                     "stderr",
-                    (nanoid.generate(), completed_task.stderr.encode(), UTF_8_CONTENT_TYPE),
+                    (
+                        nanoid.generate(),
+                        completed_task.stderr.encode(),
+                        UTF_8_CONTENT_TYPE,
+                    ),
                 )
             )
 
