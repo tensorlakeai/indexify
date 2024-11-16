@@ -85,17 +85,7 @@ pub async fn download_fn_output_payload(
             )
             .as_str(),
         ))?;
-    let invoke_graph_output = state
-        .indexify_state
-        .reader()
-        .invocation_payload(&namespace, &compute_graph, &invocation_id)
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
-                e
-            ))
-        })?;
-    let encoding = invoke_graph_output.encoding.clone();
+    let encoding = output.encoding.clone();
 
     let payload = match output.payload {
         data_model::OutputPayload::Fn(payload) => payload,
@@ -156,21 +146,7 @@ pub async fn download_fn_output_by_key(
         }
     };
 
-    let invoke_graph_output = state
-        .indexify_state
-        .reader()
-        .invocation_payload(
-            output.namespace.as_str(),
-            output.compute_graph_name.as_str(),
-            output.invocation_id.as_str(),
-        )
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!(
-                "failed to download invocation payload: {}",
-                e
-            ))
-        })?;
-    let encoding = invoke_graph_output.encoding.clone();
+    let encoding = output.encoding.clone();
 
     let storage_reader = state
         .blob_storage

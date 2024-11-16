@@ -418,6 +418,7 @@ pub struct NodeOutput {
     pub errors: Option<DataPayload>,
     pub reduced_state: bool,
     pub created_at: u64,
+    pub encoding: String,
 }
 
 impl NodeOutput {
@@ -463,6 +464,10 @@ impl NodeOutputBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
+        let encoding = self
+            .encoding
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
         let graph_version = self.graph_version.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
@@ -492,6 +497,7 @@ impl NodeOutputBuilder {
             errors,
             reduced_state,
             created_at,
+            encoding
         })
     }
 }
