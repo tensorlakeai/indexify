@@ -139,6 +139,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash1232".to_string(),
             })
+            .encoding("application/octet-stream".to_string())
             .build()
             .unwrap()
     }
@@ -153,6 +154,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash1232".to_string(),
             })
+            .encoding("application/octet-stream".to_string())
             .build()
             .unwrap()
     }
