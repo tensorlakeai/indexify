@@ -158,7 +158,7 @@ def _run_function(
         try:
             key = f"{namespace}/{graph_name}/{version}/{fn_name}"
             if key not in function_wrapper_map:
-                # Remove functions of previous versions 
+                # Remove functions of previous versions
                 # FIXME BIG HACK TO FREE UP MEMORY IF WE ARE USING FUNCTIONS USING GPU
                 # FIXME - THIS IS A TEMPORARY FIX
                 # FIXME - we need to run the functions in a subprocess
@@ -168,10 +168,12 @@ def _run_function(
                     if k.startswith(f"{namespace}/{graph_name}/"):
                         print(f"unloading function from memory {k}")
                         del function_wrapper_map[k]
-                        import gc 
+                        import gc
+
                         gc.collect()
                         try:
                             import torch
+
                             torch.cuda.empty_cache()
                         except:
                             pass
