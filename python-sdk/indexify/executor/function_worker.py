@@ -159,7 +159,7 @@ def _run_function(
             key = f"{namespace}/{graph_name}/{version}/{fn_name}"
             if key not in function_wrapper_map:
                 # Remove functions of previous versions 
-                # FIXME BIG HACK TO FREE UP MEMORY IF WE ARE USING FUNCTIONS USING GC
+                # FIXME BIG HACK TO FREE UP MEMORY IF WE ARE USING FUNCTIONS USING GPU
                 # FIXME - THIS IS A TEMPORARY FIX
                 # FIXME - we need to run the functions in a subprocess
                 # and kill the subprocess when a new version is download from the server
