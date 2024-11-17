@@ -158,6 +158,11 @@ def _run_function(
         try:
             key = f"{namespace}/{graph_name}/{version}/{fn_name}"
             if key not in function_wrapper_map:
+                # Remove functions of previous versions 
+                for k in function_wrapper_map.keys():
+                    if k.startswith(f"{namespace}/{graph_name}/"):
+                        print(f"unloading function from memory {k}")
+                        del function_wrapper_map[k]
                 _load_function(
                     namespace,
                     graph_name,
