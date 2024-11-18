@@ -24,7 +24,7 @@ class RouterMetadata(BaseModel):
     target_fns: List[str]
     image_name: str
     image_information: ImageInformation
-    payload_encoder: str = "cloudpickle"
+    encoder: str = "cloudpickle"
 
 
 class NodeMetadata(BaseModel):
