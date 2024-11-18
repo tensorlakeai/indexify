@@ -38,7 +38,7 @@ class JsonSerializer:
 
 
 class CloudPickleSerializer:
-    content_type = "application/cbor"
+    content_type = "application/octet-stream"
     encoding_type = "cloudpickle"
 
     @staticmethod
