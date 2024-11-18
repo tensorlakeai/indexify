@@ -236,6 +236,19 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
+    @parameterized.expand([(True)])
+    def test_remote_graph_by_name(self, is_remote):
+        graph = Graph(
+            name="test_simple_function", description="test", start_node=simple_function
+        )
+        # Deploys the graph
+        remote_or_local_graph(graph, is_remote)
+        # Gets the graph by name
+        graph = RemoteGraph.by_name("test_simple_function")
+        invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
+        output = graph.output(invocation_id, "simple_function")
+        self.assertEqual(output, [MyObject(x="ab")])
+
     @parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs(self, is_remote):
         graph = Graph(

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import cloudpickle
 import httpx
@@ -13,11 +13,7 @@ from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
-from indexify.functions_sdk.object_serializer import (
-    CloudPickleSerializer,
-    JsonSerializer,
-    get_serializer,
-)
+from indexify.functions_sdk.object_serializer import get_serializer
 from indexify.settings import DEFAULT_SERVICE_URL
 
 
@@ -276,11 +272,10 @@ class IndexifyClient:
         self,
         graph: str,
         block_until_done: bool = False,
-        serializer: Union[
-            CloudPickleSerializer, JsonSerializer
-        ] = CloudPickleSerializer,
+        serializer: str = "cloudpickle",
         **kwargs,
     ) -> str:
+        serializer = get_serializer(serializer)
         ser_input = serializer.serialize(kwargs)
         params = {"block_until_finish": block_until_done}
         kwargs = {

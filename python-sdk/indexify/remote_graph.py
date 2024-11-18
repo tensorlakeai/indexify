@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from indexify.functions_sdk.graph import Graph
+from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 
 from .http_client import IndexifyClient
 from .settings import DEFAULT_SERVICE_URL
@@ -30,6 +30,8 @@ class RemoteGraph:
         else:
             self._client = IndexifyClient(service_url=server_url)
 
+        self._graph_definition: ComputeGraphMetadata = self._client.graph(self._name)
+
     def run(self, block_until_done: bool = False, **kwargs) -> str:
         """
         Run the graph with the given inputs. The input is for the start function of the graph.
@@ -49,7 +51,7 @@ class RemoteGraph:
         return self._client.invoke_graph_with_object(
             self._name,
             block_until_done,
-            self.graph.definition().get_input_payload_serializer(),
+            self._graph_definition.get_input_encoder(),
             **kwargs
         )
 
@@ -81,7 +83,6 @@ class RemoteGraph:
         :param client: The IndexifyClient used to communicate with the server.
             Prefered over server_url.
         """
-        cls.graph = g
         if not client:
             client = IndexifyClient(service_url=server_url)
         client.register_compute_graph(g, additional_modules)
