@@ -8,9 +8,9 @@ from rich.panel import Panel
 from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
-from indexify.functions_sdk.object_serializer import MsgPackSerializer
 
 from ..common_util import get_httpx_client
+from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
 from .api_objects import Task
 
 custom_theme = Theme(
@@ -70,7 +70,7 @@ class Downloader:
             f.write(response.content)
         return path
 
-    async def download_input(self, task: Task) -> IndexifyData:
+    async def download_input(self, task: Task) -> DownloadedInputs:
         input_id = task.input_key.split("|")[-1]
         if task.invocation_id == input_id:
             url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/payload"
@@ -90,6 +90,7 @@ class Downloader:
         )
 
         response = self._client.get(url)
+
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -102,12 +103,22 @@ class Downloader:
             )
             raise
 
+        encoder = (
+            "json"
+            if response.headers["content-type"] == JsonSerializer.content_type
+            else "cloudpickle"
+        )
+        serializer = get_serializer(encoder)
+
         if task.invocation_id == input_id:
             return DownloadedInputs(
-                input=IndexifyData(payload=response.content, id=input_id)
+                input=IndexifyData(
+                    payload=response.content, id=input_id, encoder=encoder
+                ),
             )
 
-        init_value = None
+        deserialized_content = serializer.deserialize(response.content)
+
         if reducer_url:
             init_value = httpx.get(reducer_url)
             try:
@@ -121,8 +132,22 @@ class Downloader:
                     )
                 )
                 raise
-            init_value = MsgPackSerializer.deserialize(init_value.content)
+            init_value = serializer.deserialize(init_value.content)
+            return DownloadedInputs(
+                input=IndexifyData(
+                    input_id=task.invocation_id,
+                    payload=deserialized_content,
+                    encoder=encoder,
+                ),
+                init_value=IndexifyData(
+                    input_id=task.invocation_id, payload=init_value, encoder=encoder
+                ),
+            )
 
         return DownloadedInputs(
-            input=MsgPackSerializer.deserialize(response.content), init_value=init_value
+            input=IndexifyData(
+                input_id=task.invocation_id,
+                payload=deserialized_content,
+                encoder=encoder,
+            )
         )

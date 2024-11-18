@@ -95,6 +95,7 @@ pub async fn ingest_files_from_executor(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut output_objects: Vec<PutResult> = vec![];
+    let mut output_encoding: Vec<String> = vec![];
     let mut stdout_msg: Option<PutResult> = None;
     let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
@@ -124,6 +125,13 @@ pub async fn ingest_files_from_executor(
                         task_result.task_id, node_output_sequence
                     ));
                 };
+                // If there is no content_type, set it as octet-stream.
+                output_encoding.push(
+                    field
+                        .content_type()
+                        .unwrap_or_else(|| "application/octet-stream")
+                        .to_string(),
+                );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 node_output_sequence += 1;
                 output_objects.push(res.clone());
@@ -171,11 +179,11 @@ pub async fn ingest_files_from_executor(
         task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;
     let mut node_outputs: Vec<NodeOutput> = vec![];
 
-    for put_result in output_objects {
+    for (index, put_result) in output_objects.iter().enumerate() {
         let data_payload = data_model::DataPayload {
-            path: put_result.url,
-            size: put_result.size_bytes,
-            sha256_hash: put_result.sha256_hash,
+            path: put_result.clone().url,
+            size: put_result.clone().size_bytes,
+            sha256_hash: put_result.clone().sha256_hash,
         };
         let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
@@ -184,6 +192,7 @@ pub async fn ingest_files_from_executor(
             .invocation_id(task_result.invocation_id.to_string())
             .compute_fn_name(task_result.compute_fn.to_string())
             .payload(OutputPayload::Fn(data_payload))
+            .encoding(output_encoding[index].to_string())
             .build()
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

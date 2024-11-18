@@ -47,7 +47,10 @@ class RemoteGraph:
             invocation_id = remote_graph.run(x=1)
         """
         return self._client.invoke_graph_with_object(
-            self._name, block_until_done, **kwargs
+            self._name,
+            block_until_done,
+            self.graph.definition().get_input_payload_serializer(),
+            **kwargs
         )
 
     def replay_invocations(self):
@@ -78,6 +81,7 @@ class RemoteGraph:
         :param client: The IndexifyClient used to communicate with the server.
             Prefered over server_url.
         """
+        cls.graph = g
         if not client:
             client = IndexifyClient(service_url=server_url)
         client.register_compute_graph(g, additional_modules)

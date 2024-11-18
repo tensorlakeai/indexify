@@ -517,6 +517,7 @@ mod tests {
                 size: 23,
                 sha256_hash: generate_random_hash(),
             })
+            .encoding("application/octet-stream".to_string())
             .build()
             .unwrap()
     }

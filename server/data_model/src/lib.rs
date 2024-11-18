@@ -114,7 +114,7 @@ pub struct DynamicEdgeRouter {
     pub description: String,
     pub source_fn: String,
     pub target_functions: Vec<String>,
-    pub payload_encoder: String,
+    pub encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
 }
@@ -126,7 +126,7 @@ pub struct ComputeFn {
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
     pub reducer: bool,
-    pub payload_encoder: String,
+    pub encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
 }
@@ -418,6 +418,7 @@ pub struct NodeOutput {
     pub errors: Option<DataPayload>,
     pub reduced_state: bool,
     pub created_at: u64,
+    pub encoding: String,
 }
 
 impl NodeOutput {
@@ -463,6 +464,10 @@ impl NodeOutputBuilder {
             .invocation_id
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
+        let encoding = self
+            .encoding
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
         let graph_version = self.graph_version.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
@@ -492,6 +497,7 @@ impl NodeOutputBuilder {
             errors,
             reduced_state,
             created_at,
+            encoding,
         })
     }
 }
@@ -504,6 +510,7 @@ pub struct InvocationPayload {
     pub compute_graph_name: String,
     pub payload: DataPayload,
     pub created_at: u64,
+    pub encoding: String,
 }
 
 impl InvocationPayload {
@@ -530,6 +537,10 @@ impl InvocationPayloadBuilder {
             .compute_graph_name
             .clone()
             .ok_or(anyhow!("compute_graph_name is required"))?;
+        let encoding = self
+            .encoding
+            .clone()
+            .ok_or(anyhow!("content_type is required"))?;
         let created_at: u64 = get_epoch_time_in_ms();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let mut hasher = DefaultHasher::new();
@@ -543,6 +554,7 @@ impl InvocationPayloadBuilder {
             namespace: ns,
             compute_graph_name: cg_name,
             payload,
+            encoding,
             created_at,
         })
     }

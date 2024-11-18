@@ -139,6 +139,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash1232".to_string(),
             })
+            .encoding("application/octet-stream".to_string())
             .build()
             .unwrap()
     }
@@ -153,6 +154,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash1232".to_string(),
             })
+            .encoding("application/octet-stream".to_string())
             .build()
             .unwrap()
     }
@@ -197,7 +199,7 @@ pub mod tests {
             description: "description router_x".to_string(),
             source_fn: "fn_a".to_string(),
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
-            payload_encoder: "cloudpickle".to_string(),
+            encoder: "cloudpickle".to_string(),
             image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             image_information: ImageInformation {
                 image_name: "test-image".to_string(),

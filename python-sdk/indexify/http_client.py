@@ -1,10 +1,9 @@
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import cloudpickle
 import httpx
-import msgpack
 from httpx_sse import connect_sse
 from pydantic import BaseModel, Json
 from rich import print
@@ -14,6 +13,11 @@ from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.data_objects import IndexifyData
 from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from indexify.functions_sdk.object_serializer import (
+    CloudPickleSerializer,
+    JsonSerializer,
+    get_serializer,
+)
 from indexify.settings import DEFAULT_SERVICE_URL
 
 
@@ -269,12 +273,18 @@ class IndexifyClient:
         self._post(f"namespaces/{self.namespace}/compute_graphs/{graph}/replay")
 
     def invoke_graph_with_object(
-        self, graph: str, block_until_done: bool = False, **kwargs
+        self,
+        graph: str,
+        block_until_done: bool = False,
+        serializer: Union[
+            CloudPickleSerializer, JsonSerializer
+        ] = CloudPickleSerializer,
+        **kwargs,
     ) -> str:
-        ser_input = cloudpickle.dumps(kwargs)
+        ser_input = serializer.serialize(kwargs)
         params = {"block_until_finish": block_until_done}
         kwargs = {
-            "headers": {"Content-Type": "application/cbor"},
+            "headers": {"Content-Type": serializer.content_type},
             "data": ser_input,
             "params": params,
         }
@@ -343,8 +353,12 @@ class IndexifyClient:
             f"namespaces/{namespace}/compute_graphs/{graph}/invocations/{invocation_id}/fn/{fn_name}/output/{output_id}",
         )
         response.raise_for_status()
-        data_dict = msgpack.unpackb(response.content)
-        return IndexifyData.model_validate(data_dict)
+        content_type = response.headers.get("Content-Type")
+        serializer = get_serializer(content_type)
+        decoded_response = serializer.deserialize(response.content)
+        return IndexifyData(
+            id=output_id, payload=decoded_response, encoder=serializer.encoding_type
+        )
 
     def graph_outputs(
         self,

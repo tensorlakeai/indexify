@@ -1,16 +1,14 @@
 import io
-from typing import List, Optional
+from typing import Optional
 
-import httpx
 import nanoid
 from rich import print
 
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
-from indexify.executor.api_objects import Task, TaskResult
+from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
-from indexify.functions_sdk.object_serializer import MsgPackSerializer
+from indexify.functions_sdk.object_serializer import get_serializer
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -20,6 +18,7 @@ class ForceMultipartDict(dict):
 
 
 FORCE_MULTIPART = ForceMultipartDict()
+UTF_8_CONTENT_TYPE = "application/octet-stream"
 
 
 class TaskReporter:
@@ -36,9 +35,13 @@ class TaskReporter:
             print(
                 f"[bold]task-reporter[/bold] uploading output of size: {len(output.payload)} bytes"
             )
-            output_bytes = MsgPackSerializer.serialize(output)
+            serializer = get_serializer(output.encoder)
+            serialized_output = serializer.serialize(output.payload)
             fn_outputs.append(
-                ("node_outputs", (nanoid.generate(), io.BytesIO(output_bytes)))
+                (
+                    "node_outputs",
+                    (nanoid.generate(), serialized_output, serializer.content_type),
+                )
             )
 
         if completed_task.stdout:
@@ -48,7 +51,11 @@ class TaskReporter:
             fn_outputs.append(
                 (
                     "stdout",
-                    (nanoid.generate(), io.BytesIO(completed_task.stdout.encode())),
+                    (
+                        nanoid.generate(),
+                        completed_task.stdout.encode(),
+                        UTF_8_CONTENT_TYPE,
+                    ),
                 )
             )
 
@@ -59,7 +66,11 @@ class TaskReporter:
             fn_outputs.append(
                 (
                     "stderr",
-                    (nanoid.generate(), io.BytesIO(completed_task.stderr.encode())),
+                    (
+                        nanoid.generate(),
+                        completed_task.stderr.encode(),
+                        UTF_8_CONTENT_TYPE,
+                    ),
                 )
             )
 
