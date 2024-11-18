@@ -241,8 +241,9 @@ class TestGraphBehaviors(unittest.TestCase):
         graph = Graph(
             name="test_simple_function", description="test", start_node=simple_function
         )
-        graph = remote_or_local_graph(graph, is_remote)
-        graph = RemoteGraph.deploy(graph)
+        # Deploys the graph
+        remote_or_local_graph(graph, is_remote)
+        # Gets the graph by name
         graph = RemoteGraph.by_name("test_simple_function")
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function")
