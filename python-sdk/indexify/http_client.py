@@ -272,7 +272,7 @@ class IndexifyClient:
         self,
         graph: str,
         block_until_done: bool = False,
-        serializer: str = "cloudpickle", 
+        serializer: str = "cloudpickle",
         **kwargs,
     ) -> str:
         serializer = get_serializer(serializer)
