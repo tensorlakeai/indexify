@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from indexify.functions_sdk.graph import Graph, ComputeGraphMetadata
+from indexify.functions_sdk.graph import ComputeGraphMetadata, Graph
 
 from .http_client import IndexifyClient
 from .settings import DEFAULT_SERVICE_URL
