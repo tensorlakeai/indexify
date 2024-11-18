@@ -22,7 +22,7 @@ members = [
 [workspace.dependencies]
 serde = { version = "1.0.215", features = ["derive"] }
 anyhow = "1.0.93"
-serde_json = "1.0.132"
+serde_json = "1.0.133"
 # https://github.com/rust-rocksdb/rust-rocksdb/issues/881
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "87b6b2df89c1fafcfb53129f8c3304d636a94f2e", features=["multi-threaded-cf"]}
 data_model = { path = "data_model" }
@@ -38,7 +38,7 @@ tokio = { version = "1.41.1", features = ["full"] }
 once_cell = "1.20.2"
 serde_yml = "0.0.12"
 figment = {version="0.10.19",features=["yaml"]}
-axum = {version = "0.7.7", features = ["multipart", "macros", "tokio"]}
+axum = {version = "0.7.9", features = ["multipart", "macros", "tokio"]}
 axum-server = "0.7.1"
 tempfile = "3.14.0"
 utoipa = { version = "5.2.0", features = ["axum_extras"] }
