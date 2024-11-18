@@ -144,8 +144,7 @@ class Downloader:
                     encoder=encoder,
                 ),
                 init_value=IndexifyData(
-                    input_id=task.invocation_id, payload=init_value,
-                    encoder=encoder
+                    input_id=task.invocation_id, payload=init_value, encoder=encoder
                 ),
             )
 
