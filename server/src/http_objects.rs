@@ -276,6 +276,8 @@ pub struct ComputeGraph {
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
     pub runtime_information: RuntimeInformation,
+    #[serde(skip_deserializing)]
+    pub replaying: bool,
 }
 
 impl ComputeGraph {
@@ -306,6 +308,7 @@ impl ComputeGraph {
             edges: self.edges.clone(),
             created_at: 0,
             runtime_information: self.runtime_information.into(),
+            replaying: false,
         };
         Ok(compute_graph)
     }
@@ -331,6 +334,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             edges: compute_graph.edges,
             created_at: compute_graph.created_at,
             runtime_information: compute_graph.runtime_information.into(),
+            replaying: compute_graph.replaying,
         }
     }
 }

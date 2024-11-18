@@ -21,7 +21,11 @@ pub struct SystemTask {
     pub namespace: String,
     pub compute_graph_name: String,
     pub graph_version: GraphVersion,
-    pub restart_key: Option<Vec<u8>>, // Key for the next invocation id to process
+    pub waiting_for_running_invocations: bool,
+    /// key for the next invocation id to process
+    pub restart_key: Option<Vec<u8>>,
+    /// Number of currently running invocations for this system task.
+    pub num_running_invocations: usize,
 }
 
 impl SystemTask {
@@ -29,9 +33,15 @@ impl SystemTask {
         Self {
             namespace,
             compute_graph_name,
+            waiting_for_running_invocations: false,
             graph_version,
             restart_key: None,
+            num_running_invocations: 0,
         }
+    }
+
+    pub fn key(&self) -> String {
+        SystemTask::key_from(&self.namespace, &self.compute_graph_name)
     }
 
     pub fn key_from(namespace: &str, compute_graph: &str) -> String {
@@ -330,6 +340,7 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    pub replaying: bool,
 }
 
 impl ComputeGraph {
@@ -1027,6 +1038,7 @@ mod tests {
                 major_version: 3,
                 minor_version: 10,
             },
+            replaying: false,
         };
 
         let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b2".to_string()));

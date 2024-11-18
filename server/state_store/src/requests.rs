@@ -20,7 +20,7 @@ pub struct StateMachineUpdateRequest {
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     ReplayComputeGraph(ReplayComputeGraphRequest),
-    ReplayInvocation(ReplayInvocationRequest),
+    ReplayInvocations(ReplayInvocationsRequest),
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateComputeGraph(CreateComputeGraphRequest),
@@ -38,7 +38,7 @@ pub enum RequestPayload {
 pub struct UpdateSystemTaskRequest {
     pub namespace: String,
     pub compute_graph_name: String,
-    pub restart_key: Vec<u8>,
+    pub waiting_for_running_invocations: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -48,11 +48,12 @@ pub struct RemoveSystemTaskRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReplayInvocationRequest {
+pub struct ReplayInvocationsRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub graph_version: GraphVersion,
-    pub invocation_id: String,
+    pub invocation_ids: Vec<String>,
+    pub restart_key: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
