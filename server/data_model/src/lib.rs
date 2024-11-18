@@ -114,7 +114,7 @@ pub struct DynamicEdgeRouter {
     pub description: String,
     pub source_fn: String,
     pub target_functions: Vec<String>,
-    pub payload_encoder: String,
+    pub encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
 }
@@ -126,7 +126,7 @@ pub struct ComputeFn {
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
     pub reducer: bool,
-    pub payload_encoder: String,
+    pub encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
 }
