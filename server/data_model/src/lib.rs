@@ -340,6 +340,7 @@ pub struct ComputeGraph {
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
+    #[serde(default)]
     pub replaying: bool,
 }
 
