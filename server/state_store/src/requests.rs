@@ -11,13 +11,14 @@ use data_model::{
     TaskDiagnostics,
     TaskId,
 };
+use strum::AsRefStr;
 
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub state_changes_processed: Vec<StateChangeId>,
 }
 
-#[derive(strum::Display)]
+#[derive(AsRefStr, strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     ReplayComputeGraph(ReplayComputeGraphRequest),

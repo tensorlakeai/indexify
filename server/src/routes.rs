@@ -3,16 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
-    extract::{
-        DefaultBodyLimit,
-        MatchedPath,
-        Multipart,
-        Path,
-        Query,
-        RawPathParams,
-        Request,
-        State,
-    },
+    extract::{DefaultBodyLimit, Multipart, Path, Query, RawPathParams, Request, State},
     http::{Method, Response},
     middleware::{self, Next},
     response::{sse::Event, Html, IntoResponse},
@@ -21,6 +12,10 @@ use axum::{
     Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
+use axum_tracing_opentelemetry::{
+    self,
+    middleware::{OtelAxumLayer, OtelInResponseLayer},
+};
 use blob_store::PutResult;
 use data_model::ExecutorId;
 use futures::StreamExt;
@@ -42,11 +37,8 @@ use state_store::{
     },
     IndexifyState,
 };
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
-};
-use tracing::{error, info, info_span};
+use tower_http::cors::{Any, CorsLayer};
+use tracing::{error, info};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -206,20 +198,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(|req: &Request| {
-                    let method = req.method().as_str();
-                    let uri = req.uri().to_string();
-
-                    let matched_path = req
-                        .extensions()
-                        .get::<MatchedPath>()
-                        .map(MatchedPath::as_str);
-
-                    info_span!("request", method, uri, matched_path)
-                })
-        )
+        .layer(OtelInResponseLayer::default())
+        .layer(OtelAxumLayer::default())
         // No tracing starting here.
         .merge(axum_metrics.routes())
         .route("/ui", get(ui_index_handler))

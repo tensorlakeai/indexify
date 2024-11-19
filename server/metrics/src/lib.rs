@@ -99,7 +99,11 @@ pub fn init_provider() -> prometheus::Registry {
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
         .build();
-    let mut provider = SdkMeterProvider::builder();
+    let mut provider =
+        SdkMeterProvider::builder().with_resource(opentelemetry_sdk::Resource::new(vec![
+            opentelemetry::KeyValue::new("service.name", "indexify-server"),
+            opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+        ]));
 
     let low_latency_boundaries = &[
         0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0,

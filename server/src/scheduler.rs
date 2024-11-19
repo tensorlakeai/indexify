@@ -18,7 +18,7 @@ use task_scheduler::{
     TaskScheduler,
 };
 use tokio::{self, sync::watch::Receiver};
-use tracing::{error, info, span};
+use tracing::{error, info, instrument, span};
 
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
@@ -36,6 +36,7 @@ impl Scheduler {
         }
     }
 
+    #[instrument(skip(self))]
     pub async fn run_scheduler(&self) -> Result<()> {
         let _timer = Timer::start(&self.metrics.scheduler_invocations);
         let state_changes = self

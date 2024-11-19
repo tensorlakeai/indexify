@@ -21,6 +21,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
+use tracing::instrument;
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -418,6 +419,7 @@ impl StateReader {
         Ok(urls)
     }
 
+    #[instrument(skip(self))]
     pub fn get_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
