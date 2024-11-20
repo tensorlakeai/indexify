@@ -1,13 +1,11 @@
 import sys
 import traceback
 from asyncio import Future
-from collections import deque
 from typing import Dict, List, Optional
 import multiprocessing as mp
 
 import cloudpickle
 from pydantic import BaseModel
-from pydantic.dataclasses import dataclass
 from rich import print
 
 from indexify import IndexifyClient
@@ -21,16 +19,11 @@ from indexify.functions_sdk.data_objects import (
 from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
     GraphInvocationContext,
-    IndexifyFunction,
     IndexifyFunctionWrapper,
-    IndexifyRouter,
     RouterCallResult,
 )
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
-
-import concurrent.futures
-
 
 class FunctionRunException(Exception):
     def __init__(
@@ -81,7 +74,6 @@ def _load_function(
     )
     function_wrapper_map[key] = function_wrapper
 
-@dataclass
 class Job(BaseModel):
     namespace: str
     graph_name: str
@@ -101,7 +93,7 @@ class FunctionWorker:
     ) -> None:
         self._workers: int = workers
         self._indexify_client: IndexifyClient = indexify_client
-        self.job_queue: mp.Queue[(Future, Job)] = mp.Queue(maxsize=pool_size)
+        self.job_queue: mp.Queue[tuple[Future, Job]] = mp.Queue(maxsize=pool_size)
         self.shutdown_event = mp.Event()
         self.running_processes: list[mp.Process] = []
         self.finished_jobs = mp.Queue()
