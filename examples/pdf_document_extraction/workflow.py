@@ -3,7 +3,6 @@ from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 from images import http_client_image
-import httpx
 
 @indexify_function(image=http_client_image)
 def download_pdf(url: str) -> File:
@@ -71,13 +70,17 @@ if __name__ == "__main__":
     import common_objects
     import images
 
-    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects, images])
+    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects, images],
+                                      server_url="http://localhost:8900")
 
     file_url = "https://arxiv.org/pdf/1706.03762"
     import httpx
     resp = httpx.get(url=file_url, follow_redirects=True)
     resp.raise_for_status()
     file = File(data=resp.content, mime_type="application/pdf")
+
+    #g = RemoteGraph.by_name("Extract_pages_tables_images_pdf", server_url="http://localhost:8900")
+    #g.output("31b1a28b7b5575d0", "ImageEmbeddingExtractor")
     
     invocation_id = remote_graph.run(
         block_until_done=True, file=file,

@@ -2,3 +2,4 @@ httpx
 pydantic
 py-inkwell
 chromadb
+sentence_transformers
