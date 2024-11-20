@@ -12,7 +12,7 @@ import openai
 image = (
     Image()
     .name("tensorlake/pdf-structured-extraction-inkwell-example")
-    .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime")
+    .base_image("tensorlake/base-image")
     .run("apt update")
     .run("pip install openai")
     .run("pip install requests")
