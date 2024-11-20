@@ -27,6 +27,7 @@ charts/*.tgz
 indexify_storage
 indexify_local_runner_cache
 server/indexify_storage
+server/indexify_server_state
 local_cache
 .dev-tls
 src/state/store/snapshots/*
