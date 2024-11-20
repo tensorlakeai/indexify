@@ -1,12 +1,18 @@
 import sys
 import traceback
+from asyncio import Future
+from collections import deque
 from typing import Dict, List, Optional
+import multiprocessing as mp
 
 import cloudpickle
 from pydantic import BaseModel
+from pydantic.dataclasses import dataclass
 from rich import print
 
 from indexify import IndexifyClient
+from indexify.executor.function_worker.function_worker_utils import \
+    get_optimal_process_count
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -75,16 +81,75 @@ def _load_function(
     )
     function_wrapper_map[key] = function_wrapper
 
+@dataclass
+class Job(BaseModel):
+    namespace: str
+    graph_name: str
+    fn_name: str
+    input: IndexifyData
+    code_path: str
+    version: int
+    init_value: Optional[IndexifyData] = None
+    invocation_id: Optional[str] = None
 
 class FunctionWorker:
     def __init__(
-        self, workers: int = 1, indexify_client: IndexifyClient = None
+        self,
+        workers: int = get_optimal_process_count(),
+        pool_size: int = 1000,
+        indexify_client: IndexifyClient = None
     ) -> None:
-        self._executor: concurrent.futures.ProcessPoolExecutor = (
-            concurrent.futures.ProcessPoolExecutor(max_workers=workers)
-        )
-        self._workers = workers
-        self._indexify_client = indexify_client
+        self._workers: int = workers
+        self._indexify_client: IndexifyClient = indexify_client
+        self.job_queue: mp.Queue[(Future, Job)] = mp.Queue(maxsize=pool_size)
+        self.shutdown_event = mp.Event()
+        self.running_processes: list[mp.Process] = []
+        self.finished_jobs = mp.Queue()
+        self._run()
+
+    def _run(self):
+        while not self.shutdown_event.is_set():
+            if not self.job_queue.empty():
+                if len(self.running_processes) < self._workers:
+                    future, job = self.job_queue.get()
+                    process = mp.Process(
+                        target=self._run_process,
+                        args=(future, job)
+                    )
+                    process.start()
+                    self.running_processes.append(process)
+                else:
+                    # pass and wait for some processes to finish.
+                    continue
+
+    def _run_process(self, future: Future, job: Job):
+        try:
+            result = _run_function(
+                job.namespace,
+                job.graph_name,
+                job.fn_name,
+                job.input,
+                job.code_path,
+                job.version,
+                job.init_value,
+                job.invocation_id,
+                self._indexify_client,
+            )
+            future.set_result(FunctionWorkerOutput(
+                fn_outputs=result.fn_outputs,
+                router_output=result.router_output,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                reducer=result.reducer,
+                success=result.success,
+            ))
+        except Exception as e:
+            future.set_result(FunctionWorkerOutput(
+                stdout=e.stdout,
+                stderr=e.stderr,
+                reducer=e.is_reducer,
+                success=False,
+            ))
 
     async def async_submit(
         self,
@@ -96,39 +161,29 @@ class FunctionWorker:
         version: int,
         init_value: Optional[IndexifyData] = None,
         invocation_id: Optional[str] = None,
-    ) -> FunctionWorkerOutput:
-        try:
-            result = _run_function(
-                namespace,
-                graph_name,
-                fn_name,
-                input,
-                code_path,
-                version,
-                init_value,
-                invocation_id,
-                self._indexify_client,
-            )
-            # TODO - bring back running in a separate process
-        except Exception as e:
-            return FunctionWorkerOutput(
-                stdout=e.stdout,
-                stderr=e.stderr,
-                reducer=e.is_reducer,
-                success=False,
-            )
-
-        return FunctionWorkerOutput(
-            fn_outputs=result.fn_outputs,
-            router_output=result.router_output,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            reducer=result.reducer,
-            success=result.success,
-        )
+    ) -> Future:
+        completion_future = Future()
+        self.job_queue.put((completion_future, Job(
+            namespace=namespace,
+            graph_name=graph_name,
+            fn_name=fn_name,
+            input=input,
+            code_path=code_path,
+            version=version,
+            init_value=init_value,
+            invocation_id=invocation_id,
+            indexify_client=self._indexify_client,
+        )))
+        return completion_future
 
     def shutdown(self):
-        self._executor.shutdown(wait=True, cancel_futures=True)
+        self.shutdown_event.set()
+        # kill the processes when we receive shutdown signal
+        print(
+            f"[bold] function_worker: [/bold] Shutdown signal received, killing {len(self.running_processes)} processes"
+        )
+        for process in self.running_processes:
+            process.kill()
 
 
 def _run_function(
