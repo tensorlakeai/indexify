@@ -1,9 +1,8 @@
-import os
+import io
 
 from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import date
-import tempfile
 from indexify.functions_sdk.data_objects import File
 from indexify import indexify_function, Graph, RemoteGraph, Image
 from typing import Optional, List, Any
@@ -12,18 +11,11 @@ import openai
 
 image = (
     Image()
-    .name("tensorlake/blueprint-pdf-structured-extraction")
+    .name("tensorlake/pdf-structured-extraction-inkwell-example")
     .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime")
     .run("apt update")
-    .run("apt install -y libgl1-mesa-glx git g++")
     .run("pip install openai")
-    .run("pip install psycopg2-binary")
-    .run("pip install sqlmodel")
-    .run("pip install langchain")
-    .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
-    .run("apt install -y tesseract-ocr")
-    .run("apt install -y libtesseract-dev")
-    .run('pip install "py-inkwell[inference]"')
+    .run("pip install requests")
 )
 
 
@@ -36,6 +28,7 @@ def tensorlake_document_ai_parse(file: File) -> str:
     """
     import requests as rs
 
+    # NOTE contact Tensorlake to get a key!
     PLATFORM_TOKEN = "EDIT-THIS"
     if PLATFORM_TOKEN == "EDIT-THIS":
         raise ValueError("Please fix the PLATFORM_TOKEN")
@@ -46,20 +39,15 @@ def tensorlake_document_ai_parse(file: File) -> str:
         "accept": "application/json"
     }
 
-    with tempfile.NamedTemporaryFile(mode="wb+", suffix=".pdf") as f:
-        f.write(file.data)
-        f.seek(0)
+    files = {
+        "file": ("document.pdf", io.BytesIO(file.data), 'application/pdf')
+    }
 
-        files = {
-            "file": (f.name, f, 'application/pdf')
-        }
-
-        try:
-            resp = rs.post(url, headers=headers, files=files).json()
-            print(resp)
-            upload_url = resp['filename']
-        except Exception as e:
-            raise ValueError("Unable to upload file to Tensorlake DocumentAI.")
+    try:
+        resp = rs.post(url, headers=headers, files=files).json()
+        upload_url = resp['filename']
+    except Exception as e:
+        raise ValueError("Unable to upload file to Tensorlake DocumentAI.")
 
     parse_url = "https://api.tensorlake.ai/documents/v1/parse"
 
@@ -120,15 +108,13 @@ def _create_message(system_prompt: str, user_prompt: str, markdown: str) -> List
 
 
 def _call_oai_client(system_prompt: str, user_prompt: str, markdown: str) -> str:
-    from inkwell.ocr.config import OPENAI_OCR_MODEL_CONFIG
-
     OPENAI_API_KEY = "EDIT_ADD_KEY"
 
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
     messages = _create_message(system_prompt, user_prompt, markdown)
     response = client.chat.completions.create(
-        model=OPENAI_OCR_MODEL_CONFIG.model_name_openai, messages=messages
+        model="gpt-4o-mini", messages=messages
     )
 
     return response.choices[0].message.content
