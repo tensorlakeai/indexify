@@ -62,7 +62,7 @@ def tensorlake_document_ai_parse(file: File) -> str:
     resp_json = response.json()
     if resp_json["status"] == "successful":
         # Only return data if the job is successful.
-        return resp_json["result"][0]
+        return resp_json["result"]
 
     return None
 
