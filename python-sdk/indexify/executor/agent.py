@@ -112,9 +112,15 @@ class ExtractorAgent:
         console.print(Text("Starting task completion reporter", style="bold cyan"))
         # We should copy only the keys and not the values
         url = f"{self._protocol}://{self._server_addr}/write_content"
+
         while True:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
+                retryStr = (
+                    f"\nRetries: {task_outcome.reporting_retries}"
+                    if task_outcome.reporting_retries > 0
+                    else ""
+                )
                 outcome = task_outcome.task_outcome
                 style_outcome = (
                     f"[bold red] {outcome} [/]"
@@ -125,7 +131,9 @@ class ExtractorAgent:
                     Panel(
                         f"Reporting outcome of task: {task_outcome.task.id}, function: {task_outcome.task.compute_fn}\n"
                         f"Outcome: {style_outcome}\n"
-                        f"Num Fn Outputs: {len(task_outcome.outputs or [])}  Router Output: {task_outcome.router_output}",
+                        f"Num Fn Outputs: {len(task_outcome.outputs or [])}\n"
+                        f"Router Output: {task_outcome.router_output}\n"
+                        f"Retries: {task_outcome.reporting_retries}",
                         title="Task Completion",
                         border_style="info",
                     )
@@ -139,11 +147,14 @@ class ExtractorAgent:
                     console.print(
                         Panel(
                             f"Failed to report task {task_outcome.task.id}\n"
-                            f"Exception: {e}\nRetrying...",
+                            f"Exception: {type(e).__name__}({e})\n"
+                            f"Retries: {task_outcome.reporting_retries}\n"
+                            "Retrying...",
                             title="Reporting Error",
                             border_style="error",
                         )
                     )
+                    task_outcome.reporting_retries += 1
                     await asyncio.sleep(5)
                     continue
 
