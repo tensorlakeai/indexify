@@ -10,6 +10,7 @@ def get_optimal_process_count():
     """
     return max(os.cpu_count() - 1, 1)
 
+
 def job_generator() -> str:
     """
     Generates job ID

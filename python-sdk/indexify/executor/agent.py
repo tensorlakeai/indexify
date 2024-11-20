@@ -14,6 +14,7 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.common_util import get_httpx_client
+from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -26,7 +27,6 @@ from . import image_dependency_installer
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
-from indexify.executor.function_worker import FunctionWorker
 from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore

@@ -1,16 +1,17 @@
+import multiprocessing as mp
 import sys
 import traceback
 from asyncio import Future
 from typing import Dict, List, Optional
-import multiprocessing as mp
 
 import cloudpickle
 from pydantic import BaseModel
 from rich import print
 
 from indexify import IndexifyClient
-from indexify.executor.function_worker.function_worker_utils import \
-    get_optimal_process_count
+from indexify.executor.function_worker.function_worker_utils import (
+    get_optimal_process_count,
+)
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -24,6 +25,7 @@ from indexify.functions_sdk.indexify_functions import (
 )
 
 function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
+
 
 class FunctionRunException(Exception):
     def __init__(
@@ -74,6 +76,7 @@ def _load_function(
     )
     function_wrapper_map[key] = function_wrapper
 
+
 class Job(BaseModel):
     namespace: str
     graph_name: str
@@ -84,12 +87,13 @@ class Job(BaseModel):
     init_value: Optional[IndexifyData] = None
     invocation_id: Optional[str] = None
 
+
 class FunctionWorker:
     def __init__(
         self,
         workers: int = get_optimal_process_count(),
         pool_size: int = 1000,
-        indexify_client: IndexifyClient = None
+        indexify_client: IndexifyClient = None,
     ) -> None:
         self._workers: int = workers
         self._indexify_client: IndexifyClient = indexify_client
@@ -104,10 +108,7 @@ class FunctionWorker:
             if not self.job_queue.empty():
                 if len(self.running_processes) < self._workers:
                     future, job = self.job_queue.get()
-                    process = mp.Process(
-                        target=self._run_process,
-                        args=(future, job)
-                    )
+                    process = mp.Process(target=self._run_process, args=(future, job))
                     process.start()
                     self.running_processes.append(process)
                 else:
@@ -127,21 +128,25 @@ class FunctionWorker:
                 job.invocation_id,
                 self._indexify_client,
             )
-            future.set_result(FunctionWorkerOutput(
-                fn_outputs=result.fn_outputs,
-                router_output=result.router_output,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                reducer=result.reducer,
-                success=result.success,
-            ))
+            future.set_result(
+                FunctionWorkerOutput(
+                    fn_outputs=result.fn_outputs,
+                    router_output=result.router_output,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    reducer=result.reducer,
+                    success=result.success,
+                )
+            )
         except Exception as e:
-            future.set_result(FunctionWorkerOutput(
-                stdout=e.stdout,
-                stderr=e.stderr,
-                reducer=e.is_reducer,
-                success=False,
-            ))
+            future.set_result(
+                FunctionWorkerOutput(
+                    stdout=e.stdout,
+                    stderr=e.stderr,
+                    reducer=e.is_reducer,
+                    success=False,
+                )
+            )
 
     async def async_submit(
         self,
@@ -155,17 +160,22 @@ class FunctionWorker:
         invocation_id: Optional[str] = None,
     ) -> Future:
         completion_future = Future()
-        self.job_queue.put((completion_future, Job(
-            namespace=namespace,
-            graph_name=graph_name,
-            fn_name=fn_name,
-            input=input,
-            code_path=code_path,
-            version=version,
-            init_value=init_value,
-            invocation_id=invocation_id,
-            indexify_client=self._indexify_client,
-        )))
+        self.job_queue.put(
+            (
+                completion_future,
+                Job(
+                    namespace=namespace,
+                    graph_name=graph_name,
+                    fn_name=fn_name,
+                    input=input,
+                    code_path=code_path,
+                    version=version,
+                    init_value=init_value,
+                    invocation_id=invocation_id,
+                    indexify_client=self._indexify_client,
+                ),
+            )
+        )
         return completion_future
 
     def shutdown(self):

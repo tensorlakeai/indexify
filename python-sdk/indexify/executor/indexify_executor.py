@@ -3,8 +3,9 @@ from typing import Optional
 
 import nanoid
 
-from .agent import ExtractorAgent
 from indexify.executor.function_worker.function_worker import FunctionWorker
+
+from .agent import ExtractorAgent
 
 
 def join(
