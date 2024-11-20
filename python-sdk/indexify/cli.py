@@ -16,7 +16,6 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
-from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.image import (
     DEFAULT_IMAGE_3_10,
     DEFAULT_IMAGE_3_11,
@@ -250,7 +249,6 @@ WORKDIR /app
 
     docker_file += "\n".join(run_strs)
     print(os.getcwd())
-    import docker
     import docker.api.build
 
     docker.api.build.process_dockerfile = lambda dockerfile, path: (
