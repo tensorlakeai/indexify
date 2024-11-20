@@ -10,8 +10,6 @@ class PDFParser(IndexifyFunction):
     # Change to gpu_image to use GPU
     image = inkwell_image_gpu
 
-    encoder = "json"
-
     def __init__(self):
         super().__init__()
         from inkwell.pipeline import Pipeline

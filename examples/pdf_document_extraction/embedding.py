@@ -8,7 +8,7 @@ from inkwell.api.page import PageFragmentType
 import base64
 from images import st_image
 
-@indexify_function(image=st_image, encoder="json")
+@indexify_function(image=st_image)
 def chunk_text(document: Document) -> List[TextChunk]:
     """
     Extract chunks from document
@@ -40,7 +40,7 @@ def chunk_text(document: Document) -> List[TextChunk]:
     return chunks
 
 
-class TextEmbeddingExtractor(IndexifyFunction, encode="json"):
+class TextEmbeddingExtractor(IndexifyFunction):
     name = "text-embedding-extractor"
     description = "Extractor class that captures an embedding model"
     system_dependencies = []
@@ -61,8 +61,6 @@ class ImageEmbeddingExtractor(IndexifyFunction):
     name = "image-embedding"
     description = "Extractor class that captures an embedding model"
     image=st_image
-
-    encoder = "json"
 
     def __init__(self):
         super().__init__()

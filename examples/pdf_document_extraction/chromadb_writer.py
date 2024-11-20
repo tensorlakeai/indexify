@@ -7,8 +7,6 @@ class ChromaDBWriter(IndexifyFunction):
     name = "chroma_db_writer"
     image = chroma_image
 
-    encoder = "json"
-
     def __init__(self):
         import chromadb
         super().__init__()
