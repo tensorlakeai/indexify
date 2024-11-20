@@ -26,7 +26,7 @@ from . import image_dependency_installer
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
-from .function_worker import FunctionWorker
+from indexify.executor.function_worker import FunctionWorker
 from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
@@ -163,7 +163,7 @@ class ExtractorAgent:
                 self._task_store.mark_reported(task_id=task_outcome.task.id)
 
     async def task_launcher(self):
-        async_tasks: List[asyncio.Task] = []
+        async_tasks: List[asyncio.Task | asyncio.Future] = []
         fn_queue: List[FunctionInput] = []
 
         async_tasks.append(
@@ -215,13 +215,23 @@ class ExtractorAgent:
                         continue
 
                 async_tasks.append(
-                    ExtractTask(
-                        function_worker=self._function_worker,
-                        task=task,
-                        input=fn.input,
-                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
+                    self._function_worker.async_submit(
+                        namespace=task.namespace,
+                        graph_name=task.compute_graph,
+                        fn_name=task.compute_fn,
+                        input=input,
                         init_value=fn.init_value,
+                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
+                        version=task.graph_version,
+                        invocation_id=task.invocation_id,
                     )
+                    # ExtractTask(
+                    #     function_worker=self._function_worker,
+                    #     task=task,
+                    #     input=fn.input,
+                    #     code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
+                    #     init_value=fn.init_value,
+                    # )
                 )
 
             fn_queue = []

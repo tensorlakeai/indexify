@@ -1,10 +1,10 @@
 import asyncio
-from typing import List, Optional
+from typing import Optional
 
 import nanoid
 
 from .agent import ExtractorAgent
-from .function_worker import FunctionWorker
+from indexify.executor.function_worker.function_worker import FunctionWorker
 
 
 def join(

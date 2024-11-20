@@ -5,7 +5,7 @@ from indexify.functions_sdk.data_objects import IndexifyData
 
 from .api_objects import Task
 from .downloader import Downloader
-from .function_worker import FunctionWorker
+from indexify.executor.function_worker import FunctionWorker
 
 
 class DownloadGraphTask(asyncio.Task):
