@@ -41,3 +41,4 @@ jobs:
           docker push tensorlake/blueprints-chromadb
           docker push tensorlake/blueprint-pdf-structured-extraction
           docker push tensorlake/openai-image
+          docker push tensorlake/base-image
