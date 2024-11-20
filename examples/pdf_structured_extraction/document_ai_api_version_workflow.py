@@ -10,24 +10,24 @@ from typing import Optional, List, Any
 import openai
 
 
-OPENAI_API_KEY_NAME = "TODO_USER_ADD_KEY_HERE"
-
-
-# TODO just use one image
-requests_image = (
+image = (
     Image()
-    .name("tensorlake/requests-image")
-    .run("pip install requests")
-)
-
-openai_image = (
-    Image()
-    .name("tensorlake/openai-image-pdf-structured")
+    .name("tensorlake/blueprint-pdf-structured-extraction")
+    .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime")
+    .run("apt update")
+    .run("apt install -y libgl1-mesa-glx git g++")
     .run("pip install openai")
+    .run("pip install psycopg2-binary")
+    .run("pip install sqlmodel")
+    .run("pip install langchain")
+    .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
+    .run("apt install -y tesseract-ocr")
+    .run("apt install -y libtesseract-dev")
+    .run('pip install "py-inkwell[inference]"')
 )
 
 
-@indexify_function(image=requests_image)
+@indexify_function(image=image)
 def tensorlake_document_ai_parse(file: File) -> str:
     """
     Call the inkwell parse API. TODO replace the token below for `Bearer`.
@@ -36,9 +36,13 @@ def tensorlake_document_ai_parse(file: File) -> str:
     """
     import requests as rs
 
+    PLATFORM_TOKEN = "EDIT-THIS"
+    if PLATFORM_TOKEN == "EDIT-THIS":
+        raise ValueError("Please fix the PLATFORM_TOKEN")
+
     url = "https://api.tensorlake.ai/documents/v1/upload"
     headers = {
-        "Authorization": "Bearer <EDIT THIS>",
+        "Authorization": f"Bearer {PLATFORM_TOKEN}",
         "accept": "application/json"
     }
 
@@ -62,7 +66,7 @@ def tensorlake_document_ai_parse(file: File) -> str:
     headers = {
         "accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": "Bearer <EDIT THIS>"
+        "Authorization": f"Bearer {PLATFORM_TOKEN}"
     }
 
     payload = {
@@ -118,7 +122,9 @@ def _create_message(system_prompt: str, user_prompt: str, markdown: str) -> List
 def _call_oai_client(system_prompt: str, user_prompt: str, markdown: str) -> str:
     from inkwell.ocr.config import OPENAI_OCR_MODEL_CONFIG
 
-    client = openai.OpenAI(api_key=os.getenv(OPENAI_API_KEY_NAME))
+    OPENAI_API_KEY = "EDIT_ADD_KEY"
+
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
     messages = _create_message(system_prompt, user_prompt, markdown)
     response = client.chat.completions.create(
@@ -128,16 +134,15 @@ def _call_oai_client(system_prompt: str, user_prompt: str, markdown: str) -> str
     return response.choices[0].message.content
 
 
-@indexify_function(image=openai_image)
+@indexify_function(image=image)
 def extract_with_oai(markdown: str) -> BillSchema:
-    from inkwell.ocr.config import OPENAI_OCR_MODEL_CONFIG, _load_ocr_prompts
-    from inkwell.io import read_pdf_as_images
     schema = BillSchema.model_json_schema()
 
     SYSTEM_PROMPT = """You are an expert in Extracting data from a PDF file. You are given markdown text 
     extracted from a bill. You need to extract the data from this markdown text input. If there is a specific
     requirement or customization in further instructions, please follow them. Do no make a mistake in following the 
-    instruction."""
+    instruction. If you're not able to extract some fields simply return the Optional value for that type as per the 
+    schema."""
 
     USER_PROMPT = f"""Here is the markdown parsed from a bill. Extract the data from the bill according to the schema provided.
 
@@ -149,9 +154,6 @@ def extract_with_oai(markdown: str) -> BillSchema:
     """
 
     resp = _call_oai_client(SYSTEM_PROMPT, USER_PROMPT, markdown)
-    print(resp)
-
-    print('----')
 
     result = resp.replace("```json", "").replace("```", "")
     print(result)
@@ -167,11 +169,14 @@ def create_graph() -> Graph:
 
 
 if __name__ == "__main__":
-    g = create_graph()
+    graph = create_graph()
+
     import sys
-    graph = RemoteGraph.deploy(g, additional_modules=[sys.modules[__name__]], server_url="http://100.106.216.46:8900")
+    graph = RemoteGraph.deploy(graph, additional_modules=[sys.modules[__name__]], server_url="http://100.106.216.46:8900")
+
     import httpx
     response = httpx.get("https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/sample_bill.pdf")
+
     f = File(data=response.content)
     invocation_id = graph.run(block_until_done=True,file=f)
     data = graph.output(invocation_id, "extract_with_oai")
