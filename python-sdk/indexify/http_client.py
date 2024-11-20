@@ -135,7 +135,9 @@ class IndexifyClient:
 
     def _add_api_key(self, kwargs):
         if self._api_key:
-            kwargs["headers"] = {"Authorization": f"Bearer {self._api_key}"}
+            if "headers" not in kwargs:
+                kwargs["headers"] = {}
+            kwargs["headers"]["Authorization"] = f"Bearer {self._api_key}"
 
     def _get(self, endpoint: str, **kwargs) -> httpx.Response:
         self._add_api_key(kwargs)

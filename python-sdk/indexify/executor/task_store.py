@@ -17,6 +17,7 @@ class CompletedTask(BaseModel):
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     reducer: bool = False
+    reporting_retries: int = 0
 
 
 class TaskStore:

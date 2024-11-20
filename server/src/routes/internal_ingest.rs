@@ -81,7 +81,7 @@ pub struct InvokeWithFile {
 /// Upload data to a compute graph
 #[utoipa::path(
     post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_file",
+    path = "internal/ingest_files",
     request_body(content_type = "multipart/form-data", content = inline(InvokeWithFile)),
     tag = "ingestion",
     responses(
