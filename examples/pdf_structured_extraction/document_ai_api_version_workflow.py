@@ -93,7 +93,7 @@ class BillSchema(BaseModel):
     account_no: str = Field(..., description="Account number of the customer")
     address: str = Field(..., description="Address of the customer")
     statement_date: Optional[date] = Field(..., description="Date when the statement was issued")
-    due_date: date = Field(..., description="Date by which the payment is due")
+    due_date: str = Field(..., description="Date by which the payment is due")
     total_amount_due: float = Field(..., description="Total amount due on the bill", ge=0)
     payment_received_since_last_statement: float = Field(..., description="Payment received since the last statement", ge=0)
     current_delivery_charges: float = Field(..., description="Current delivery charges", ge=0)
@@ -178,6 +178,9 @@ if __name__ == "__main__":
     response = httpx.get("https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/sample_bill.pdf")
 
     f = File(data=response.content)
+
+    print("Calling Graph")
     invocation_id = graph.run(block_until_done=True,file=f)
+
     data = graph.output(invocation_id, "extract_with_oai")
     print(data)
