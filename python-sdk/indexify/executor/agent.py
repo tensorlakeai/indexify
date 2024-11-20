@@ -89,6 +89,7 @@ class ExtractorAgent:
 
         self._task_store: TaskStore = TaskStore()
         self._executor_id = executor_id
+        console.print("Starting FunctionWorker", style="cyan bold")
         self._function_worker = FunctionWorker(
             workers=num_workers,
             indexify_client=IndexifyClient(
@@ -360,6 +361,7 @@ class ExtractorAgent:
                         continue
 
     async def run(self):
+        console.print("Starting Extractor Agent...", style="green")
         import signal
 
         asyncio.get_event_loop().add_signal_handler(
@@ -376,6 +378,7 @@ class ExtractorAgent:
                 words = snake_str.split("_")
                 return words[0].capitalize() + "" + " ".join(words[1:])
 
+            console.print("Starting Probe....")
             runtime_probe: ProbeInfo = self._probe.probe()
 
             executor_version = version("indexify")

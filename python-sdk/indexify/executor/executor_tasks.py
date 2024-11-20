@@ -71,3 +71,31 @@ class ExtractTask(asyncio.Task):
             **kwargs,
         )
         self.task = task
+
+class ExtractTask(asyncio.Future):
+    def __init__(
+        self,
+        *,
+        function_worker: FunctionWorker,
+        task: Task,
+        input: IndexifyData,
+        init_value: Optional[IndexifyData] = None,
+        code_path: str,
+        **kwargs,
+    ):
+        kwargs["name"] = "run_function"
+        kwargs["loop"] = asyncio.get_event_loop()
+        super().__init__(
+            function_worker.async_submit(
+                namespace=task.namespace,
+                graph_name=task.compute_graph,
+                fn_name=task.compute_fn,
+                input=input,
+                init_value=init_value,
+                code_path=code_path,
+                version=task.graph_version,
+                invocation_id=task.invocation_id,
+            ),
+            **kwargs,
+        )
+        self.task = task
