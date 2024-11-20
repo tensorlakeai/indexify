@@ -28,20 +28,22 @@ def tensorlake_document_ai_parse(file: File) -> str:
         "accept": "application/json"
     }
 
-    with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
+    with tempfile.NamedTemporaryFile(mode="wb+", suffix=".pdf") as f:
         f.write(file.data)
+        f.seek(0)
 
         files = {
-            "file": (f.name, f)
+            "file": (f.name, f, 'application/pdf')
         }
 
         try:
-            upload_url = rs.post(url, headers=headers, files=files).json()['filename']
+            resp = rs.post(url, headers=headers, files=files).json()
+            print(resp)
+            upload_url = resp['filename']
         except Exception as e:
             raise ValueError("Unable to upload file to Tensorlake DocumentAI.")
 
-
-    url = "https://api.tensorlake.ai/documents/v1/parse"
+    parse_url = "https://api.tensorlake.ai/documents/v1/parse"
 
     headers = {
         "accept": "application/json",
@@ -55,12 +57,12 @@ def tensorlake_document_ai_parse(file: File) -> str:
         "parse_mode": "large",
     }
 
-    response = rs.post(url, headers=headers, json=payload)
+    response = rs.post(parse_url, headers=headers, json=payload)
 
     resp_json = response.json()
     if resp_json["status"] == "successful":
         # Only return data if the job is successful.
-        return resp_json["result"]
+        return resp_json["result"][0]
 
     return None
 
