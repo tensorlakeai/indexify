@@ -68,7 +68,6 @@ def generate_tweet_topics(subject: str) -> List[str]:
             {"role": "system", "content": "You are a helpful assistant that generates topics for a tweet about a given subject."},
             {"role": "user", "content": f"Generate 5 topics for a tweet about {subject}"},
         ],
-        response_model=Topics
     )
     topics = response.choices[0].message.content
     return topics.topics
@@ -89,7 +88,6 @@ def generate_tweet(topic: str) -> str:
             {"role": "system", "content": "You are a helpful assistant that generates a tweet about a given topic."},
             {"role": "user", "content": f"Generate a tweet about {topic}"},
         ],
-        response_model=Tweet
     )
     tweet = response.choices[0].message.content
     return tweet.tweet
