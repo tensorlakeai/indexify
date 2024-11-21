@@ -12,7 +12,7 @@ from indexify.functions_sdk.data_objects import IndexifyData
 from .. import IndexifyClient
 from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
 from .api_objects import Task
-from .executor_tasks import DownloadTask
+from .executor_tasks import DownloadTask, TaskEnum
 
 custom_theme = Theme(
     {
@@ -39,18 +39,18 @@ class Downloader:
     ):
         self.code_path = code_path
         self.base_url = base_url
-        self._client = indexify_client
+        self._indexify_client = indexify_client
         self._event_loop = asyncio.get_event_loop()
 
     def download(self, task, name):
-        if name == "download_graph":
+        if name == TaskEnum.DOWNLOAD_GRAPH_TASK:
             coroutine = self.download_graph(
                 task.namespace, task.compute_graph, task.graph_version
             )
-        elif name == "download_input":
+        elif name == TaskEnum.DOWNLOAD_INPUT_TASK:
             coroutine = self.download_input(task)
         else:
-            raise Exception("Unsupported task name")
+            raise ValueError(f"Unsupported task name: {name}")
 
         return DownloadTask(
             task=task, coroutine=coroutine, name=name, loop=self._event_loop
@@ -69,10 +69,17 @@ class Downloader:
             )
         )
 
-        response = self._client.download_graph(namespace, name)
+        response = self._indexify_client.download_graph(namespace, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(response.content)
+        console.print(
+            Panel(
+                f"Graph Downloaded",
+                title="downloader",
+                border_style="cyan",
+            )
+        )
         return path
 
     async def download_input(self, task: Task) -> DownloadedInputs:
@@ -96,15 +103,15 @@ class Downloader:
 
         input_id = task.input_key.split("|")[-1]
         if task.invocation_id == input_id:
-            response = self._client.download_fn_input(
+            response = self._indexify_client.download_fn_input(
                 task.namespace, task.compute_graph, task.invocation_id
             )
         else:
-            response = self._client.download_fn_output(task.input_key)
+            response = self._indexify_client.download_fn_output(task.input_key)
 
         init_value = None
         if task.reducer_output_id:
-            init_value = self._client.download_reducer_input(
+            init_value = self._indexify_client.download_reducer_input(
                 task.namespace,
                 task.compute_graph,
                 task.invocation_id,

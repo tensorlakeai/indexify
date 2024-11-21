@@ -12,7 +12,8 @@ from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_reporter.task_reporter_utils import (
     _log,
-    _log_exception, console,
+    _log_exception,
+    console,
 )
 from indexify.executor.task_store import CompletedTask, TaskStore
 from indexify.functions_sdk.object_serializer import get_serializer
@@ -26,6 +27,7 @@ class ForceMultipartDict(dict):
 
 FORCE_MULTIPART = ForceMultipartDict()
 UTF_8_CONTENT_TYPE = "application/octet-stream"
+
 
 class ReportingData(BaseModel):
     output_count: int = 0
@@ -50,7 +52,7 @@ class TaskReporter:
         self._task_store = task_store
 
     async def run(self):
-        console.print(Text("Starting task completion reporter", style="bold cyan"))
+        console.print(Text("Starting TaskReporter", style="bold cyan"))
         # We should copy only the keys and not the values
 
         while True:

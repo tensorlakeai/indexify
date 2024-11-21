@@ -115,10 +115,6 @@ class FunctionWorker:
                 success=False,
             )
 
-    def shutdown(self):
-        # kill everything
-        self._loop.stop()
-
 
 async def _run_function(
     namespace: str,
