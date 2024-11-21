@@ -12,7 +12,7 @@ import openai
 image = (
     Image()
     .name("tensorlake/pdf-structured-extraction-inkwell-example")
-    .base_image("tensorlake/base-image")
+    .base_image("python:3.11-slim")
     .run("apt update")
     .run("pip install openai")
     .run("pip install requests")
