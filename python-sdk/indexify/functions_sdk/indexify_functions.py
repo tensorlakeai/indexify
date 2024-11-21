@@ -137,9 +137,11 @@ def indexify_router(
 
         attrs = {
             "name": name if name else fn.__name__,
-            "description": description
-            if description
-            else (fn.__doc__ or "").strip().replace("\n", ""),
+            "description": (
+                description
+                if description
+                else (fn.__doc__ or "").strip().replace("\n", "")
+            ),
             "image": image,
             "placement_constraints": placement_constraints,
             "encoder": encoder,
@@ -174,9 +176,11 @@ def indexify_function(
 
         attrs = {
             "name": name if name else fn.__name__,
-            "description": description
-            if description
-            else (fn.__doc__ or "").strip().replace("\n", ""),
+            "description": (
+                description
+                if description
+                else (fn.__doc__ or "").strip().replace("\n", "")
+            ),
             "image": image,
             "placement_constraints": placement_constraints,
             "accumulate": accumulate,
@@ -205,9 +209,9 @@ class IndexifyFunctionWrapper:
         indexify_function: Union[IndexifyFunction, IndexifyRouter],
         context: GraphInvocationContext,
     ):
-        self.indexify_function: Union[
-            IndexifyFunction, IndexifyRouter
-        ] = indexify_function()
+        self.indexify_function: Union[IndexifyFunction, IndexifyRouter] = (
+            indexify_function()
+        )
         self.indexify_function._ctx = context
 
     def get_output_model(self) -> Any:
