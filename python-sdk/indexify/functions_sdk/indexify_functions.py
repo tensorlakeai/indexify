@@ -83,8 +83,8 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    encoder: Optional[str] = "cloudpickle",
-    is_async: bool = False,
+    encoder: Optional[str] = "cloudpickle"
+    is_async: bool = False
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
