@@ -10,9 +10,11 @@ from indexify import Graph
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.data_objects import File, IndexifyData
 from indexify.functions_sdk.indexify_functions import (
+    GraphInvocationContext,
     IndexifyFunctionWrapper,
     indexify_function,
 )
+from indexify.functions_sdk.object_serializer import CloudPickleSerializer
 
 
 @indexify_function()
@@ -95,12 +97,14 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
                 ),
                 code_path=temp_file_path,
                 version=1,
+                invocation_id="123",
             )
-            fn_wrapper = IndexifyFunctionWrapper(extractor_b)
             fn_outputs = []
             for worker_output in fn_worker_output.fn_outputs:
-                self.assertEqual(worker_output.payload_encoding, "cloudpickle")
-                fn_outputs.append(fn_wrapper.deserialize_fn_output(worker_output))
+                self.assertEqual(worker_output.encoder, "cloudpickle")
+                fn_outputs.append(
+                    CloudPickleSerializer.deserialize(worker_output.payload)
+                )
             self.assertEqual(len(fn_outputs), 2)
             expected = FileChunk(data=b"hello", start=5, end=5)
 
@@ -110,7 +114,7 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
         g = create_graph_exception()
 
         with tempfile.NamedTemporaryFile(delete=True) as temp_file:
-            code_bytes = cloudpickle.dumps(g.serialize())
+            code_bytes = cloudpickle.dumps(g.serialize(additional_modules=[]))
 
             temp_file.write(code_bytes)
             temp_file.flush()
@@ -123,9 +127,10 @@ class TestFunctionWorker(unittest.IsolatedAsyncioTestCase):
                 input=IndexifyData(id="123", payload=cloudpickle.dumps(10)),
                 code_path=temp_file_path,
                 version=1,
+                invocation_id="123",
             )
             assert not result.success
-            assert result.exception == "this extractor throws an exception."
+            assert "this extractor throws an exception." in result.stderr
 
 
 if __name__ == "__main__":

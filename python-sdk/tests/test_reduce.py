@@ -3,7 +3,7 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from indexify import Graph, create_client
+from indexify import Graph, RemoteGraph
 from indexify.functions_sdk.indexify_functions import indexify_function
 
 
@@ -70,14 +70,10 @@ def create_graph():
 class TestReduce(unittest.TestCase):
     def test_reduce(self):
         graph = create_graph()
-        client = create_client(local=True)
-        client.register_compute_graph(graph)
-        invocation_id = client.invoke_graph_with_object(
-            graph.name, block_until_done=True, x=3
-        )
-        result = client.graph_outputs(
-            graph.name, invocation_id, fn_name=store_result.name
-        )
+        RemoteGraph.deploy(graph)
+        graph = RemoteGraph.by_name(graph.name)
+        invocation_id = graph.run(block_until_done=True, x=3)
+        result = graph.output(invocation_id, store_result.name)
         self.assertEqual(result[0], 22)
 
     def test_metadata(self):
