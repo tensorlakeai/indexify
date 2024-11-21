@@ -100,7 +100,9 @@ class ExtractorAgent:
         self._server_addr = server_addr
         self._base_url = f"{self._protocol}://{self._server_addr}"
         self._code_path = code_path
-        self._downloader = Downloader(code_path=code_path, base_url=self._base_url, config_path=self._config_path)
+        self._downloader = Downloader(
+            code_path=code_path, base_url=self._base_url, config_path=self._config_path
+        )
         self._max_queued_tasks = 10
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
