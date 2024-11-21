@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import List
 
 from pydantic import BaseModel, Field
@@ -49,10 +50,6 @@ openai_image_3_11 = (
     .run("pip install openai")
 )
 
-# NOTE: Modify the image param to the decorator if you want to use python 3.11
-
-# NOTE Add API key here for executor access
-OPENAI_API_KEY = "<EDIT-ME>"
 
 @indexify_function(image=openai_image_3_10)
 def generate_tweet_topics(subject: str) -> List[str]:
@@ -61,7 +58,7 @@ def generate_tweet_topics(subject: str) -> List[str]:
     from pydantic import BaseModel, Field
     from typing import List
 
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
     class Topics(BaseModel):
         topics: List[str] = Field(default_factory=list)
@@ -83,7 +80,7 @@ def generate_tweet(topic: str) -> str:
     import openai
     from pydantic import BaseModel, Field
 
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
     class Tweet(BaseModel):
         tweet: str = Field(description="a tweet about the given topic")
@@ -109,7 +106,7 @@ def accumulate_tweets(acc: Tweets, tweet: str) -> Tweets:
 def score_and_rank_tweets(tweets: Tweets) -> RankedTweets:
     """Score and rank the accumulated tweets."""
     import openai
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     tweet_contents = "\n".join(tweets.tweets)
 
     response = client.beta.chat.completions.parse(
