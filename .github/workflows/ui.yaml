@@ -1,0 +1,34 @@
+name: UI
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - 'server/ui/**'
+      - '.github/workflows/tests_ui.yaml'
+
+jobs:
+  lint:
+    name: Lint Checks
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        if: ${{ needs.changes.outputs.ui == 'true' }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Npm Install
+        if: ${{ needs.changes.outputs.ui == 'true' }}
+        run: cd server/ui && npm ci
+
+      - name: UI Lint Check
+        if: ${{ needs.changes.outputs.ui == 'true' }}
+        run: cd server/ui && npm run lint

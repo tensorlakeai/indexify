@@ -37,8 +37,17 @@ push-container: ## Push container to docker hub
 build-ui: ## Build Indexify UI
 	docker build -f dockerfiles/Dockerfile.ui --tag ${DOCKER_USERNAME}/indexify-ui .
 
-fmt: ## Run rustfmt
+nightly-toolchain:
+	rustup toolchain install nightly
+	rustup component add --toolchain nightly rustfmt
+
+.PHONY: fmt
+fmt: nightly-toolchain ## Run rustfmt
 	rustup run nightly cargo fmt
+
+.PHONY: check
+check: nightly-toolchain ## Run rustfmt check
+	rustup run nightly cargo fmt -- --check
 
 halp: help
 
