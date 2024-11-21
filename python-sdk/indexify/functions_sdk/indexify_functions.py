@@ -83,9 +83,13 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    encoder: Optional[str] = "cloudpickle"
+    encoder: Optional[str] = "cloudpickle",
+    is_async: bool = False,
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
+        pass
+
+    async def async_run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
 
     def partial(self, **kwargs) -> Callable:
@@ -170,6 +174,9 @@ def indexify_function(
         def run(self, *args, **kwargs):
             return fn(*args, **kwargs)
 
+        async def async_run(self, *args, **kwargs):
+            return await fn(*args, **kwargs)
+
         # Apply original signature and annotations to run method
         run.__signature__ = fn_sig
         run.__annotations__ = fn_hints
@@ -186,6 +193,8 @@ def indexify_function(
             "accumulate": accumulate,
             "encoder": encoder,
             "run": run,
+            "async_run": async_run,
+            "is_async": inspect.iscoroutinefunction(fn),
         }
 
         return type("IndexifyFunction", (IndexifyFunction,), attrs)
@@ -276,6 +285,30 @@ class IndexifyFunctionWrapper:
         )
         return output, None
 
+    async def run_fn_async(
+        self, input: Union[Dict, Type[BaseModel]], acc: Type[Any] = None
+    ) -> Tuple[List[Any], Optional[str]]:
+        args = []
+        kwargs = {}
+        if acc is not None:
+            args.append(acc)
+        if isinstance(input, dict):
+            kwargs = input
+        else:
+            args.append(input)
+
+        try:
+            extracted_data = await self.indexify_function.run(*args, **kwargs)
+        except Exception as e:
+            return [], traceback.format_exc()
+        if extracted_data is None:
+            return [], None
+
+        output = (
+            extracted_data if isinstance(extracted_data, list) else [extracted_data]
+        )
+        return output, None
+
     def invoke_fn_ser(
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> FunctionCallResult:
@@ -290,6 +323,29 @@ class IndexifyFunctionWrapper:
                 self.indexify_function.accumulate()
             )
         outputs, err = self.run_fn(input, acc=acc)
+        ser_outputs = [
+            IndexifyData(
+                payload=serializer.serialize(output),
+                encoder=self.indexify_function.encoder,
+            )
+            for output in outputs
+        ]
+        return FunctionCallResult(ser_outputs=ser_outputs, traceback_msg=err)
+
+    async def invoke_fn_ser_async(
+        self, name: str, input: IndexifyData, acc: Optional[Any] = None
+    ) -> FunctionCallResult:
+        input = self.deserialize_input(name, input)
+        serializer = get_serializer(self.indexify_function.encoder)
+        if acc is not None:
+            acc = self.indexify_function.accumulate.model_validate(
+                serializer.deserialize(acc.payload)
+            )
+        if acc is None and self.indexify_function.accumulate is not None:
+            acc = self.indexify_function.accumulate.model_validate(
+                self.indexify_function.accumulate()
+            )
+        outputs, err = await self.run_fn_async(input, acc=acc)
         ser_outputs = [
             IndexifyData(
                 payload=serializer.serialize(output),
