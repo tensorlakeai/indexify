@@ -9,7 +9,6 @@ fmt:
 	@poetry run isort . --profile black
 
 check:
-	@poetry run pip install black isort
 	@poetry run black --check .
 	@poetry run isort . --check-only --profile black
 

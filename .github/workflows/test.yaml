@@ -78,6 +78,7 @@ jobs:
         if: ${{ needs.changes.outputs.other == 'true' }}
         run: |
           cd python-sdk/
+          poetry install
           make check
 
   test:
