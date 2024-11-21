@@ -28,6 +28,7 @@ class ExecutorMetadata(BaseModel):
 class RouterOutput(BaseModel):
     edges: List[str]
 
+
 class TaskResult(BaseModel):
     router_output: Optional[RouterOutput] = None
     outcome: str

@@ -4,7 +4,11 @@ from functools import cache
 import cloudpickle
 
 from indexify import IndexifyClient
-from indexify.functions_sdk.indexify_functions import GraphInvocationContext, IndexifyFunctionWrapper
+from indexify.functions_sdk.indexify_functions import (
+    GraphInvocationContext,
+    IndexifyFunctionWrapper,
+)
+
 
 @cache
 def _load_function(

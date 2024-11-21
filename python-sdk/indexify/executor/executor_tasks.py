@@ -2,6 +2,7 @@ import asyncio
 
 from .api_objects import Task
 
+
 class RunFunctionTask(asyncio.Task):
     def __init__(
         self,

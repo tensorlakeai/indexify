@@ -1,6 +1,6 @@
+from rich.console import Console
 from rich.panel import Panel
-
-from indexify.executor.task_reporter.task_reporter import console
+from rich.theme import Theme
 
 
 def _log_exception(task_outcome, e):
@@ -34,3 +34,14 @@ def _log(task_outcome):
             border_style="info",
         )
     )
+
+
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "highlight": "magenta",
+    }
+)
+console = Console(theme=custom_theme)

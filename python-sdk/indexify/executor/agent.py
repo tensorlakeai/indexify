@@ -16,6 +16,7 @@ from rich.theme import Theme
 
 from indexify.common_util import get_httpx_client
 from indexify.executor.function_worker import FunctionWorker
+from indexify.executor.task_reporter import TaskReporter
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -28,7 +29,6 @@ from . import image_dependency_installer
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .runtime_probes import ProbeInfo, RuntimeProbes
-from indexify.executor.task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
 
 custom_theme = Theme(
@@ -107,7 +107,7 @@ class ExtractorAgent:
                 config_path=self._config_path,
             ),
             code_path=code_path,
-            base_url=self._base_url
+            base_url=self._base_url,
         )
         self._task_reporter = TaskReporter(
             base_url=self._base_url,

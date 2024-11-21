@@ -7,8 +7,11 @@ from pydantic import BaseModel
 from rich import print
 
 from indexify import IndexifyClient
-from indexify.executor.function_worker.function_worker_utils import _load_function
+from indexify.executor.api_objects import Task
 from indexify.executor.executor_tasks import RunFunctionTask
+from indexify.executor.function_worker.function_worker_utils import (
+    _load_function,
+)
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -18,7 +21,7 @@ from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
     RouterCallResult,
 )
-from indexify.executor.api_objects import Task
+
 
 class FunctionRunException(Exception):
     def __init__(
@@ -39,6 +42,7 @@ class FunctionOutput(BaseModel):
     stdout: str = ""
     stderr: str = ""
 
+
 class Job(BaseModel):
     namespace: str
     graph_name: str
@@ -58,7 +62,13 @@ class FunctionWorker:
         self._indexify_client: IndexifyClient = indexify_client
         self._loop = asyncio.get_event_loop()
 
-    def run_function(self, task: Task, fn_input: IndexifyData, init_value: IndexifyData | None, code_path: str):
+    def run_function(
+        self,
+        task: Task,
+        fn_input: IndexifyData,
+        init_value: IndexifyData | None,
+        code_path: str,
+    ):
         return RunFunctionTask(
             task=task,
             coroutine=self.async_submit(
@@ -136,14 +146,14 @@ async def _run_function(
     with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
         try:
             fn = _load_function(
-                    namespace,
-                    graph_name,
-                    fn_name,
-                    code_path,
-                    version,
-                    invocation_id,
-                    indexify_client,
-                )
+                namespace,
+                graph_name,
+                fn_name,
+                code_path,
+                version,
+                invocation_id,
+                indexify_client,
+            )
             if (
                 str(type(fn.indexify_function))
                 == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"

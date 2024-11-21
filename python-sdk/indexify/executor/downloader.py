@@ -9,6 +9,7 @@ from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
 
+from .. import IndexifyClient
 from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
 from .api_objects import Task
 from .executor_tasks import DownloadTask
@@ -95,13 +96,21 @@ class Downloader:
 
         input_id = task.input_key.split("|")[-1]
         if task.invocation_id == input_id:
-            response = self._client.download_fn_input(task.namespace, task.compute_graph, task.invocation_id)
+            response = self._client.download_fn_input(
+                task.namespace, task.compute_graph, task.invocation_id
+            )
         else:
             response = self._client.download_fn_output(task.input_key)
 
         init_value = None
         if task.reducer_output_id:
-            init_value = self._client.download_reducer_input(task.namespace, task.compute_graph, task.invocation_id, task.compute_fn, task.reducer_output_id)
+            init_value = self._client.download_reducer_input(
+                task.namespace,
+                task.compute_graph,
+                task.invocation_id,
+                task.compute_fn,
+                task.reducer_output_id,
+            )
 
         encoder = (
             "json"

@@ -6,14 +6,14 @@ from httpx import Timeout
 from pydantic import BaseModel
 from rich import print
 from rich.text import Text
-from rich.console import Console
-from rich.theme import Theme
 
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
-from indexify.executor.task_reporter.task_reporter_utils import _log_exception, \
-    _log
+from indexify.executor.task_reporter.task_reporter_utils import (
+    _log,
+    _log_exception, console,
+)
 from indexify.executor.task_store import CompletedTask, TaskStore
 from indexify.functions_sdk.object_serializer import get_serializer
 
@@ -26,15 +26,6 @@ class ForceMultipartDict(dict):
 
 FORCE_MULTIPART = ForceMultipartDict()
 UTF_8_CONTENT_TYPE = "application/octet-stream"
-custom_theme = Theme(
-    {
-        "info": "cyan",
-        "warning": "yellow",
-        "error": "red",
-        "highlight": "magenta",
-    }
-)
-console = Console(theme=custom_theme)
 
 class ReportingData(BaseModel):
     output_count: int = 0
