@@ -94,7 +94,9 @@ class FunctionWorker:
         self._loop = asyncio.get_event_loop()
 
     def run_function(self, task, fn_input, init_value, code_path):
-        return RunFunctionTask(task=task, coroutine=self.async_submit(
+        return RunFunctionTask(
+            task=task,
+            coroutine=self.async_submit(
                 namespace=task.namespace,
                 graph_name=task.compute_graph,
                 fn_name=task.compute_fn,
@@ -103,12 +105,11 @@ class FunctionWorker:
                 code_path=code_path,
                 version=task.graph_version,
                 invocation_id=task.invocation_id,
-            ), loop=self._loop)
+            ),
+            loop=self._loop,
+        )
 
-    async def async_submit(
-        self,
-        **kwargs
-    ) -> FunctionWorkerOutput:
+    async def async_submit(self, **kwargs) -> FunctionWorkerOutput:
         try:
             print(f"Submitting async function.....")
             result = await _run_function(

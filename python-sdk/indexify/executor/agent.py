@@ -111,7 +111,7 @@ class ExtractorAgent:
             base_url=self._base_url,
             executor_id=self._executor_id,
             config_path=self._config_path,
-            task_store =self._task_store,
+            task_store=self._task_store,
         )
 
     async def task_launcher(self):
@@ -167,8 +167,10 @@ class ExtractorAgent:
                         continue
 
                 code_path = f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}"
-                async_tasks.append(self._function_worker.run_function(task, fn.input, fn.init_value, code_path)
-
+                async_tasks.append(
+                    self._function_worker.run_function(
+                        task, fn.input, fn.init_value, code_path
+                    )
                     # ExtractTask(
                     #     function_worker=self._function_worker,
                     #     task=task,

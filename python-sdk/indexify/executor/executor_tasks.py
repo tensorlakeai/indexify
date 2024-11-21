@@ -9,6 +9,7 @@ from indexify.functions_sdk.data_objects import IndexifyData
 from .api_objects import Task
 from .downloader import Downloader
 
+
 class Job(BaseModel):
     job_name: str
     job_id: str
@@ -19,6 +20,7 @@ class Job(BaseModel):
     input_key: str
     reducer_output_id: Optional[str] = None
     graph_version: int
+
 
 def convert_job_to_task(Job):
     return Task(
@@ -96,6 +98,7 @@ class ExtractTask(asyncio.Task):
             **kwargs,
         )
         self.task = task
+
 
 # class ExtractTask(asyncio.Future):
 #     def __init__(

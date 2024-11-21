@@ -226,13 +226,19 @@ def remote_or_local_pipeline(pipeline, remote=True):
         return RemotePipeline.deploy(pipeline)
     return pipeline
 
+
 @indexify_function()
 async def async_simple_function(x: int) -> int:
     return x * x
 
+
 class TestGraphBehaviors(unittest.TestCase):
     def test_async_simple_function(self):
-        graph = Graph(name="test_async_simple_function", description="test", start_node=async_simple_function)
+        graph = Graph(
+            name="test_async_simple_function",
+            description="test",
+            start_node=async_simple_function,
+        )
         graph = RemoteGraph.deploy(graph)
         invocation_id = graph.run(block_until_done=True, x=10)
         output = graph.output(invocation_id, "async_simple_function")

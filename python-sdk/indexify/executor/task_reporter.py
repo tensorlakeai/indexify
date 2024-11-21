@@ -1,16 +1,15 @@
 import asyncio
 from typing import Optional
 
-from rich.panel import Panel
-from rich.text import Text
-
 import nanoid
 from httpx import Timeout
 from pydantic import BaseModel
 from rich import print
+from rich.panel import Panel
+from rich.text import Text
 
-from indexify.console import console
 from indexify.common_util import get_httpx_client
+from indexify.console import console
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask, TaskStore
@@ -71,7 +70,11 @@ def _log(task_outcome):
 
 class TaskReporter:
     def __init__(
-        self, base_url: str, executor_id: str, task_store: TaskStore, config_path: Optional[str] = None,
+        self,
+        base_url: str,
+        executor_id: str,
+        task_store: TaskStore,
+        config_path: Optional[str] = None,
     ):
         self._base_url = base_url
         self._executor_id = executor_id
@@ -79,8 +82,7 @@ class TaskReporter:
         self._task_store = task_store
 
     async def run(self):
-        console.print(
-            Text("Starting task completion reporter", style="bold cyan"))
+        console.print(Text("Starting task completion reporter", style="bold cyan"))
         # We should copy only the keys and not the values
 
         while True:
@@ -208,5 +210,3 @@ class TaskReporter:
                 f"[bold]task-reporter[/bold] failed to report task outcome retries={completed_task.reporting_retries} {response.text}"
             )
             raise e
-
-

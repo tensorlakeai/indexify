@@ -9,11 +9,11 @@ from rich.panel import Panel
 from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
-from .downloadtask import DownloadTask
 
 from ..common_util import get_httpx_client
 from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
 from .api_objects import Task
+from .downloadtask import DownloadTask
 
 custom_theme = Theme(
     {
@@ -44,11 +44,15 @@ class Downloader:
         self._event_loop = asyncio.get_event_loop()
 
     def download(self, task, name):
-        if name == 'download_graph':
-            coroutine = self.download_graph(task.namespace, task.compute_graph, task.graph_version)
+        if name == "download_graph":
+            coroutine = self.download_graph(
+                task.namespace, task.compute_graph, task.graph_version
+            )
         else:
             coroutine = self.download_input(task)
-        return DownloadTask(task=task, coroutine=coroutine, name=name, loop=self._event_loop)
+        return DownloadTask(
+            task=task, coroutine=coroutine, name=name, loop=self._event_loop
+        )
 
     async def download_graph(self, namespace: str, name: str, version: int) -> str:
         path = os.path.join(self.code_path, namespace, f"{name}.{version}")
