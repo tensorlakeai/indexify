@@ -1,4 +1,4 @@
-name: Acceptance Tests
+name: Tests
 
 on:
   push:
@@ -11,14 +11,24 @@ on:
     paths:
       - 'server/**'
       - 'python-sdk/**'
-      - '.github/workflows/acceptance_tests.yaml'
+      - '.github/workflows/tests.yaml'
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build
+  lint_server:
+    name: Lint Indexify Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Lint indexify-server
+        run: |
+          cd server
+          make check
+
+  build_server:
+    name: Build Indexify Server
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -29,19 +39,54 @@ jobs:
         with:
           cache-directories: |
             server/target
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-directories: |
+            server/target
+
       - name: Build indexify-server
         run: |
           cd server
           cargo build
+      - name: Lint indexify-server
+        run: |
+          cd server
+          make check
+      - name: Test indexify-server
+        run: |
+          cd server
+          cargo test --workspace -- --test-threads 1
       - name: Upload indexify-server
         uses: actions/upload-artifact@v4
         with:
           name: indexify-server
           path: server/target/debug/indexify-server
 
+  lint_python_sdk:
+    name: Lint Indexify Python SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install poetry
+        run: pipx install poetry
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'poetry'
+      - name: Install python dependencies
+        run: |
+          cd python-sdk
+          poetry install
+      - name: Lint python-sdk
+        run: |
+          cd python-sdk
+          make check
+
   acceptance_tests:
     name: Run Acceptance Tests
-    needs: build
+    needs: [build_server, lint_python_sdk]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -60,6 +105,10 @@ jobs:
         run: |
           cd python-sdk
           poetry install
+      - name: Lint python-sdk
+        run: |
+          cd python-sdk
+          make check
       - name: Start Background Indexify Server
         uses: JarvusInnovations/background-action@v1
         with:
@@ -131,7 +180,7 @@ jobs:
   last_release_acceptance_tests:
     name: 'Last Release Acceptance Tests (trigger with label: ci_compat_test)'
     if: contains(github.event.pull_request.labels.*.name, 'ci_compat_test')
-    needs: build
+    needs: [build_server, lint_python_sdk]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
