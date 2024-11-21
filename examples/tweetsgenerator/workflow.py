@@ -1,6 +1,6 @@
 import logging
-import os
-from typing import Dict, List
+from typing import List
+
 from pydantic import BaseModel, Field
 from indexify import RemoteGraph
 from indexify.functions_sdk.graph import Graph
@@ -51,25 +51,30 @@ openai_image_3_11 = (
 
 # NOTE: Modify the image param to the decorator if you want to use python 3.11
 
+# NOTE Add API key here for executor access
+OPENAI_API_KEY = "<EDIT-ME>"
+
 @indexify_function(image=openai_image_3_10)
 def generate_tweet_topics(subject: str) -> List[str]:
     """Generate topics for tweets about a given subject."""
     import openai
     from pydantic import BaseModel, Field
     from typing import List
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
     class Topics(BaseModel):
         topics: List[str] = Field(default_factory=list)
 
-    response = client.chat.completions.create(
+    response = client.beta.chat.completions.parse(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates topics for a tweet about a given subject."},
             {"role": "user", "content": f"Generate 5 topics for a tweet about {subject}"},
         ],
+        response_format=Topics
     )
-    topics = response.choices[0].message.content
+    topics = response.choices[0].message.parsed
     return topics.topics
 
 @indexify_function(image=openai_image_3_10)
@@ -77,19 +82,21 @@ def generate_tweet(topic: str) -> str:
     """Generate a tweet about a given topic."""
     import openai
     from pydantic import BaseModel, Field
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
     class Tweet(BaseModel):
         tweet: str = Field(description="a tweet about the given topic")
 
-    response = client.chat.completions.create(
+    response = client.beta.chat.completions.parse(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates a tweet about a given topic."},
             {"role": "user", "content": f"Generate a tweet about {topic}"},
         ],
+        response_format=Tweet
     )
-    tweet = response.choices[0].message.content
+    tweet = response.choices[0].message.parsed
     return tweet.tweet
 
 @indexify_function(image=base_image_3_10, accumulate=Tweets)
@@ -102,17 +109,18 @@ def accumulate_tweets(acc: Tweets, tweet: str) -> Tweets:
 def score_and_rank_tweets(tweets: Tweets) -> RankedTweets:
     """Score and rank the accumulated tweets."""
     import openai
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
     tweet_contents = "\n".join(tweets.tweets)
-    response = client.chat.completions.create(
+
+    response = client.beta.chat.completions.parse(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that scores and ranks tweets based on their relevance to a given topic."},
             {"role": "user", "content": f"Score and rank the following tweets, separated by new lines: {tweet_contents}"},
         ],
-        response_model=RankedTweets
+        response_format=RankedTweets
     )
-    ranked_tweets = response.choices[0].message.content
+    ranked_tweets = response.choices[0].message.parsed
     return ranked_tweets
 
 def create_tweets_graph():
@@ -136,7 +144,11 @@ def run_workflow(mode: str, server_url: str = 'http://localhost:8900'):
         raise ValueError("Invalid mode. Choose 'in-process-run' or 'remote-run'.")
 
     import httpx
-    subject = httpx.get("https://discord.com/blog/how-discord-reduced-websocket-traffic-by-40-percent").text
+    # NOTE contact Tensorlake to get a key!
+    subject = httpx.get(
+        url="https://discord.com/blog/how-discord-reduced-websocket-traffic-by-40-percent",
+    ).text
+
     logging.info(f"Generating tweets for subject: {subject[:100]}...")
 
     invocation_id = graph.run(block_until_done=True, subject=subject)
