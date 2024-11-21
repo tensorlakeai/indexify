@@ -67,7 +67,7 @@ def generate_tweet_topics(subject: str) -> List[str]:
         topics: List[str] = Field(default_factory=list)
 
     response = client.beta.chat.completions.parse(
-        model="gpt-4",
+        model="gpt-4o-mini-2024-07-18",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates topics for a tweet about a given subject."},
             {"role": "user", "content": f"Generate 5 topics for a tweet about {subject}"},
@@ -89,7 +89,7 @@ def generate_tweet(topic: str) -> str:
         tweet: str = Field(description="a tweet about the given topic")
 
     response = client.beta.chat.completions.parse(
-        model="gpt-4",
+        model="gpt-4o-mini-2024-07-18",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that generates a tweet about a given topic."},
             {"role": "user", "content": f"Generate a tweet about {topic}"},
@@ -113,7 +113,7 @@ def score_and_rank_tweets(tweets: Tweets) -> RankedTweets:
     tweet_contents = "\n".join(tweets.tweets)
 
     response = client.beta.chat.completions.parse(
-        model="gpt-4",
+        model="gpt-4o-mini-2024-07-18",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that scores and ranks tweets based on their relevance to a given topic."},
             {"role": "user", "content": f"Score and rank the following tweets, separated by new lines: {tweet_contents}"},
