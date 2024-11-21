@@ -32,7 +32,6 @@ packaging==23.2
 pluggy==1.4.0
 pydantic==2.6.1
 pydantic_core==2.16.2
-pytest==8.0.0
 PyYAML==6.0.1
 regex==2023.12.25
 requests==2.31.0

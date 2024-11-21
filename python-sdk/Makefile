@@ -18,10 +18,7 @@ lint:
 	@poetry run black --check .
 
 test:
-	@poetry run pytest --cov=./indexify
-
-watch:
-	@poetry run ptw
+	cd tests && ./run_tests.sh
 
 version:
 	@git add pyproject.toml
@@ -29,4 +26,4 @@ version:
 	@git tag --sign "v$$(poetry version -s)" -m "$(poetry version -s)"
 	@git push --follow-tags
 
-.PHONY: build format lint test watch version
+.PHONY: build format lint test version
