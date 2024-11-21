@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from rich import print
 from rich.panel import Panel
 from rich.text import Text
+from rich.console import Console
+from rich.theme import Theme
 
 from indexify.common_util import get_httpx_client
-from indexify.console import console
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask, TaskStore
@@ -24,7 +25,15 @@ class ForceMultipartDict(dict):
 
 FORCE_MULTIPART = ForceMultipartDict()
 UTF_8_CONTENT_TYPE = "application/octet-stream"
-
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "highlight": "magenta",
+    }
+)
+console = Console(theme=custom_theme)
 
 class ReportingData(BaseModel):
     output_count: int = 0
