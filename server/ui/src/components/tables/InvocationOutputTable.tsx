@@ -16,6 +16,7 @@ import {
   Alert,
   TextField,
   InputAdornment,
+  Button,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
@@ -66,6 +67,27 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
       toast.error('Failed to fetch outputs. Please try again later.');
     }
   }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
+
+  const fetchFunctionOutputPayload = useCallback(async (function_name: string, output_id: string) => {
+    try {
+      const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${function_name}/output/${output_id}`;
+      const response = await axios.get(url);
+      console.log("response", response.data,);
+      const content_type = response.headers['content-type']
+      const fileExtension = content_type === 'application/json' ? 'json' : 
+          content_type === 'application/octet-stream' ? 'bin' : 'txt';
+      const blob = new Blob([response.data], { type: content_type });
+      const downloadLink = document.createElement('a');
+      downloadLink.href = URL.createObjectURL(blob);
+      downloadLink.download = `${function_name}_${output_id}_output.${fileExtension}`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    } catch(error) {
+      console.error(`Error fetching output for function: ${function_name} in compute graph: ${computeGraph} for output id: ${output_id}"`, error);
+      toast.error(`Failed to fetch output for function: ${function_name} for output id: ${output_id}`)
+    }
+  }, [indexifyServiceURL, invocationId, namespace, computeGraph])
 
   const handleSearch = useCallback((computeFn: string, term: string) => {
     const filtered = outputs.filter(output => 
@@ -159,6 +181,7 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
                   <TableRow>
                     <TableCell>ID</TableCell>
                     <TableCell>Created At</TableCell>
+                    <TableCell>Output</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -166,6 +189,13 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
                     <TableRow key={idx}>
                       <TableCell>{output.id}</TableCell>
                       <TableCell>{formatTimestamp(output.created_at)}</TableCell>
+                      <TableCell>
+                        <Button
+                          onClick={() => fetchFunctionOutputPayload(computeFn, output.id)}
+                        >
+                        Download output  
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
