@@ -78,6 +78,7 @@ class ExtractorAgent:
             else False
         )
         self._executor_bootstrap_failed = False
+        self._server_addr = server_addr
 
         console.print(
             f"Require Bootstrap? {self._require_image_bootstrap}", style="cyan bold"
@@ -89,21 +90,25 @@ class ExtractorAgent:
         else:
             self._protocol = "http"
 
+        self._base_url = f"{self._protocol}://{self._server_addr}"
         self._task_store: TaskStore = TaskStore()
         self._executor_id = executor_id
         console.print("Starting FunctionWorker", style="cyan bold")
         self._function_worker = FunctionWorker(
             indexify_client=IndexifyClient(
-                service_url=f"{self._protocol}://{server_addr}",
-                config_path=config_path,
+                service_url=self._base_url,
+                config_path=self._config_path,
             ),
         )
         self._has_registered = False
-        self._server_addr = server_addr
-        self._base_url = f"{self._protocol}://{self._server_addr}"
         self._code_path = code_path
         self._downloader = Downloader(
-            code_path=code_path, base_url=self._base_url, config_path=self._config_path
+            indexify_client=IndexifyClient(
+                service_url=self._base_url,
+                config_path=self._config_path,
+            ),
+            code_path=code_path,
+            base_url=self._base_url
         )
         self._task_reporter = TaskReporter(
             base_url=self._base_url,

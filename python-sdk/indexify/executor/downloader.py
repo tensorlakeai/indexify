@@ -36,11 +36,11 @@ class Downloader:
         self,
         code_path: str,
         base_url: str,
-        config_path: Optional[str] = None,
+        indexify_client: IndexifyClient,
     ):
         self.code_path = code_path
         self.base_url = base_url
-        self._client = get_httpx_client(config_path)
+        self._client = indexify_client
         self._event_loop = asyncio.get_event_loop()
 
     def download(self, task, name):
@@ -48,8 +48,11 @@ class Downloader:
             coroutine = self.download_graph(
                 task.namespace, task.compute_graph, task.graph_version
             )
-        else:
+        elif name == "download_input":
             coroutine = self.download_input(task)
+        else:
+            raise Exception("Unsupported task name")
+
         return DownloadTask(
             task=task, coroutine=coroutine, name=name, loop=self._event_loop
         )
@@ -67,21 +70,7 @@ class Downloader:
             )
         )
 
-        response = self._client.get(
-            f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
-        )
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            console.print(
-                Panel(
-                    f"Failed to download graph: {name}\nError: {response.text}",
-                    title="downloader error",
-                    border_style="error",
-                )
-            )
-            raise
-
+        response = self._client.download_graph(namespace, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(response.content)
@@ -100,25 +89,21 @@ class Downloader:
 
         console.print(
             Panel(
-                f"downloading input\nURL: {url} \n reducer input URL: {reducer_url}",
+                f"downloading input\nFunction: {task.compute_fn} \n reducer id: {task.reducer_output_id}",
                 title="downloader",
                 border_style="cyan",
             )
         )
 
-        response = self._client.get(url)
+        input_id = task.input_key.split("|")[-1]
+        if task.invocation_id == input_id:
+            response = self._client.download_fn_input(task.namespace, task.compute_graph, task.invocation_id)
+        else:
+            response = self._client.download_fn_output(task.input_key)
 
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            console.print(
-                Panel(
-                    f"failed to download input: {task.input_key}\nError: {response.text}",
-                    title="downloader error",
-                    border_style="error",
-                )
-            )
-            raise
+        init_value = None
+        if task.reducer_output_id:
+            init_value = self._client.download_reducer_input(task.namespace, task.compute_graph, task.invocation_id, task.compute_fn, task.reducer_output_id)
 
         encoder = (
             "json"
@@ -136,19 +121,7 @@ class Downloader:
 
         deserialized_content = serializer.deserialize(response.content)
 
-        if reducer_url:
-            init_value = self._client.get(reducer_url)
-            try:
-                init_value.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                console.print(
-                    Panel(
-                        f"failed to download reducer output: {task.reducer_output_id}\nError: {init_value.text}",
-                        title="downloader error",
-                        border_style="error",
-                    )
-                )
-                raise
+        if init_value:
             init_value = serializer.deserialize(init_value.content)
             return DownloadedInputs(
                 input=IndexifyData(

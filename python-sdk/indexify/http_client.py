@@ -164,6 +164,18 @@ class IndexifyClient:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
+    def download_graph(self, namespace: str, compute_graph: str):
+        return self._get(f"internal/namespaces/{namespace}/compute_graphs/{compute_graph}/code")
+
+    def download_fn_input(self, namespace: str, compute_graph: str, invocation_id: str):
+        return self._get(f"namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/payload")
+
+    def download_fn_output(self, input_key: str):
+        return self._get(f"internal/fn_outputs/{input_key}")
+
+    def download_reducer_input(self, namespace: str, compute_graph: str, invocation_id: str, compute_fn: str, reducer_output_id: str):
+        return self._get(f"namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{compute_fn}/output/{reducer_output_id}")
+
     def register_compute_graph(self, graph: Graph, additional_modules):
         graph_metadata = graph.definition()
         serialized_code = cloudpickle.dumps(graph.serialize(additional_modules))
