@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import Optional
 
@@ -8,6 +9,7 @@ from rich.panel import Panel
 from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
+from .downloadtask import DownloadTask
 
 from ..common_util import get_httpx_client
 from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
@@ -31,11 +33,22 @@ class DownloadedInputs(BaseModel):
 
 class Downloader:
     def __init__(
-        self, code_path: str, base_url: str, config_path: Optional[str] = None
+        self,
+        code_path: str,
+        base_url: str,
+        config_path: Optional[str] = None,
     ):
         self.code_path = code_path
         self.base_url = base_url
         self._client = get_httpx_client(config_path)
+        self._event_loop = asyncio.get_event_loop()
+
+    def download(self, task, name):
+        if name == 'download_graph':
+            coroutine = self.download_graph(task.namespace, task.compute_graph, task.graph_version)
+        else:
+            coroutine = self.download_input(task)
+        return DownloadTask(task=task, coroutine=coroutine, name=name, loop=self._event_loop)
 
     async def download_graph(self, namespace: str, name: str, version: int) -> str:
         path = os.path.join(self.code_path, namespace, f"{name}.{version}")
