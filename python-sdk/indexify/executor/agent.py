@@ -28,7 +28,7 @@ from . import image_dependency_installer
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .runtime_probes import ProbeInfo, RuntimeProbes
-from .task_reporter import TaskReporter
+from indexify.executor.task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
 
 custom_theme = Theme(

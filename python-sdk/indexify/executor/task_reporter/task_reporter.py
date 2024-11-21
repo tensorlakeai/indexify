@@ -5,7 +5,6 @@ import nanoid
 from httpx import Timeout
 from pydantic import BaseModel
 from rich import print
-from rich.panel import Panel
 from rich.text import Text
 from rich.console import Console
 from rich.theme import Theme
@@ -13,6 +12,8 @@ from rich.theme import Theme
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
+from indexify.executor.task_reporter.task_reporter_utils import _log_exception, \
+    _log
 from indexify.executor.task_store import CompletedTask, TaskStore
 from indexify.functions_sdk.object_serializer import get_serializer
 
@@ -42,39 +43,6 @@ class ReportingData(BaseModel):
     stdout_total_bytes: int = 0
     stderr_count: int = 0
     stderr_total_bytes: int = 0
-
-
-def _log_exception(task_outcome, e):
-    console.print(
-        Panel(
-            f"Failed to report task {task_outcome.task.id}\n"
-            f"Exception: {type(e).__name__}({e})\n"
-            f"Retries: {task_outcome.reporting_retries}\n"
-            "Retrying...",
-            title="Reporting Error",
-            border_style="error",
-        )
-    )
-
-
-def _log(task_outcome):
-    outcome = task_outcome.task_outcome
-    style_outcome = (
-        f"[bold red] {outcome} [/]"
-        if "fail" in outcome
-        else f"[bold green] {outcome} [/]"
-    )
-    console.print(
-        Panel(
-            f"Reporting outcome of task: {task_outcome.task.id}, function: {task_outcome.task.compute_fn}\n"
-            f"Outcome: {style_outcome}\n"
-            f"Num Fn Outputs: {len(task_outcome.outputs or [])}\n"
-            f"Router Output: {task_outcome.router_output}\n"
-            f"Retries: {task_outcome.reporting_retries}",
-            title="Task Completion",
-            border_style="info",
-        )
-    )
 
 
 class TaskReporter:
@@ -111,7 +79,6 @@ class TaskReporter:
                 self._task_store.mark_reported(task_id=task_outcome.task.id)
 
     def report_task_outcome(self, completed_task: CompletedTask):
-
         report = ReportingData()
         fn_outputs = []
         for output in completed_task.outputs or []:
