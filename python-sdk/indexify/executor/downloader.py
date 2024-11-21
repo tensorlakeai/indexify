@@ -120,7 +120,7 @@ class Downloader:
         deserialized_content = serializer.deserialize(response.content)
 
         if reducer_url:
-            init_value = httpx.get(reducer_url)
+            init_value = self._client.get(reducer_url)
             try:
                 init_value.raise_for_status()
             except httpx.HTTPStatusError as e:
