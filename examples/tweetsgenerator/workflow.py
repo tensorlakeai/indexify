@@ -17,19 +17,41 @@ class Tweets(BaseModel):
 class RankedTweets(BaseModel):
     scores: List[float] = Field(description="List of scores for the tweets. Higher score means better tweet.")
 
-# Define custom image
 
-base_image = (
+# Define custom image
+base_image_3_10 = (
     Image()
     .name("tensorlake/base-image")
+    .base_image("python:3.10-slim-bookworm")
+    .tag("3.10")
 )
-openai_image = (
+
+base_image_3_11 = (
+    Image()
+    .name("tensorlake/base-image")
+    .base_image("python:3.11-slim-bookworm")
+    .tag("3.11")
+)
+
+openai_image_3_10 = (
     Image()
     .name("tensorlake/openai-image")
+    .base_image("python:3.10-slim-bookworm")
+    .tag("3.10")
     .run("pip install openai")
 )
 
-@indexify_function(image=openai_image)
+openai_image_3_11 = (
+    Image()
+    .name("tensorlake/openai-image")
+    .base_image("python:3.11-slim-bookworm")
+    .tag("3.11")
+    .run("pip install openai")
+)
+
+# NOTE: Modify the image param to the decorator if you want to use python 3.11
+
+@indexify_function(image=openai_image_3_10)
 def generate_tweet_topics(subject: str) -> List[str]:
     """Generate topics for tweets about a given subject."""
     import openai
@@ -51,7 +73,7 @@ def generate_tweet_topics(subject: str) -> List[str]:
     topics = response.choices[0].message.content
     return topics.topics
 
-@indexify_function(image=openai_image)
+@indexify_function(image=openai_image_3_10)
 def generate_tweet(topic: str) -> str:
     """Generate a tweet about a given topic."""
     import openai
@@ -72,13 +94,13 @@ def generate_tweet(topic: str) -> str:
     tweet = response.choices[0].message.content
     return tweet.tweet
 
-@indexify_function(image=base_image,accumulate=Tweets)
+@indexify_function(image=base_image_3_10, accumulate=Tweets)
 def accumulate_tweets(acc: Tweets, tweet: str) -> Tweets:
     """Accumulate generated tweets."""
     acc.tweets.append(tweet)
     return acc
 
-@indexify_function(image=openai_image)
+@indexify_function(image=openai_image_3_10)
 def score_and_rank_tweets(tweets: Tweets) -> RankedTweets:
     """Score and rank the accumulated tweets."""
     import openai
