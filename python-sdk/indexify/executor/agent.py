@@ -83,7 +83,6 @@ class ExtractorAgent:
             f"Require Bootstrap? {self._require_image_bootstrap}", style="cyan bold"
         )
 
-        self.num_workers = num_workers
         if config_path:
             console.print("Running the extractor with TLS enabled", style="cyan bold")
             self._protocol = "https"
@@ -106,7 +105,6 @@ class ExtractorAgent:
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=self._config_path
         )
-        self._max_queued_tasks = 10
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
             executor_id=self._executor_id,
