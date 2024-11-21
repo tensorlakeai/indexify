@@ -10,28 +10,16 @@ from typing import Annotated, List, Optional
 
 import nanoid
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-from rich.theme import Theme
 
+from indexify.console import console
 from indexify.executor.agent import ExtractorAgent
 from indexify.functions_sdk.image import (
     DEFAULT_IMAGE_3_10,
     DEFAULT_IMAGE_3_11,
     Image,
 )
-
-custom_theme = Theme(
-    {
-        "info": "cyan",
-        "warning": "yellow",
-        "error": "red",
-        "highlight": "magenta",
-    }
-)
-
-console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
