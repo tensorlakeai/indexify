@@ -1,15 +1,19 @@
-import io
+import asyncio
 from typing import Optional
+
+from rich.panel import Panel
+from rich.text import Text
 
 import nanoid
 from httpx import Timeout
 from pydantic import BaseModel
 from rich import print
 
+from indexify.console import console
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
-from indexify.executor.task_store import CompletedTask
+from indexify.executor.task_store import CompletedTask, TaskStore
 from indexify.functions_sdk.object_serializer import get_serializer
 
 
@@ -32,13 +36,68 @@ class ReportingData(BaseModel):
     stderr_total_bytes: int = 0
 
 
+def _log_exception(task_outcome, e):
+    console.print(
+        Panel(
+            f"Failed to report task {task_outcome.task.id}\n"
+            f"Exception: {type(e).__name__}({e})\n"
+            f"Retries: {task_outcome.reporting_retries}\n"
+            "Retrying...",
+            title="Reporting Error",
+            border_style="error",
+        )
+    )
+
+
+def _log(task_outcome):
+    outcome = task_outcome.task_outcome
+    style_outcome = (
+        f"[bold red] {outcome} [/]"
+        if "fail" in outcome
+        else f"[bold green] {outcome} [/]"
+    )
+    console.print(
+        Panel(
+            f"Reporting outcome of task: {task_outcome.task.id}, function: {task_outcome.task.compute_fn}\n"
+            f"Outcome: {style_outcome}\n"
+            f"Num Fn Outputs: {len(task_outcome.outputs or [])}\n"
+            f"Router Output: {task_outcome.router_output}\n"
+            f"Retries: {task_outcome.reporting_retries}",
+            title="Task Completion",
+            border_style="info",
+        )
+    )
+
+
 class TaskReporter:
     def __init__(
-        self, base_url: str, executor_id: str, config_path: Optional[str] = None
+        self, base_url: str, executor_id: str, task_store: TaskStore, config_path: Optional[str] = None,
     ):
         self._base_url = base_url
         self._executor_id = executor_id
         self._client = get_httpx_client(config_path)
+        self._task_store = task_store
+
+    async def run(self):
+        console.print(
+            Text("Starting task completion reporter", style="bold cyan"))
+        # We should copy only the keys and not the values
+
+        while True:
+            outcomes = await self._task_store.task_outcomes()
+            for task_outcome in outcomes:
+                _log(task_outcome)
+                try:
+                    # Send task outcome to the server
+                    self.report_task_outcome(completed_task=task_outcome)
+                except Exception as e:
+                    # The connection was dropped in the middle of the reporting, process, retry
+                    _log_exception(task_outcome, e)
+                    task_outcome.reporting_retries += 1
+                    await asyncio.sleep(5)
+                    continue
+
+                self._task_store.mark_reported(task_id=task_outcome.task.id)
 
     def report_task_outcome(self, completed_task: CompletedTask):
 
@@ -149,3 +208,5 @@ class TaskReporter:
                 f"[bold]task-reporter[/bold] failed to report task outcome retries={completed_task.reporting_retries} {response.text}"
             )
             raise e
+
+
