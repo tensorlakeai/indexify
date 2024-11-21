@@ -1,14 +1,14 @@
 import asyncio
 import sys
 import traceback
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-import cloudpickle
 from pydantic import BaseModel
 from rich import print
 
 from indexify import IndexifyClient
-from indexify.executor.runtask import RunFunctionTask
+from indexify.executor.function_worker.function_worker_utils import _load_function
+from indexify.executor.executor_tasks import RunFunctionTask
 from indexify.functions_sdk.data_objects import (
     FunctionWorkerOutput,
     IndexifyData,
@@ -16,13 +16,9 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
-    GraphInvocationContext,
-    IndexifyFunctionWrapper,
     RouterCallResult,
 )
-
-function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
-
+from indexify.executor.api_objects import Task
 
 class FunctionRunException(Exception):
     def __init__(
@@ -43,37 +39,6 @@ class FunctionOutput(BaseModel):
     stdout: str = ""
     stderr: str = ""
 
-
-def _load_function(
-    namespace: str,
-    graph_name: str,
-    fn_name: str,
-    code_path: str,
-    version: int,
-    invocation_id: str,
-    indexify_client: IndexifyClient,
-):
-    """Load an extractor to the memory: extractor_wrapper_map."""
-    global function_wrapper_map
-    key = f"{namespace}/{graph_name}/{version}/{fn_name}"
-    if key in function_wrapper_map:
-        return
-    with open(code_path, "rb") as f:
-        code = f.read()
-        pickled_functions = cloudpickle.loads(code)
-    context = GraphInvocationContext(
-        invocation_id=invocation_id,
-        graph_name=graph_name,
-        graph_version=str(version),
-        indexify_client=indexify_client,
-    )
-    function_wrapper = IndexifyFunctionWrapper(
-        cloudpickle.loads(pickled_functions[fn_name]),
-        context,
-    )
-    function_wrapper_map[key] = function_wrapper
-
-
 class Job(BaseModel):
     namespace: str
     graph_name: str
@@ -93,7 +58,7 @@ class FunctionWorker:
         self._indexify_client: IndexifyClient = indexify_client
         self._loop = asyncio.get_event_loop()
 
-    def run_function(self, task, fn_input, init_value, code_path):
+    def run_function(self, task: Task, fn_input: IndexifyData, init_value: IndexifyData | None, code_path: str):
         return RunFunctionTask(
             task=task,
             coroutine=self.async_submit(
@@ -170,9 +135,7 @@ async def _run_function(
     )
     with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
         try:
-            key = f"{namespace}/{graph_name}/{version}/{fn_name}"
-            if key not in function_wrapper_map:
-                _load_function(
+            fn = _load_function(
                     namespace,
                     graph_name,
                     fn_name,
@@ -181,8 +144,6 @@ async def _run_function(
                     invocation_id,
                     indexify_client,
                 )
-
-            fn = function_wrapper_map[key]
             if (
                 str(type(fn.indexify_function))
                 == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"

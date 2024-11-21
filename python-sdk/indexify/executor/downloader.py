@@ -2,7 +2,6 @@ import asyncio
 import os
 from typing import Optional
 
-import httpx
 from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
@@ -10,10 +9,9 @@ from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
 
-from ..common_util import get_httpx_client
 from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
 from .api_objects import Task
-from .downloadtask import DownloadTask
+from .executor_tasks import DownloadTask
 
 custom_theme = Theme(
     {
