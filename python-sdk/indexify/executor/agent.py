@@ -2,6 +2,7 @@ import asyncio
 import json
 import traceback
 from concurrent.futures.process import BrokenProcessPool
+from concurrent.futures.thread import ThreadPoolExecutor
 from importlib.metadata import version
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -63,6 +64,8 @@ class ExtractorAgent:
         name_alias: Optional[str] = None,
         image_version: Optional[int] = None,
     ):
+        event_loop = asyncio.get_event_loop()
+        event_loop.set_default_executor(ThreadPoolExecutor(max_workers=num_workers))
         self.name_alias = name_alias
         self.image_version = image_version
         self._config_path = config_path
@@ -91,7 +94,6 @@ class ExtractorAgent:
         self._executor_id = executor_id
         console.print("Starting FunctionWorker", style="cyan bold")
         self._function_worker = FunctionWorker(
-            workers=num_workers,
             indexify_client=IndexifyClient(
                 service_url=f"{self._protocol}://{server_addr}",
                 config_path=config_path,
@@ -109,59 +111,8 @@ class ExtractorAgent:
             base_url=self._base_url,
             executor_id=self._executor_id,
             config_path=self._config_path,
+            task_store =self._task_store,
         )
-
-    async def task_completion_reporter(self):
-        console.print(Text("Starting task completion reporter", style="bold cyan"))
-        # We should copy only the keys and not the values
-        url = f"{self._protocol}://{self._server_addr}/write_content"
-
-        while True:
-            outcomes = await self._task_store.task_outcomes()
-            for task_outcome in outcomes:
-                retryStr = (
-                    f"\nRetries: {task_outcome.reporting_retries}"
-                    if task_outcome.reporting_retries > 0
-                    else ""
-                )
-                outcome = task_outcome.task_outcome
-                style_outcome = (
-                    f"[bold red] {outcome} [/]"
-                    if "fail" in outcome
-                    else f"[bold green] {outcome} [/]"
-                )
-                console.print(
-                    Panel(
-                        f"Reporting outcome of task: {task_outcome.task.id}, function: {task_outcome.task.compute_fn}\n"
-                        f"Outcome: {style_outcome}\n"
-                        f"Num Fn Outputs: {len(task_outcome.outputs or [])}\n"
-                        f"Router Output: {task_outcome.router_output}\n"
-                        f"Retries: {task_outcome.reporting_retries}",
-                        title="Task Completion",
-                        border_style="info",
-                    )
-                )
-
-                try:
-                    # Send task outcome to the server
-                    self._task_reporter.report_task_outcome(completed_task=task_outcome)
-                except Exception as e:
-                    # The connection was dropped in the middle of the reporting, process, retry
-                    console.print(
-                        Panel(
-                            f"Failed to report task {task_outcome.task.id}\n"
-                            f"Exception: {type(e).__name__}({e})\n"
-                            f"Retries: {task_outcome.reporting_retries}\n"
-                            "Retrying...",
-                            title="Reporting Error",
-                            border_style="error",
-                        )
-                    )
-                    task_outcome.reporting_retries += 1
-                    await asyncio.sleep(5)
-                    continue
-
-                self._task_store.mark_reported(task_id=task_outcome.task.id)
 
     async def task_launcher(self):
         async_tasks: List[asyncio.Task | asyncio.Future] = []
@@ -215,17 +166,9 @@ class ExtractorAgent:
 
                         continue
 
-                async_tasks.append(
-                    self._function_worker.async_submit(
-                        namespace=task.namespace,
-                        graph_name=task.compute_graph,
-                        fn_name=task.compute_fn,
-                        input=input,
-                        init_value=fn.init_value,
-                        code_path=f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}",
-                        version=task.graph_version,
-                        invocation_id=task.invocation_id,
-                    )
+                code_path = f"{self._code_path}/{task.namespace}/{task.compute_graph}.{task.graph_version}"
+                async_tasks.append(self._function_worker.run_function(task, fn.input, fn.init_value, code_path)
+
                     # ExtractTask(
                     #     function_worker=self._function_worker,
                     #     task=task,
@@ -256,7 +199,7 @@ class ExtractorAgent:
                     task: Task
                     for _, task in result.items():
                         async_tasks.append(
-                            DownloadGraphTask(task=task, downloader=self._downloader)
+                            self._downloader.download(task, "download_graph")
                         )
                     async_tasks.append(
                         asyncio.create_task(
@@ -281,9 +224,7 @@ class ExtractorAgent:
                         self._task_store.complete(outcome=completed_task)
                         continue
                     async_tasks.append(
-                        DownloadInputTask(
-                            task=async_task.task, downloader=self._downloader
-                        )
+                        self._downloader.download(async_task.task, "download_input")
                     )
                 elif async_task.get_name() == "download_input":
                     if async_task.exception():
@@ -368,7 +309,7 @@ class ExtractorAgent:
             signal.SIGINT, self.shutdown, asyncio.get_event_loop()
         )
         asyncio.create_task(self.task_launcher())
-        asyncio.create_task(self.task_completion_reporter())
+        asyncio.create_task(self._task_reporter.run())
         self._should_run = True
         while self._should_run:
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
