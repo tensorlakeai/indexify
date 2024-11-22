@@ -35,8 +35,8 @@ You can run the tests manually:
 
 Notes:
 
-- Tests can be run manually: in `python-sdk/`, run the run `pip install -e .`,
-  start the server and executor, and run `python test_graph_behaviours.py`.
+- Tests can be run manually: start the server and executor, `cd python-sdk`,
+  run `make test`.
 - To test if changes to the server are backward compatible with the latest
   release, label the PR with `ci_compat_test`. This might report failures
   unrelated to your change if previous incompatible changes were pushed without
