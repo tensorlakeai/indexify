@@ -72,7 +72,6 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
     try {
       const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/fn/${function_name}/output/${output_id}`;
       const response = await axios.get(url);
-      console.log("response", response.data,);
       const content_type = response.headers['content-type']
       const fileExtension = content_type === 'application/json' ? 'json' : 
           content_type === 'application/octet-stream' ? 'bin' : 'txt';
@@ -84,7 +83,6 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
       downloadLink.click();
       document.body.removeChild(downloadLink);
     } catch(error) {
-      console.error(`Error fetching output for function: ${function_name} in compute graph: ${computeGraph} for output id: ${output_id}"`, error);
       toast.error(`Failed to fetch output for function: ${function_name} for output id: ${output_id}`)
     }
   }, [indexifyServiceURL, invocationId, namespace, computeGraph])
