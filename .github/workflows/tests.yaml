@@ -75,10 +75,10 @@ jobs:
         with:
           python-version: 3.11
           cache: 'poetry'
-      - name: Install python dependencies
+      - name: Build python-sdk
         run: |
           cd python-sdk
-          poetry install
+          make build
       - name: Lint python-sdk
         run: |
           cd python-sdk
@@ -101,10 +101,10 @@ jobs:
         with:
           python-version: 3.11
           cache: 'poetry'
-      - name: Install python dependencies
+      - name: Build python-sdk
         run: |
           cd python-sdk
-          poetry install
+          make build
       - name: Lint python-sdk
         run: |
           cd python-sdk
@@ -159,23 +159,11 @@ jobs:
             fi
           done
 
-      - name: Run Acceptance Tests (graph behaviours)
+      - name: Run All Tests
         run: |
           cd python-sdk
           export INDEXIFY_URL=http://localhost:8900
-          poetry run python tests/test_graph_behaviours.py
-
-      - name: Run Acceptance Tests (update)
-        run: |
-          cd python-sdk
-          export INDEXIFY_URL=http://localhost:8900
-          poetry run python tests/test_graph_update.py
-
-      - name: Run Acceptance Tests (validation)
-        run: |
-          cd python-sdk
-          export INDEXIFY_URL=http://localhost:8900
-          poetry run python tests/test_graph_validation.py
+          make test
 
   last_release_acceptance_tests:
     name: 'Last Release Acceptance Tests (trigger with label: ci_compat_test)'
@@ -200,10 +188,10 @@ jobs:
         with:
           python-version: 3.11
           cache: 'poetry'
-      - name: Install python dependencies
+      - name: Build python-sdk
         run: |
           cd python-sdk
-          poetry install
+          make build
       - name: Start Background Indexify Server
         uses: JarvusInnovations/background-action@v1
         with:
@@ -254,20 +242,8 @@ jobs:
             fi
           done
 
-      - name: Run Acceptance Tests (graph behaviours)
+      - name: Run All Tests
         run: |
           cd python-sdk
           export INDEXIFY_URL=http://localhost:8900
-          poetry run python tests/test_graph_behaviours.py
-
-      - name: Run Acceptance Tests (update)
-        run: |
-          cd python-sdk
-          export INDEXIFY_URL=http://localhost:8900
-          poetry run python tests/test_graph_update.py
-
-      - name: Run Acceptance Tests (validation)
-        run: |
-          cd python-sdk
-          export INDEXIFY_URL=http://localhost:8900
-          poetry run python tests/test_graph_validation.py
+          make test
