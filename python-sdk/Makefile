@@ -2,6 +2,7 @@ all: build
 
 build:
 	@rm -rf dist
+	@poetry install
 	@poetry build
 
 fmt:
