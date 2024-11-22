@@ -56,17 +56,19 @@ class TestBrokenGraphs(unittest.TestCase):
         g = RemoteGraph.deploy(g)
 
         self.assertRaises(
+            Exception,
             g.run(
                 block_until_done=True,
                 url="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
-            )
+            ),
         )
 
         self.assertRaises(
+            Exception,
             g.run(
                 block_until_done=True,
                 maybe="https://www.youtube.com/watch?v=gjHv4pM8WEQ",
-            )
+            ),
         )
 
 
