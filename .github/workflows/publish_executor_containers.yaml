@@ -44,3 +44,7 @@ jobs:
           docker push tensorlake/pdf-structured-extraction-inkwell-example
           docker push tensorlake/openai-image
           docker push tensorlake/base-image
+          docker push tensorlake/base-image:3.10
+          docker push tensorlake/base-image:3.11
+          docker push tensorlake/openai-image:3.10
+          docker push tensorlake/openai-image:3.11

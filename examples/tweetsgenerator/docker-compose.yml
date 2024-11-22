@@ -15,7 +15,7 @@ services:
       - data:/tmp/indexify-blob-storage
 
   openai:
-    image: tensorlake/openai-image:latest
+    image: tensorlake/openai-image:3.10
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     command: ["indexify-cli", "executor", "--server-addr", "indexify:8900"]
@@ -25,7 +25,7 @@ services:
       - data:/tmp/indexify-blob-storage
 
   base-executor:
-    image: tensorlake/base-image:latest
+    image: tensorlake/base-image:3.10
     command:
       [
         "indexify-cli",

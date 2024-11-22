@@ -15,6 +15,9 @@ This project demonstrates how to build a tweet generation and ranking pipeline u
 - Docker and Docker Compose (for containerized setup)
 - OpenAI API key
 
+NOTE: The example is setup to work with python 3.10. See `image` param in the workflow and the image name used in
+the docker compose file. Please update them as needed while following the instructions below for Docker deployment.
+
 ## Installation and Usage
 
 ### Option 1: Local Installation - In Process
