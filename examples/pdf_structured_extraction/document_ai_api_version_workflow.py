@@ -6,7 +6,6 @@ from datetime import date
 from indexify.functions_sdk.data_objects import File
 from indexify import indexify_function, Graph, RemoteGraph, Image
 from typing import Optional, List, Any
-import openai
 
 
 image = (
@@ -108,6 +107,7 @@ def _create_message(system_prompt: str, user_prompt: str, markdown: str) -> List
 
 
 def _call_oai_client(system_prompt: str, user_prompt: str, markdown: str) -> str:
+    import openai
     OPENAI_API_KEY = "EDIT_ADD_KEY"
 
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
