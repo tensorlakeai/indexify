@@ -101,9 +101,9 @@ class Graph:
             return self
 
         if issubclass(indexify_fn, IndexifyFunction) and indexify_fn.accumulate:
-            self.accumulator_zero_values[indexify_fn.name] = (
-                indexify_fn.accumulate().model_dump()
-            )
+            self.accumulator_zero_values[
+                indexify_fn.name
+            ] = indexify_fn.accumulate().model_dump()
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -210,6 +210,7 @@ class Graph:
         )
 
     def run(self, block_until_done: bool = False, **kwargs) -> str:
+        self.validate_graph()
         start_node = self.nodes[self._start_node]
         serializer = get_serializer(start_node.encoder)
         input = IndexifyData(
@@ -236,6 +237,38 @@ class Graph:
         self._run(input, outputs)
         return input.id
 
+    def validate_graph(self) -> None:
+        """
+        A method to validate that -
+        - Each node in the graph is reachable from start node.
+        - There are no cycles in the graph.
+        Using BFS.
+        """
+        total_number_of_nodes = len(self.nodes)
+        queue = deque([self._start_node])
+        visited = {self._start_node}
+
+        while queue:
+            current_node_name = queue.popleft()
+            neighbours = (
+                self.edges[current_node_name]
+                if self.edges[current_node_name]
+                else self.routers[current_node_name]
+            )
+
+            for neighbour in neighbours:
+                if neighbour in visited:
+                    # we have a cycle
+                    raise Exception("The graph should not have cycles")
+                else:
+                    visited.add(neighbour)
+                    queue.append(neighbour)
+
+        if total_number_of_nodes != len(visited):
+            raise Exception(
+                "Some nodes in the graph are not reachable from start node."
+            )
+
     def _run(
         self,
         initial_input: IndexifyData,
@@ -244,9 +277,9 @@ class Graph:
         queue = deque([(self._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
-            function_outputs: Union[FunctionCallResult, RouterCallResult] = (
-                self._invoke_fn(node_name, input)
-            )
+            function_outputs: Union[
+                FunctionCallResult, RouterCallResult
+            ] = self._invoke_fn(node_name, input)
             self._log_local_exec_tracebacks(function_outputs)
             if isinstance(function_outputs, RouterCallResult):
                 for edge in function_outputs.edges:
