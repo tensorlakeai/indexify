@@ -443,6 +443,34 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, "add_three")
         self.assertEqual(output, [5])
 
+    @parameterized.expand([(False), (True)])
+    def test_unreachable_graph_nodes(self, is_remote):
+        graph = Graph(
+            name="test_unreachable_graph_nodes",
+            description="test unreachable nodes in the graph",
+            start_node=simple_function_multiple_inputs,
+        )
+        graph.add_edge(add_two, add_three)
+        graph = remote_or_local_graph(graph, is_remote)
+        self.assertRaises(
+            Exception, graph.run, block_until_done=True, x=MyObject(x="a"), y=10
+        )
+
+    @parameterized.expand([(False), (True)])
+    def test_cyclic_graph(self, is_remote):
+        graph = Graph(
+            name="test_unreachable_graph_nodes",
+            description="test unreachable nodes in the graph",
+            start_node=simple_function_multiple_inputs,
+        )
+        graph.add_edge(simple_function_multiple_inputs, add_three)
+        graph.add_edge(add_three, add_two)
+        graph.add_edge(add_two, simple_function_multiple_inputs)
+        graph = remote_or_local_graph(graph, is_remote)
+        self.assertRaises(
+            Exception, graph.run, block_until_done=True, x=MyObject(x="a"), y=10
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

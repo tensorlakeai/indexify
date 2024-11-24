@@ -265,6 +265,7 @@ class Graph:
                     queue.append(neighbour)
 
         if total_number_of_nodes != len(visited):
+            # all the nodes are not reachable from the start_node.
             raise Exception(
                 "Some nodes in the graph are not reachable from start node."
             )
