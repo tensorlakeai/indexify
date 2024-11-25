@@ -175,7 +175,7 @@ def create_pipeline_graph_with_map_reduce():
 
 def create_pipeline_graph_with_map_reduce_with_json_encoder():
     graph = Graph(
-        name="test_map_reduce", description="test", start_node=square_with_json_encoder
+        name="test_map_reduce_with_json_encoding", description="test", start_node=square_with_json_encoder
     )
     graph.add_edge(square_with_json_encoder, sum_of_squares_with_json_encoding)
     return graph
@@ -213,7 +213,7 @@ def create_simple_pipeline():
     return p
 
 
-def remote_or_local_graph(graph, remote=True):
+def remote_or_local_graph(graph, remote=True) -> RemoteGraph | Graph:
     if remote:
         return RemoteGraph.deploy(graph)
     return graph
@@ -451,25 +451,13 @@ class TestGraphBehaviors(unittest.TestCase):
             start_node=simple_function_multiple_inputs,
         )
         graph.add_edge(add_two, add_three)
-        graph = remote_or_local_graph(graph, is_remote)
-        self.assertRaises(
-            Exception, graph.run, block_until_done=True, x=MyObject(x="a"), y=10
-        )
-
-    @parameterized.expand([(False), (True)])
-    def test_cyclic_graph(self, is_remote):
-        graph = Graph(
-            name="test_unreachable_graph_nodes",
-            description="test unreachable nodes in the graph",
-            start_node=simple_function_multiple_inputs,
-        )
-        graph.add_edge(simple_function_multiple_inputs, add_three)
-        graph.add_edge(add_three, add_two)
-        graph.add_edge(add_two, simple_function_multiple_inputs)
-        graph = remote_or_local_graph(graph, is_remote)
-        self.assertRaises(
-            Exception, graph.run, block_until_done=True, x=MyObject(x="a"), y=10
-        )
+        if is_remote:
+            self.assertRaises(Exception, remote_or_local_graph, graph, is_remote)
+        else:
+            graph = remote_or_local_graph(graph, is_remote)
+            self.assertRaises(
+                Exception, graph.run, block_until_done=True, x=MyObject(x="a"), y=10
+            )
 
 
 if __name__ == "__main__":

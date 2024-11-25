@@ -239,10 +239,8 @@ class Graph:
 
     def validate_graph(self) -> None:
         """
-        A method to validate that -
-        - Each node in the graph is reachable from start node.
-        - There are no cycles in the graph.
-        Using BFS.
+        A method to validate that each node in the graph is
+        reachable from start node using BFS.
         """
         total_number_of_nodes = len(self.nodes)
         queue = deque([self._start_node])
@@ -255,11 +253,9 @@ class Graph:
                 if self.edges[current_node_name]
                 else self.routers[current_node_name]
             )
-
             for neighbour in neighbours:
                 if neighbour in visited:
-                    # we have a cycle
-                    raise Exception("The graph should not have cycles")
+                    continue
                 else:
                     visited.add(neighbour)
                     queue.append(neighbour)
@@ -309,7 +305,7 @@ class Graph:
         self, node_name: str, input: IndexifyData
     ) -> Optional[Union[RouterCallResult, FunctionCallResult]]:
         node = self.nodes[node_name]
-        if node_name in self.routers:
+        if node_name in self.routers and len(self.routers[node_name]) > 0:
             result = IndexifyFunctionWrapper(node, self._local_graph_ctx).invoke_router(
                 node_name, input
             )
