@@ -175,7 +175,9 @@ def create_pipeline_graph_with_map_reduce():
 
 def create_pipeline_graph_with_map_reduce_with_json_encoder():
     graph = Graph(
-        name="test_map_reduce_with_json_encoding", description="test", start_node=square_with_json_encoder
+        name="test_map_reduce_with_json_encoding",
+        description="test",
+        start_node=square_with_json_encoder,
     )
     graph.add_edge(square_with_json_encoder, sum_of_squares_with_json_encoding)
     return graph
