@@ -210,6 +210,7 @@ class Graph:
         )
 
     def run(self, block_until_done: bool = False, **kwargs) -> str:
+        self.validate_graph()
         start_node = self.nodes[self._start_node]
         serializer = get_serializer(start_node.encoder)
         input = IndexifyData(
@@ -235,6 +236,35 @@ class Graph:
         self._local_graph_ctx = ctx
         self._run(input, outputs)
         return input.id
+
+    def validate_graph(self) -> None:
+        """
+        A method to validate that each node in the graph is
+        reachable from start node using BFS.
+        """
+        total_number_of_nodes = len(self.nodes)
+        queue = deque([self._start_node])
+        visited = {self._start_node}
+
+        while queue:
+            current_node_name = queue.popleft()
+            neighbours = (
+                self.edges[current_node_name]
+                if self.edges[current_node_name]
+                else self.routers[current_node_name]
+            )
+            for neighbour in neighbours:
+                if neighbour in visited:
+                    continue
+                else:
+                    visited.add(neighbour)
+                    queue.append(neighbour)
+
+        if total_number_of_nodes != len(visited):
+            # all the nodes are not reachable from the start_node.
+            raise Exception(
+                "Some nodes in the graph are not reachable from start node."
+            )
 
     def _run(
         self,
@@ -275,7 +305,7 @@ class Graph:
         self, node_name: str, input: IndexifyData
     ) -> Optional[Union[RouterCallResult, FunctionCallResult]]:
         node = self.nodes[node_name]
-        if node_name in self.routers:
+        if node_name in self.routers and len(self.routers[node_name]) > 0:
             result = IndexifyFunctionWrapper(node, self._local_graph_ctx).invoke_router(
                 node_name, input
             )

@@ -90,6 +90,7 @@ class RemoteGraph:
         :param client: The IndexifyClient used to communicate with the server.
             Prefered over server_url.
         """
+        g.validate_graph()
         if not client:
             client = IndexifyClient(service_url=server_url)
         client.register_compute_graph(g, additional_modules)
