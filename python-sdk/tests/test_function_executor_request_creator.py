@@ -3,11 +3,13 @@ from unittest.mock import mock_open, patch
 
 from test_constants import *
 
-from indexify.executor.downloader import Downloader
+from indexify.executor.function_executor_request_creator import (
+    FunctionExecutorRequestCreator,
+)
 
 
-class TestDownloaderBehaviour(unittest.TestCase):
-    @patch("httpx.Client")
+class TestFunctionExecutorRequestCreator(unittest.TestCase):
+    @patch("httpx.AsyncClient")
     @patch(
         "builtins.open",
         new_callable=mock_open,
@@ -19,9 +21,8 @@ class TestDownloaderBehaviour(unittest.TestCase):
                         key_path: /path/to/key.pem
                     """,
     )
-    def test_download_input_initialised_with_mTLS(self, mock_file, mock_client):
-        downloader = Downloader(
-            code_path=code_path,
+    def test_creates_httpx_client_with_mTLS(self, mock_file, mock_client):
+        creator = FunctionExecutorRequestCreator(
             base_url=service_url,
             config_path=config_path,
         )
@@ -36,11 +37,10 @@ class TestDownloaderBehaviour(unittest.TestCase):
             verify=ca_bundle_path,
         )
 
-    @patch("httpx.Client")
+    @patch("httpx.AsyncClient")
     @patch("builtins.open", new_callable=mock_open, read_data="""use_tls: false""")
-    def test_download_input_initialised_without_mTLS(self, mock_file, mock_client):
-        downloader = Downloader(
-            code_path=code_path,
+    def test_creates_httpx_client_without_mTLS(self, mock_file, mock_client):
+        creator = FunctionExecutorRequestCreator(
             base_url=service_url,
             config_path=config_path,
         )

@@ -1,212 +1,202 @@
-import sys
-import traceback
-from typing import Dict, List, Optional
+import asyncio
+import multiprocessing
+from typing import Optional, Tuple
 
-import cloudpickle
-from pydantic import BaseModel
-from rich import print
+import grpc
+import structlog
 
-from indexify import IndexifyClient
-from indexify.functions_sdk.data_objects import (
-    FunctionWorkerOutput,
-    IndexifyData,
+from indexify.function_executor.proto.function_executor_pb2 import (
+    FunctionOutput,
     RouterOutput,
+    RunTaskRequest,
+    RunTaskResponse,
 )
-from indexify.functions_sdk.indexify_functions import (
-    FunctionCallResult,
-    GraphInvocationContext,
-    IndexifyFunction,
-    IndexifyFunctionWrapper,
-    IndexifyRouter,
-    RouterCallResult,
+from indexify.function_executor.proto.function_executor_pb2_grpc import (
+    FunctionExecutorStub,
 )
 
-function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
+logger = structlog.get_logger(module=__name__)
 
-import concurrent.futures
+FUNCTION_EXECUTOR_STARTUP_TIMEOUT_SEC = 5
+FUNCTION_EXECUTOR_SHUTDOWN_TIMEOUT_SEC = 5
 
 
-class FunctionRunException(Exception):
+class FunctionWorkerOutput:
     def __init__(
-        self, exception: Exception, stdout: str, stderr: str, is_reducer: bool
+        self,
+        function_output: Optional[FunctionOutput] = None,
+        router_output: Optional[RouterOutput] = None,
+        stdout: Optional[str] = None,
+        stderr: Optional[str] = None,
+        reducer: bool = False,
+        success: bool = False,
     ):
-        super().__init__(str(exception))
-        self.exception = exception
+        self.function_output = function_output
+        self.router_output = router_output
         self.stdout = stdout
         self.stderr = stderr
-        self.is_reducer = is_reducer
-
-
-class FunctionOutput(BaseModel):
-    fn_outputs: Optional[List[IndexifyData]]
-    router_output: Optional[RouterOutput]
-    reducer: bool = False
-    success: bool = True
-    stdout: str = ""
-    stderr: str = ""
-
-
-def _load_function(
-    namespace: str,
-    graph_name: str,
-    fn_name: str,
-    code_path: str,
-    version: int,
-    invocation_id: str,
-    indexify_client: IndexifyClient,
-):
-    """Load an extractor to the memory: extractor_wrapper_map."""
-    global function_wrapper_map
-    key = f"{namespace}/{graph_name}/{version}/{fn_name}"
-    if key in function_wrapper_map:
-        return
-    with open(code_path, "rb") as f:
-        code = f.read()
-        pickled_functions = cloudpickle.loads(code)
-    context = GraphInvocationContext(
-        invocation_id=invocation_id,
-        graph_name=graph_name,
-        graph_version=str(version),
-        indexify_client=indexify_client,
-    )
-    function_wrapper = IndexifyFunctionWrapper(
-        cloudpickle.loads(pickled_functions[fn_name]),
-        context,
-    )
-    function_wrapper_map[key] = function_wrapper
+        self.reducer = reducer
+        self.success = success
 
 
 class FunctionWorker:
-    def __init__(
-        self, workers: int = 1, indexify_client: IndexifyClient = None
-    ) -> None:
-        self._executor: concurrent.futures.ProcessPoolExecutor = (
-            concurrent.futures.ProcessPoolExecutor(max_workers=workers)
-        )
-        self._workers = workers
-        self._indexify_client = indexify_client
+    def __init__(self, indexify_server_address: str, config_path: Optional[str]):
+        self._indexify_server_address: str = indexify_server_address
+        self._config_path: Optional[str] = config_path
+        # Registred ports range end at 49151. We start from 50000 to hopefully avoid conflicts.
+        self._free_ports = set(range(50000, 51000))
 
-    async def async_submit(
-        self,
-        namespace: str,
-        graph_name: str,
-        fn_name: str,
-        input: IndexifyData,
-        code_path: str,
-        version: int,
-        init_value: Optional[IndexifyData] = None,
-        invocation_id: Optional[str] = None,
-    ) -> FunctionWorkerOutput:
+    async def run(self, request: RunTaskRequest) -> FunctionWorkerOutput:
+        proc: Optional[asyncio.subprocess.Process] = None
+        port: Optional[int] = None
+
         try:
-            result = _run_function(
-                namespace,
-                graph_name,
-                fn_name,
-                input,
-                code_path,
-                version,
-                init_value,
-                invocation_id,
-                self._indexify_client,
-            )
-            # TODO - bring back running in a separate process
+            proc, port = await self._start_process()
+            with self._rpc_channel(port) as channel:
+                response: RunTaskResponse = FunctionExecutorStub(channel).RunTask(
+                    request
+                )
+                return _worker_output(response)
         except Exception as e:
+            # The error message from the process is already logged and we don't want to share internal
+            # error messages with the customer.
+            logger.error(
+                "failed running function in a new Function Executor process",
+                exc_info=e,
+                **_logger_dict_for(request, proc),
+            )
             return FunctionWorkerOutput(
-                stdout=e.stdout,
-                stderr=e.stderr,
-                reducer=e.is_reducer,
+                function_output=None,
+                router_output=None,
+                stdout=None,
+                stderr="Platform failed to execute the function.",
+                reducer=False,
                 success=False,
             )
+        finally:
+            await self._cleanup_proc_no_exceptions(
+                request=request, proc=proc, port=port
+            )
 
-        return FunctionWorkerOutput(
-            fn_outputs=result.fn_outputs,
-            router_output=result.router_output,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            reducer=result.reducer,
-            success=result.success,
-        )
+    def shutdown(self) -> None:
+        for child_function_executor in multiprocessing.active_children():
+            child_function_executor.kill()
 
-    def shutdown(self):
-        self._executor.shutdown(wait=True, cancel_futures=True)
+    async def _start_process(self) -> Tuple[asyncio.subprocess.Process, int]:
+        """Starts a Function Executor process for the given request."""
+        port: Optional[int] = None
 
-
-def _run_function(
-    namespace: str,
-    graph_name: str,
-    fn_name: str,
-    input: IndexifyData,
-    code_path: str,
-    version: int,
-    init_value: Optional[IndexifyData] = None,
-    invocation_id: Optional[str] = None,
-    indexify_client: Optional[IndexifyClient] = None,
-) -> FunctionOutput:
-    import io
-    from contextlib import redirect_stderr, redirect_stdout
-
-    stdout_capture = io.StringIO()
-    stderr_capture = io.StringIO()
-    is_reducer = False
-    router_output = None
-    fn_output = None
-    has_failed = False
-    print(
-        f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}"
-    )
-    with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
         try:
-            key = f"{namespace}/{graph_name}/{version}/{fn_name}"
-            if key not in function_wrapper_map:
-                _load_function(
-                    namespace,
-                    graph_name,
-                    fn_name,
-                    code_path,
-                    version,
-                    invocation_id,
-                    indexify_client,
-                )
-
-            fn = function_wrapper_map[key]
-            if (
-                str(type(fn.indexify_function))
-                == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"
-            ):
-                router_call_result: RouterCallResult = fn.invoke_router(fn_name, input)
-                router_output = RouterOutput(edges=router_call_result.edges)
-                if router_call_result.traceback_msg is not None:
-                    print(router_call_result.traceback_msg, file=sys.stderr)
-                    has_failed = True
-            else:
-                fn_call_result: FunctionCallResult = fn.invoke_fn_ser(
-                    fn_name, input, init_value
-                )
-                is_reducer = fn.indexify_function.accumulate is not None
-                fn_output = fn_call_result.ser_outputs
-                if fn_call_result.traceback_msg is not None:
-                    print(fn_call_result.traceback_msg, file=sys.stderr)
-                    has_failed = True
+            port = self._free_ports.pop()
+            args = [
+                "function-executor",
+                "--function-executor-server-address",
+                _server_address(port),
+                "--indexify-server-address",
+                self._indexify_server_address,
+            ]
+            if self._config_path is not None:
+                args.extend(["--config-path", self._config_path])
+            # Run the process with our stdout, stderr. We want to see process logs and exceptions in our process output.
+            # This is useful for dubugging. Customer function stdout and stderr is captured and returned in the response
+            # so we won't see it in our process outputs. This is the right behavior as customer function stdout and stderr
+            # contains private customer data.
+            return (
+                await asyncio.create_subprocess_exec(
+                    "indexify-cli",
+                    *args,
+                ),
+                port,
+            )
         except Exception:
-            print(traceback.format_exc(), file=sys.stderr)
-            has_failed = True
+            if port is not None:
+                self._free_ports.add(port)
+            logger.error(
+                "failed starting a new Function Executor process at port {port}"
+            )
+            raise
 
-    # WARNING - IF THIS FAILS, WE WILL NOT BE ABLE TO RECOVER
-    # ANY LOGS
-    if has_failed:
-        return FunctionOutput(
-            fn_outputs=None,
-            router_output=None,
-            stdout=stdout_capture.getvalue(),
-            stderr=stderr_capture.getvalue(),
-            reducer=is_reducer,
-            success=False,
-        )
-    return FunctionOutput(
-        fn_outputs=fn_output,
-        router_output=router_output,
-        reducer=is_reducer,
-        success=True,
-        stdout=stdout_capture.getvalue(),
-        stderr=stderr_capture.getvalue(),
+    async def _cleanup_proc_no_exceptions(
+        self,
+        request: RunTaskRequest,
+        proc: Optional[asyncio.subprocess.Process],
+        port: Optional[int],
+    ) -> None:
+        """Kills and waits for the process to finish.
+
+        Doesn't raise any exceptions. Logs the error if fails."""
+        try:
+            if proc.returncode is not None:
+                # The process already exited and was waited() sucessfully.
+                return
+
+            proc.kill()
+            await proc.wait()
+        except Exception as e:
+            logger.error(
+                "failed to cleanup Function Executor process",
+                exc_info=e,
+                **_logger_dict_for(request, proc),
+            )
+        finally:
+            if port is not None:
+                self._free_ports.add(port)
+
+    def _rpc_channel(self, port: int) -> grpc.Channel:
+        channel: grpc.Channel = grpc.insecure_channel(_server_address(port))
+        try:
+            # This is not asyncio.Future but grpc.Future. It has a different interface.
+            grpc.channel_ready_future(channel).result(
+                timeout=FUNCTION_EXECUTOR_STARTUP_TIMEOUT_SEC
+            )
+            return channel
+        except Exception:
+            channel.close()
+            logger.error(
+                f"Failed to connect to the gRPC server within {FUNCTION_EXECUTOR_STARTUP_TIMEOUT_SEC} seconds"
+            )
+            raise
+
+
+def _logger_dict_for(
+    request: RunTaskRequest, proc: Optional[asyncio.subprocess.Process]
+) -> dict[str, str]:
+    labels = {
+        "task_id": request.task_id,
+        "function": request.function_name,
+    }
+    if proc is not None:
+        labels["function_executor_pid"] = str(proc.pid)
+        labels["function_executor_return_code"] = str(proc.returncode)
+    return labels
+
+
+def _server_address(port: int) -> str:
+    return f"localhost:{port}"
+
+
+def _worker_output(response: RunTaskResponse) -> FunctionWorkerOutput:
+    required_fields = [
+        "stdout",
+        "stderr",
+        "is_reducer",
+        "success",
+    ]
+
+    for field in required_fields:
+        if not response.HasField(field):
+            raise ValueError(f"Response is missing required field: {field}")
+
+    output = FunctionWorkerOutput(
+        stdout=response.stdout,
+        stderr=response.stderr,
+        reducer=response.is_reducer,
+        success=response.success,
     )
+
+    if response.HasField("function_output"):
+        output.function_output = response.function_output
+    if response.HasField("router_output"):
+        output.router_output = response.router_output
+
+    return output

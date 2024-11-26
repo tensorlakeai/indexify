@@ -1,4 +1,3 @@
-import ssl
 import unittest
 from pathlib import Path
 from unittest.mock import mock_open, patch
@@ -9,7 +8,6 @@ from test_constants import (
     config_path,
     key_path,
     service_url,
-    tls_config,
 )
 
 from indexify.executor.agent import ExtractorAgent
@@ -28,11 +26,11 @@ class TestExtractorAgent(unittest.TestCase):
                 """,
     )
     @patch("httpx.Client")
-    def test_tls_configuration(self, mock_client, mock_file):
+    @patch("httpx.AsyncClient")
+    def test_tls_configuration(self, mock_async_client, mock_sync_client, mock_file):
         # Create an instance of ExtractorAgent with the mock config
         agent = ExtractorAgent(
             executor_id="unit-test",
-            num_workers=1,
             code_path=Path("test"),
             server_addr=service_url,
             config_path=config_path,
@@ -42,7 +40,13 @@ class TestExtractorAgent(unittest.TestCase):
         mock_file.assert_called()
 
         # Verify TLS config in httpsx Client
-        mock_client.assert_called_with(
+        mock_sync_client.assert_called_with(
+            http2=True,
+            cert=(cert_path, key_path),
+            verify=ca_bundle_path,
+        )
+        # Verify TLS config in httpsx AsyncClient
+        mock_async_client.assert_called_with(
             http2=True,
             cert=(cert_path, key_path),
             verify=ca_bundle_path,
@@ -56,7 +60,6 @@ class TestExtractorAgent(unittest.TestCase):
         # Create an instance of ExtractorAgent without TLS
         agent = ExtractorAgent(
             executor_id="unit-test",
-            num_workers=1,
             code_path=Path("test"),
             server_addr="localhost:8900",
         )
