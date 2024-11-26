@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Annotated, List, Optional
+from typing import List, Optional
 
 import nanoid
 import structlog
@@ -169,9 +169,6 @@ def build_default_image():
 @app.command(help="Joins the extractors to the coordinator server")
 def executor(
     server_addr: str = "localhost:8900",
-    workers: Annotated[
-        int, typer.Option(help="number of worker processes for extraction")
-    ] = 1,
     config_path: Optional[str] = config_path_option,
     executor_cache: Optional[str] = executor_cache_option,
     name_alias: Optional[str] = typer.Option(
@@ -184,7 +181,6 @@ def executor(
     id = nanoid.generate()
     console.print(
         Panel(
-            f"Number of workers: {workers}\n"
             f"Config path: {config_path}\n"
             f"Server address: {server_addr}\n"
             f"Executor ID: {id}\n"
@@ -196,16 +192,10 @@ def executor(
         )
     )
 
-    from pathlib import Path
-
-    executor_cache = Path(executor_cache).expanduser().absolute()
-    if os.path.exists(executor_cache):
-        shutil.rmtree(executor_cache)
-    Path(executor_cache).mkdir(parents=True, exist_ok=True)
+    _init_host_paths(executor_cache, delete_existing_dirs=True)
 
     agent = ExtractorAgent(
         id,
-        num_workers=workers,
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
@@ -248,10 +238,13 @@ def function_executor(
     FunctionExecutorServer(task_id=task_id, indexify_client=indexify_client).run()
 
 
-def _init_host_paths(executor_cache: str):
+def _init_host_paths(executor_cache: str, delete_existing_dirs: bool = False):
     from pathlib import Path
 
     executor_cache_absolute_path = Path(executor_cache).expanduser().absolute()
+    if delete_existing_dirs:
+        # Ignore errors because the director might not exist.
+        shutil.rmtree(executor_cache_absolute_path, ignore_errors=True)
     HostPaths.set_base_dir(executor_cache_absolute_path)
 
 

@@ -9,7 +9,6 @@ from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask
-from indexify.functions_sdk.object_serializer import get_serializer
 
 logger = structlog.get_logger(__name__)
 
@@ -42,19 +41,19 @@ class TaskReporter:
         self._client = get_httpx_client(config_path)
 
     def report_task_outcome(self, completed_task: CompletedTask):
-
         report = ReportingData()
         fn_outputs = []
-        for output in completed_task.outputs or []:
-            serializer = get_serializer(output.encoder)
-            fn_outputs.append(
-                (
-                    "node_outputs",
-                    (nanoid.generate(), output.payload, serializer.content_type),
+
+        if completed_task.function_output:
+            for output in completed_task.function_output.outputs or []:
+                fn_outputs.append(
+                    (
+                        "node_outputs",
+                        (nanoid.generate(), output.data, output.content_type),
+                    )
                 )
-            )
-            report.output_count += 1
-            report.output_total_bytes += len(output.payload)
+                report.output_count += 1
+                report.output_total_bytes += len(output.data)
 
         if completed_task.stdout:
             fn_outputs.append(
@@ -134,24 +133,17 @@ class TaskReporter:
             kwargs["files"] = fn_outputs
         else:
             kwargs["files"] = FORCE_MULTIPART
-        try:
-            response = self._client.post(
-                url=f"{self._base_url}/internal/ingest_files",
-                **kwargs,
-            )
-        except Exception as e:
-            logger.error(
-                "failed to report task outcome",
-                task_id=completed_task.task.id,
-                retries=completed_task.reporting_retries,
-                error=type(e).__name__,
-                message=str(e),
-            )
-            raise e
+
+        response = self._client.post(
+            url=f"{self._base_url}/internal/ingest_files",
+            **kwargs,
+        )
 
         try:
             response.raise_for_status()
         except Exception as e:
+            # Caller catches and logs the exception.
+            # Log response details here for easier debugging.
             logger.error(
                 "failed to report task outcome",
                 task_id=completed_task.task.id,

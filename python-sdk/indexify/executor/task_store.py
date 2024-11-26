@@ -1,18 +1,20 @@
 import asyncio
 from typing import Dict, List, Literal, Optional
 
+import structlog
 from pydantic import BaseModel
-from rich import print
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.function_executor.protocol import FunctionOutput, RouterOutput
 
 from .api_objects import Task
+
+logger = structlog.get_logger(module=__name__)
 
 
 class CompletedTask(BaseModel):
     task: Task
     task_outcome: Literal["success", "failure"]
-    outputs: Optional[List[IndexifyData]] = None
+    function_output: Optional[FunctionOutput] = None
     router_output: Optional[RouterOutput] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
@@ -41,8 +43,12 @@ class TaskStore:
                 or (task.id in self._finished)
             ):
                 continue
-            print(
-                f"[bold] task store: [/bold] added task: {task.id} graph: {task.compute_graph} fn: {task.compute_fn} to queue"
+            logger.info(
+                "added task",
+                task_id=task.id,
+                namespace=task.namespace,
+                graph=task.compute_graph,
+                fn=task.compute_fn,
             )
             self._tasks[task.id] = task
             self._new_task_event.set()
@@ -87,7 +93,7 @@ class TaskStore:
     def mark_reported(self, task_id: str):
         self._tasks.pop(task_id)
         self._finished.pop(task_id)
-        print(f"[bold] task store: [/bold] removed task: {task_id} from queue")
+        logger.info("removed task", task_id=task_id)
 
     def report_failed(self, task_id: str):
         if self._finished[task_id].task_outcome != "Failed":
