@@ -20,6 +20,7 @@ class FunctionExecutorServerTestCase(unittest.TestCase):
             [
                 "indexify-cli",
                 "function-executor",
+                "--dev",
                 "--function-executor-server-address",
                 cls.FUNCTION_EXECUTOR_SERVER_ADDRESS,
                 "--indexify-server-address",

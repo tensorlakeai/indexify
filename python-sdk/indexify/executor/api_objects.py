@@ -1,8 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Json
-
-from indexify.functions_sdk.data_objects import IndexifyData
+from pydantic import BaseModel
 
 
 class Task(BaseModel):
@@ -27,10 +25,6 @@ class ExecutorMetadata(BaseModel):
 
 class RouterOutput(BaseModel):
     edges: List[str]
-
-
-class FnOutput(BaseModel):
-    payload: Json
 
 
 class TaskResult(BaseModel):
