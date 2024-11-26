@@ -191,7 +191,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
@@ -216,7 +218,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
@@ -255,7 +259,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let invocation_id = state_store.with_simple_graph().await;
         scheduler.run_scheduler().await?;
@@ -317,7 +323,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let invocation_id = state_store.with_simple_graph().await;
@@ -362,7 +370,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
         let invocation_id = state_store.with_simple_graph().await;
@@ -404,7 +414,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let invocation_id = state_store.with_simple_graph().await;
         let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
@@ -466,7 +478,9 @@ mod tests {
         let indexify_state = state_store.indexify_state.clone();
         let scheduler = Scheduler::new(
             indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(indexify_state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(
+                indexify_state.metrics.clone(),
+            )),
         );
         let invocation_id = state_store.with_router_graph().await;
         scheduler.run_scheduler().await.unwrap();

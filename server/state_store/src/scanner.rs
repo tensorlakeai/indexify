@@ -17,6 +17,8 @@ use data_model::{
     TaskAnalytics,
     TaskFinishedEvent,
 };
+use metrics::Timer;
+use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
 
@@ -31,11 +33,12 @@ pub struct FilterResponse<T> {
 
 pub struct StateReader {
     db: Arc<TransactionDB>,
+    metrics: Arc<metrics::StateStoreMetrics>,
 }
 
 impl StateReader {
-    pub fn new(db: Arc<TransactionDB>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<TransactionDB>, metrics: Arc<metrics::StateStoreMetrics>) -> Self {
+        Self { db, metrics }
     }
 
     pub fn get_rows_from_cf_multi_key<V>(
@@ -46,6 +49,9 @@ impl StateReader {
     where
         V: DeserializeOwned,
     {
+        let kvs = &[KeyValue::new("op", "get_rows_from_cf_multi_key")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf_handle = self
             .db
             .cf_handle(column.as_ref())
@@ -69,6 +75,9 @@ impl StateReader {
         column: IndexifyObjectsColumns,
         limit: Option<usize>,
     ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "get_raw_rows_from_cf_with_limits")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf_handle = self
             .db
             .cf_handle(column.as_ref())
@@ -112,6 +121,9 @@ impl StateReader {
     where
         V: DeserializeOwned,
     {
+        let kvs = &[KeyValue::new("op", "get_rows_from_cf_with_limits")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf_handle = self
             .db
             .cf_handle(column.as_ref())
@@ -161,6 +173,9 @@ impl StateReader {
         F: Fn(&T) -> bool,
         K: Fn(&[u8]) -> Result<Vec<u8>, anyhow::Error>,
     {
+        let kvs = &[KeyValue::new("op", "filter_join_cf")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let index_cf = index_column.cf_db(&self.db);
         let data_cf = data_column.cf_db(&self.db);
         let mut read_options = ReadOptions::default();
@@ -237,6 +252,9 @@ impl StateReader {
         T: DeserializeOwned,
         F: Fn(&T) -> bool,
     {
+        let kvs = &[KeyValue::new("op", "filter_cf")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf = column.cf_db(&self.db);
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(4_194_304);
@@ -285,6 +303,9 @@ impl StateReader {
         T: DeserializeOwned,
         K: AsRef<[u8]>,
     {
+        let kvs = &[KeyValue::new("op", "get_from_cf")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let result_bytes = match self.db.get_cf(&column.cf_db(&self.db), key)? {
             Some(bytes) => bytes,
             None => return Ok(None),
@@ -296,6 +317,9 @@ impl StateReader {
     }
 
     pub fn get_pending_system_tasks(&self) -> Result<usize> {
+        let kvs = &[KeyValue::new("op", "get_pending_system_tasks")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf = IndexifyObjectsColumns::Stats.cf_db(&self.db);
         let key = b"pending_system_tasks";
         let value = self.db.get_cf(&cf, key)?;
@@ -321,6 +345,9 @@ impl StateReader {
         task_id: &str,
         file: &str,
     ) -> Result<Option<DataPayload>> {
+        let kvs = &[KeyValue::new("op", "get_diagnostic_payload")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let task = self
             .get_task(ns, cg, inv_id, cg_fn, task_id)?
             .ok_or(anyhow::anyhow!("Task not found"))?;
@@ -347,6 +374,9 @@ impl StateReader {
     }
 
     pub fn get_system_task(&self, namespace: &str, name: &str) -> Result<Option<SystemTask>> {
+        let kvs = &[KeyValue::new("op", "get_system_task")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = SystemTask::key_from(namespace, name);
         let system_task = self.get_from_cf(&IndexifyObjectsColumns::SystemTasks, key)?;
         Ok(system_task)
@@ -356,6 +386,9 @@ impl StateReader {
         &self,
         limit: Option<usize>,
     ) -> Result<(Vec<SystemTask>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "get_system_tasks")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let (tasks, restart_key) = self.get_rows_from_cf_with_limits::<SystemTask>(
             &[],
             None,
@@ -366,6 +399,9 @@ impl StateReader {
     }
 
     pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<String>> {
+        let kvs = &[KeyValue::new("op", "get_gc_urls")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let limit = limit.unwrap_or(usize::MAX);
         let cf = IndexifyObjectsColumns::GcUrls.cf_db(&self.db);
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
@@ -383,6 +419,9 @@ impl StateReader {
     }
 
     pub fn get_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
+        let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
         let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
         let mut state_changes = Vec::new();
@@ -407,6 +446,9 @@ impl StateReader {
     where
         V: DeserializeOwned,
     {
+        let kvs = &[KeyValue::new("op", "get_all_rows_from_cf")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let cf_handle = self
             .db
             .cf_handle(column.as_ref())
@@ -427,11 +469,17 @@ impl StateReader {
     }
 
     pub fn get_namespace(&self, namespace: &str) -> Result<Option<Namespace>> {
+        let kvs = &[KeyValue::new("op", "get_namespace")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let ns = self.get_from_cf(&IndexifyObjectsColumns::Namespaces, namespace)?;
         Ok(ns)
     }
 
     pub fn get_all_namespaces(&self) -> Result<Vec<Namespace>> {
+        let kvs = &[KeyValue::new("op", "get_all_namespaces")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let (namespaces, _) = self.get_rows_from_cf_with_limits::<Namespace>(
             &[],
             None,
@@ -448,6 +496,9 @@ impl StateReader {
         cursor: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<InvocationPayload>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_invocations")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|{}|", namespace, compute_graph);
         self.get_rows_from_cf_with_limits::<InvocationPayload>(
             key.as_bytes(),
@@ -463,6 +514,9 @@ impl StateReader {
         cursor: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<ComputeGraph>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_compute_graphs")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let (compute_graphs, cursor) = self.get_rows_from_cf_with_limits::<ComputeGraph>(
             namespace.as_bytes(),
             cursor,
@@ -473,6 +527,9 @@ impl StateReader {
     }
 
     pub fn get_compute_graph(&self, namespace: &str, name: &str) -> Result<Option<ComputeGraph>> {
+        let kvs = &[KeyValue::new("op", "get_compute_graph")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = ComputeGraph::key_from(namespace, name);
         let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
         Ok(compute_graph)
@@ -486,6 +543,9 @@ impl StateReader {
         restart_key: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<NodeOutput>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_outputs_by_compute_graph")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|{}|{}|", namespace, compute_graph, invocation_id);
         self.get_rows_from_cf_with_limits::<NodeOutput>(
             key.as_bytes(),
@@ -513,6 +573,9 @@ impl StateReader {
         compute_fn: &str,
         task_id: &str,
     ) -> Result<Option<Task>> {
+        let kvs = &[KeyValue::new("op", "get_task")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = Task::key_from(namespace, compute_graph, invocation_id, compute_fn, task_id);
         let task = self.get_from_cf(&IndexifyObjectsColumns::Tasks, key)?;
         Ok(task)
@@ -524,6 +587,9 @@ impl StateReader {
         restart_key: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_tasks_by_namespace")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|", namespace);
         self.get_rows_from_cf_with_limits::<Task>(
             key.as_bytes(),
@@ -541,6 +607,9 @@ impl StateReader {
         restart_key: Option<&[u8]>,
         limit: Option<usize>,
     ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "list_tasks_by_compute_graph")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|{}|{}|", namespace, compute_graph, invocation_id);
         self.get_rows_from_cf_with_limits::<Task>(
             key.as_bytes(),
@@ -551,6 +620,9 @@ impl StateReader {
     }
 
     pub fn get_task_outputs(&self, namespace: &str, task_id: &str) -> Result<Vec<NodeOutput>> {
+        let kvs = &[KeyValue::new("op", "get_task_outputs")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|{}", namespace, task_id);
         let (node_output_keys, _) = self.get_rows_from_cf_with_limits::<String>(
             key.as_bytes(),
@@ -565,6 +637,9 @@ impl StateReader {
     }
 
     pub fn get_tasks_by_executor(&self, executor: &ExecutorId, limit: usize) -> Result<Vec<Task>> {
+        let kvs = &[KeyValue::new("op", "get_tasks_by_executor")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let prefix = format!("{}|", executor);
         let res = self.filter_join_cf(
             IndexifyObjectsColumns::TaskAllocations,
@@ -579,6 +654,9 @@ impl StateReader {
     }
 
     pub fn get_all_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+        let kvs = &[KeyValue::new("op", "get_all_executors")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let (executors, _) = self.get_rows_from_cf_with_limits::<ExecutorMetadata>(
             &[],
             None,
@@ -594,6 +672,9 @@ impl StateReader {
         compute_graph: &str,
         invocation_id: &str,
     ) -> Result<Option<GraphInvocationCtx>> {
+        let kvs = &[KeyValue::new("op", "invocation_ctx")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
         let value = self.db.get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
@@ -614,6 +695,9 @@ impl StateReader {
         invocation_id: &str,
         compute_fn: &str,
     ) -> Result<Option<TaskAnalytics>> {
+        let kvs = &[KeyValue::new("op", "task_analytics")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = GraphInvocationCtx::key_from(namespace, compute_graph, invocation_id);
         let value = self.db.get_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
@@ -636,6 +720,9 @@ impl StateReader {
         compute_graph: &str,
         invocation_id: &str,
     ) -> Result<InvocationPayload> {
+        let kvs = &[KeyValue::new("op", "invocation_payload")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = InvocationPayload::key_from(namespace, compute_graph, invocation_id);
         let value = self.db.get_cf(
             &IndexifyObjectsColumns::GraphInvocations.cf_db(&self.db),
@@ -648,6 +735,9 @@ impl StateReader {
     }
 
     pub fn unallocated_tasks(&self) -> Result<Vec<Task>> {
+        let kvs = &[KeyValue::new("op", "unallocated_tasks")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let (unallocated_task_rows, _) = self
             .get_raw_rows_from_cf_with_limits(
                 &[],
@@ -673,6 +763,9 @@ impl StateReader {
         compute_fn: &str,
         id: &str,
     ) -> Result<Option<NodeOutput>> {
+        let kvs = &[KeyValue::new("op", "fn_output_payload")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
         let value = self
             .db
@@ -685,6 +778,9 @@ impl StateReader {
     }
 
     pub fn fn_output_payload_by_key(&self, key: &str) -> Result<NodeOutput> {
+        let kvs = &[KeyValue::new("op", "fn_output_payload_by_key")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let value = self
             .db
             .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)?;
@@ -695,6 +791,12 @@ impl StateReader {
     }
 
     pub fn all_reduction_tasks(&self, ns: &str, cg: &str, inv_id: &str) -> Result<Vec<ReduceTask>> {
+        let kvs = &[KeyValue::new("op", "all_reduction_tasks")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let kvs = &[KeyValue::new("op", "all_reduction_tasks")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|{}|{}|", ns, cg, inv_id);
         let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
             key.as_bytes(),
@@ -712,6 +814,9 @@ impl StateReader {
         inv_id: &str,
         c_fn: &str,
     ) -> Result<Option<ReduceTask>> {
+        let kvs = &[KeyValue::new("op", "next_reduction_task")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
         let key = format!("{}|{}|{}|{}", ns, cg, inv_id, c_fn);
         let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
             key.as_bytes(),

@@ -20,6 +20,7 @@ use data_model::{
     TaskAnalytics,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
+use metrics::StateStoreMetrics;
 use rocksdb::{
     AsColumnFamilyRef,
     BoundColumnFamily,
@@ -34,22 +35,19 @@ use strum::AsRefStr;
 use tracing::{error, info};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::{
-    metrics::StateStoreMetrics,
-    requests::{
-        CreateTasksRequest,
-        DeleteInvocationRequest,
-        DeregisterExecutorRequest,
-        FinalizeTaskRequest,
-        InvokeComputeGraphRequest,
-        NamespaceRequest,
-        ReductionTasks,
-        RegisterExecutorRequest,
-        RemoveSystemTaskRequest,
-        ReplayComputeGraphRequest,
-        ReplayInvocationsRequest,
-        UpdateSystemTaskRequest,
-    },
+use crate::requests::{
+    CreateTasksRequest,
+    DeleteInvocationRequest,
+    DeregisterExecutorRequest,
+    FinalizeTaskRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    RegisterExecutorRequest,
+    RemoveSystemTaskRequest,
+    ReplayComputeGraphRequest,
+    ReplayInvocationsRequest,
+    UpdateSystemTaskRequest,
 };
 
 pub type ContentId = String;
@@ -93,7 +91,7 @@ impl IndexifyObjectsColumns {
     pub fn cf<'a>(&'a self, db: &'a OptimisticTransactionDB) -> Arc<BoundColumnFamily> {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
-                tracing::error!("failed to get column family handle for {}", self.as_ref());
+                error!("failed to get column family handle for {}", self.as_ref());
             })
             .unwrap()
     }
@@ -101,7 +99,7 @@ impl IndexifyObjectsColumns {
     pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> Arc<BoundColumnFamily> {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
-                tracing::error!("failed to get column family handle for {}", self.as_ref());
+                error!("failed to get column family handle for {}", self.as_ref());
             })
             .unwrap()
     }
@@ -249,7 +247,7 @@ pub fn replay_invocations(
                 .ok_or(anyhow::anyhow!("Graph context not found"))?;
             let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
             if graph_ctx.graph_version >= req.graph_version {
-                tracing::info!(
+                info!(
                 "skipping replay of invocation: {}, already latest version of invocation context",
                 invocation_id
             );
@@ -269,7 +267,7 @@ pub fn replay_invocations(
                 let (_, value) = output?;
                 let value: NodeOutput = JsonEncoder::decode(&value)?;
                 if value.graph_version >= req.graph_version {
-                    tracing::info!(
+                    info!(
                         "skipping replay of invocation: {}, already latest version of outputs",
                         invocation_id
                     );
@@ -902,11 +900,9 @@ fn mark_invocation_finished(
     compute_graph: &str,
     invocation_id: &str,
 ) -> Result<InvocationCompletion> {
-    tracing::info!(
+    info!(
         "Marking invocation finished: {} {} {}",
-        namespace,
-        compute_graph,
-        invocation_id
+        namespace, compute_graph, invocation_id
     );
     let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
     let graph_ctx = txn

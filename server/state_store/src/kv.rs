@@ -3,6 +3,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use blob_store::BlobStorage;
 use bytes::Bytes;
+use metrics::{kv_storage::Metrics, Timer};
+use opentelemetry::KeyValue;
 use slatedb::{config::DbOptions, db::Db};
 
 pub struct WriteContextData {
@@ -14,6 +16,7 @@ pub struct WriteContextData {
 }
 pub struct KVS {
     kv_store: Arc<Db>,
+    metrics: Metrics,
 }
 
 impl KVS {
@@ -28,10 +31,14 @@ impl KVS {
         .context("error opening kv store")?;
         Ok(KVS {
             kv_store: Arc::new(kv_store),
+            metrics: Metrics::new(),
         })
     }
 
     pub async fn put_ctx_state(&self, req: WriteContextData) -> Result<()> {
+        let timer_kvs = &[KeyValue::new("op", "put_ctx_state")];
+        let _timer = Timer::start_with_labels(&self.metrics.writes, timer_kvs);
+
         let key = format!(
             "{}|{}|{}|{}",
             req.namespace, req.compute_graph, req.invocation_id, req.key
@@ -47,6 +54,9 @@ impl KVS {
         invocation_id: &str,
         key: &str,
     ) -> Result<Option<Bytes>> {
+        let timer_kvs = &[KeyValue::new("op", "get_ctx_state_key")];
+        let _timer = Timer::start_with_labels(&self.metrics.reads, timer_kvs);
+
         let key = format!("{}|{}|{}|{}", namespace, compute_graph, invocation_id, key);
         let value = self.kv_store.get(key.as_bytes()).await?;
         Ok(value)

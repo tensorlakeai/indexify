@@ -3,6 +3,7 @@ use std::{env, fmt::Debug, sync::Arc};
 use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
+use metrics::{blob_storage, Timer};
 use object_store::{
     aws::{AmazonS3Builder, AmazonS3ConfigKey, DynamoCommit, S3ConditionalPut},
     parse_url,
@@ -12,11 +13,12 @@ use object_store::{
     ObjectStoreScheme,
     WriteMultipart,
 };
+use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::info;
+use tracing::debug;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +46,7 @@ impl Default for BlobStorageConfig {
                 .to_str()
                 .expect("unable to get path as string")
         );
-        info!("using blob store path: {}", blob_store_path);
+        debug!("using blob store path: {}", blob_store_path);
         BlobStorageConfig {
             path: blob_store_path,
             dynamodb_table: None,
@@ -59,10 +61,10 @@ pub struct PutResult {
     pub sha256_hash: String,
 }
 
-#[derive(Clone)]
 pub struct BlobStorage {
     object_store: Arc<dyn ObjectStore>,
     path: Path,
+    metrics: blob_storage::Metrics,
 }
 
 impl BlobStorage {
@@ -72,6 +74,7 @@ impl BlobStorage {
         Ok(Self {
             object_store: Arc::new(object_store),
             path,
+            metrics: blob_storage::Metrics::new(),
         })
     }
 
@@ -128,6 +131,8 @@ impl BlobStorage {
         key: &str,
         data: impl futures::Stream<Item = Result<Bytes>> + Send + Unpin,
     ) -> Result<PutResult, anyhow::Error> {
+        let timer_kvs = &[KeyValue::new("op", "put")];
+        let _timer = Timer::start_with_labels(&self.metrics.operations, timer_kvs);
         let mut hasher = Sha256::new();
         let mut hashed_stream = data.map(|item| {
             item.map(|bytes| {
@@ -157,6 +162,8 @@ impl BlobStorage {
     }
 
     pub async fn get(&self, path: &str) -> Result<BoxStream<'static, Result<Bytes>>> {
+        let timer_kvs = &[KeyValue::new("op", "get")];
+        let _timer = Timer::start_with_labels(&self.metrics.operations, timer_kvs);
         let client_clone = self.object_store.clone();
         let (tx, rx) = mpsc::unbounded_channel();
         let get_result = client_clone

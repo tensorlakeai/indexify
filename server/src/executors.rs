@@ -11,6 +11,7 @@ use state_store::{
     },
     IndexifyState,
 };
+use tracing::error;
 
 pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct ExecutorManager {
@@ -68,7 +69,7 @@ pub fn schedule_deregister(ex: Arc<ExecutorManager>, executor_id: ExecutorId, du
         tokio::time::sleep(duration).await;
         let ret = ex.deregister_executor(executor_id.clone()).await;
         if let Err(e) = ret {
-            tracing::error!("failed to deregister executor {}: {:?}", executor_id, e);
+            error!("failed to deregister executor {}: {:?}", executor_id, e);
         }
     });
 }

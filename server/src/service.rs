@@ -33,9 +33,9 @@ pub struct Service {
 
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
-        let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
         let metrics_registry = Arc::new(init_provider());
-        let sched_metrics = Arc::new(SchedulerMetrics::new(indexify_state.clone()));
+        let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
+        let sched_metrics = Arc::new(SchedulerMetrics::new(indexify_state.metrics.clone()));
         Ok(Self {
             config,
             indexify_state,

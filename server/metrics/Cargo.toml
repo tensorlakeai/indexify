@@ -12,4 +12,5 @@ axum-otel-metrics = { workspace=true }
 pin-project-lite = {workspace=true}
 serde={workspace = true}
 once_cell = {workspace=true}
-state_store = {workspace=true}
+data_model = {workspace=true}
+tracing = {workspace=true}

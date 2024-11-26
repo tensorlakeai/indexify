@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+metrics = {workspace = true}
 object_store = {workspace = true}
 futures = {workspace = true}
 anyhow = {workspace = true}
@@ -17,6 +18,7 @@ reqwest = {workspace = true}
 async-stream = {workspace = true}
 sha2 = {workspace=true}
 url = {workspace=true}
+opentelemetry = {workspace=true}
 
 [dev-dependencies]
 tempfile = {workspace = true}

@@ -10,6 +10,7 @@ use std::{
     vec,
 };
 
+use ::metrics::{StateStoreMetrics, Timer};
 use anyhow::{anyhow, Result};
 use data_model::{
     ChangeType,
@@ -25,7 +26,7 @@ use data_model::{
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
-use metrics::StateStoreMetrics;
+use opentelemetry::KeyValue;
 use requests::StateMachineUpdateRequest;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
@@ -35,10 +36,10 @@ use tokio::sync::{
     watch::{Receiver, Sender},
     RwLock,
 };
+use tracing::{error, info};
 
 pub mod invocation_events;
 pub mod kv;
-pub mod metrics;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;
@@ -168,6 +169,9 @@ impl IndexifyState {
     }
 
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
+        tracing::info!("writing state machine update request: {}", request.payload,);
+        let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
         let mut allocated_tasks_by_executor = Vec::new();
         let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
         let txn = self.db.transaction();
@@ -184,10 +188,6 @@ impl IndexifyState {
                 state_changes
             }
             requests::RequestPayload::ReplayComputeGraph(replay_compute_graph_request) => {
-                tracing::trace!(
-                    "replay compute graph: {:?}",
-                    replay_compute_graph_request.compute_graph_name
-                );
                 state_machine::replay_compute_graph(
                     self.db.clone(),
                     &txn,
@@ -218,7 +218,6 @@ impl IndexifyState {
                 vec![]
             }
             requests::RequestPayload::ReplayInvocations(replay_invocation_request) => {
-                tracing::trace!("replay invocation: {:?}", replay_invocation_request);
                 let mut state_changes = state_machine::replay_invocations(
                     self.db.clone(),
                     &txn,
@@ -291,10 +290,7 @@ impl IndexifyState {
                                     },
                                 ),
                             ) {
-                                tracing::error!(
-                                    "failed to send invocation state change: {:?}",
-                                    err
-                                );
+                                error!("failed to send invocation state change: {:?}", err);
                             }
                             if completion == InvocationCompletion::System {
                                 // Notify the system task handler that it can start new tasks since
@@ -353,7 +349,7 @@ impl IndexifyState {
                     }
                 };
                 if removed {
-                    tracing::info!("de-registering executor: {}", request.executor_id);
+                    info!("de-registering executor: {}", request.executor_id);
                     state_machine::deregister_executor(
                         self.db.clone(),
                         &txn,
@@ -413,7 +409,7 @@ impl IndexifyState {
                 let ev =
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 if let Err(err) = self.task_event_tx.send(ev) {
-                    tracing::error!("failed to send invocation state change: {:?}", err);
+                    error!("failed to send invocation state change: {:?}", err);
                 }
             }
             requests::RequestPayload::SchedulerUpdate(sched_update) => {
@@ -429,7 +425,7 @@ impl IndexifyState {
                                     },
                                 ))
                         {
-                            tracing::error!("failed to send invocation state change: {:?}", err);
+                            error!("failed to send invocation state change: {:?}", err);
                         }
                     }
                 }
@@ -445,7 +441,7 @@ impl IndexifyState {
                                 },
                             ))
                     {
-                        tracing::error!("failed to send invocation state change: {:?}", err);
+                        error!("failed to send invocation state change: {:?}", err);
                     }
                 }
                 for diagnostic_msg in &sched_update.diagnostic_msgs {
@@ -457,7 +453,7 @@ impl IndexifyState {
                                 },
                             ))
                     {
-                        tracing::error!("failed to send invocation state change: {:?}", err);
+                        error!("failed to send invocation state change: {:?}", err);
                     }
                 }
             }
@@ -567,7 +563,7 @@ impl IndexifyState {
     }
 
     pub fn reader(&self) -> scanner::StateReader {
-        scanner::StateReader::new(self.db.clone())
+        scanner::StateReader::new(self.db.clone(), self.metrics.clone())
     }
 
     pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {

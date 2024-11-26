@@ -115,7 +115,7 @@ impl SystemTasksExecutor {
             .get_system_task(namespace, compute_graph_name)?
         {
             if task.num_running_invocations == 0 {
-                tracing::info!("completed",);
+                info!("completed",);
                 // remove the task if reached the end of invocations column
                 self.state
                     .write(state_store::requests::StateMachineUpdateRequest {
@@ -129,7 +129,7 @@ impl SystemTasksExecutor {
                     })
                     .await?;
             } else {
-                tracing::info!(
+                info!(
                     running_invocations = task.num_running_invocations,
                     "waiting for all invotations to finish before completing the task",
                 );
@@ -185,6 +185,7 @@ mod tests {
         RequestPayload,
         StateMachineUpdateRequest,
     };
+    use tracing::subscriber;
     use tracing_subscriber::{layer::SubscriberExt, Layer};
     use uuid::Uuid;
 
@@ -241,7 +242,7 @@ mod tests {
     async fn test_graph_replay() -> Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-        let _ = tracing::subscriber::set_global_default(
+        let _ = subscriber::set_global_default(
             tracing_subscriber::registry()
                 .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
         );
@@ -253,7 +254,7 @@ mod tests {
         let shutdown_rx = tokio::sync::watch::channel(()).1;
         let scheduler = Scheduler::new(
             state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
         );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
@@ -336,7 +337,7 @@ mod tests {
                 &task.compute_fn_name,
                 &task.id,
             );
-            tracing::info!("complete task {:?}", task);
+            info!("complete task {:?}", task);
             state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
@@ -476,7 +477,7 @@ mod tests {
                 &task.compute_fn_name,
                 &task.id,
             );
-            tracing::info!("complete task {:?} req {:?}", task, request);
+            info!("complete task {:?} req {:?}", task, request);
             state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
@@ -508,7 +509,7 @@ mod tests {
                 &task.compute_fn_name,
                 &task.id,
             );
-            tracing::info!("complete task {:?}", task);
+            info!("complete task {:?}", task);
             state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
@@ -602,7 +603,7 @@ mod tests {
     async fn test_graph_flow_control_replay() -> Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-        let _ = tracing::subscriber::set_global_default(
+        let _ = subscriber::set_global_default(
             tracing_subscriber::registry()
                 .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
         );
@@ -614,7 +615,7 @@ mod tests {
         let shutdown_rx = tokio::sync::watch::channel(()).1;
         let scheduler = Scheduler::new(
             state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
         );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
@@ -709,7 +710,7 @@ mod tests {
             executor.run().await?;
 
             let num_pending_tasks = state.reader().get_pending_system_tasks()?;
-            tracing::info!("num pending tasks {:?}", num_pending_tasks);
+            info!("num pending tasks {:?}", num_pending_tasks);
             assert!(num_pending_tasks <= MAX_PENDING_TASKS);
 
             scheduler.run_scheduler().await?;

@@ -46,7 +46,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing::info;
+use tracing::{error, info, info_span};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -207,9 +207,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-        .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
-        .route("/ui", get(ui_index_handler))
-        .route("/ui/*rest", get(ui_handler))
+
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &Request| {
@@ -221,10 +219,14 @@ pub fn create_routes(route_state: RouteState) -> Router {
                         .get::<MatchedPath>()
                         .map(MatchedPath::as_str);
 
-                    tracing::info_span!("request", method, uri, matched_path)
+                    info_span!("request", method, uri, matched_path)
                 })
         )
+        // No tracing starting here.
+        .route("/ui", get(ui_index_handler))
+        .route("/ui/*rest", get(ui_handler))
         .layer(cors)
+        .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
         .layer(axum_metrics)
         .layer(DefaultBodyLimit::disable())
 }
@@ -234,7 +236,6 @@ async fn index() -> impl IntoResponse {
 }
 
 #[axum::debug_handler]
-#[tracing::instrument(skip_all)]
 async fn ui_index_handler() -> impl IntoResponse {
     let content = UiAssets::get("index.html").unwrap();
     (
@@ -245,7 +246,6 @@ async fn ui_index_handler() -> impl IntoResponse {
 }
 
 #[axum::debug_handler]
-#[tracing::instrument(skip_all)]
 async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
     let content = UiAssets::get(url.trim_start_matches('/'))
         .unwrap_or_else(|| UiAssets::get("index.html").unwrap());
@@ -369,12 +369,14 @@ async fn create_namespace(
         .indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateNameSpace(NamespaceRequest {
-                name: namespace.name,
+                name: namespace.name.clone(),
             }),
             state_changes_processed: vec![],
         })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
+
+    info!("namespace created: {:?}", namespace.name);
     Ok(())
 }
 
@@ -665,7 +667,7 @@ async fn executor_tasks(
         })
         .await;
     if let Err(e) = err {
-        tracing::error!("failed to register executor {}: {:?}", executor_id, e);
+        error!("failed to register executor {}: {:?}", executor_id, e);
         return Err(IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone(), TASK_LIMIT);
@@ -677,7 +679,7 @@ async fn executor_tasks(
                 axum::response::sse::Event::default().json_data(item)
             }
             Err(e) => {
-                tracing::error!("error in task stream: {}", e);
+                error!("error in task stream: {:?}", e);
                 Err(axum::Error::new(e))
             }
         })
@@ -893,7 +895,8 @@ async fn service_metrics(
     let metric_families = state.registry.gather();
     let mut buffer = vec![];
     let encoder = prometheus::TextEncoder::new();
-    encoder.encode(&metric_families, &mut buffer).map_err(|_| {
+    encoder.encode(&metric_families, &mut buffer).map_err(|e| {
+        tracing::error!("failed to encode metrics: {:?}", e);
         IndexifyAPIError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "failed to encode metrics",
