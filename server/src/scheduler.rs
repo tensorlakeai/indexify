@@ -18,7 +18,7 @@ use task_scheduler::{
     TaskScheduler,
 };
 use tokio::{self, sync::watch::Receiver};
-use tracing::{error, info};
+use tracing::{error, info, span};
 
 pub struct Scheduler {
     indexify_state: Arc<IndexifyState>,
@@ -48,74 +48,35 @@ impl Scheduler {
         let mut processed_reduction_tasks = vec![];
         let mut diagnostic_msgs = vec![];
         for state_change in &state_changes {
-            processed_state_changes.push(state_change.id);
-            let result = match &state_change.change_type {
-                ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
-                    handle_invoke_compute_graph(
-                        self.indexify_state.clone(),
-                        invoke_compute_graph_event.clone(),
-                    )
-                    .await?,
-                ),
-                ChangeType::TaskFinished(task_finished_event) => {
-                    let task = self
-                        .indexify_state
-                        .reader()
-                        .get_task_from_finished_event(task_finished_event)
-                        .map_err(|e| {
-                            error!("error getting task from finished event: {:?}", e);
-                            e
-                        })?;
-                    if task.is_none() {
-                        error!(
-                            "task not found for task finished event: {}",
-                            task_finished_event.task_id
-                        );
-                        continue;
+            let span = span!(
+                tracing::Level::INFO,
+                "process_state_change",
+                state_change_id = state_change.id.to_string(),
+                change_type = ?state_change.change_type
+            );
+            let _enter = span.enter();
+            match self.process_state_change(state_change).await {
+                Ok(result) => {
+                    processed_state_changes.push(state_change);
+                    if let Some(result) = result {
+                        let request = CreateTasksRequest {
+                            namespace: result.namespace.clone(),
+                            invocation_id: result.invocation_id.clone(),
+                            compute_graph: result.compute_graph.clone(),
+                            tasks: result.tasks,
+                        };
+                        create_task_requests.push(request);
+                        new_reduction_tasks.extend(result.new_reduction_tasks);
+                        processed_reduction_tasks.extend(result.processed_reduction_tasks);
                     }
-                    let task =
-                        task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
-                    let compute_graph = self
-                        .indexify_state
-                        .reader()
-                        .get_compute_graph(&task.namespace, &task.compute_graph_name)
-                        .map_err(|e| {
-                            error!("error getting compute graph: {:?}", e);
-                            e
-                        })?;
-                    if compute_graph.is_none() {
-                        error!(
-                            "compute graph not found: {:?} {:?}",
-                            task.namespace, task.compute_graph_name
-                        );
-                        continue;
-                    }
-                    let compute_graph = compute_graph.ok_or(anyhow!(
-                        "compute graph not found: {:?} {:?}",
-                        task.namespace,
-                        task.compute_graph_name
-                    ))?;
-                    Some(
-                        handle_task_finished(self.indexify_state.clone(), task, compute_graph)
-                            .await?,
-                    )
                 }
-                _ => None,
-            };
-            if let Some(result) = result {
-                let request = CreateTasksRequest {
-                    namespace: result.namespace.clone(),
-                    invocation_id: result.invocation_id.clone(),
-                    compute_graph: result.compute_graph.clone(),
-                    tasks: result.tasks,
-                };
-                create_task_requests.push(request);
-                new_reduction_tasks.extend(result.new_reduction_tasks);
-                processed_reduction_tasks.extend(result.processed_reduction_tasks);
+                Err(err) => {
+                    error!("error processing state change: {:?}", err);
+                }
             }
         }
         let mut new_allocations = vec![];
-        for state_change in &state_changes {
+        for state_change in &processed_state_changes {
             let task_placement_result = match state_change.change_type {
                 ChangeType::TaskCreated |
                 ChangeType::ExecutorAdded |
@@ -138,9 +99,66 @@ impl Scheduler {
                 },
                 diagnostic_msgs,
             }),
-            state_changes_processed: processed_state_changes,
+            state_changes_processed: processed_state_changes.iter().map(|x| x.id).collect(),
         };
         self.indexify_state.write(scheduler_update_request).await
+    }
+
+    async fn process_state_change(
+        &self,
+        state_change: &data_model::StateChange,
+    ) -> Result<Option<task_scheduler::TaskCreationResult>> {
+        let result = match &state_change.change_type {
+            ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
+                handle_invoke_compute_graph(
+                    self.indexify_state.clone(),
+                    invoke_compute_graph_event.clone(),
+                )
+                .await?,
+            ),
+            ChangeType::TaskFinished(task_finished_event) => {
+                let task = self
+                    .indexify_state
+                    .reader()
+                    .get_task_from_finished_event(task_finished_event)
+                    .map_err(|e| {
+                        error!("error getting task from finished event: {:?}", e);
+                        e
+                    })?;
+                if task.is_none() {
+                    error!(
+                        "task not found for task finished event: {}",
+                        task_finished_event.task_id
+                    );
+                    return Ok(None);
+                }
+                let task =
+                    task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
+                let compute_graph = self
+                    .indexify_state
+                    .reader()
+                    .get_compute_graph(&task.namespace, &task.compute_graph_name)
+                    .map_err(|e| {
+                        error!("error getting compute graph: {:?}", e);
+                        e
+                    })?;
+                if compute_graph.is_none() {
+                    error!(
+                        "compute graph not found: {:?} {:?}",
+                        task.namespace, task.compute_graph_name
+                    );
+                    return Ok(None);
+                }
+                let compute_graph = compute_graph.ok_or(anyhow!(
+                    "compute graph not found: {:?} {:?}",
+                    task.namespace,
+                    task.compute_graph_name
+                ))?;
+                Some(handle_task_finished(self.indexify_state.clone(), task, compute_graph).await?)
+            }
+            _ => None,
+        };
+        Ok(result)
     }
 
     pub async fn start(
