@@ -1,8 +1,19 @@
 all: build
 
-build:
+FUNCTION_EXECUTOR_PROTO_DIR=indexify/function_executor/proto
+
+build: clean install_deps protoc
 	@rm -rf dist
 	@poetry install
+	@poetry run python -m grpc_tools.protoc \
+		--proto_path=. \
+		--python_out=. \
+		--pyi_out=. \
+		--grpc_python_out=. \
+		${FUNCTION_EXECUTOR_PROTO_DIR}/function_executor.proto
+	@#The generated proto files don't pass linter checks and need to get refomatted.
+	@poetry run black ${FUNCTION_EXECUTOR_PROTO_DIR}
+	@poetry run isort ${FUNCTION_EXECUTOR_PROTO_DIR} --profile black
 	@poetry build
 
 fmt:
@@ -26,4 +37,4 @@ version:
 	@git tag --sign "v$$(poetry version -s)" -m "$(poetry version -s)"
 	@git push --follow-tags
 
-.PHONY: build format lint test version
+.PHONY: clean install_deps protoc build format lint test version

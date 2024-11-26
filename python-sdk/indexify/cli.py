@@ -1,3 +1,8 @@
+from .logging import configure_logging_early, configure_production_logging
+
+configure_logging_early()
+
+
 import asyncio
 import os
 import shutil
@@ -40,7 +45,6 @@ custom_theme = Theme(
     }
 )
 
-logging = structlog.get_logger(module=__name__)
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
@@ -176,9 +180,6 @@ def executor(
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
-    workers: Annotated[
-        int, typer.Option(help="number of worker processes for extraction")
-    ] = 1,
     config_path: Optional[str] = config_path_option,
     executor_cache: Optional[str] = executor_cache_option,
     name_alias: Optional[str] = typer.Option(
@@ -188,19 +189,13 @@ def executor(
         "1", help="Requested Image Version for this executor"
     ),
 ):
-    # configure structured logging
     if not dev:
-        processors = [
-            structlog.processors.dict_tracebacks,
-            structlog.processors.JSONRenderer(),
-        ]
-        structlog.configure(processors=processors)
+        configure_production_logging()
 
     id = nanoid.generate()
     executor_version = version("indexify")
-    logging.info(
+    logger.info(
         "executor started",
-        workers=workers,
         server_addr=server_addr,
         config_path=config_path,
         executor_id=id,
@@ -208,29 +203,29 @@ def executor(
         executor_cache=executor_cache,
         name_alias=name_alias,
         image_version=image_version,
+        dev_mode=dev,
     )
 
     from pathlib import Path
 
-    executor_cache = Path(executor_cache).expanduser().absolute()
-    if os.path.exists(executor_cache):
-        shutil.rmtree(executor_cache)
-    Path(executor_cache).mkdir(parents=True, exist_ok=True)
+    executor_cache_absolute_path = Path(executor_cache).expanduser().absolute()
+    # Ignore errors because the director might not exist.
+    shutil.rmtree(executor_cache_absolute_path, ignore_errors=True)
 
     agent = ExtractorAgent(
         id,
-        num_workers=workers,
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
         name_alias=name_alias,
         image_version=image_version,
+        development_mode=dev,
     )
 
     try:
         asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError:
-        logging.info("graceful shutdown")
+        logger.info("graceful shutdown")
 
 
 @app.command(help="Runs a Function Executor server")
@@ -239,8 +234,14 @@ def function_executor(
         help="Function Executor server address"
     ),
     indexify_server_address: str = typer.Option(help="Indexify server address"),
+    dev: Annotated[
+        bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
+    ] = False,
     config_path: Optional[str] = config_path_option,
 ):
+    if not dev:
+        configure_production_logging()
+
     logger.info(
         "starting function executor server",
         function_executor_server_address=function_executor_server_address,

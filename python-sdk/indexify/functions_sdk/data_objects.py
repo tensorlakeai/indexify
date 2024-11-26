@@ -20,15 +20,6 @@ class IndexifyData(BaseModel):
     encoder: Literal["cloudpickle", "json"] = "cloudpickle"
 
 
-class FunctionWorkerOutput(BaseModel):
-    fn_outputs: Optional[List[IndexifyData]]
-    router_output: Optional[RouterOutput]
-    stdout: Optional[str]
-    stderr: Optional[str]
-    reducer: bool = False
-    success: bool = True
-
-
 class File(BaseModel):
     data: bytes
     mime_type: Optional[str] = None
