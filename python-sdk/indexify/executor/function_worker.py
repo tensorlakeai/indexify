@@ -1,210 +1,164 @@
-import sys
-import traceback
-from typing import Dict, List, Optional
+from typing import Optional
 
-import cloudpickle
-from pydantic import BaseModel
-from rich import print
+import grpc
+import structlog
 
-from indexify import IndexifyClient
-from indexify.functions_sdk.data_objects import (
-    FunctionWorkerOutput,
-    IndexifyData,
+from indexify.function_executor.proto.function_executor_pb2 import (
+    FunctionOutput,
+    InitializeRequest,
     RouterOutput,
+    RunTaskRequest,
+    RunTaskResponse,
+    SerializedObject,
 )
-from indexify.functions_sdk.indexify_functions import (
-    FunctionCallResult,
-    GraphInvocationContext,
-    IndexifyFunctionWrapper,
-    RouterCallResult,
+from indexify.function_executor.proto.function_executor_pb2_grpc import (
+    FunctionExecutorStub,
 )
 
-function_wrapper_map: Dict[str, IndexifyFunctionWrapper] = {}
+from .api_objects import Task
+from .downloader import DownloadedInputs
+from .function_executor.function_executor import FunctionExecutor
+from .function_executor.function_executor_factory import (
+    FunctionExecutorFactory,
+)
+from .function_executor.function_executor_map import FunctionExecutorMap
 
-import concurrent.futures
 
+class FunctionWorkerInput:
+    """Task with all the resources required to run it."""
 
-class FunctionRunException(Exception):
     def __init__(
-        self, exception: Exception, stdout: str, stderr: str, is_reducer: bool
+        self,
+        task: Task,
+        graph: Optional[SerializedObject] = None,
+        function_input: Optional[DownloadedInputs] = None,
     ):
-        super().__init__(str(exception))
-        self.exception = exception
+        self.task = task
+        # Must not be None when running the task.
+        self.graph = graph
+        # Must not be None when running the task.
+        self.function_input = function_input
+
+
+class FunctionWorkerOutput:
+    def __init__(
+        self,
+        function_output: Optional[FunctionOutput] = None,
+        router_output: Optional[RouterOutput] = None,
+        stdout: Optional[str] = None,
+        stderr: Optional[str] = None,
+        reducer: bool = False,
+        success: bool = False,
+    ):
+        self.function_output = function_output
+        self.router_output = router_output
         self.stdout = stdout
         self.stderr = stderr
-        self.is_reducer = is_reducer
-
-
-class FunctionOutput(BaseModel):
-    fn_outputs: Optional[List[IndexifyData]]
-    router_output: Optional[RouterOutput]
-    reducer: bool = False
-    success: bool = True
-    stdout: str = ""
-    stderr: str = ""
-
-
-def _load_function(
-    namespace: str,
-    graph_name: str,
-    fn_name: str,
-    code_path: str,
-    version: int,
-    invocation_id: str,
-    indexify_client: IndexifyClient,
-):
-    """Load an extractor to the memory: extractor_wrapper_map."""
-    global function_wrapper_map
-    key = f"{namespace}/{graph_name}/{version}/{fn_name}"
-    if key in function_wrapper_map:
-        return
-    with open(code_path, "rb") as f:
-        code = f.read()
-        pickled_functions = cloudpickle.loads(code)
-    context = GraphInvocationContext(
-        invocation_id=invocation_id,
-        graph_name=graph_name,
-        graph_version=str(version),
-        indexify_client=indexify_client,
-    )
-    function_wrapper = IndexifyFunctionWrapper(
-        cloudpickle.loads(pickled_functions[fn_name]),
-        context,
-    )
-    function_wrapper_map[key] = function_wrapper
+        self.reducer = reducer
+        self.success = success
 
 
 class FunctionWorker:
-    def __init__(
-        self, workers: int = 1, indexify_client: IndexifyClient = None
-    ) -> None:
-        self._executor: concurrent.futures.ProcessPoolExecutor = (
-            concurrent.futures.ProcessPoolExecutor(max_workers=workers)
-        )
-        self._workers = workers
-        self._indexify_client = indexify_client
+    def __init__(self, function_executor_factory: FunctionExecutorFactory):
+        self._function_executors = FunctionExecutorMap(function_executor_factory)
 
-    async def async_submit(
-        self,
-        namespace: str,
-        graph_name: str,
-        fn_name: str,
-        input: IndexifyData,
-        code_path: str,
-        version: int,
-        init_value: Optional[IndexifyData] = None,
-        invocation_id: Optional[str] = None,
-    ) -> FunctionWorkerOutput:
+    async def run(self, input: FunctionWorkerInput) -> FunctionWorkerOutput:
+        function_id = _function_id(input.task)
+        function_executor: Optional[FunctionExecutor] = None
+
         try:
-            result = _run_function(
-                namespace,
-                graph_name,
-                fn_name,
-                input,
-                code_path,
-                version,
-                init_value,
-                invocation_id,
-                self._indexify_client,
+            logger = structlog.get_logger(
+                module=__name__,
+                namespace=input.task.namespace,
+                graph_name=input.task.compute_graph,
+                graph_version=input.task.graph_version,
+                function_name=input.task.compute_fn,
+                graph_invocation_id=input.task.invocation_id,
+                task_id=input.task.id,
             )
-            # TODO - bring back running in a separate process
+            run_task_request: RunTaskRequest = RunTaskRequest(
+                graph_invocation_id=input.task.invocation_id,
+                task_id=input.task.id,
+                function_input=input.function_input.input,
+            )
+            if input.function_input.init_value is not None:
+                run_task_request.function_init_value.CopyFrom(
+                    input.function_input.init_value
+                )
+
+            function_executor = await self._function_executors.get_or_create(
+                id=function_id,
+                initialize_request=InitializeRequest(
+                    namespace=input.task.namespace,
+                    graph_name=input.task.compute_graph,
+                    graph_version=input.task.graph_version,
+                    function_name=input.task.compute_fn,
+                    graph=input.graph,
+                ),
+                logger=logger,
+            )
+            channel: grpc.aio.Channel = await function_executor.channel()
+            run_task_response: RunTaskResponse = await FunctionExecutorStub(
+                channel
+            ).RunTask(run_task_request)
+            return _worker_output(run_task_response)
         except Exception as e:
+            logger.error(
+                "failed running function in Function Executor",
+                exc_info=e,
+            )
+            if function_executor is not None:
+                # This will fail all the tasks concurrently running in this Function Executor. Not great.
+                await self._function_executors.delete_and_destroy(
+                    id=function_id,
+                    logger=logger,
+                )
             return FunctionWorkerOutput(
-                stdout=e.stdout,
-                stderr=e.stderr,
-                reducer=e.is_reducer,
+                function_output=None,
+                router_output=None,
+                stdout=None,
+                # We are not sharing internal error messages with the customer.
+                # If customer code failed then we won't get any exceptions here.
+                # All customer code errors are returned in the gRPC response.
+                stderr="Platform failed to execute the function.",
+                reducer=False,
                 success=False,
             )
 
-        return FunctionWorkerOutput(
-            fn_outputs=result.fn_outputs,
-            router_output=result.router_output,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            reducer=result.reducer,
-            success=result.success,
+    async def shutdown(self) -> None:
+        await self._function_executors.clear(
+            logger=structlog.get_logger(module=__name__, event="shutdown")
         )
 
-    def shutdown(self):
-        self._executor.shutdown(wait=True, cancel_futures=True)
 
+def _worker_output(response: RunTaskResponse) -> FunctionWorkerOutput:
+    required_fields = [
+        "stdout",
+        "stderr",
+        "is_reducer",
+        "success",
+    ]
 
-def _run_function(
-    namespace: str,
-    graph_name: str,
-    fn_name: str,
-    input: IndexifyData,
-    code_path: str,
-    version: int,
-    init_value: Optional[IndexifyData] = None,
-    invocation_id: Optional[str] = None,
-    indexify_client: Optional[IndexifyClient] = None,
-) -> FunctionOutput:
-    import io
-    from contextlib import redirect_stderr, redirect_stdout
+    for field in required_fields:
+        if not response.HasField(field):
+            raise ValueError(f"Response is missing required field: {field}")
 
-    stdout_capture = io.StringIO()
-    stderr_capture = io.StringIO()
-    is_reducer = False
-    router_output = None
-    fn_output = None
-    has_failed = False
-    print(
-        f"[bold] function_worker: [/bold] invoking function {fn_name} in graph {graph_name}"
+    output = FunctionWorkerOutput(
+        stdout=response.stdout,
+        stderr=response.stderr,
+        reducer=response.is_reducer,
+        success=response.success,
     )
-    with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-        try:
-            key = f"{namespace}/{graph_name}/{version}/{fn_name}"
-            if key not in function_wrapper_map:
-                _load_function(
-                    namespace,
-                    graph_name,
-                    fn_name,
-                    code_path,
-                    version,
-                    invocation_id,
-                    indexify_client,
-                )
 
-            fn = function_wrapper_map[key]
-            if (
-                str(type(fn.indexify_function))
-                == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"
-            ):
-                router_call_result: RouterCallResult = fn.invoke_router(fn_name, input)
-                router_output = RouterOutput(edges=router_call_result.edges)
-                if router_call_result.traceback_msg is not None:
-                    print(router_call_result.traceback_msg, file=sys.stderr)
-                    has_failed = True
-            else:
-                fn_call_result: FunctionCallResult = fn.invoke_fn_ser(
-                    fn_name, input, init_value
-                )
-                is_reducer = fn.indexify_function.accumulate is not None
-                fn_output = fn_call_result.ser_outputs
-                if fn_call_result.traceback_msg is not None:
-                    print(fn_call_result.traceback_msg, file=sys.stderr)
-                    has_failed = True
-        except Exception:
-            print(traceback.format_exc(), file=sys.stderr)
-            has_failed = True
+    if response.HasField("function_output"):
+        output.function_output = response.function_output
+    if response.HasField("router_output"):
+        output.router_output = response.router_output
 
-    # WARNING - IF THIS FAILS, WE WILL NOT BE ABLE TO RECOVER
-    # ANY LOGS
-    if has_failed:
-        return FunctionOutput(
-            fn_outputs=None,
-            router_output=None,
-            stdout=stdout_capture.getvalue(),
-            stderr=stderr_capture.getvalue(),
-            reducer=is_reducer,
-            success=False,
-        )
-    return FunctionOutput(
-        fn_outputs=fn_output,
-        router_output=router_output,
-        reducer=is_reducer,
-        success=True,
-        stdout=stdout_capture.getvalue(),
-        stderr=stderr_capture.getvalue(),
+    return output
+
+
+def _function_id(task: Task) -> str:
+    return (
+        f"{task.namespace}/{task.compute_graph}/{task.graph_version}/{task.compute_fn}"
     )
