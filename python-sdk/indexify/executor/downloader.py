@@ -73,13 +73,6 @@ class Downloader:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(response.content)
-        console.print(
-            Panel(
-                f"Graph Downloaded",
-                title="downloader",
-                border_style="cyan",
-            )
-        )
         return path
 
     async def download_input(self, task: Task) -> DownloadedInputs:

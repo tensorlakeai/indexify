@@ -42,18 +42,6 @@ class FunctionOutput(BaseModel):
     stdout: str = ""
     stderr: str = ""
 
-
-class Job(BaseModel):
-    namespace: str
-    graph_name: str
-    fn_name: str
-    input: IndexifyData
-    code_path: str
-    version: int
-    init_value: Optional[IndexifyData] = None
-    invocation_id: Optional[str] = None
-
-
 class FunctionWorker:
     def __init__(
         self,
