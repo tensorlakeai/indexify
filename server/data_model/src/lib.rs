@@ -14,6 +14,7 @@ use filter::LabelsFilter;
 use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use strum::AsRefStr;
 
 // Invoke graph for all existing payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -879,7 +880,7 @@ impl fmt::Display for TaskFinishedEvent {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, AsRefStr)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
     TaskFinished(TaskFinishedEvent),

@@ -3,10 +3,11 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use data_model::{ComputeGraph, InvokeComputeGraphEvent, Node, OutputPayload, Task, TaskOutcome};
 use state_store::IndexifyState;
-use tracing::{error, info};
+use tracing::{error, info, instrument, Level};
 
 use crate::TaskCreationResult;
 
+#[instrument(ret(level = Level::DEBUG), skip(indexify_state, event), fields(namespace = event.namespace, compute_graph = event.compute_graph, invocation_id = event.invocation_id))]
 pub async fn handle_invoke_compute_graph(
     indexify_state: Arc<IndexifyState>,
     event: InvokeComputeGraphEvent,
@@ -50,6 +51,7 @@ pub async fn handle_invoke_compute_graph(
     })
 }
 
+#[instrument(ret(level = Level::DEBUG), skip(indexify_state, task, compute_graph), fields(namespace = task.namespace, compute_graph = task.compute_graph_name, invocation_id = task.invocation_id, compute_fn_name = task.compute_fn_name, task_id = task.id.to_string()))]
 pub async fn handle_task_finished(
     indexify_state: Arc<IndexifyState>,
     task: Task,
@@ -97,7 +99,6 @@ pub async fn handle_task_finished(
         ));
     }
     let mut new_tasks = vec![];
-    let mut new_reduction_tasks = vec![];
     let outputs = indexify_state
         .reader()
         .get_task_outputs(&task.namespace, &task.id.to_string())?;
@@ -196,6 +197,7 @@ pub async fn handle_task_finished(
             invocation_finished,
         });
     }
+    let mut new_reduction_tasks = vec![];
     let edges = edges.unwrap();
     for edge in edges {
         for output in &outputs {

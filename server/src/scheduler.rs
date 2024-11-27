@@ -52,7 +52,7 @@ impl Scheduler {
                 tracing::Level::INFO,
                 "process_state_change",
                 state_change_id = state_change.id.to_string(),
-                change_type = ?state_change.change_type
+                change_type = state_change.change_type.as_ref(),
             );
             let _enter = span.enter();
             match self.process_state_change(state_change).await {

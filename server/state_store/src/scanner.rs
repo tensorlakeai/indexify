@@ -790,23 +790,6 @@ impl StateReader {
         }
     }
 
-    pub fn all_reduction_tasks(&self, ns: &str, cg: &str, inv_id: &str) -> Result<Vec<ReduceTask>> {
-        let kvs = &[KeyValue::new("op", "all_reduction_tasks")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let kvs = &[KeyValue::new("op", "all_reduction_tasks")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = format!("{}|{}|{}|", ns, cg, inv_id);
-        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
-            key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::ReductionTasks,
-            None,
-        )?;
-        Ok(tasks)
-    }
-
     pub fn next_reduction_task(
         &self,
         ns: &str,
