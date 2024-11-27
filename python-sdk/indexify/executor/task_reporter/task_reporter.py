@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from rich import print
 from rich.text import Text
 
-from indexify.common_util import get_httpx_client
+from indexify import IndexifyClient
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_reporter.task_reporter_utils import (
@@ -43,13 +43,11 @@ class TaskReporter:
         self,
         base_url: str,
         executor_id: str,
-        task_store: TaskStore,
-        config_path: Optional[str] = None,
+        indexify_client: IndexifyClient,
     ):
         self._base_url = base_url
         self._executor_id = executor_id
-        self._client = get_httpx_client(config_path)
-        self._task_store = task_store
+        self._client = indexify_client
 
     async def run(self):
         console.print(Text("Starting TaskReporter", style="bold cyan"))

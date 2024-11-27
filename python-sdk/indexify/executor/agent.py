@@ -113,8 +113,10 @@ class ExtractorAgent:
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
             executor_id=self._executor_id,
-            config_path=self._config_path,
-            task_store=self._task_store,
+            indexify_client=IndexifyClient(
+                service_url=self._base_url,
+                config_path=self._config_path,
+            ),
         )
 
     async def task_launcher(self):
