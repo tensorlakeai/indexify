@@ -22,7 +22,6 @@ nanoid = "^2.0.0"
 docker = "^7.1.0"
 typer = "^0.13.0"
 httpx-sse = "^0.4.0"
-jsonpickle = "^4.0.0"
 structlog = "^24.4.0"
 
 [tool.poetry.dev-dependencies]
