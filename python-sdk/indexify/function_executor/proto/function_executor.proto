@@ -1,0 +1,70 @@
+
+
+syntax = "proto3";
+
+package function_executor_service;
+
+// The messages should not use any Python SDK objects. Only Function Executor implemented
+// in Python is allowed to import Python SDK to run customer functions. This ensures that
+// all the other components can be written in any language.
+
+message SerializedObject {
+    oneof data {
+        // Set bytes_data if the object is serialized as bytes.
+        bytes bytes = 1;
+        // Set string_data if the object is serialized as string.
+        string string = 2;
+    }
+    // The content type determines the serializer used to serialize the object.
+    optional string content_type = 3;
+}
+
+// InitializeRequest contains information about the function
+// that Function Executor is going to run the tasks for.
+message InitializeRequest {
+    optional string namespace = 1;
+    optional string graph_name = 2;
+    optional int32 graph_version = 3;
+    optional string function_name = 5;
+    optional SerializedObject graph = 7;
+}
+
+message InitializeResponse {
+    optional bool success = 1;
+}
+
+message FunctionOutput {
+    repeated SerializedObject outputs = 1;
+}
+
+message RouterOutput {
+    repeated string edges = 1;
+}
+
+message RunTaskRequest {
+    optional string graph_invocation_id = 4;
+    optional string task_id = 6;
+    optional SerializedObject function_input = 9;
+    optional SerializedObject function_init_value = 10;
+}
+
+message RunTaskResponse {
+    optional string task_id = 1;
+    optional FunctionOutput function_output = 2;
+    optional RouterOutput router_output = 3;
+    optional string stdout = 4;
+    optional string stderr = 5;
+    optional bool is_reducer = 6;
+    optional bool success = 7;
+}
+
+service FunctionExecutor {
+    // Initialize initializes the Function Executor to run tasks
+    // for a particular function. This method is called only
+    // once per Function Executor as it can only run a single function.
+    // It should be called before calling RunTask for the function.
+    rpc Initialize(InitializeRequest) returns (InitializeResponse);
+    // RunTask executes the task defined in the request.
+    // Multiple tasks can be running in parallel.
+    rpc RunTask(RunTaskRequest) returns (RunTaskResponse);
+}
