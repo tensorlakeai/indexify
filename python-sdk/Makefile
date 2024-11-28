@@ -1,8 +1,19 @@
 all: build
 
+FUNCTION_EXECUTOR_PROTO_DIR=indexify/function_executor/proto
+
 build:
 	@rm -rf dist
 	@poetry install
+	@poetry run python -m grpc_tools.protoc \
+		--proto_path=. \
+		--python_out=. \
+		--pyi_out=. \
+		--grpc_python_out=. \
+		${FUNCTION_EXECUTOR_PROTO_DIR}/function_executor.proto
+	@#The generated proto files don't pass linter checks and need to get refomatted.
+	@poetry run black ${FUNCTION_EXECUTOR_PROTO_DIR}
+	@poetry run isort ${FUNCTION_EXECUTOR_PROTO_DIR} --profile black
 	@poetry build
 
 fmt:

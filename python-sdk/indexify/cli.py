@@ -18,12 +18,18 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
-from indexify.executor.function_worker import FunctionWorker
+from indexify.function_executor.function_executor_service import (
+    FunctionExecutorService,
+)
+from indexify.function_executor.server import Server as FunctionExecutorServer
 from indexify.functions_sdk.image import (
     LOCAL_PYTHON_VERSION,
     GetDefaultPythonImage,
     Image,
 )
+from indexify.http_client import IndexifyClient
+
+logger = structlog.get_logger(module=__name__)
 
 custom_theme = Theme(
     {
@@ -38,6 +44,12 @@ logging = structlog.get_logger(module=__name__)
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
+executor_cache_option: Optional[str] = typer.Option(
+    "~/.indexify/executor_cache", help="Path to the executor cache directory"
+)
+config_path_option: Optional[str] = typer.Option(
+    None, help="Path to the TLS configuration file"
+)
 
 
 @app.command(
@@ -176,12 +188,8 @@ def executor(
     workers: Annotated[
         int, typer.Option(help="number of worker processes for extraction")
     ] = 1,
-    config_path: Optional[str] = typer.Option(
-        None, help="Path to the TLS configuration file"
-    ),
-    executor_cache: Optional[str] = typer.Option(
-        "~/.indexify/executor_cache", help="Path to the executor cache directory"
-    ),
+    config_path: Optional[str] = config_path_option,
+    executor_cache: Optional[str] = executor_cache_option,
     name_alias: Optional[str] = typer.Option(
         None, help="Name alias for the executor if it's spun up with the base image"
     ),
@@ -232,6 +240,29 @@ def executor(
         asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError:
         logging.info("graceful shutdown")
+
+
+@app.command(help="Runs a Function Executor server")
+def function_executor(
+    function_executor_server_address: str = typer.Option(
+        help="Function Executor server address"
+    ),
+    indexify_server_address: str = typer.Option(help="Indexify server address"),
+    config_path: Optional[str] = config_path_option,
+):
+    logger.info(
+        "starting function executor server",
+        function_executor_server_address=function_executor_server_address,
+        indexify_server_address=indexify_server_address,
+        config_path=config_path,
+    )
+
+    FunctionExecutorServer(
+        server_address=function_executor_server_address,
+        service=FunctionExecutorService(
+            indexify_server_address=indexify_server_address, config_path=config_path
+        ),
+    ).run()
 
 
 def _create_image(image: Image, python_sdk_path):
