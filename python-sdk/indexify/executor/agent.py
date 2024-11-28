@@ -198,7 +198,7 @@ class ExtractorAgent:
                     if async_task.exception():
                         logging.error(
                             "task_launcher_error, failed to download input",
-                            exception=async_task.exception(),
+                            exception=str(async_task.exception()),
                         )
                         completed_task = CompletedTask(
                             task=async_task.task,
@@ -275,8 +275,6 @@ class ExtractorAgent:
         self._should_run = True
         while self._should_run:
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
-            print(f"calling url: {url}")
-
             runtime_probe: ProbeInfo = self._probe.probe()
 
             executor_version = version("indexify")
@@ -303,10 +301,8 @@ class ExtractorAgent:
             ).model_dump()
 
             logging.info("registering_executor", executor_id=self._executor_id)
-            print("i ma here 11")
             try:
                 async with get_httpx_client(self._config_path, True) as client:
-                    print("i ma here 222")
                     async with aconnect_sse(
                         client,
                         "POST",
@@ -314,9 +310,7 @@ class ExtractorAgent:
                         json=data,
                         headers={"Content-Type": "application/json"},
                     ) as event_source:
-                        print("i ma here 3333")
                         if not event_source.response.is_success:
-                            print("i am here ")
                             resp = await event_source.response.aread().decode("utf-8")
                             logging.error(
                                 f"failed to register",

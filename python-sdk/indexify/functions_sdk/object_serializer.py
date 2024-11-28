@@ -30,7 +30,9 @@ class JsonSerializer:
     @staticmethod
     def deserialize(data: str) -> Any:
         try:
-            return json.loads(data.decode("utf-8"))
+            if isinstance(data, bytes):
+                data = data.decode("utf-8")
+            return json.loads(data)
         except Exception as e:
             raise ValueError(f"failed to deserialize data with json: {e}")
 
@@ -40,7 +42,9 @@ class JsonSerializer:
 
     @staticmethod
     def deserialize_list(data: str, t: Type) -> List[Any]:
-        return json.load(data.decode("utf-8"))
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        return json.loads(data)
 
 
 class CloudPickleSerializer:
