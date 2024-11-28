@@ -17,6 +17,7 @@ httpx = { version = "^0", extras = ["http2"] }
 pyyaml = "^6"
 pydantic = "2.10.2"
 cloudpickle = "^3.1.0"
+jsonpickle = "^4.0.0"
 rich = "^13.9.2"
 nanoid = "^2.0.0"
 docker = "^7.1.0"

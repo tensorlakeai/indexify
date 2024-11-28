@@ -9,6 +9,7 @@ import time
 from typing import Annotated, List, Optional
 
 import nanoid
+import structlog
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -16,12 +17,16 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
-from indexify.executor.function_worker import FunctionWorker
+from indexify.executor.paths.host import HostPaths
+from indexify.function_executor.server import Server as FunctionExecutorServer
 from indexify.functions_sdk.image import (
     DEFAULT_IMAGE_3_10,
     DEFAULT_IMAGE_3_11,
     Image,
 )
+from indexify.http_client import IndexifyClient
+
+logger = structlog.get_logger(module=__name__)
 
 custom_theme = Theme(
     {
@@ -35,6 +40,12 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
+executor_cache_option: Optional[str] = typer.Option(
+    "~/.indexify/executor_cache", help="Path to the executor cache directory"
+)
+config_path_option: Optional[str] = typer.Option(
+    None, help="Path to the TLS configuration file"
+)
 
 
 @app.command(
@@ -161,12 +172,8 @@ def executor(
     workers: Annotated[
         int, typer.Option(help="number of worker processes for extraction")
     ] = 1,
-    config_path: Optional[str] = typer.Option(
-        None, help="Path to the TLS configuration file"
-    ),
-    executor_cache: Optional[str] = typer.Option(
-        "~/.indexify/executor_cache", help="Path to the executor cache directory"
-    ),
+    config_path: Optional[str] = config_path_option,
+    executor_cache: Optional[str] = executor_cache_option,
     name_alias: Optional[str] = typer.Option(
         None, help="Name alias for the executor if it's spun up with the base image"
     ),
@@ -210,6 +217,42 @@ def executor(
         asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError as ex:
         console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
+
+
+@app.command(help="Runs a Function Executor server")
+def function_executor(
+    namespace: str = typer.Option(help="Namespace of the graph the function is from"),
+    task_id: str = typer.Option(help="ID of the task the function run is for"),
+    executor_cache: str = executor_cache_option,
+    server_addr: str = typer.Option(help="Indexify server address"),
+    config_path: Optional[str] = config_path_option,
+):
+    logger.info(
+        "starting function executor server",
+        cache_path=executor_cache,
+        server_addr=server_addr,
+        config_path=config_path,
+    )
+    _init_host_paths(executor_cache)
+
+    protocol: str = "http"
+    if config_path:
+        logger.info("TLS is enabled")
+        protocol = "https"
+    indexify_client: IndexifyClient = IndexifyClient(
+        service_url=f"{protocol}://{server_addr}",
+        namespace=namespace,
+        config_path=config_path,
+    )
+
+    FunctionExecutorServer(task_id=task_id, indexify_client=indexify_client).run()
+
+
+def _init_host_paths(executor_cache: str):
+    from pathlib import Path
+
+    executor_cache_absolute_path = Path(executor_cache).expanduser().absolute()
+    HostPaths.set_base_dir(executor_cache_absolute_path)
 
 
 def _create_image(image: Image, python_sdk_path):
