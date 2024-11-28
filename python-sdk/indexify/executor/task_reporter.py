@@ -46,15 +46,14 @@ class TaskReporter:
         fn_outputs = []
         for output in completed_task.outputs or []:
             serializer = get_serializer(output.encoder)
-            serialized_output = serializer.serialize(output.payload)
             fn_outputs.append(
                 (
                     "node_outputs",
-                    (nanoid.generate(), serialized_output, serializer.content_type),
+                    (nanoid.generate(), output.payload, serializer.content_type),
                 )
             )
             report.output_count += 1
-            report.output_total_bytes += len(serialized_output)
+            report.output_total_bytes += len(output.payload)
 
         if completed_task.stdout:
             fn_outputs.append(

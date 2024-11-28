@@ -144,7 +144,7 @@ pub async fn invoke_with_file(
 #[utoipa::path(
     post,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invoke_object",
-    request_body(content_type = "application/cbor", content = inline(serde_json::Value)),
+    request_body(content_type = "application/json", content = inline(serde_json::Value)),
     tag = "ingestion",
     responses(
         (status = 200, description = "invocation successful"),

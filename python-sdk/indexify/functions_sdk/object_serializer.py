@@ -30,7 +30,7 @@ class JsonSerializer:
     @staticmethod
     def deserialize(data: str) -> Any:
         try:
-            return json.loads(data)
+            return json.loads(data.decode("utf-8"))
         except Exception as e:
             raise ValueError(f"failed to deserialize data with json: {e}")
 
@@ -40,7 +40,7 @@ class JsonSerializer:
 
     @staticmethod
     def deserialize_list(data: str, t: Type) -> List[Any]:
-        return json.loads(data)
+        return json.load(data.decode("utf-8"))
 
 class CloudPickleSerializer:
     content_type = "application/octet-stream"
