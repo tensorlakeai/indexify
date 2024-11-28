@@ -84,8 +84,8 @@ class IndexifyFunction:
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
     encoder: Optional[str] = "cloudpickle"
-    input_encoder: Optional[str] = "cloudpickle",
-    output_encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = ("cloudpickle",)
+    output_encoder: Optional[str] = ("cloudpickle",)
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -107,8 +107,8 @@ class IndexifyRouter:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     encoder: Optional[str] = "cloudpickle"
-    input_encoder: Optional[str] = "cloudpickle",
-    output_encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = ("cloudpickle",)
+    output_encoder: Optional[str] = ("cloudpickle",)
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
@@ -242,7 +242,7 @@ class IndexifyFunctionWrapper:
                     inner_types[0] if inner_types[1] is type(None) else inner_types[1]
                 )
         return return_type
-    
+
     def get_input_types(self) -> Dict[str, Any]:
         if not isinstance(self.indexify_function, IndexifyFunction):
             raise TypeError("Input must be an instance of IndexifyFunction")

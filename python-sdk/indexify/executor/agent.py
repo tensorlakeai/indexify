@@ -24,7 +24,8 @@ from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
 
-logging = structlog.get_logger(__name__)
+logging = structlog.get_logger(module=__name__)
+
 
 class FunctionInput(BaseModel):
     task_id: str
@@ -158,7 +159,10 @@ class ExtractorAgent:
             for async_task in done:
                 if async_task.get_name() == "get_runnable_tasks":
                     if async_task.exception():
-                        logging.error("task_launcher_error, failed to get runnable tasks", exception=async_task.exception())
+                        logging.error(
+                            "task_launcher_error, failed to get runnable tasks",
+                            exception=async_task.exception(),
+                        )
                         continue
                     result: Dict[str, Task] = await async_task
                     task: Task
@@ -174,7 +178,10 @@ class ExtractorAgent:
                     )
                 elif async_task.get_name() == "download_graph":
                     if async_task.exception():
-                        logging.error("task_launcher_error, failed to download graph", exception=async_task.exception())
+                        logging.error(
+                            "task_launcher_error, failed to download graph",
+                            exception=async_task.exception(),
+                        )
                         completed_task = CompletedTask(
                             task=async_task.task,
                             outputs=[],
@@ -189,7 +196,10 @@ class ExtractorAgent:
                     )
                 elif async_task.get_name() == "download_input":
                     if async_task.exception():
-                        logging.error("task_launcher_error, failed to download input", exception=async_task.exception())
+                        logging.error(
+                            "task_launcher_error, failed to download input",
+                            exception=async_task.exception(),
+                        )
                         completed_task = CompletedTask(
                             task=async_task.task,
                             outputs=[],
@@ -241,7 +251,11 @@ class ExtractorAgent:
                         self._task_store.retriable_failure(async_task.task.id)
                         continue
                     except Exception as e:
-                        logging.error("failed to execute task", task_id=async_task.task.id, exception=str(e))
+                        logging.error(
+                            "failed to execute task",
+                            task_id=async_task.task.id,
+                            exception=str(e),
+                        )
                         completed_task = CompletedTask(
                             task=async_task.task,
                             task_outcome="failure",
@@ -304,10 +318,16 @@ class ExtractorAgent:
                         if not event_source.response.is_success:
                             print("i am here ")
                             resp = await event_source.response.aread().decode("utf-8")
-                            logging.error(f"failed to register", resp=str(resp), status_code=event_source.response.status_code)
+                            logging.error(
+                                f"failed to register",
+                                resp=str(resp),
+                                status_code=event_source.response.status_code,
+                            )
                             await asyncio.sleep(5)
                             continue
-                        logging.info("executor_registered", executor_id=self._executor_id)
+                        logging.info(
+                            "executor_registered", executor_id=self._executor_id
+                        )
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
                             tasks = []

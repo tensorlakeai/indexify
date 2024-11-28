@@ -1,5 +1,5 @@
 import json
-from typing import Any, List,Type
+from typing import Any, List, Type
 
 import cloudpickle
 
@@ -41,6 +41,7 @@ class JsonSerializer:
     @staticmethod
     def deserialize_list(data: str, t: Type) -> List[Any]:
         return json.load(data.decode("utf-8"))
+
 
 class CloudPickleSerializer:
     content_type = "application/octet-stream"

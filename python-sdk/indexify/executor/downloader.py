@@ -13,9 +13,11 @@ from .api_objects import Task
 
 logger = structlog.get_logger(module=__name__)
 
+
 class DownloadedInputs(BaseModel):
     input: IndexifyData
     init_value: Optional[IndexifyData] = None
+
 
 class Downloader:
     def __init__(
@@ -29,15 +31,23 @@ class Downloader:
         path = os.path.join(self.code_path, namespace, f"{name}.{version}")
         if os.path.exists(path):
             return path
-        
-        logger.info("downloading graph", namespace=namespace, name=name, version=version)
+
+        logger.info(
+            "downloading graph", namespace=namespace, name=name, version=version
+        )
         response = self._client.get(
             f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
         )
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error("failed to download graph", namespace=namespace, name=name, version=version, error=response.text)
+            logger.error(
+                "failed to download graph",
+                namespace=namespace,
+                name=name,
+                version=version,
+                error=response.text,
+            )
             raise
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -56,14 +66,18 @@ class Downloader:
         if task.reducer_output_id:
             reducer_url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/output/{task.reducer_output_id}"
 
-
         logger.info("downloading input", url=url, reducer_url=reducer_url)
         response = self._client.get(url)
 
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error("failed to download input", url=url, reducer_url=reducer_url, error=response.text)
+            logger.error(
+                "failed to download input",
+                url=url,
+                reducer_url=reducer_url,
+                error=response.text,
+            )
             raise
 
         encoder = (
@@ -87,7 +101,11 @@ class Downloader:
             try:
                 init_value.raise_for_status()
             except httpx.HTTPStatusError as e:
-                logger.error("failed to download reducer output", url=reducer_url, error=init_value.text)
+                logger.error(
+                    "failed to download reducer output",
+                    url=reducer_url,
+                    error=init_value.text,
+                )
                 raise
             init_value = serializer.deserialize(init_value.content)
             return DownloadedInputs(
