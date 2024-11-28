@@ -2,10 +2,8 @@ import os
 from typing import Optional
 
 import httpx
+import structlog
 from pydantic import BaseModel
-from rich.console import Console
-from rich.panel import Panel
-from rich.theme import Theme
 
 from indexify.functions_sdk.data_objects import IndexifyData
 
@@ -13,21 +11,11 @@ from ..common_util import get_httpx_client
 from ..functions_sdk.object_serializer import JsonSerializer, get_serializer
 from .api_objects import Task
 
-custom_theme = Theme(
-    {
-        "info": "cyan",
-        "warning": "yellow",
-        "error": "red",
-    }
-)
-
-console = Console(theme=custom_theme)
-
+logger = structlog.get_logger(module=__name__)
 
 class DownloadedInputs(BaseModel):
     input: IndexifyData
     init_value: Optional[IndexifyData] = None
-
 
 class Downloader:
     def __init__(
@@ -41,28 +29,15 @@ class Downloader:
         path = os.path.join(self.code_path, namespace, f"{name}.{version}")
         if os.path.exists(path):
             return path
-
-        console.print(
-            Panel(
-                f"Downloading graph: {name}\nPath: {path}",
-                title="downloader",
-                border_style="cyan",
-            )
-        )
-
+        
+        logger.info("downloading graph", namespace=namespace, name=name, version=version)
         response = self._client.get(
             f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
         )
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            console.print(
-                Panel(
-                    f"Failed to download graph: {name}\nError: {response.text}",
-                    title="downloader error",
-                    border_style="error",
-                )
-            )
+            logger.error("failed to download graph", namespace=namespace, name=name, version=version, error=response.text)
             raise
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -81,26 +56,14 @@ class Downloader:
         if task.reducer_output_id:
             reducer_url = f"{self.base_url}/namespaces/{task.namespace}/compute_graphs/{task.compute_graph}/invocations/{task.invocation_id}/fn/{task.compute_fn}/output/{task.reducer_output_id}"
 
-        console.print(
-            Panel(
-                f"downloading input\nURL: {url} \n reducer input URL: {reducer_url}",
-                title="downloader",
-                border_style="cyan",
-            )
-        )
 
+        logger.info("downloading input", url=url, reducer_url=reducer_url)
         response = self._client.get(url)
 
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            console.print(
-                Panel(
-                    f"failed to download input: {task.input_key}\nError: {response.text}",
-                    title="downloader error",
-                    border_style="error",
-                )
-            )
+            logger.error("failed to download input", url=url, reducer_url=reducer_url, error=response.text)
             raise
 
         encoder = (
@@ -124,13 +87,7 @@ class Downloader:
             try:
                 init_value.raise_for_status()
             except httpx.HTTPStatusError as e:
-                console.print(
-                    Panel(
-                        f"failed to download reducer output: {task.reducer_output_id}\nError: {init_value.text}",
-                        title="downloader error",
-                        border_style="error",
-                    )
-                )
+                logger.error("failed to download reducer output", url=reducer_url, error=init_value.text)
                 raise
             init_value = serializer.deserialize(init_value.content)
             return DownloadedInputs(

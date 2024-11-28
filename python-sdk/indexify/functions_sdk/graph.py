@@ -1,4 +1,5 @@
 import sys
+import json
 from collections import defaultdict
 from queue import deque
 from typing import (
@@ -101,9 +102,7 @@ class Graph:
             return self
 
         if issubclass(indexify_fn, IndexifyFunction) and indexify_fn.accumulate:
-            self.accumulator_zero_values[indexify_fn.name] = (
-                indexify_fn.accumulate().model_dump()
-            )
+            self.accumulator_zero_values[indexify_fn.name] = indexify_fn.accumulate()
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -287,7 +286,8 @@ class Graph:
             fn_outputs = function_outputs.ser_outputs
             print(f"ran {node_name}: num outputs: {len(fn_outputs)}")
             if self._accumulator_values.get(node_name, None) is not None:
-                self._accumulator_values[node_name] = fn_outputs[-1].model_copy()
+                acc_output = fn_outputs[-1].copy()
+                self._accumulator_values[node_name] = acc_output
                 outputs[node_name] = []
             if fn_outputs:
                 outputs[node_name].extend(fn_outputs)

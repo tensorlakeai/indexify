@@ -1,16 +1,16 @@
-import io
 from typing import Optional
+import structlog
 
 import nanoid
 from httpx import Timeout
 from pydantic import BaseModel
-from rich import print
-
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult
 from indexify.executor.task_store import CompletedTask
 from indexify.functions_sdk.object_serializer import get_serializer
+
+logger = structlog.get_logger(__name__)
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -109,14 +109,17 @@ class TaskReporter:
             + report.stderr_total_bytes
         )
 
-        print(
-            f"[bold]task-reporter[/bold] reporting task outcome "
-            f"task_id={completed_task.task.id} retries={completed_task.reporting_retries} "
-            f"total_bytes={total_bytes} total_files={report.output_count + report.stdout_count + report.stderr_count} "
-            f"output_files={report.output_count} output_bytes={total_bytes} "
-            f"stdout_bytes={report.stdout_total_bytes} stderr_bytes={report.stderr_total_bytes} "
+        logger.info(
+            "reporting task outcome",
+            task_id=completed_task.task.id,
+            retries=completed_task.reporting_retries,
+            total_bytes=total_bytes,
+            total_files=report.output_count + report.stdout_count + report.stderr_count,
+            output_files=report.output_count,
+            output_bytes=total_bytes,
+            stdout_bytes=report.stdout_total_bytes,
+            stderr_bytes=report.stderr_total_bytes,
         )
-
         #
         kwargs = {
             "data": {"task_result": task_result_data},
@@ -137,15 +140,23 @@ class TaskReporter:
                 **kwargs,
             )
         except Exception as e:
-            print(
-                f"[bold]task-reporter[/bold] failed to report task outcome retries={completed_task.reporting_retries} {type(e).__name__}({e})"
+            logger.error(
+                "failed to report task outcome",
+                task_id=completed_task.task.id,
+                retries=completed_task.reporting_retries,
+                error=type(e).__name__,
+                message=str(e),
             )
             raise e
 
         try:
             response.raise_for_status()
         except Exception as e:
-            print(
-                f"[bold]task-reporter[/bold] failed to report task outcome retries={completed_task.reporting_retries} {response.text}"
+            logger.error(
+                "failed to report task outcome",
+                task_id=completed_task.task.id,
+                retries=completed_task.reporting_retries,
+                status_code=response.status_code,
+                response_text=response.text,
             )
             raise e

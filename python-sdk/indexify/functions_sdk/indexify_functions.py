@@ -84,6 +84,8 @@ class IndexifyFunction:
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
     encoder: Optional[str] = "cloudpickle"
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -105,6 +107,8 @@ class IndexifyRouter:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     encoder: Optional[str] = "cloudpickle"
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
@@ -121,6 +125,8 @@ def indexify_router(
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     placement_constraints: List[PlacementConstraints] = [],
     encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         # Get function signature using inspect.signature
@@ -145,6 +151,8 @@ def indexify_router(
             "image": image,
             "placement_constraints": placement_constraints,
             "encoder": encoder,
+            "input_encoder": input_encoder,
+            "output_encoder": output_encoder,
             "run": run,
         }
 
@@ -159,6 +167,8 @@ def indexify_function(
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     accumulate: Optional[Type[BaseModel]] = None,
     encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -185,6 +195,8 @@ def indexify_function(
             "placement_constraints": placement_constraints,
             "accumulate": accumulate,
             "encoder": encoder,
+            "input_encoder": input_encoder,
+            "output_encoder": output_encoder,
             "run": run,
         }
 
@@ -230,6 +242,18 @@ class IndexifyFunctionWrapper:
                     inner_types[0] if inner_types[1] is type(None) else inner_types[1]
                 )
         return return_type
+    
+    def get_input_types(self) -> Dict[str, Any]:
+        if not isinstance(self.indexify_function, IndexifyFunction):
+            raise TypeError("Input must be an instance of IndexifyFunction")
+
+        extract_method = self.indexify_function.run
+        type_hints = get_type_hints(extract_method)
+        return {
+            k: v
+            for k, v in type_hints.items()
+            if k != "return" and not is_pydantic_model_from_annotation(v)
+        }
 
     def run_router(
         self, input: Union[Dict, Type[BaseModel]]
@@ -282,13 +306,9 @@ class IndexifyFunctionWrapper:
         input = self.deserialize_input(name, input)
         serializer = get_serializer(self.indexify_function.encoder)
         if acc is not None:
-            acc = self.indexify_function.accumulate.model_validate(
-                serializer.deserialize(acc.payload)
-            )
+            acc = serializer.deserialize(acc.payload)
         if acc is None and self.indexify_function.accumulate is not None:
-            acc = self.indexify_function.accumulate.model_validate(
-                self.indexify_function.accumulate()
-            )
+            acc = self.indexify_function.accumulate()
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
             IndexifyData(

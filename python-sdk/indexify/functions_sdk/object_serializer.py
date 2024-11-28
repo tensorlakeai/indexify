@@ -1,7 +1,7 @@
-from typing import Any, List
+import json
+from typing import Any, List,Type
 
 import cloudpickle
-import jsonpickle
 
 
 def get_serializer(serializer_type: str) -> Any:
@@ -22,20 +22,25 @@ class JsonSerializer:
 
     @staticmethod
     def serialize(data: Any) -> str:
-        return jsonpickle.encode(data)
+        try:
+            return json.dumps(data)
+        except Exception as e:
+            raise ValueError(f"failed to serialize data with json: {e}")
 
     @staticmethod
     def deserialize(data: str) -> Any:
-        return jsonpickle.decode(data)
+        try:
+            return json.loads(data)
+        except Exception as e:
+            raise ValueError(f"failed to deserialize data with json: {e}")
 
     @staticmethod
     def serialize_list(data: List[Any]) -> str:
-        return jsonpickle.encode(data)
+        return json.dumps(data)
 
     @staticmethod
-    def deserialize_list(data: str) -> List[Any]:
-        return jsonpickle.decode(data)
-
+    def deserialize_list(data: str, t: Type) -> List[Any]:
+        return json.loads(data)
 
 class CloudPickleSerializer:
     content_type = "application/octet-stream"

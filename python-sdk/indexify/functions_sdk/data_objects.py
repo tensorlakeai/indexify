@@ -19,7 +19,6 @@ class IndexifyData(BaseModel):
     payload: Union[bytes, str]
     encoder: Literal["cloudpickle", "json"] = "cloudpickle"
 
-
 class FunctionWorkerOutput(BaseModel):
     fn_outputs: Optional[List[IndexifyData]]
     router_output: Optional[RouterOutput]
