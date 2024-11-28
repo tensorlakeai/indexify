@@ -119,7 +119,7 @@ impl ImageInformation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
 pub struct DynamicEdgeRouter {
     pub name: String,
     pub description: String,
@@ -392,6 +392,23 @@ impl ComputeGraph {
 
         self
     }
+
+    pub fn get_compute_parent(&self, node_name: &str) -> Option<&str> {
+        // Find parent of the node
+        self.edges
+            .iter()
+            .filter_map(|(parent, successors)| {
+                successors
+                    .contains(&node_name.to_string())
+                    .then(|| parent.as_str())
+            })
+            // Filter for compute node parent, traversing through routers
+            .find_map(|predecessor_name| match self.nodes.get(predecessor_name) {
+                Some(Node::Compute(_)) => Some(predecessor_name),
+                Some(Node::Router(_)) => self.get_compute_parent(predecessor_name),
+                None => None,
+            })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -596,6 +613,10 @@ impl GraphInvocationCtx {
 
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
         format!("{}|{}|{}", ns, cg, id)
+    }
+
+    pub fn get_task_analytics(&self, compute_fn: &str) -> Option<&TaskAnalytics> {
+        self.fn_task_analytics.get(compute_fn)
     }
 }
 
@@ -959,6 +980,7 @@ mod tests {
         ComputeFn,
         ComputeGraph,
         ComputeGraphCode,
+        DynamicEdgeRouter,
         ExecutorMetadata,
         GraphVersion,
         ImageInformation,
@@ -1097,5 +1119,151 @@ mod tests {
         assert_eq!(*fn_b_image_version, 2, "update node fn_b image version");
 
         assert_eq!(graph.created_at, 5, "created_at should not change");
+    }
+
+    // Check function pattern
+    fn check_compute_parent<F>(node: &str, expected_parent: Option<&str>, configure_graph: F)
+    where
+        F: FnOnce(&mut ComputeGraph),
+    {
+        fn create_test_graph() -> ComputeGraph {
+            let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
+            ComputeGraph {
+                namespace: String::new(),
+                name: String::new(),
+                description: String::new(),
+                version: GraphVersion::default(),
+                code: ComputeGraphCode {
+                    path: String::new(),
+                    size: 0,
+                    sha256_hash: String::new(),
+                },
+                created_at: 0,
+                start_fn: Node::Compute(fn_a),
+                nodes: HashMap::new(),
+                edges: HashMap::new(),
+                runtime_information: RuntimeInformation {
+                    major_version: 0,
+                    minor_version: 0,
+                },
+                replaying: false,
+            }
+        }
+
+        let mut graph = create_test_graph();
+        configure_graph(&mut graph);
+        assert_eq!(
+            graph.get_compute_parent(node),
+            expected_parent,
+            "Failed for node: {}",
+            node
+        );
+    }
+
+    #[test]
+    fn test_get_compute_parent_scenarios() {
+        check_compute_parent("compute2", Some("compute1"), |graph| {
+            graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
+            graph.nodes = HashMap::from([
+                (
+                    "compute1".to_string(),
+                    Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                ),
+                (
+                    "compute2".to_string(),
+                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                ),
+            ]);
+        });
+        check_compute_parent("router2", Some("compute4"), |graph| {
+            graph.edges = HashMap::from([("compute4".to_string(), vec!["router2".to_string()])]);
+            graph.nodes = HashMap::from([
+                (
+                    "compute4".to_string(),
+                    Node::Compute(test_compute_fn("compute4", Some("image_hash".to_string()))),
+                ),
+                (
+                    "router2".to_string(),
+                    Node::Router(DynamicEdgeRouter {
+                        name: "router2".to_string(),
+                        ..Default::default()
+                    }),
+                ),
+            ]);
+        });
+        check_compute_parent("nonexistent", None, |_| {});
+
+        // More complex routing scenarios
+        check_compute_parent("compute2", Some("compute1"), |graph| {
+            graph.edges = HashMap::from([
+                ("compute1".to_string(), vec!["router1".to_string()]),
+                ("router1".to_string(), vec!["compute2".to_string()]),
+            ]);
+            graph.nodes = HashMap::from([
+                (
+                    "compute1".to_string(),
+                    Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                ),
+                (
+                    "router1".to_string(),
+                    Node::Router(DynamicEdgeRouter {
+                        name: "router1".to_string(),
+                        ..Default::default()
+                    }),
+                ),
+                (
+                    "compute2".to_string(),
+                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                ),
+            ]);
+        });
+
+        check_compute_parent("compute2", Some("compute3"), |graph| {
+            graph.edges = HashMap::from([
+                ("compute3".to_string(), vec!["router1".to_string()]),
+                ("router1".to_string(), vec!["compute2".to_string()]),
+            ]);
+            graph.nodes = HashMap::from([
+                (
+                    "compute3".to_string(),
+                    Node::Compute(test_compute_fn("compute3", Some("image_hash".to_string()))),
+                ),
+                (
+                    "router1".to_string(),
+                    Node::Router(DynamicEdgeRouter {
+                        name: "router1".to_string(),
+                        ..Default::default()
+                    }),
+                ),
+                (
+                    "compute2".to_string(),
+                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                ),
+            ]);
+        });
+
+        check_compute_parent("compute2", Some("compute3"), |graph| {
+            graph.edges = HashMap::from([
+                ("compute3".to_string(), vec!["router1".to_string()]),
+                ("router1".to_string(), vec!["compute2".to_string()]),
+            ]);
+            graph.nodes = HashMap::from([
+                (
+                    "compute3".to_string(),
+                    Node::Compute(test_compute_fn("compute3", Some("image_hash".to_string()))),
+                ),
+                (
+                    "router1".to_string(),
+                    Node::Router(DynamicEdgeRouter {
+                        name: "router1".to_string(),
+                        ..Default::default()
+                    }),
+                ),
+                (
+                    "compute2".to_string(),
+                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                ),
+            ]);
+        });
     }
 }

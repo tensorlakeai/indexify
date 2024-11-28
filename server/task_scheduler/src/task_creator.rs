@@ -1,9 +1,18 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraph, InvokeComputeGraphEvent, Node, OutputPayload, Task, TaskOutcome};
-use state_store::IndexifyState;
-use tracing::{error, info, instrument, Level};
+use data_model::{
+    ComputeGraph,
+    GraphInvocationCtx,
+    InvokeComputeGraphEvent,
+    Node,
+    OutputPayload,
+    Task,
+    TaskOutcome,
+};
+use rand::seq::index;
+use state_store::{state_machine::IndexifyObjectsColumns, IndexifyState};
+use tracing::{error, info, instrument, trace, Level};
 
 use crate::TaskCreationResult;
 
@@ -12,6 +21,11 @@ pub async fn handle_invoke_compute_graph(
     indexify_state: Arc<IndexifyState>,
     event: InvokeComputeGraphEvent,
 ) -> Result<TaskCreationResult> {
+    trace!(
+        "Handling invoke compute graph event: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}",
+        event.namespace, event.compute_graph, event.invocation_id
+    );
+
     let compute_graph = indexify_state
         .reader()
         .get_compute_graph(&event.namespace, &event.compute_graph)?;
@@ -31,7 +45,7 @@ pub async fn handle_invoke_compute_graph(
         });
     }
     let compute_graph = compute_graph.unwrap();
-    // Crate a task for the compute graph
+    // Create a task for the compute graph
     let task = compute_graph.start_fn.create_task(
         &event.namespace,
         &event.compute_graph,
@@ -40,6 +54,10 @@ pub async fn handle_invoke_compute_graph(
         None,
         compute_graph.version,
     )?;
+    trace!(
+        "Created task for compute graph: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, task_id = {:?}",
+        event.namespace, event.compute_graph, event.invocation_id, task.id
+    );
     Ok(TaskCreationResult {
         namespace: event.namespace.clone(),
         compute_graph: event.compute_graph.clone(),
@@ -57,6 +75,29 @@ pub async fn handle_task_finished(
     task: Task,
     compute_graph: ComputeGraph,
 ) -> Result<TaskCreationResult> {
+    trace!(
+        "Handling task finished: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, task_id = {:?}",
+        task.namespace, task.compute_graph_name, task.invocation_id, task.id
+    );
+
+    let txn = indexify_state.db.transaction();
+
+    let key = GraphInvocationCtx::key_from(
+        task.namespace.as_str(),
+        task.compute_graph_name.as_str(),
+        task.invocation_id.as_str(),
+    );
+    let _value = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
+        &key,
+        true,
+    )?;
+
+    let _value = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::Tasks.cf_db(&indexify_state.db),
+        &task.key(),
+        true,
+    )?;
     let invocation_ctx = indexify_state
         .reader()
         .invocation_ctx(
@@ -82,6 +123,8 @@ pub async fn handle_task_finished(
         "invocation context not found for invocation_id {}",
         task.invocation_id
     ))?;
+
+    trace!("GraphInvocationCtx: {:?}", invocation_ctx);
 
     if task.outcome == TaskOutcome::Failure {
         let mut invocation_finished = false;
@@ -126,6 +169,10 @@ pub async fn handle_task_finished(
             )?;
             new_tasks.push(new_task);
         }
+        trace!(
+            "Created new tasks for router edges: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, task_ids = {:?}",
+            task.namespace, task.compute_graph_name, task.invocation_id, new_tasks.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
+        );
         return Ok(TaskCreationResult {
             namespace: task.namespace.clone(),
             compute_graph: task.compute_graph_name.clone(),
@@ -137,9 +184,28 @@ pub async fn handle_task_finished(
         });
     }
 
+    // Check for pending reduction tasks to create
     if let Some(compute_node) = compute_graph.nodes.get(&task.compute_fn_name) {
         if let Node::Compute(compute_fn) = compute_node {
             if compute_fn.reducer {
+                if let Some(task_analytics) =
+                    invocation_ctx.get_task_analytics(&task.compute_fn_name)
+                {
+                    if task_analytics.pending_tasks > 0 {
+                        trace!(
+                            "Waiting for pending reducer tasks to finish before queuing new ones"
+                        );
+                        return Ok(TaskCreationResult {
+                            namespace: task.namespace.clone(),
+                            compute_graph: task.compute_graph_name.clone(),
+                            invocation_id: task.invocation_id.clone(),
+                            tasks: vec![],
+                            new_reduction_tasks: vec![],
+                            processed_reduction_tasks: vec![],
+                            invocation_finished: false,
+                        });
+                    }
+                }
                 let reduction_task = indexify_state
                     .reader()
                     .next_reduction_task(
@@ -160,7 +226,10 @@ pub async fn handle_task_finished(
                         Some(output.id.clone()),
                         invocation_ctx.graph_version,
                     )?;
-
+                    trace!(
+                        "Created new task for reduction task: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, task_id = {:?}, compute_fn_name = {:?}",
+                        task.namespace, task.compute_graph_name, task.invocation_id, new_task.id, new_task.compute_fn_name
+                    );
                     return Ok(TaskCreationResult {
                         namespace: task.namespace.clone(),
                         compute_graph: task.compute_graph_name.clone(),
@@ -171,6 +240,34 @@ pub async fn handle_task_finished(
                         invocation_finished: false,
                     });
                 }
+                trace!(
+                        "No reduction tasks to create: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, compute_fn_name = {:?}",
+                        task.namespace, task.compute_graph_name, task.invocation_id, task.compute_fn_name
+                    );
+
+                // Impossible
+                // if let Some(parent_node) =
+                // compute_graph.get_compute_parent(compute_node.name()) {
+                //     if let Some(parent_task_analytics) =
+                //         invocation_ctx.get_task_analytics(parent_node)
+                //     {
+                //         if parent_task_analytics.pending_tasks > 0 {
+                //             trace!(
+                //                 "Waiting for all reducer tasks to be finished
+                // up before getting to edges"             );
+                //             return Ok(TaskCreationResult {
+                //                 namespace: task.namespace.clone(),
+                //                 compute_graph:
+                // task.compute_graph_name.clone(),
+                // invocation_id: task.invocation_id.clone(),
+                //                 tasks: vec![],
+                //                 new_reduction_tasks: vec![],
+                //                 processed_reduction_tasks: vec![],
+                //                 invocation_finished: false,
+                //             });
+                //         }
+                //     }
+                // }
             }
         }
     }
@@ -205,29 +302,96 @@ pub async fn handle_task_finished(
                 .nodes
                 .get(edge)
                 .ok_or(anyhow!("compute node not found: {:?}", edge))?;
-            let task_analytics_edge = indexify_state.reader().task_analytics(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                &edge,
-            )?;
-            let outstanding_tasks_for_node = match task_analytics_edge {
-                Some(task_analytics) => task_analytics.pending_tasks,
+
+            let task_analytics_edge = invocation_ctx.get_task_analytics(&edge);
+            trace!(
+                compute_fn_name = compute_node.name(),
+                "task_analytics_edge: {:?}",
+                task_analytics_edge,
+            );
+            let (outstanding_tasks_for_node, successfull_tasks_for_node) = match task_analytics_edge
+            {
+                Some(task_analytics) => (
+                    task_analytics.pending_tasks,
+                    task_analytics.successful_tasks,
+                ),
                 None => {
                     error!("task analytics not found for edge : {:?}", edge);
-                    0
+                    (0, 0)
                 }
             };
-            if compute_node.reducer() && (new_tasks.len() > 0 || outstanding_tasks_for_node > 0) {
-                let new_task = compute_node.reducer_task(
-                    &task.namespace,
-                    &task.compute_graph_name,
-                    &task.invocation_id,
-                    &task.id.to_string(),
-                    &output.key(&task.invocation_id),
-                );
-                new_reduction_tasks.push(new_task);
-                continue;
+            // hypothesis: if a previous reducer task finished previously, we need to create
+            // a new reducer task here BUT if we create a new reduction task and
+            // not a task, it will not get scheduled.
+            if compute_node.reducer() {
+                if new_tasks.len() > 0 || outstanding_tasks_for_node > 0 {
+                    let new_task = compute_node.reducer_task(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                        &task.id.to_string(),
+                        &output.key(&task.invocation_id),
+                    );
+                    trace!(
+                        "Created new reduction task: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, compute_fn_name = {:?}, new_tasks_len = {:?}, outstanding_tasks_for_node = {:?}, output_len = {:?}",
+                        new_task.namespace, new_task.compute_graph_name, new_task.invocation_id, new_task.compute_fn_name, new_tasks.len(), outstanding_tasks_for_node, outputs.len()
+                    );
+                    new_reduction_tasks.push(new_task);
+                    continue;
+                }
+                if successfull_tasks_for_node > 0 {
+                    let (prev_reducer_tasks, _) = indexify_state.reader().get_task_by_fn(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                        compute_node.name(),
+                        None,
+                        Some(1),
+                    )?;
+
+                    if !prev_reducer_tasks.is_empty() {
+                        let prev_reducer_task = prev_reducer_tasks.first().unwrap();
+                        let prev_reducer_outputs = indexify_state.reader().get_task_outputs(
+                            &prev_reducer_task.namespace,
+                            &prev_reducer_task.id.to_string(),
+                        )?;
+
+                        if prev_reducer_outputs.is_empty() {
+                            error!(
+                                "No outputs found for previous reducer task: {:?}",
+                                prev_reducer_task.id
+                            );
+                        }
+                        let prev_reducer_output = prev_reducer_outputs.first().unwrap();
+                        // A reducer task has already finished, so we need to create a new task
+
+                        // we cannot start a normal task
+                        // TODO: Handle the case where a failure happened in a reducer task
+
+                        // Create a new task for the queued reduction_task
+                        let output = outputs.first().unwrap();
+                        let new_task = compute_node.create_task(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &task.invocation_id,
+                            &output.key(&task.invocation_id),
+                            Some(prev_reducer_output.id.clone()),
+                            invocation_ctx.graph_version,
+                        )?;
+                        trace!(
+                            "Created new task for reduction task (resume reduce): namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, task_id = {:?}, compute_fn_name = {:?}",
+                            task.namespace, task.compute_graph_name, task.invocation_id, new_task.id, new_task.compute_fn_name
+                        );
+                        new_tasks.push(new_task);
+                    } else {
+                        // TODO: consider returning an error.
+                        error!(
+                            "Previous reducer task not found for compute node: {:?}",
+                            compute_node.name()
+                        );
+                    }
+                    continue;
+                }
             }
             let new_task = compute_node.create_task(
                 &task.namespace,
@@ -237,6 +401,10 @@ pub async fn handle_task_finished(
                 None,
                 invocation_ctx.graph_version,
             )?;
+            trace!(
+            "Created new task for output: namespace = {:?}, compute_graph = {:?}, invocation_id = {:?}, compute_fn_name = {:?}, new_tasks_len = {:?}, outstanding_tasks_for_node = {:?}, output_len = {:?}",
+                     new_task.namespace, new_task.compute_graph_name, new_task.invocation_id, new_task.compute_fn_name, new_tasks.len(), outstanding_tasks_for_node, outputs.len()
+            );
             new_tasks.push(new_task);
         }
     }

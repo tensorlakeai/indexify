@@ -599,6 +599,24 @@ impl StateReader {
         )
     }
 
+    pub fn get_task_by_fn(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+        restart_key: Option<&[u8]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let key = Task::key_prefix_for_fn(namespace, compute_graph, invocation_id, compute_fn);
+        self.get_rows_from_cf_with_limits::<Task>(
+            key.as_bytes(),
+            restart_key,
+            IndexifyObjectsColumns::Tasks,
+            limit,
+        )
+    }
+
     pub fn list_tasks_by_compute_graph(
         &self,
         namespace: &str,
