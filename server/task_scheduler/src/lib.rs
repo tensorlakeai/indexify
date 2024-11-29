@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, GraphInvocationCtx, Node, ReduceTask, RuntimeInformation, Task};
+use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
 use rand::seq::SliceRandom;
-use state_store::{requests::TaskPlacement, state_machine::IndexifyObjectsColumns, IndexifyState};
+use state_store::{requests::TaskPlacement, IndexifyState};
 use tracing::{error, info, span};
 
 pub mod task_creator;

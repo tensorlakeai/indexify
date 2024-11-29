@@ -4,25 +4,12 @@ pub mod tests {
     use rand::{distributions::Alphanumeric, Rng};
 
     use super::super::{
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        Node,
-        Node::Compute,
-        NodeOutput,
+        ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute, NodeOutput,
         RuntimeInformation,
     };
     use crate::{
-        DataPayload,
-        DynamicEdgeRouter,
-        ExecutorId,
-        ExecutorMetadata,
-        ImageInformation,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
-        Task,
-        TaskBuilder,
+        DataPayload, DynamicEdgeRouter, ExecutorId, ExecutorMetadata, ImageInformation,
+        InvocationPayload, InvocationPayloadBuilder, NodeOutputBuilder, Task, TaskBuilder,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
@@ -72,9 +59,9 @@ pub mod tests {
         }
     }
 
-    fn reducer_fn(name: &str, reduce: bool) -> ComputeFn {
+    pub fn reducer_fn(name: &str) -> ComputeFn {
         let mut compute_fn = test_compute_fn(name, None);
-        compute_fn.reducer = reduce;
+        compute_fn.reducer = true;
         compute_fn
     }
 
@@ -246,7 +233,7 @@ pub mod tests {
 
     pub fn mock_graph_with_reducer() -> ComputeGraph {
         let fn_a = test_compute_fn("fn_a", None);
-        let fn_b = reducer_fn("fn_b", true);
+        let fn_b = reducer_fn("fn_b");
         let fn_c = test_compute_fn("fn_c", None);
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),

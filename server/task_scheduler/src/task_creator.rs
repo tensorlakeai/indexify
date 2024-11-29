@@ -2,15 +2,9 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph,
-    GraphInvocationCtx,
-    InvokeComputeGraphEvent,
-    Node,
-    OutputPayload,
-    Task,
+    ComputeGraph, GraphInvocationCtx, InvokeComputeGraphEvent, Node, OutputPayload, Task,
     TaskOutcome,
 };
-use rand::seq::index;
 use state_store::{state_machine::IndexifyObjectsColumns, IndexifyState};
 use tracing::{error, info, instrument, trace, Level};
 
@@ -245,7 +239,8 @@ pub async fn handle_task_finished(
                         task.namespace, task.compute_graph_name, task.invocation_id, task.compute_fn_name
                     );
 
-                // Impossible
+                // Is this impossible? When this happens, the graph would be finalized early!
+                //
                 // if let Some(parent_node) =
                 // compute_graph.get_compute_parent(compute_node.name()) {
                 //     if let Some(parent_task_analytics) =
