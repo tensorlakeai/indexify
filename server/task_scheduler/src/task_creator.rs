@@ -2,7 +2,12 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph, GraphInvocationCtx, InvokeComputeGraphEvent, Node, OutputPayload, Task,
+    ComputeGraph,
+    GraphInvocationCtx,
+    InvokeComputeGraphEvent,
+    Node,
+    OutputPayload,
+    Task,
     TaskOutcome,
 };
 use state_store::{state_machine::IndexifyObjectsColumns, IndexifyState};
@@ -241,28 +246,27 @@ pub async fn handle_task_finished(
 
                 // Is this impossible? When this happens, the graph would be finalized early!
                 //
-                // if let Some(parent_node) =
-                // compute_graph.get_compute_parent(compute_node.name()) {
-                //     if let Some(parent_task_analytics) =
-                //         invocation_ctx.get_task_analytics(parent_node)
-                //     {
-                //         if parent_task_analytics.pending_tasks > 0 {
-                //             trace!(
-                //                 "Waiting for all reducer tasks to be finished
-                // up before getting to edges"             );
-                //             return Ok(TaskCreationResult {
-                //                 namespace: task.namespace.clone(),
-                //                 compute_graph:
-                // task.compute_graph_name.clone(),
-                // invocation_id: task.invocation_id.clone(),
-                //                 tasks: vec![],
-                //                 new_reduction_tasks: vec![],
-                //                 processed_reduction_tasks: vec![],
-                //                 invocation_finished: false,
-                //             });
-                //         }
-                //     }
-                // }
+                if let Some(parent_node) = compute_graph.get_compute_parent(compute_node.name()) {
+                    if let Some(parent_task_analytics) =
+                        invocation_ctx.get_task_analytics(parent_node)
+                    {
+                        if parent_task_analytics.pending_tasks > 0 {
+                            trace!(
+                                "Waiting for all reducer tasks to be finished
+                up before getting to edges"
+                            );
+                            return Ok(TaskCreationResult {
+                                namespace: task.namespace.clone(),
+                                compute_graph: task.compute_graph_name.clone(),
+                                invocation_id: task.invocation_id.clone(),
+                                tasks: vec![],
+                                new_reduction_tasks: vec![],
+                                processed_reduction_tasks: vec![],
+                                invocation_finished: false,
+                            });
+                        }
+                    }
+                }
             }
         }
     }

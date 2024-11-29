@@ -7,7 +7,6 @@ use data_model::{
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
-    InvocationPayload,
     InvokeComputeGraphEvent,
     Namespace,
     NodeOutput,
@@ -770,7 +769,6 @@ pub fn mark_task_completed(
         .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
     if task.terminal_state() {
-        info!("Task already completed: {}", &req.task_id);
         // In some edge cases, an executor has been seen trying to finalize a task that
         // has already been completed. So far this has always been related to a
         // system error.
@@ -785,10 +783,23 @@ pub fn mark_task_completed(
         // trying to finalize it.
         //
         // TODO: Look if there are other objects that need to be deleted.
-        txn.delete_cf(
-            &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-            &task.make_allocation_key(&req.executor_id),
-        )?;
+        if txn
+            .get_cf(
+                &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+                task.key(),
+            )?
+            .is_some()
+        {
+            error!(
+                task_key = task.key(),
+                "Task already completed but allocation still exists, deleting allocation",
+            );
+            txn.delete_cf(
+                &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+                &task.make_allocation_key(&req.executor_id),
+            )?;
+        }
+
         return Ok(false);
     }
     let graph_ctx_key = format!(
