@@ -244,17 +244,14 @@ pub async fn handle_task_finished(
                         task.namespace, task.compute_graph_name, task.invocation_id, task.compute_fn_name
                     );
 
-                // Is this impossible? When this happens, the graph would be finalized early!
-                //
+                // Prevent early finalization of the invocation if a reduction task finished
+                // before other parent output have been generated.
                 if let Some(parent_node) = compute_graph.get_compute_parent(compute_node.name()) {
                     if let Some(parent_task_analytics) =
                         invocation_ctx.get_task_analytics(parent_node)
                     {
                         if parent_task_analytics.pending_tasks > 0 {
-                            trace!(
-                                "Waiting for all reducer tasks to be finished
-                up before getting to edges"
-                            );
+                            trace!( "Waiting for all reducer tasks to be finished up before getting to edges");
                             return Ok(TaskCreationResult {
                                 namespace: task.namespace.clone(),
                                 compute_graph: task.compute_graph_name.clone(),
@@ -360,6 +357,10 @@ pub async fn handle_task_finished(
                                 "No outputs found for previous reducer task: {:?}",
                                 prev_reducer_task.id
                             );
+                            return Err(anyhow!(
+                                "No outputs found for previous reducer task, should never happen: {:?}",
+                                prev_reducer_task.key(),
+                            ));
                         }
                         let prev_reducer_output = prev_reducer_outputs.first().unwrap();
                         // A reducer task has already finished, so we need to create a new task

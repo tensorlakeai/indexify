@@ -769,6 +769,10 @@ pub fn mark_task_completed(
         .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
     if task.terminal_state() {
+        info!(
+            task_key = task.key(),
+            "Task already completed, skipping finalization",
+        );
         // In some edge cases, an executor has been seen trying to finalize a task that
         // has already been completed. So far this has always been related to a
         // system error.
@@ -786,7 +790,7 @@ pub fn mark_task_completed(
         if txn
             .get_cf(
                 &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-                task.key(),
+                &task.make_allocation_key(&req.executor_id),
             )?
             .is_some()
         {
