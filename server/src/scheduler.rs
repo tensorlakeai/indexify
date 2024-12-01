@@ -75,18 +75,16 @@ impl Scheduler {
                 }
             }
         }
+
         let mut new_allocations = vec![];
-        for state_change in &processed_state_changes {
-            let task_placement_result = match state_change.change_type {
-                ChangeType::TaskCreated |
-                ChangeType::ExecutorAdded |
-                ChangeType::ExecutorRemoved => Some(self.task_allocator.schedule_unplaced_tasks()?),
-                _ => None,
-            };
-            if let Some(task_placement_result) = task_placement_result {
-                new_allocations.extend(task_placement_result.task_placements);
-                diagnostic_msgs.extend(task_placement_result.diagnostic_msgs);
-            }
+        if processed_state_changes.iter().any(|sc| {
+            sc.change_type == ChangeType::TaskCreated ||
+                sc.change_type == ChangeType::ExecutorAdded ||
+                sc.change_type == ChangeType::ExecutorRemoved
+        }) {
+            let task_placement_result = self.task_allocator.schedule_unplaced_tasks()?;
+            new_allocations.extend(task_placement_result.task_placements);
+            diagnostic_msgs.extend(task_placement_result.diagnostic_msgs);
         }
 
         let scheduler_update_request = StateMachineUpdateRequest {
@@ -192,8 +190,6 @@ mod tests {
         test_objects::tests::{
             mock_executor,
             mock_executor_id,
-            mock_graph_with_reducer,
-            mock_invocation_payload,
             mock_invocation_payload_graph_b,
             mock_node_fn_output,
             reducer_fn,
@@ -209,6 +205,7 @@ mod tests {
         InvocationPayloadBuilder,
         Node,
         RuntimeInformation,
+        StateChange,
         Task,
         TaskId,
         TaskOutcome,
