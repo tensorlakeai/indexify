@@ -31,7 +31,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::error;
+use tracing::{error, info};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::{
@@ -728,7 +728,7 @@ pub fn mark_task_completed(
         )
         .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
     if graph.is_none() {
-        error!(
+        info!(
             "Compute graph not found: {} for task completion update for task id: {}",
             &req.compute_graph, &req.task_id
         );
@@ -745,7 +745,7 @@ pub fn mark_task_completed(
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
     if invocation.is_none() {
-        error!(
+        info!(
             "Invocation not found: {} for task completion update for task id: {}",
             &req.invocation_id, &req.task_id
         );
@@ -771,12 +771,19 @@ pub fn mark_task_completed(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             &graph_ctx_key,
             true,
-        )?
-        .ok_or(anyhow!(
-            "Graph context not found for task: {}",
-            &req.task_id
-        ))?;
-    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
+        )
+        .map_err(|e| anyhow!("failed to get graph context: {}", e))?;
+    if graph_ctx.is_none() {
+        error!(
+            "Graph context for graph {} and invocation {} not found for task: {}",
+            &req.compute_graph, &req.invocation_id, &req.task_id
+        );
+        return Ok(false);
+    }
+    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.ok_or(anyhow!(
+        "Graph context not found for task: {}",
+        &req.task_id
+    ))?)?;
     for mut output in req.node_outputs {
         // Update with correct graph version
         output.graph_version = graph_ctx.graph_version;
