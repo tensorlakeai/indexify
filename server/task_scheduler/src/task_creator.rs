@@ -61,32 +61,40 @@ pub async fn handle_task_finished(
             &task.namespace,
             &task.compute_graph_name,
             &task.invocation_id,
-        )?
-        .ok_or(anyhow!(
-            "invocation context not found for invocation_id {}",
-            task.invocation_id
-        ))?;
+        )
+        .map_err(|e| {
+            anyhow!(
+                "error getting invocation context for invocation {}: {:?}",
+                task.invocation_id,
+                e
+            )
+        })?;
+    if invocation_ctx.is_none() {
+        return Ok(TaskCreationResult::no_tasks(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.invocation_id,
+        ));
+    }
+    let invocation_ctx = invocation_ctx.ok_or(anyhow!(
+        "invocation context not found for invocation_id {}",
+        task.invocation_id
+    ))?;
 
     if task.outcome == TaskOutcome::Failure {
         let mut invocation_finished = false;
         if invocation_ctx.outstanding_tasks == 0 {
             invocation_finished = true;
         }
-
         info!(
             "Task failed, graph invocation: {:?} {}",
             task.compute_graph_name, invocation_finished
         );
-
-        return Ok(TaskCreationResult {
-            namespace: task.namespace.clone(),
-            compute_graph: task.compute_graph_name.clone(),
-            invocation_id: task.invocation_id.clone(),
-            tasks: vec![],
-            invocation_finished,
-            new_reduction_tasks: vec![],
-            processed_reduction_tasks: vec![],
-        });
+        return Ok(TaskCreationResult::no_tasks(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.invocation_id,
+        ));
     }
     let mut new_tasks = vec![];
     let mut new_reduction_tasks = vec![];

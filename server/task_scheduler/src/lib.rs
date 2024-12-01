@@ -19,6 +19,20 @@ pub struct TaskCreationResult {
     pub invocation_id: String,
 }
 
+impl TaskCreationResult {
+    pub fn no_tasks(namespace: &str, compute_graph: &str, invocation_id: &str) -> Self {
+        Self {
+            namespace: namespace.to_string(),
+            compute_graph: compute_graph.to_string(),
+            tasks: vec![],
+            new_reduction_tasks: vec![],
+            processed_reduction_tasks: vec![],
+            invocation_finished: false,
+            invocation_id: invocation_id.to_string(),
+        }
+    }
+}
+
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
     pub diagnostic_msgs: Vec<String>,

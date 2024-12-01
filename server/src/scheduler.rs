@@ -61,13 +61,40 @@ impl Scheduler {
                     let task = self
                         .indexify_state
                         .reader()
-                        .get_task_from_finished_event(task_finished_event)?
-                        .ok_or(anyhow!("task not found {}", task_finished_event.task_id))?;
+                        .get_task_from_finished_event(task_finished_event)
+                        .map_err(|e| {
+                            error!("error getting task from finished event: {:?}", e);
+                            e
+                        })?;
+                    if task.is_none() {
+                        error!(
+                            "task not found for task finished event: {}",
+                            task_finished_event.task_id
+                        );
+                        continue;
+                    }
+                    let task =
+                        task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
                     let compute_graph = self
                         .indexify_state
                         .reader()
-                        .get_compute_graph(&task.namespace, &task.compute_graph_name)?
-                        .ok_or(anyhow!("compute graph not found"))?;
+                        .get_compute_graph(&task.namespace, &task.compute_graph_name)
+                        .map_err(|e| {
+                            error!("error getting compute graph: {:?}", e);
+                            e
+                        })?;
+                    if compute_graph.is_none() {
+                        error!(
+                            "compute graph not found: {:?} {:?}",
+                            task.namespace, task.compute_graph_name
+                        );
+                        continue;
+                    }
+                    let compute_graph = compute_graph.ok_or(anyhow!(
+                        "compute graph not found: {:?} {:?}",
+                        task.namespace,
+                        task.compute_graph_name
+                    ))?;
                     Some(
                         handle_task_finished(self.indexify_state.clone(), task, compute_graph)
                             .await?,
