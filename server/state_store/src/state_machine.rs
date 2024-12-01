@@ -7,6 +7,7 @@ use data_model::{
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
+    InvocationPayload,
     InvokeComputeGraphEvent,
     Namespace,
     NodeOutput,
@@ -730,6 +731,23 @@ pub fn mark_task_completed(
         error!(
             "Compute graph not found: {} for task completion update for task id: {}",
             &req.compute_graph, &req.task_id
+        );
+        return Ok(false);
+    }
+
+    // Check if the invocation was deleted before the task completes
+    let invocation_id =
+        InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
+    let invocation = txn
+        .get_cf(
+            &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
+            &invocation_id,
+        )
+        .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
+    if invocation.is_none() {
+        error!(
+            "Invocation not found: {} for task completion update for task id: {}",
+            &req.invocation_id, &req.task_id
         );
         return Ok(false);
     }
