@@ -745,7 +745,7 @@ pub fn mark_task_completed(
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
     if invocation.is_none() {
-        info!(
+        error!(
             "Invocation not found: {} for task completion update for task id: {}",
             &req.invocation_id, &req.task_id
         );
