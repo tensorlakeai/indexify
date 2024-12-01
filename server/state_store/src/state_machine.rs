@@ -717,6 +717,16 @@ pub fn mark_task_completed(
     req: FinalizeTaskRequest,
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<bool> {
+    // Check if the graph exists before proceeding since 
+    // the graph might have been deleted before the task completes
+    let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
+    let graph = txn
+        .get_cf(&IndexifyObjectsColumns::ComputeGraphs.cf_db(&db), &graph_key)
+        .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
+    if graph.is_none() {
+        error!("Compute graph not found: {} for task completion update for task id: {}", &req.compute_graph, &req.task_id);
+        return Ok(false);
+    }
     let task_key = format!(
         "{}|{}|{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
