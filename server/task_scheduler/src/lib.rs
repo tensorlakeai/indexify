@@ -20,15 +20,20 @@ pub struct TaskCreationResult {
 }
 
 impl TaskCreationResult {
-    pub fn no_tasks(namespace: &str, compute_graph: &str, invocation_id: &str) -> Self {
+    pub fn no_tasks(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        invocation_finished: bool,
+    ) -> Self {
         Self {
             namespace: namespace.to_string(),
             compute_graph: compute_graph.to_string(),
+            invocation_id: invocation_id.to_string(),
+            invocation_finished,
             tasks: vec![],
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
-            invocation_finished: false,
-            invocation_id: invocation_id.to_string(),
         }
     }
 }

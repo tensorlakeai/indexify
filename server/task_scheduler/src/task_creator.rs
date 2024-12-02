@@ -89,6 +89,7 @@ pub async fn handle_task_finished(
             &task.namespace,
             &task.compute_graph_name,
             &task.invocation_id,
+            false,
         ));
     }
     let invocation_ctx = invocation_ctx.ok_or(anyhow!(
@@ -99,18 +100,18 @@ pub async fn handle_task_finished(
     trace!("invocation context: {:?}", invocation_ctx);
 
     if task.outcome == TaskOutcome::Failure {
-        let mut invocation_finished = false;
-        if invocation_ctx.outstanding_tasks == 0 {
-            invocation_finished = true;
-        }
-        info!(
-            "Task failed, graph invocation finishing? {}",
-            invocation_finished
-        );
+        let invocation_finished = if invocation_ctx.outstanding_tasks == 0 {
+            info!("task failed, invocation finished");
+            true
+        } else {
+            info!("task failed invocation finishing, waiting for outstanding tasks to finish");
+            false
+        };
         return Ok(TaskCreationResult::no_tasks(
             &task.namespace,
             &task.compute_graph_name,
             &task.invocation_id,
+            invocation_finished,
         ));
     }
     let outputs = indexify_state
@@ -166,27 +167,24 @@ pub async fn handle_task_finished(
     if let Some(compute_node) = compute_graph.nodes.get(&task.compute_fn_name) {
         if let Node::Compute(compute_fn) = compute_node {
             if compute_fn.reducer {
-                // Do nothing if there is a pending reducer task for this compute node.
-                //
-                // This protects against the case where a reducer task finished before the next
-                // output and another one was created without queuing.
                 if let Some(task_analytics) =
                     invocation_ctx.get_task_analytics(&task.compute_fn_name)
                 {
+                    // Do nothing if there is a pending reducer task for this compute node.
+                    //
+                    // This protects against the case where a reducer task finished before the next
+                    // output and another one was created without queuing.
                     if task_analytics.pending_tasks > 0 {
                         trace!(
                             compute_fn_name = compute_fn.name,
-                            "Waiting for pending reducer tasks to finish before unqueing"
+                            "Waiting for pending reducer tasks to finish before unqueuing"
                         );
-                        return Ok(TaskCreationResult {
-                            namespace: task.namespace.clone(),
-                            compute_graph: task.compute_graph_name.clone(),
-                            invocation_id: task.invocation_id.clone(),
-                            tasks: vec![],
-                            new_reduction_tasks: vec![],
-                            processed_reduction_tasks: vec![],
-                            invocation_finished: false,
-                        });
+                        return Ok(TaskCreationResult::no_tasks(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &task.invocation_id,
+                            false,
+                        ));
                     }
                 }
                 let reduction_task = indexify_state
@@ -248,15 +246,12 @@ pub async fn handle_task_finished(
                         compute_fn_name = compute_fn.name,
                         "Waiting for parent tasks to finish before starting a new reducer task"
                     );
-                    return Ok(TaskCreationResult {
-                        namespace: task.namespace.clone(),
-                        compute_graph: task.compute_graph_name.clone(),
-                        invocation_id: task.invocation_id.clone(),
-                        tasks: vec![],
-                        new_reduction_tasks: vec![],
-                        processed_reduction_tasks: vec![],
-                        invocation_finished: false,
-                    });
+                    return Ok(TaskCreationResult::no_tasks(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                        false,
+                    ));
                 }
             }
         }
@@ -274,15 +269,12 @@ pub async fn handle_task_finished(
             info!("invocation finishing, waiting for outstanding tasks to finish");
             false
         };
-        return Ok(TaskCreationResult {
-            namespace: task.namespace.clone(),
-            compute_graph: task.compute_graph_name.clone(),
-            invocation_id: task.invocation_id.clone(),
-            tasks: vec![],
-            new_reduction_tasks: vec![],
-            processed_reduction_tasks: vec![],
+        return Ok(TaskCreationResult::no_tasks(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.invocation_id,
             invocation_finished,
-        });
+        ));
     }
 
     // Create new tasks for the edges of the node of the current task.
@@ -300,20 +292,46 @@ pub async fn handle_task_finished(
             "task_analytics_edge: {:?}",
             task_analytics_edge,
         );
-        let (outstanding_tasks_for_node, successfull_tasks_for_node) = match task_analytics_edge {
-            Some(task_analytics) => (
-                task_analytics.pending_tasks,
-                task_analytics.successful_tasks,
-            ),
-            None => {
-                error!("task analytics not found for edge : {:?}", edge);
-                (0, 0)
-            }
-        };
+        let (outstanding_tasks_for_node, successfull_tasks_for_node, failed_tasks_for_node) =
+            match task_analytics_edge {
+                Some(task_analytics) => (
+                    task_analytics.pending_tasks,
+                    task_analytics.successful_tasks,
+                    task_analytics.failed_tasks,
+                ),
+                None => {
+                    error!("task analytics not found for edge : {:?}", edge);
+                    (0, 0, 0)
+                }
+            };
 
         for output in &outputs {
-            // hypothesis:
             if compute_node.reducer() {
+                // If a previous reducer task failed, we need to stop queuing new tasks and
+                // finalize the invocation if we are finalizing the last task.
+                if failed_tasks_for_node > 0 {
+                    let invocation_finished = if invocation_ctx.outstanding_tasks == 0 {
+                        info!(
+                            compute_fn_name = compute_node.name(),
+                            "Found previously failed reducer task, finalizing invocation"
+                        );
+                        true
+                    } else {
+                        info!(
+                            compute_fn_name = compute_node.name(),
+                            "Found previously failed reducer task, waiting for outstanding tasks to finalize invocation"
+                        );
+
+                        false
+                    };
+                    return Ok(TaskCreationResult::no_tasks(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                        invocation_finished,
+                    ));
+                }
+
                 // In order to ensure sequential execution of reducer tasks, we queue a
                 // reduction task for this output if there are still outstanding
                 // tasks for the node or if we are going to create a new task for the node.
@@ -355,6 +373,7 @@ pub async fn handle_task_finished(
                     }
 
                     let prev_reducer_task = prev_reducer_tasks.first().unwrap();
+
                     let prev_reducer_outputs = indexify_state.reader().get_task_outputs(
                         &prev_reducer_task.namespace,
                         &prev_reducer_task.id.to_string(),
