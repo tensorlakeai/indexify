@@ -599,6 +599,24 @@ impl StateReader {
         )
     }
 
+    pub fn get_task_by_fn(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+        restart_key: Option<&[u8]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<Task>, Option<Vec<u8>>)> {
+        let key = Task::key_prefix_for_fn(namespace, compute_graph, invocation_id, compute_fn);
+        self.get_rows_from_cf_with_limits::<Task>(
+            key.as_bytes(),
+            restart_key,
+            IndexifyObjectsColumns::Tasks,
+            limit,
+        )
+    }
+
     pub fn list_tasks_by_compute_graph(
         &self,
         namespace: &str,
@@ -788,23 +806,6 @@ impl StateReader {
             Some(value) => Ok(JsonEncoder::decode(&value)?),
             None => Err(anyhow!("fn output not found")),
         }
-    }
-
-    pub fn all_reduction_tasks(&self, ns: &str, cg: &str, inv_id: &str) -> Result<Vec<ReduceTask>> {
-        let kvs = &[KeyValue::new("op", "all_reduction_tasks")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let kvs = &[KeyValue::new("op", "all_reduction_tasks")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = format!("{}|{}|{}|", ns, cg, inv_id);
-        let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
-            key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::ReductionTasks,
-            None,
-        )?;
-        Ok(tasks)
     }
 
     pub fn next_reduction_task(

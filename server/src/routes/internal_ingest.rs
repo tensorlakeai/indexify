@@ -247,6 +247,7 @@ pub async fn ingest_files_from_executor(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
+
     Ok(())
 }
 

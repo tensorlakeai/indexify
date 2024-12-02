@@ -32,7 +32,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -398,6 +398,7 @@ pub fn create_graph_input(
     Ok(())
 }
 
+// TODO: Do this in a transaction.
 pub(crate) fn delete_input_data_object(
     db: Arc<TransactionDB>,
     req: &DeleteInvocationRequest,
@@ -424,6 +425,7 @@ pub(crate) fn delete_input_data_object(
     Ok(())
 }
 
+// TODO: Do this in a transaction.
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     mut compute_graph: ComputeGraph,
@@ -677,12 +679,13 @@ pub(crate) fn create_tasks(
     graph_ctx.outstanding_tasks += req.tasks.len() as u64;
     // Subtract reference for completed state change event
     graph_ctx.outstanding_tasks -= 1;
-    let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
+    let serialized_graphctx = JsonEncoder::encode(&graph_ctx)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         ctx_key,
-        serialized_analytics,
+        serialized_graphctx,
     )?;
+    debug!("GraphInvocationCtx updated: {:?}", graph_ctx);
     sm_metrics.task_unassigned(req.tasks.clone());
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(
@@ -767,6 +770,41 @@ pub fn mark_task_completed(
         .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
     let mut task = JsonEncoder::decode::<Task>(&task)?;
     if task.terminal_state() {
+        info!(
+            task_key = task.key(),
+            "Task already completed, skipping finalization",
+        );
+        // In some edge cases, an executor has been seen trying to finalize a task that
+        // has already been completed. So far this has always been related to a
+        // system error.
+        //
+        // This can result in a very aggressive retry loop where the executor finalizes
+        // a task only to get it back on its work queue. To avoid this, if the
+        // task is in terminal state, we make sure to delete its allocation for that
+        // executor.
+        //
+        // Note: Every time this code path is hit, an investigation should be done to
+        // understand why the task is in terminal state while the executor is
+        // trying to finalize it.
+        //
+        // TODO: Look if there are other objects that need to be deleted.
+        if txn
+            .get_cf(
+                &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+                &task.make_allocation_key(&req.executor_id),
+            )?
+            .is_some()
+        {
+            error!(
+                task_key = task.key(),
+                "Task already completed but allocation still exists, deleting allocation",
+            );
+            txn.delete_cf(
+                &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+                &task.make_allocation_key(&req.executor_id),
+            )?;
+        }
+
         return Ok(false);
     }
     let graph_ctx_key = format!(
@@ -915,7 +953,11 @@ fn mark_invocation_finished(
     );
     let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
     let graph_ctx = txn
-        .get_cf(&IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db), &key)?
+        .get_for_update_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &key,
+            true,
+        )?
         .ok_or(anyhow!(
             "Graph context not found for invocation: {}",
             &invocation_id

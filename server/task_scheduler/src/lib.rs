@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
 use rand::seq::SliceRandom;
 use state_store::{requests::TaskPlacement, IndexifyState};
-use tracing::{error, info};
+use tracing::{error, info, span};
 
 pub mod task_creator;
 
@@ -43,6 +43,11 @@ pub struct TaskPlacementResult {
     pub diagnostic_msgs: Vec<String>,
 }
 
+struct ScheduleTaskResult {
+    pub task_placements: Vec<TaskPlacement>,
+    pub diagnostic_msgs: Vec<String>,
+}
+
 pub struct TaskScheduler {
     indexify_state: Arc<IndexifyState>,
 }
@@ -58,35 +63,67 @@ impl TaskScheduler {
     }
 
     fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
-        let mut task_allocations = Vec::new();
+        let mut task_placements = Vec::new();
         let mut diagnostic_msgs = Vec::new();
         for task in tasks {
-            let cg = self
-                .indexify_state
-                .reader()
-                .get_compute_graph(&task.namespace, &task.compute_graph_name)?
-                .ok_or(anyhow!("compute graph not found"))?;
-            let compute_fn = cg
-                .nodes
-                .get(&task.compute_fn_name)
-                .ok_or(anyhow!("compute fn not found"))?;
-            let filtered_executors = self.filter_executors(&compute_fn, &cg.runtime_information)?;
-            if !filtered_executors.diagnostic_msgs.is_empty() {
-                diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
-            }
-            let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
-            if let Some(executor_id) = executor_id {
-                info!("assigning task {:?} to executor {:?}", task.id, executor_id);
-                task_allocations.push(TaskPlacement {
-                    task,
-                    executor: executor_id.clone(),
-                });
+            let span = span!(
+                tracing::Level::INFO,
+                "scheduling_task",
+                task_id = task.id.to_string(),
+                namespace = task.namespace,
+                compute_graph = task.compute_graph_name,
+                compute_fn = task.compute_fn_name,
+            );
+            let _enter = span.enter();
+
+            info!("scheduling task {:?}", task.id);
+            match self.schedule_task(task) {
+                Ok(ScheduleTaskResult {
+                    task_placements: schedule_task_placements,
+                    diagnostic_msgs: schedule_diagnostic_msgs,
+                }) => {
+                    task_placements.extend(schedule_task_placements);
+                    diagnostic_msgs.extend(schedule_diagnostic_msgs);
+                }
+                Err(err) => {
+                    error!("failed to schedule task, skipping: {:?}", err);
+                }
             }
         }
         Ok(TaskPlacementResult {
-            task_placements: task_allocations,
+            task_placements,
             diagnostic_msgs,
         })
+    }
+
+    fn schedule_task(&self, task: Task) -> Result<ScheduleTaskResult> {
+        let mut task_placements = Vec::new();
+        let mut diagnostic_msgs = Vec::new();
+        let cg = self
+            .indexify_state
+            .reader()
+            .get_compute_graph(&task.namespace, &task.compute_graph_name)?
+            .ok_or(anyhow!("compute graph not found"))?;
+        let compute_fn = cg
+            .nodes
+            .get(&task.compute_fn_name)
+            .ok_or(anyhow!("compute fn not found"))?;
+        let filtered_executors = self.filter_executors(&compute_fn, &cg.runtime_information)?;
+        if !filtered_executors.diagnostic_msgs.is_empty() {
+            diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
+        }
+        let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
+        if let Some(executor_id) = executor_id {
+            info!("assigning task {:?} to executor {:?}", task.id, executor_id);
+            task_placements.push(TaskPlacement {
+                task,
+                executor: executor_id.clone(),
+            });
+        }
+        return Ok(ScheduleTaskResult {
+            task_placements,
+            diagnostic_msgs,
+        });
     }
 
     fn filter_executors(
