@@ -639,13 +639,23 @@ pub(crate) fn create_tasks(
         "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
     );
-    let graph_ctx = txn
-        .get_for_update_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-            &ctx_key,
-            true,
-        )?
-        .ok_or(anyhow!("Graph invocation ctx not found: {}", ctx_key))?;
+    let graph_ctx = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        &ctx_key,
+        true,
+    )?;
+    if graph_ctx.is_none() {
+        error!(
+            "Graph context not found for graph {} and invocation {}",
+            &req.compute_graph, &req.invocation_id
+        );
+        return Ok(None);
+    }
+    let graph_ctx = &graph_ctx.ok_or(anyhow!(
+        "Graph context not found for graph {} and invocation {}",
+        &req.compute_graph,
+        &req.invocation_id
+    ))?;
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     for task in &req.tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
