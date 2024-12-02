@@ -229,6 +229,7 @@ pub mod scheduler_stats {
         metrics::{Histogram, ObservableCounter, ObservableGauge},
         KeyValue,
     };
+    use tracing::error;
 
     use crate::StateStoreMetrics;
 
@@ -252,11 +253,15 @@ pub mod scheduler_stats {
                 .with_callback({
                     let prev_value = prev_value.clone();
                     let store_metrics = state_store_metrics.clone();
-                    move |observer| {
-                        let mut prev_value = prev_value.lock().unwrap();
-                        let value = store_metrics.tasks_completed.read().unwrap();
-                        observer.observe(*value - *prev_value, &[]);
-                        *prev_value = *value;
+                    move |observer| match prev_value.lock() {
+                        Ok(mut prev_value) => match store_metrics.tasks_completed.read() {
+                            Ok(value) => {
+                                observer.observe(*value - *prev_value, &[]);
+                                *prev_value = *value;
+                            }
+                            Err(e) => error!("Failed to read tasks_completed: {:?}", e),
+                        },
+                        Err(e) => error!("Failed to lock prev_value: {:?}", e),
                     }
                 })
                 .with_description("Number of tasks completed")
@@ -268,11 +273,19 @@ pub mod scheduler_stats {
                 .with_callback({
                     let prev_value = prev_value.clone();
                     let store_metrics = state_store_metrics.clone();
-                    move |observer| {
-                        let mut prev_value = prev_value.lock().unwrap();
-                        let value = *store_metrics.tasks_completed_with_errors.read().unwrap();
-                        observer.observe(value - *prev_value, &[]);
-                        *prev_value = value;
+                    move |observer| match prev_value.lock() {
+                        Ok(mut prev_value) => {
+                            match store_metrics.tasks_completed_with_errors.read() {
+                                Ok(value) => {
+                                    observer.observe(*value - *prev_value, &[]);
+                                    *prev_value = *value;
+                                }
+                                Err(e) => {
+                                    error!("Failed to read tasks_completed_with_errors: {:?}", e)
+                                }
+                            }
+                        }
+                        Err(e) => error!("Failed to lock prev_value: {:?}", e),
                     }
                 })
                 .with_description("Number of tasks completed with error")
@@ -300,9 +313,9 @@ pub mod scheduler_stats {
                 .u64_observable_gauge("executors_online")
                 .with_callback({
                     let store_metrics = state_store_metrics.clone();
-                    move |observer| {
-                        let value = store_metrics.executors_online.read().unwrap();
-                        observer.observe(*value as u64, &[]);
+                    move |observer| match store_metrics.executors_online.read() {
+                        Ok(value) => observer.observe(*value as u64, &[]),
+                        Err(e) => error!("Failed to read executors_online: {:?}", e),
                     }
                 })
                 .with_description("Number of executors online")
@@ -317,14 +330,16 @@ pub mod scheduler_stats {
                 .u64_observable_gauge("tasks_per_executor")
                 .with_callback({
                     let store_metrics = state_store_metrics.clone();
-                    move |observer| {
-                        let counts = store_metrics.tasks_by_executor.read().unwrap();
-                        for (executor_id, tasks) in counts.iter() {
-                            observer.observe(
-                                tasks.clone(),
-                                &[KeyValue::new("executor_id", executor_id.to_string())],
-                            );
+                    move |observer| match store_metrics.tasks_by_executor.read() {
+                        Ok(counts) => {
+                            for (executor_id, tasks) in counts.iter() {
+                                observer.observe(
+                                    *tasks,
+                                    &[KeyValue::new("executor_id", executor_id.to_string())],
+                                );
+                            }
                         }
+                        Err(e) => error!("Failed to read tasks_by_executor: {:?}", e),
                     }
                 })
                 .with_description("Number of tasks per executor")
@@ -493,71 +508,97 @@ impl StateStoreMetrics {
     }
 
     pub fn update_task_completion(&self, outcome: TaskOutcome, task: Task, executor_id: &str) {
-        self.tasks_by_executor
-            .write()
-            .unwrap()
-            .entry(executor_id.to_string())
-            .and_modify(|e| {
-                if *e > 0 {
-                    *e -= 1
-                }
-            })
-            .or_insert(0);
+        match self.tasks_by_executor.write() {
+            Ok(mut tasks_by_executor) => {
+                tasks_by_executor
+                    .entry(executor_id.to_string())
+                    .and_modify(|e| {
+                        if *e > 0 {
+                            *e -= 1
+                        }
+                    })
+                    .or_insert(0);
+            }
+            Err(e) => tracing::error!("Failed to lock tasks_by_executor: {:?}", e),
+        }
+
         match outcome {
-            TaskOutcome::Success => {
-                let mut tasks_completed = self.tasks_completed.write().unwrap();
-                *tasks_completed += 1;
-            }
-            TaskOutcome::Failure => {
-                let mut tasks_completed_with_errors =
-                    self.tasks_completed_with_errors.write().unwrap();
-                *tasks_completed_with_errors += 1;
-            }
+            TaskOutcome::Success => match self.tasks_completed.write() {
+                Ok(mut tasks_completed) => *tasks_completed += 1,
+                Err(e) => tracing::error!("Failed to lock tasks_completed: {:?}", e),
+            },
+            TaskOutcome::Failure => match self.tasks_completed_with_errors.write() {
+                Ok(mut tasks_completed_with_errors) => *tasks_completed_with_errors += 1,
+                Err(e) => tracing::error!("Failed to lock tasks_completed_with_errors: {:?}", e),
+            },
             _ => (),
         }
+
         let id = FnMetricsId::from_task(&task);
-        let mut count = self.assigned_tasks.write().unwrap();
-        if *count.entry(id.clone()).or_insert(0) > 0 {
-            *count.entry(id).or_insert(0) -= 1;
+        match self.assigned_tasks.write() {
+            Ok(mut count) => {
+                if *count.entry(id.clone()).or_insert(0) > 0 {
+                    *count.entry(id).or_insert(0) -= 1;
+                }
+            }
+            Err(e) => tracing::error!("Failed to lock assigned_tasks: {:?}", e),
         }
     }
 
     pub fn task_unassigned(&self, tasks: Vec<Task>) {
         for task in tasks {
             let id = FnMetricsId::from_task(&task);
-            let mut count = self.unassigned_tasks.write().unwrap();
-            *count.entry(id).or_insert(0) += 1;
+            match self.unassigned_tasks.write() {
+                Ok(mut count) => *count.entry(id).or_insert(0) += 1,
+                Err(e) => tracing::error!("Failed to lock unassigned_tasks: {:?}", e),
+            }
         }
     }
 
     pub fn task_assigned(&self, tasks: Vec<Task>, executor_id: &str) {
-        self.tasks_by_executor
-            .write()
-            .unwrap()
-            .entry(executor_id.to_string())
-            .and_modify(|e| *e += tasks.len() as u64)
-            .or_insert(tasks.len() as u64);
+        match self.tasks_by_executor.write() {
+            Ok(mut tasks_by_executor) => {
+                tasks_by_executor
+                    .entry(executor_id.to_string())
+                    .and_modify(|e| *e += tasks.len() as u64)
+                    .or_insert(tasks.len() as u64);
+            }
+            Err(e) => tracing::error!("Failed to lock tasks_by_executor: {:?}", e),
+        }
+
         for task in tasks {
             let id = FnMetricsId::from_task(&task);
-            let mut count_assigned = self.assigned_tasks.write().unwrap();
-            *count_assigned.entry(id.clone()).or_insert(0) += 1;
-            let mut count_unassigned = self.unassigned_tasks.write().unwrap();
-            if *count_unassigned.entry(id.clone()).or_insert(0) > 0 {
-                *count_unassigned.entry(id).or_insert(0) -= 1;
+            match self.assigned_tasks.write() {
+                Ok(mut count_assigned) => *count_assigned.entry(id.clone()).or_insert(0) += 1,
+                Err(e) => tracing::error!("Failed to lock assigned_tasks: {:?}", e),
+            }
+            match self.unassigned_tasks.write() {
+                Ok(mut count_unassigned) => {
+                    if *count_unassigned.entry(id.clone()).or_insert(0) > 0 {
+                        *count_unassigned.entry(id).or_insert(0) -= 1;
+                    }
+                }
+                Err(e) => tracing::error!("Failed to lock unassigned_tasks: {:?}", e),
             }
         }
     }
 
     pub fn add_executor(&self) {
-        let mut executors_online = self.executors_online.write().unwrap();
-        *executors_online += 1;
+        match self.executors_online.write() {
+            Ok(mut executors_online) => *executors_online += 1,
+            Err(e) => tracing::error!("Failed to lock executors_online: {:?}", e),
+        }
     }
 
     pub fn remove_executor(&self, executor_id: &str) {
-        let mut executors_online = self.executors_online.write().unwrap();
-        self.tasks_by_executor.write().unwrap().remove(executor_id);
-        if *executors_online > 0 {
-            *executors_online -= 1;
+        match self.executors_online.write() {
+            Ok(mut executors_online) => {
+                self.tasks_by_executor.write().unwrap().remove(executor_id);
+                if *executors_online > 0 {
+                    *executors_online -= 1;
+                }
+            }
+            Err(e) => tracing::error!("Failed to lock executors_online: {:?}", e),
         }
     }
 }
