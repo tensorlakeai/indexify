@@ -18,7 +18,6 @@ mod gc;
 mod http_objects;
 mod routes;
 mod scheduler;
-mod server;
 mod service;
 mod system_tasks;
 
