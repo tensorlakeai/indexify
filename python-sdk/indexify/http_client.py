@@ -355,9 +355,7 @@ class IndexifyClient:
             encoding = "cloudpickle"
         else:
             encoding = "json"
-        return IndexifyData(
-            id=output_id, payload=response.content, encoder=encoding
-        )
+        return IndexifyData(id=output_id, payload=response.content, encoder=encoding)
 
     def graph_outputs(
         self,

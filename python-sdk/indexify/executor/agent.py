@@ -5,9 +5,9 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import structlog
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
-import structlog
 
 from indexify.common_util import get_httpx_client
 from indexify.functions_sdk.data_objects import (

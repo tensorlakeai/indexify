@@ -1,5 +1,5 @@
-import sys
 import json
+import sys
 from collections import defaultdict
 from queue import deque
 from typing import (

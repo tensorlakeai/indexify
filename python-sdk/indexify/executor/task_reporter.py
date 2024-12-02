@@ -1,9 +1,10 @@
 from typing import Optional
-import structlog
 
 import nanoid
+import structlog
 from httpx import Timeout
 from pydantic import BaseModel
+
 from indexify.common_util import get_httpx_client
 from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
 from indexify.executor.api_objects import TaskResult

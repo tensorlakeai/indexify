@@ -1,11 +1,10 @@
 import unittest
 from pathlib import Path
 from typing import List, Union
-from typing_extensions import TypedDict
-
 
 from parameterized import parameterized
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from indexify import (
     Graph,
@@ -120,8 +119,11 @@ def sum_of_squares(init_value: Sum, x: int) -> Sum:
     init_value.val += x
     return init_value
 
+
 class JsonSum(TypedDict):
     val: int
+
+
 @indexify_function(accumulate=JsonSum, encoder="json")
 def sum_of_squares_with_json_encoding(init_value: JsonSum, x: int) -> JsonSum:
     val = init_value.get("val", 0)
@@ -391,11 +393,11 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.expand([(False), (True)])
     def test_pipeline(self, is_remote):
-       p = create_simple_pipeline()
-       p = remote_or_local_pipeline(p, is_remote)
-       invocation_id = p.run(block_until_done=True, x=3)
-       output = p.output(invocation_id, "make_it_string")
-       self.assertEqual(output, ["5"])
+        p = create_simple_pipeline()
+        p = remote_or_local_pipeline(p, is_remote)
+        invocation_id = p.run(block_until_done=True, x=3)
+        output = p.output(invocation_id, "make_it_string")
+        self.assertEqual(output, ["5"])
 
     @parameterized.expand([(False), (True)])
     def test_ignore_none_in_map(self, is_remote):
