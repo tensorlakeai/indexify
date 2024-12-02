@@ -599,7 +599,7 @@ impl StateReader {
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&self.db),
             &key,
         )?;
-        if let None = value {
+        if value.is_none() {
             return Ok(None);
         }
         let invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&value.unwrap())

@@ -170,7 +170,7 @@ pub fn replay_compute_graph(
             true,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let graph: ComputeGraph = JsonEncoder::decode(&graph).unwrap();
+    let graph: ComputeGraph = JsonEncoder::decode(&graph)?;
     let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
     let existing_task = txn.get_for_update_cf(
         &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
@@ -645,9 +645,18 @@ pub(crate) fn create_tasks(
         true,
     )?;
     if graph_ctx.is_none() {
-        error!("Graph context not found for graph: {}", req.compute_graph);
+        error!(
+            "Graph context not found for graph {} and invocation {}",
+            &req.compute_graph, &req.invocation_id
+        );
+        return Ok(None);
     }
-    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.unwrap())?;
+    let graph_ctx = &graph_ctx.ok_or(anyhow!(
+        "Graph context not found for graph {} and invocation {}",
+        &req.compute_graph,
+        &req.invocation_id
+    ))?;
+    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     for task in &req.tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
