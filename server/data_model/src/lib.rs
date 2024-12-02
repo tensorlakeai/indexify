@@ -393,7 +393,7 @@ impl ComputeGraph {
         self
     }
 
-    pub fn get_compute_parent(&self, node_name: &str) -> Option<&str> {
+    pub fn get_compute_parent_nodes(&self, node_name: &str) -> Vec<&str> {
         // Find parent of the node
         self.edges
             .iter()
@@ -403,11 +403,13 @@ impl ComputeGraph {
                     .then(|| parent.as_str())
             })
             // Filter for compute node parent, traversing through routers
-            .find_map(|predecessor_name| match self.nodes.get(predecessor_name) {
-                Some(Node::Compute(_)) => Some(predecessor_name),
-                Some(Node::Router(_)) => self.get_compute_parent(predecessor_name),
-                None => None,
+            .map(|parent_name| match self.nodes.get(parent_name) {
+                Some(Node::Compute(_)) => vec![parent_name],
+                Some(Node::Router(_)) => self.get_compute_parent_nodes(parent_name),
+                None => vec![],
             })
+            .flatten()
+            .collect()
     }
 }
 
@@ -1122,7 +1124,7 @@ mod tests {
     }
 
     // Check function pattern
-    fn check_compute_parent<F>(node: &str, expected_parent: Option<&str>, configure_graph: F)
+    fn check_compute_parent<F>(node: &str, expected_parents: Vec<&str>, configure_graph: F)
     where
         F: FnOnce(&mut ComputeGraph),
     {
@@ -1152,9 +1154,10 @@ mod tests {
 
         let mut graph = create_test_graph();
         configure_graph(&mut graph);
+
         assert_eq!(
-            graph.get_compute_parent(node),
-            expected_parent,
+            graph.get_compute_parent_nodes(node).sort(),
+            expected_parents.clone().sort(),
             "Failed for node: {}",
             node
         );
@@ -1162,7 +1165,7 @@ mod tests {
 
     #[test]
     fn test_get_compute_parent_scenarios() {
-        check_compute_parent("compute2", Some("compute1"), |graph| {
+        check_compute_parent("compute2", vec!["compute1"], |graph| {
             graph.edges = HashMap::from([("compute1".to_string(), vec!["compute2".to_string()])]);
             graph.nodes = HashMap::from([
                 (
@@ -1175,7 +1178,7 @@ mod tests {
                 ),
             ]);
         });
-        check_compute_parent("router2", Some("compute4"), |graph| {
+        check_compute_parent("router2", vec!["compute4"], |graph| {
             graph.edges = HashMap::from([("compute4".to_string(), vec!["router2".to_string()])]);
             graph.nodes = HashMap::from([
                 (
@@ -1191,10 +1194,10 @@ mod tests {
                 ),
             ]);
         });
-        check_compute_parent("nonexistent", None, |_| {});
+        check_compute_parent("nonexistent", vec![], |_| {});
 
         // More complex routing scenarios
-        check_compute_parent("compute2", Some("compute1"), |graph| {
+        check_compute_parent("compute2", vec!["compute1"], |graph| {
             graph.edges = HashMap::from([
                 ("compute1".to_string(), vec!["router1".to_string()]),
                 ("router1".to_string(), vec!["compute2".to_string()]),
@@ -1218,7 +1221,7 @@ mod tests {
             ]);
         });
 
-        check_compute_parent("compute2", Some("compute3"), |graph| {
+        check_compute_parent("compute2", vec!["compute3"], |graph| {
             graph.edges = HashMap::from([
                 ("compute3".to_string(), vec!["router1".to_string()]),
                 ("router1".to_string(), vec!["compute2".to_string()]),
@@ -1242,7 +1245,7 @@ mod tests {
             ]);
         });
 
-        check_compute_parent("compute2", Some("compute3"), |graph| {
+        check_compute_parent("compute2", vec!["compute3"], |graph| {
             graph.edges = HashMap::from([
                 ("compute3".to_string(), vec!["router1".to_string()]),
                 ("router1".to_string(), vec!["compute2".to_string()]),
@@ -1265,5 +1268,45 @@ mod tests {
                 ),
             ]);
         });
+
+        // test multiple parents
+        check_compute_parent(
+            "compute5",
+            vec!["compute1", "compute2", "compute3", "compute4"],
+            |graph| {
+                graph.edges = HashMap::from([
+                    ("compute1".to_string(), vec!["compute5".to_string()]),
+                    ("compute2".to_string(), vec!["compute5".to_string()]),
+                    ("compute3".to_string(), vec!["compute5".to_string()]),
+                    ("compute4".to_string(), vec!["compute5".to_string()]),
+                ]);
+                graph.nodes = HashMap::from([
+                    (
+                        "compute1".to_string(),
+                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    ),
+                    (
+                        "compute2".to_string(),
+                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    ),
+                    (
+                        "compute3".to_string(),
+                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    ),
+                    (
+                        "compute4".to_string(),
+                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    ),
+                    (
+                        "compute5".to_string(),
+                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    ),
+                    (
+                        "compute6".to_string(),
+                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    ),
+                ]);
+            },
+        );
     }
 }

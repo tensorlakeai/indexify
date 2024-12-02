@@ -68,7 +68,7 @@ pub async fn handle_invoke_compute_graph(
     })
 }
 
-#[instrument(ret(level = Level::DEBUG), skip(indexify_state, task, compute_graph), fields(namespace = task.namespace, compute_graph = task.compute_graph_name, invocation_id = task.invocation_id, compute_fn_name = task.compute_fn_name, task_id = task.id.to_string()))]
+#[instrument(skip(indexify_state, task, compute_graph), fields(namespace = task.namespace, compute_graph = task.compute_graph_name, invocation_id = task.invocation_id, compute_fn_name = task.compute_fn_name, task_id = task.id.to_string()))]
 pub async fn handle_task_finished(
     indexify_state: Arc<IndexifyState>,
     task: Task,
@@ -246,23 +246,31 @@ pub async fn handle_task_finished(
 
                 // Prevent early finalization of the invocation if a reduction task finished
                 // before other parent output have been generated.
-                if let Some(parent_node) = compute_graph.get_compute_parent(compute_node.name()) {
-                    if let Some(parent_task_analytics) =
-                        invocation_ctx.get_task_analytics(parent_node)
-                    {
-                        if parent_task_analytics.pending_tasks > 0 {
-                            trace!( "Waiting for all reducer tasks to be finished up before getting to edges");
-                            return Ok(TaskCreationResult {
-                                namespace: task.namespace.clone(),
-                                compute_graph: task.compute_graph_name.clone(),
-                                invocation_id: task.invocation_id.clone(),
-                                tasks: vec![],
-                                new_reduction_tasks: vec![],
-                                processed_reduction_tasks: vec![],
-                                invocation_finished: false,
-                            });
+                if compute_graph
+                    .get_compute_parent_nodes(compute_node.name())
+                    .iter()
+                    .any(|parent_node| {
+                        if let Some(parent_task_analytics) =
+                            invocation_ctx.get_task_analytics(parent_node)
+                        {
+                            parent_task_analytics.pending_tasks > 0
+                        } else {
+                            false
                         }
-                    }
+                    })
+                {
+                    trace!(
+                        "Waiting for parent tasks to finish before start child tasks of reducer"
+                    );
+                    return Ok(TaskCreationResult {
+                        namespace: task.namespace.clone(),
+                        compute_graph: task.compute_graph_name.clone(),
+                        invocation_id: task.invocation_id.clone(),
+                        tasks: vec![],
+                        new_reduction_tasks: vec![],
+                        processed_reduction_tasks: vec![],
+                        invocation_finished: false,
+                    });
                 }
             }
         }

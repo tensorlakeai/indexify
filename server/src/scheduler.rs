@@ -43,7 +43,8 @@ impl Scheduler {
             .reader()
             .get_unprocessed_state_changes()?;
         let mut create_task_requests = vec![];
-        let mut processed_state_changes = vec![];
+        let mut processed_state_change_ids = vec![];
+        let mut requires_task_allocation = false;
         let mut new_reduction_tasks = vec![];
         let mut processed_reduction_tasks = vec![];
         let mut diagnostic_msgs = vec![];
@@ -57,7 +58,12 @@ impl Scheduler {
             let _enter = span.enter();
             match self.process_state_change(state_change).await {
                 Ok(result) => {
-                    processed_state_changes.push(state_change);
+                    processed_state_change_ids.push(state_change.id);
+                    requires_task_allocation = requires_task_allocation ||
+                        state_change.change_type == ChangeType::TaskCreated ||
+                        state_change.change_type == ChangeType::ExecutorAdded ||
+                        state_change.change_type == ChangeType::ExecutorRemoved;
+
                     if let Some(result) = result {
                         let request = CreateTasksRequest {
                             namespace: result.namespace.clone(),
@@ -77,11 +83,7 @@ impl Scheduler {
         }
 
         let mut new_allocations = vec![];
-        if processed_state_changes.iter().any(|sc| {
-            sc.change_type == ChangeType::TaskCreated ||
-                sc.change_type == ChangeType::ExecutorAdded ||
-                sc.change_type == ChangeType::ExecutorRemoved
-        }) {
+        if requires_task_allocation {
             let task_placement_result = self.task_allocator.schedule_unplaced_tasks()?;
             new_allocations.extend(task_placement_result.task_placements);
             diagnostic_msgs.extend(task_placement_result.diagnostic_msgs);
@@ -97,7 +99,7 @@ impl Scheduler {
                 },
                 diagnostic_msgs,
             }),
-            state_changes_processed: processed_state_changes.iter().map(|x| x.id).collect(),
+            state_changes_processed: processed_state_change_ids,
         };
         self.indexify_state.write(scheduler_update_request).await
     }

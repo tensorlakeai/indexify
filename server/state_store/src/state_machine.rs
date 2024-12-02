@@ -7,6 +7,7 @@ use data_model::{
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
+    InvocationPayload,
     InvokeComputeGraphEvent,
     Namespace,
     NodeOutput,
