@@ -594,7 +594,7 @@ mod tests {
         let state = IndexifyState::new(temp_dir.path().join("state")).await?;
         let scheduler = Scheduler::new(
             state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
         );
 
         let graph = {
@@ -867,7 +867,7 @@ mod tests {
         let state = IndexifyState::new(temp_dir.path().join("state")).await?;
         let scheduler = Scheduler::new(
             state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
         );
 
         let graph = {
@@ -1191,7 +1191,7 @@ mod tests {
         let state = IndexifyState::new(temp_dir.path().join("state")).await?;
         let scheduler = Scheduler::new(
             state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.clone())),
+            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
         );
 
         let graph = {
