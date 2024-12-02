@@ -351,10 +351,12 @@ class IndexifyClient:
         )
         response.raise_for_status()
         content_type = response.headers.get("Content-Type")
-        serializer = get_serializer(content_type)
-        decoded_response = serializer.deserialize(response.content)
+        if content_type == "application/octet-stream":
+            encoding = "cloudpickle"
+        else:
+            encoding = "json"
         return IndexifyData(
-            id=output_id, payload=decoded_response, encoder=serializer.encoding_type
+            id=output_id, payload=response.content, encoder=encoding
         )
 
     def graph_outputs(

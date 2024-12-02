@@ -85,8 +85,6 @@ class Downloader:
             if response.headers["content-type"] == JsonSerializer.content_type
             else "cloudpickle"
         )
-        serializer = get_serializer(encoder)
-
         if task.invocation_id == input_id:
             return DownloadedInputs(
                 input=IndexifyData(
@@ -94,24 +92,24 @@ class Downloader:
                 ),
             )
 
-        deserialized_content = serializer.deserialize(response.content)
+        input_payload = response.content
 
         if reducer_url:
-            init_value = self._client.get(reducer_url)
+            response = self._client.get(reducer_url)
             try:
-                init_value.raise_for_status()
+                response.raise_for_status()
+                init_value = response.content
             except httpx.HTTPStatusError as e:
                 logger.error(
                     "failed to download reducer output",
                     url=reducer_url,
-                    error=init_value.text,
+                    error=response.text,
                 )
                 raise
-            init_value = serializer.deserialize(init_value.content)
             return DownloadedInputs(
                 input=IndexifyData(
                     input_id=task.invocation_id,
-                    payload=deserialized_content,
+                    payload=input_payload,
                     encoder=encoder,
                 ),
                 init_value=IndexifyData(
@@ -122,7 +120,7 @@ class Downloader:
         return DownloadedInputs(
             input=IndexifyData(
                 input_id=task.invocation_id,
-                payload=deserialized_content,
+                payload=input_payload,
                 encoder=encoder,
             )
         )
