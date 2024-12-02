@@ -67,7 +67,7 @@ pub async fn invoke_with_file(
                 info!("writing to blob store, file name = {:?}", name);
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
                 let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
-                    error!("failed to write to blob store: {}", e);
+                    error!("failed to write to blob store: {:?}", e);
                     IndexifyAPIError::internal_error(anyhow!(
                         "failed to write to blob store: {}",
                         e
@@ -104,7 +104,7 @@ pub async fn invoke_with_file(
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
-            error!("failed to write to blob store: {}", e);
+            error!("failed to write to blob store: {:?}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let data_payload = data_model::DataPayload {
@@ -176,7 +176,7 @@ pub async fn invoke_with_object(
         .put(&payload_key, Box::pin(payload_stream))
         .await
         .map_err(|e| {
-            error!("failed to write to blob store: {}", e);
+            error!("failed to write to blob store: {:?}", e);
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let data_payload = data_model::DataPayload {

@@ -17,6 +17,7 @@ pub struct StateMachineUpdateRequest {
     pub state_changes_processed: Vec<StateChangeId>,
 }
 
+#[derive(strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     ReplayComputeGraph(ReplayComputeGraphRequest),

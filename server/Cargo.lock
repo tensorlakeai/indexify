@@ -362,7 +362,9 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures",
+ "metrics",
  "object_store",
+ "opentelemetry 0.24.0",
  "reqwest",
  "serde",
  "sha2",
@@ -1672,6 +1674,7 @@ name = "metrics"
 version = "0.1.0"
 dependencies = [
  "axum-otel-metrics",
+ "data_model",
  "once_cell",
  "opentelemetry 0.24.0",
  "opentelemetry-prometheus 0.17.0",
@@ -1679,7 +1682,7 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "serde",
- "state_store",
+ "tracing",
 ]
 
 [[package]]
@@ -2903,7 +2906,9 @@ dependencies = [
  "data_model",
  "futures",
  "indexify_utils",
+ "metrics",
  "object_store",
+ "opentelemetry 0.24.0",
  "rocksdb",
  "serde",
  "serde_json",

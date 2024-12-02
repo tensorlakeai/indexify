@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use blob_store::BlobStorage;
 use state_store::IndexifyState;
+use tracing::{debug, error, info};
 
 pub struct Gc {
     state: Arc<IndexifyState>,
@@ -31,7 +32,7 @@ impl Gc {
         let storage = self.storage.clone();
         loop {
             if self.shutdown_rx.has_changed().unwrap_or(false) {
-                println!("Shutdown signal received.");
+                info!("Shutdown signal received");
                 return Ok(());
             }
 
@@ -40,15 +41,15 @@ impl Gc {
                 tokio::select! {
                     _ = self.rx.changed() => { self.rx.borrow_and_update(); }
                     _ = self.shutdown_rx.changed() => {
-                        println!("Shutdown signal received.");
+                        info!("Shutdown signal received");
                         return Ok(());
                     }
                 }
             } else {
                 for url in urls.iter() {
-                    tracing::debug!("Deleting url {:?}", url);
+                    debug!("Deleting url {:?}", url);
                     if let Err(e) = storage.delete(url).await {
-                        tracing::error!("Error deleting url {:?}: {:?}", url, e);
+                        error!("Error deleting url {:?}: {:?}", url, e);
                     }
                 }
                 self.state

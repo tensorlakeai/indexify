@@ -7,6 +7,7 @@ use axum::{
 use data_model::ComputeGraphCode;
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
@@ -47,7 +48,7 @@ impl IndexifyAPIError {
 
 impl IntoResponse for IndexifyAPIError {
     fn into_response(self) -> Response {
-        tracing::error!("API Error: {} - {}", self.status_code, self.message);
+        error!("API Error: {} - {}", self.status_code, self.message);
         (self.status_code, self.message).into_response()
     }
 }
