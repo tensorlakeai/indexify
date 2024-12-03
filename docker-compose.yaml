@@ -2,24 +2,24 @@ version: "3"
 networks:
   server:
 services:
-  indexify:
-    image: tensorlake/indexify-server
-    ports:
-      - 8900:8900
-    networks:
-      server:
-        aliases:
-          - indexify-server
-    volumes:
-      - data:/tmp/indexify-blob-storage
+  # indexify:
+  #   image: tensorlake/indexify-server
+  #   ports:
+  #     - 8900:8900
+  #   networks:
+  #     server:
+  #       aliases:
+  #         - indexify-server
+  #   volumes:
+  #     - data:/tmp/indexify-blob-storage
   default-executor:
-    image: tensorlake/indexify-executor-default:3.10
+    image: tensorlake/indexify-executor-default:3.11
     command:
       [
         "indexify-cli",
         "executor",
         "--server-addr",
-        "indexify:8900"
+        "host.docker.internal:8900"
       ]
     networks:
       server:

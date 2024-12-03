@@ -17,10 +17,13 @@ class Builder:
         self.docker_client.ping()
 
     def hashFromImageInfo(self, image_info:ImageInformation):
-        hash = hashlib.sha1(image_info.image_name.encode()) # Make a hash of the image name
+        hash = hashlib.sha256(image_info.image_name.encode()) # Make a hash of the image name
+        hash.update(image_info.image_name.encode())
+        hash.update(image_info.tag.encode())
         hash.update(image_info.base_image.encode())
-        for runs in image_info.run_strs:
-            hash.update(runs.encode())
+        hash.update("".join(image_info.run_strs).encode())
+        hash.update(image_info.sdk_version.encode())
+        
         return hash.hexdigest()
 
     def scan(self):
@@ -57,7 +60,7 @@ class Builder:
             docker_contents.append(f"COPY {sdk_path} /app/python-sdk")
             docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
         else:
-            docker_contents.append("RUN pip install indexify") ## TODO: Pull the indexify version from the client somehow
+            docker_contents.append(f"RUN pip install indexify=={image_info.sdk_version}") ## TODO: Pull the indexify version from the client somehow
 
         docker_file = "\n".join(docker_contents)
 
@@ -68,7 +71,7 @@ class Builder:
             "Dockerfile",
             dockerfile,
         )
-        print(len(tag))
+
         image, logs = self.docker_client.images.build(
             path="./",
             dockerfile=docker_file,
@@ -86,7 +89,7 @@ if __name__ == "__main__":
     # In a thread pool....
     for image_key, image_info in images.items():
         # TODO: Mark the image as building, set the tag that we are going to use
-        b.buildImage(image_info, sdk_path="./", tag=image_key)
+        b.buildImage(image_info, sdk_path=None, tag=image_key)
         
         # TODO: If there aren't any issues building the image, mark any 
         # TODO: Start SOCI indexing or something else to make loading faster

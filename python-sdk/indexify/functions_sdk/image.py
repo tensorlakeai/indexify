@@ -1,5 +1,6 @@
 
 import sys
+import importlib.metadata
 from typing import List
 
 from pydantic import BaseModel
@@ -10,7 +11,7 @@ class ImageInformation(BaseModel):
     tag: str
     base_image: str
     run_strs: List[str]
-
+    sdk_version: str
 
 class Image:
     def __init__(self):
@@ -42,6 +43,7 @@ class Image:
             tag=self._tag,
             base_image=self._base_image,
             run_strs=self._run_strs,
+            sdk_version=importlib.metadata.version("indexify")
         )
 
 

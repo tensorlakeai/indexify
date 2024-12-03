@@ -22,17 +22,12 @@ g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simp
 g.add_edge(generate_numbers, square)
 g.add_edge(square, add)
 
-if __name__ == "__main__":
-    #invocation_id = g.run(a=10)
-    #result = g.get_output(invocation_id, "add")
-    #print(result)
 
+print(g.definition().model_dump_json(exclude_none=True))
+
+if __name__ == "__main__":
     from indexify import RemoteGraph
-    graph = RemoteGraph.deploy(g)
-    invocation_id = graph.run(block_until_done=True, a=10)
+    graph = RemoteGraph.deploy(g, server_url="http://localhost:8900")
+    invocation_id = graph.run(block_until_done=True, a=100)
     result = graph.output(invocation_id, "add")
     print(result)
-
-    graph = RemoteGraph.by_name("sequence_summer")
-    invocation_id = graph.run(block_until_done=True, a=5)
-    print(graph.output(invocation_id, "add"))
