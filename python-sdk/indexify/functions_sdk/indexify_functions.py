@@ -83,9 +83,8 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    encoder: Optional[str] = "cloudpickle"
-    input_encoder: Optional[str] = ("cloudpickle",)
-    output_encoder: Optional[str] = ("cloudpickle",)
+    input_encoder: Optional[str] = "cloudpickle"
+    output_encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -97,7 +96,7 @@ class IndexifyFunction:
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
-        serializer = get_serializer(cls.encoder)
+        serializer = get_serializer(cls.output_encoder)
         return serializer.deserialize(output.payload)
 
 
@@ -106,9 +105,8 @@ class IndexifyRouter:
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
-    encoder: Optional[str] = "cloudpickle"
-    input_encoder: Optional[str] = ("cloudpickle",)
-    output_encoder: Optional[str] = ("cloudpickle",)
+    input_encoder: Optional[str] = "cloudpickle"
+    output_encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
@@ -124,7 +122,6 @@ def indexify_router(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     placement_constraints: List[PlacementConstraints] = [],
-    encoder: Optional[str] = "cloudpickle",
     input_encoder: Optional[str] = "cloudpickle",
     output_encoder: Optional[str] = "cloudpickle",
 ):
@@ -150,7 +147,6 @@ def indexify_router(
             ),
             "image": image,
             "placement_constraints": placement_constraints,
-            "encoder": encoder,
             "input_encoder": input_encoder,
             "output_encoder": output_encoder,
             "run": run,
@@ -166,7 +162,6 @@ def indexify_function(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     accumulate: Optional[Type[BaseModel]] = None,
-    encoder: Optional[str] = "cloudpickle",
     input_encoder: Optional[str] = "cloudpickle",
     output_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
@@ -194,7 +189,6 @@ def indexify_function(
             "image": image,
             "placement_constraints": placement_constraints,
             "accumulate": accumulate,
-            "encoder": encoder,
             "input_encoder": input_encoder,
             "output_encoder": output_encoder,
             "run": run,
@@ -304,16 +298,17 @@ class IndexifyFunctionWrapper:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> FunctionCallResult:
         input = self.deserialize_input(name, input)
-        serializer = get_serializer(self.indexify_function.encoder)
+        input_serializer = get_serializer(self.indexify_function.input_encoder)
+        output_serializer = get_serializer(self.indexify_function.output_encoder)
         if acc is not None:
-            acc = serializer.deserialize(acc.payload)
+            acc = input_serializer.deserialize(acc.payload)
         if acc is None and self.indexify_function.accumulate is not None:
             acc = self.indexify_function.accumulate()
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
             IndexifyData(
-                payload=serializer.serialize(output),
-                encoder=self.indexify_function.encoder,
+                payload=output_serializer.serialize(output),
+                encoder=self.indexify_function.output_encoder,
             )
             for output in outputs
         ]

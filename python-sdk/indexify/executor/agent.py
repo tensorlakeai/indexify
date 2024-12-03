@@ -331,7 +331,7 @@ class ExtractorAgent:
                                 )
                             self._task_store.add_tasks(tasks)
             except Exception as e:
-                logging.error("failed to register", exception=e)
+                logging.error(f"failed to register: {e}")
                 await asyncio.sleep(5)
                 continue
 

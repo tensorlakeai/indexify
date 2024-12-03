@@ -34,12 +34,12 @@ def simple_function_multiple_inputs(x: MyObject, y: int) -> MyObject:
     return MyObject(x=x.x + suf)
 
 
-@indexify_function(encoder="json")
+@indexify_function(input_encoder="json", output_encoder="json")
 def simple_function_with_json_encoder(x: str) -> str:
     return x + "b"
 
 
-@indexify_function(encoder="json")
+@indexify_function(input_encoder="json", output_encoder="json")
 def simple_function_multiple_inputs_json(x: str, y: int) -> str:
     suf = "".join(["b" for _ in range(y)])
     return x + suf
@@ -50,7 +50,7 @@ def simple_function_with_str_as_input(x: str) -> str:
     return x + "cc"
 
 
-@indexify_function(encoder="invalid")
+@indexify_function(input_encoder="invalid")
 def simple_function_with_invalid_encoder(x: MyObject) -> MyObject:
     return MyObject(x=x.x + "b")
 
@@ -105,7 +105,7 @@ def square(x: int) -> int:
     return x * x
 
 
-@indexify_function(encoder="json")
+@indexify_function(input_encoder="json", output_encoder="json")
 def square_with_json_encoder(x: int) -> int:
     return x * x
 
@@ -124,7 +124,7 @@ class JsonSum(TypedDict):
     val: int
 
 
-@indexify_function(accumulate=JsonSum, encoder="json")
+@indexify_function(accumulate=JsonSum, input_encoder="json")
 def sum_of_squares_with_json_encoding(init_value: JsonSum, x: int) -> JsonSum:
     val = init_value.get("val", 0)
     init_value["val"] = val + x

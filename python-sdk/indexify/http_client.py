@@ -274,10 +274,10 @@ class IndexifyClient:
         self,
         graph: str,
         block_until_done: bool = False,
-        serializer: str = "cloudpickle",
+        input_encoding: str = "cloudpickle",
         **kwargs,
     ) -> str:
-        serializer = get_serializer(serializer)
+        serializer = get_serializer(input_encoding)
         ser_input = serializer.serialize(kwargs)
         params = {"block_until_finish": block_until_done}
         kwargs = {
