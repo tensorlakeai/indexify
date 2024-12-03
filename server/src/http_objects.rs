@@ -126,13 +126,19 @@ impl From<data_model::ImageInformation> for ImageInformation {
     }
 }
 
+fn default_encoder() -> String {
+    "cloudpickle".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct ComputeFn {
     pub name: String,
     pub fn_name: String,
     pub description: String,
     pub reducer: bool,
+    #[serde(default = "default_encoder")]
     pub input_encoder: String,
+    #[serde(default = "default_encoder")]
     pub output_encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
@@ -175,7 +181,9 @@ pub struct DynamicRouter {
     pub source_fn: String,
     pub description: String,
     pub target_fns: Vec<String>,
+    #[serde(default = "default_encoder")]
     pub input_encoder: String,
+    #[serde(default = "default_encoder")]
     pub output_encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
