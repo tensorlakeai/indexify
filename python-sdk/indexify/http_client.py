@@ -191,9 +191,13 @@ class IndexifyClient:
         )
         response.raise_for_status()
 
-    def graphs(self) -> List[str]:
-        response = self._get(f"graphs")
-        return response.json()["graphs"]
+    def graphs(self, namespace="default") -> List[ComputeGraphMetadata]:
+        response = self._get(f"namespaces/{namespace}/compute_graphs")
+        graphs = []
+        for graph in response.json()['compute_graphs']:
+            graphs.append(ComputeGraphMetadata(**graph))
+        
+        return graphs
 
     def graph(self, name: str) -> ComputeGraphMetadata:
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")

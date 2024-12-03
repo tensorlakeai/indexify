@@ -1,18 +1,8 @@
+
+import sys
 from typing import List
 
 from pydantic import BaseModel
-
-
-def python_version_to_image(python_version):
-    if python_version.startswith("3.9"):
-        return "python:3.9.20-bookworm"
-    elif python_version.startswith("3.10"):
-        return "python:3.10.15-bookworm"
-    elif python_version.startswith("3.11"):
-        return "python:3.11.10-bookworm"
-    else:
-        raise ValueError(f"unsupported Python version: {python_version}")
-
 
 # Pydantic object for API
 class ImageInformation(BaseModel):
@@ -23,11 +13,11 @@ class ImageInformation(BaseModel):
 
 
 class Image:
-    def __init__(self, python="3.10"):
+    def __init__(self):
         self._image_name = None
         self._tag = "latest"
-        self._base_image = python_version_to_image(python)
-        self._python_version = python
+        self._base_image = BASE_IMAGE_NAME
+        self._python_version = LOCAL_PYTHON_VERSION
         self._run_strs = []
 
     def name(self, image_name):
@@ -55,18 +45,13 @@ class Image:
         )
 
 
-DEFAULT_IMAGE_3_10 = (
-    Image()
-    .name("tensorlake/indexify-executor-default")
-    .base_image("python:3.10.15-slim-bookworm")
-    .tag("3.10")
-    .run("pip install indexify")
-)
+LOCAL_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
-DEFAULT_IMAGE_3_11 = (
+BASE_IMAGE_NAME = f"python:{LOCAL_PYTHON_VERSION}-slim-bookworm"
+
+DEFAULT_IMAGE = (
     Image()
     .name("tensorlake/indexify-executor-default")
-    .base_image("python:3.11.10-slim-bookworm")
-    .tag("3.11")
-    .run("pip install indexify")
+    .base_image(BASE_IMAGE_NAME)
+    .tag(LOCAL_PYTHON_VERSION)
 )
