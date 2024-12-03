@@ -30,7 +30,6 @@ pub async fn handle_invoke_compute_graph(
             compute_graph: event.compute_graph.clone(),
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
-            invocation_finished: false,
         });
     }
     let compute_graph = compute_graph.unwrap();
@@ -54,7 +53,6 @@ pub async fn handle_invoke_compute_graph(
         tasks: vec![task],
         new_reduction_tasks: vec![],
         processed_reduction_tasks: vec![],
-        invocation_finished: false,
     })
 }
 
@@ -89,7 +87,6 @@ pub async fn handle_task_finished(
             &task.namespace,
             &task.compute_graph_name,
             &task.invocation_id,
-            false,
         ));
     }
     let invocation_ctx = invocation_ctx.ok_or(anyhow!(
@@ -100,18 +97,11 @@ pub async fn handle_task_finished(
     trace!("invocation context: {:?}", invocation_ctx);
 
     if task.outcome == TaskOutcome::Failure {
-        let invocation_finished = if invocation_ctx.outstanding_tasks == 0 {
-            info!("task failed, invocation finished");
-            true
-        } else {
-            info!("task failed invocation finishing, waiting for outstanding tasks to finish");
-            false
-        };
+        info!("task failed, stopping schedulig of child tasks");
         return Ok(TaskCreationResult::no_tasks(
             &task.namespace,
             &task.compute_graph_name,
             &task.invocation_id,
-            invocation_finished,
         ));
     }
     let outputs = indexify_state
@@ -157,7 +147,6 @@ pub async fn handle_task_finished(
                 tasks: new_tasks,
                 new_reduction_tasks: vec![],
                 processed_reduction_tasks: vec![],
-                invocation_finished: false,
             });
         }
     }
@@ -183,7 +172,6 @@ pub async fn handle_task_finished(
                             &task.namespace,
                             &task.compute_graph_name,
                             &task.invocation_id,
-                            false,
                         ));
                     }
                 }
@@ -219,7 +207,6 @@ pub async fn handle_task_finished(
                         tasks: vec![new_task],
                         new_reduction_tasks: vec![],
                         processed_reduction_tasks: vec![reduction_task.key()],
-                        invocation_finished: false,
                     });
                 }
                 trace!(
@@ -250,7 +237,6 @@ pub async fn handle_task_finished(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
-                        false,
                     ));
                 }
             }
@@ -262,18 +248,11 @@ pub async fn handle_task_finished(
 
     // If there are no edges, check if the invocation should be finished.
     if edges.is_none() {
-        let invocation_finished = if invocation_ctx.outstanding_tasks == 0 {
-            info!("invocation finished");
-            true
-        } else {
-            info!("invocation finishing, waiting for outstanding tasks to finish");
-            false
-        };
+        info!("No more edges to schedule tasks for, waiting for outstanding tasks to finalize");
         return Ok(TaskCreationResult::no_tasks(
             &task.namespace,
             &task.compute_graph_name,
             &task.invocation_id,
-            invocation_finished,
         ));
     }
 
@@ -310,25 +289,14 @@ pub async fn handle_task_finished(
                 // If a previous reducer task failed, we need to stop queuing new tasks and
                 // finalize the invocation if we are finalizing the last task.
                 if failed_tasks_for_node > 0 {
-                    let invocation_finished = if invocation_ctx.outstanding_tasks == 0 {
-                        info!(
-                            compute_fn_name = compute_node.name(),
-                            "Found previously failed reducer task, finalizing invocation"
-                        );
-                        true
-                    } else {
-                        info!(
-                            compute_fn_name = compute_node.name(),
-                            "Found previously failed reducer task, waiting for outstanding tasks to finalize invocation"
-                        );
-
-                        false
-                    };
+                    info!(
+                        compute_fn_name = compute_node.name(),
+                        "Found previously failed reducer task, stopping reducers",
+                    );
                     return Ok(TaskCreationResult::no_tasks(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
-                        invocation_finished,
                     ));
                 }
 
@@ -430,6 +398,5 @@ pub async fn handle_task_finished(
         tasks: new_tasks,
         new_reduction_tasks,
         processed_reduction_tasks: vec![],
-        invocation_finished: false,
     })
 }
