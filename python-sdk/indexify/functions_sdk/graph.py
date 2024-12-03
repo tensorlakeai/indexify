@@ -1,3 +1,4 @@
+import json
 import sys
 from collections import defaultdict
 from queue import deque
@@ -101,9 +102,7 @@ class Graph:
             return self
 
         if issubclass(indexify_fn, IndexifyFunction) and indexify_fn.accumulate:
-            self.accumulator_zero_values[indexify_fn.name] = (
-                indexify_fn.accumulate().model_dump()
-            )
+            self.accumulator_zero_values[indexify_fn.name] = indexify_fn.accumulate()
 
         self.nodes[indexify_fn.name] = indexify_fn
         return self
@@ -167,7 +166,8 @@ class Graph:
             reducer=is_reducer,
             image_name=start_node.image._image_name,
             image_information=start_node.image.to_image_information(),
-            encoder=start_node.encoder,
+            input_encoder=start_node.input_encoder,
+            output_encoder=start_node.output_encoder,
         )
         metadata_edges = self.edges.copy()
         metadata_nodes = {}
@@ -179,7 +179,8 @@ class Graph:
                         description=node.description or "",
                         source_fn=node_name,
                         target_fns=self.routers[node_name],
-                        encoder=node.encoder,
+                        input_encoder=node.input_encoder,
+                        output_encoder=node.output_encoder,
                         image_name=node.image._image_name,
                         image_information=node.image.to_image_information(),
                     )
@@ -193,7 +194,8 @@ class Graph:
                         reducer=node.accumulate is not None,
                         image_name=node.image._image_name,
                         image_information=node.image.to_image_information(),
-                        encoder=node.encoder,
+                        input_encoder=node.input_encoder,
+                        output_encoder=node.output_encoder,
                     )
                 )
 
@@ -212,19 +214,19 @@ class Graph:
     def run(self, block_until_done: bool = False, **kwargs) -> str:
         self.validate_graph()
         start_node = self.nodes[self._start_node]
-        serializer = get_serializer(start_node.encoder)
+        serializer = get_serializer(start_node.input_encoder)
         input = IndexifyData(
             id=generate(),
             payload=serializer.serialize(kwargs),
-            encoder=start_node.encoder,
+            encoder=start_node.input_encoder,
         )
         print(f"[bold] Invoking {self._start_node}[/bold]")
         outputs = defaultdict(list)
         for k, v in self.accumulator_zero_values.items():
             node = self.nodes[k]
-            serializer = get_serializer(node.encoder)
+            serializer = get_serializer(node.input_encoder)
             self._accumulator_values[k] = IndexifyData(
-                payload=serializer.serialize(v), encoder=node.encoder
+                payload=serializer.serialize(v), encoder=node.input_encoder
             )
         self._results[input.id] = outputs
         ctx = GraphInvocationContext(
@@ -287,7 +289,8 @@ class Graph:
             fn_outputs = function_outputs.ser_outputs
             print(f"ran {node_name}: num outputs: {len(fn_outputs)}")
             if self._accumulator_values.get(node_name, None) is not None:
-                self._accumulator_values[node_name] = fn_outputs[-1].model_copy()
+                acc_output = fn_outputs[-1].copy()
+                self._accumulator_values[node_name] = acc_output
                 outputs[node_name] = []
             if fn_outputs:
                 outputs[node_name].extend(fn_outputs)
@@ -339,7 +342,7 @@ class Graph:
             raise ValueError(f"no results found for fn {fn_name} on graph {self.name}")
         fn = self.nodes[fn_name]
         fn_model = self.get_function(fn_name).get_output_model()
-        serializer = get_serializer(fn.encoder)
+        serializer = get_serializer(fn.output_encoder)
         outputs = []
         for result in results[fn_name]:
             payload_dict = serializer.deserialize(result.payload)

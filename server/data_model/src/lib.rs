@@ -119,13 +119,20 @@ impl ImageInformation {
     }
 }
 
+fn default_data_encoder() -> String {
+    "cloudpickle".to_string()
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
 pub struct DynamicEdgeRouter {
     pub name: String,
     pub description: String,
     pub source_fn: String,
     pub target_functions: Vec<String>,
-    pub encoder: String,
+    #[serde(default = "default_data_encoder")]
+    pub input_encoder: String,
+    #[serde(default = "default_data_encoder")]
+    pub output_encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
 }
@@ -137,7 +144,10 @@ pub struct ComputeFn {
     pub placement_constraints: LabelsFilter,
     pub fn_name: String,
     pub reducer: bool,
-    pub encoder: String,
+    #[serde(default = "default_data_encoder")]
+    pub input_encoder: String,
+    #[serde(default = "default_data_encoder")]
+    pub output_encoder: String,
     pub image_name: String,
     pub image_information: ImageInformation,
 }

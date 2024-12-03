@@ -83,7 +83,8 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    encoder: Optional[str] = "cloudpickle"
+    input_encoder: Optional[str] = "cloudpickle"
+    output_encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -95,7 +96,7 @@ class IndexifyFunction:
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
-        serializer = get_serializer(cls.encoder)
+        serializer = get_serializer(cls.output_encoder)
         return serializer.deserialize(output.payload)
 
 
@@ -104,7 +105,8 @@ class IndexifyRouter:
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE_3_10
     placement_constraints: List[PlacementConstraints] = []
-    encoder: Optional[str] = "cloudpickle"
+    input_encoder: Optional[str] = "cloudpickle"
+    output_encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
@@ -120,7 +122,8 @@ def indexify_router(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     placement_constraints: List[PlacementConstraints] = [],
-    encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         # Get function signature using inspect.signature
@@ -144,7 +147,8 @@ def indexify_router(
             ),
             "image": image,
             "placement_constraints": placement_constraints,
-            "encoder": encoder,
+            "input_encoder": input_encoder,
+            "output_encoder": output_encoder,
             "run": run,
         }
 
@@ -158,7 +162,8 @@ def indexify_function(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE_3_10,
     accumulate: Optional[Type[BaseModel]] = None,
-    encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -184,7 +189,8 @@ def indexify_function(
             "image": image,
             "placement_constraints": placement_constraints,
             "accumulate": accumulate,
-            "encoder": encoder,
+            "input_encoder": input_encoder,
+            "output_encoder": output_encoder,
             "run": run,
         }
 
@@ -230,6 +236,18 @@ class IndexifyFunctionWrapper:
                     inner_types[0] if inner_types[1] is type(None) else inner_types[1]
                 )
         return return_type
+
+    def get_input_types(self) -> Dict[str, Any]:
+        if not isinstance(self.indexify_function, IndexifyFunction):
+            raise TypeError("Input must be an instance of IndexifyFunction")
+
+        extract_method = self.indexify_function.run
+        type_hints = get_type_hints(extract_method)
+        return {
+            k: v
+            for k, v in type_hints.items()
+            if k != "return" and not is_pydantic_model_from_annotation(v)
+        }
 
     def run_router(
         self, input: Union[Dict, Type[BaseModel]]
@@ -280,20 +298,17 @@ class IndexifyFunctionWrapper:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> FunctionCallResult:
         input = self.deserialize_input(name, input)
-        serializer = get_serializer(self.indexify_function.encoder)
+        input_serializer = get_serializer(self.indexify_function.input_encoder)
+        output_serializer = get_serializer(self.indexify_function.output_encoder)
         if acc is not None:
-            acc = self.indexify_function.accumulate.model_validate(
-                serializer.deserialize(acc.payload)
-            )
+            acc = input_serializer.deserialize(acc.payload)
         if acc is None and self.indexify_function.accumulate is not None:
-            acc = self.indexify_function.accumulate.model_validate(
-                self.indexify_function.accumulate()
-            )
+            acc = self.indexify_function.accumulate()
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
             IndexifyData(
-                payload=serializer.serialize(output),
-                encoder=self.indexify_function.encoder,
+                payload=output_serializer.serialize(output),
+                encoder=self.indexify_function.output_encoder,
             )
             for output in outputs
         ]
