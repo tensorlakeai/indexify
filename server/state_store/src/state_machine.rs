@@ -707,6 +707,7 @@ pub fn allocate_tasks(
     executor_id: &ExecutorId,
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
+    // TODO: check if executor is registered
     txn.put_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         task.make_allocation_key(executor_id),

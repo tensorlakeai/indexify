@@ -165,7 +165,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .build();
     Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
-        .merge(axum_metrics.routes())
         .route("/", get(index))
         .route(
             "/namespaces",
@@ -207,7 +206,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &Request| {
@@ -223,6 +221,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
                 })
         )
         // No tracing starting here.
+        .merge(axum_metrics.routes())
         .route("/ui", get(ui_index_handler))
         .route("/ui/*rest", get(ui_handler))
         .layer(cors)
