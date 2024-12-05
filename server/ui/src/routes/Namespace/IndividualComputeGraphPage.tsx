@@ -1,23 +1,30 @@
-import { Box, Breadcrumbs, Typography, Stack, Chip } from '@mui/material';
-import { TableDocument } from 'iconsax-react';
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
-import { Link, useLoaderData } from 'react-router-dom';
-import { useState, useCallback } from 'react';
-import type { DataObject } from '../../types';
-import type { IndividualComputeGraphLoaderData } from './types';
-import ComputeGraphTable from '../../components/tables/ComputeGraphTable';
-import CopyText from '../../components/CopyText';
-import InvocationsTable from '../../components/tables/InvocationsTable';
+import { Box, Breadcrumbs, Typography, Stack, Chip } from '@mui/material'
+import { TableDocument } from 'iconsax-react'
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
+import { Link, useLoaderData } from 'react-router-dom'
+import { useState, useCallback } from 'react'
+import type { DataObject } from '../../types'
+import type { IndividualComputeGraphLoaderData } from './types'
+import ComputeGraphTable from '../../components/tables/ComputeGraphTable'
+import CopyText from '../../components/CopyText'
+import InvocationsTable from '../../components/tables/InvocationsTable'
 
 const IndividualComputeGraphPage = () => {
-  const { invocationsList, computeGraph, namespace } = 
-    useLoaderData() as IndividualComputeGraphLoaderData;
-    
-  const [invocations, setInvocations] = useState<DataObject[]>(invocationsList);
-  
+  const { invocationsList, computeGraph, namespace } =
+    useLoaderData() as IndividualComputeGraphLoaderData
+
+  const [invocations, setInvocations] = useState<DataObject[]>(
+    [...invocationsList].sort(
+      (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
+    )
+  )
+
   const handleDelete = useCallback((updatedList: DataObject[]) => {
-    setInvocations(updatedList);
-  }, []);
+    const sortedList = [...updatedList].sort(
+      (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
+    )
+    setInvocations(sortedList)
+  }, [])
 
   return (
     <Stack direction="column" spacing={3}>
@@ -31,42 +38,36 @@ const IndividualComputeGraphPage = () => {
         </Link>
         <Typography color="text.primary">{computeGraph.name}</Typography>
       </Breadcrumbs>
-      
+
       <Box>
         <Box sx={{ mb: 3 }}>
           <div className="content-table-header">
             <div className="heading-icon-container">
-              <TableDocument 
-                size="25" 
-                className="heading-icons" 
+              <TableDocument
+                size="25"
+                className="heading-icons"
                 variant="Outline"
               />
             </div>
-            <Typography 
-              variant="h4" 
-              sx={{ 
-                display: 'flex', 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                gap: 1 
+            <Typography
+              variant="h4"
+              sx={{
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 1,
               }}
             >
               {computeGraph.name}
-              <Chip 
-                label={`Version ${computeGraph.version}`} 
-                size="small" 
-              />
+              <Chip label={`Version ${computeGraph.version}`} size="small" />
               <CopyText text={computeGraph.name} />
             </Typography>
           </div>
-          
-          <ComputeGraphTable 
-            namespace={namespace} 
-            graphData={computeGraph} 
-          />
+
+          <ComputeGraphTable namespace={namespace} graphData={computeGraph} />
         </Box>
-        
-        <InvocationsTable 
+
+        <InvocationsTable
           invocationsList={invocations}
           namespace={namespace}
           computeGraph={computeGraph.name}
@@ -74,7 +75,7 @@ const IndividualComputeGraphPage = () => {
         />
       </Box>
     </Stack>
-  );
-};
+  )
+}
 
-export default IndividualComputeGraphPage;
+export default IndividualComputeGraphPage
