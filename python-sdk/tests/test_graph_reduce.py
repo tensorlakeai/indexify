@@ -2,16 +2,16 @@ import unittest
 from typing import List
 
 from parameterized import parameterized
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from indexify import Graph, RemoteGraph
+from indexify import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 from tests.testing import remote_or_local_graph, test_graph_name
 
 
 class TestGraphReduce(unittest.TestCase):
-    @parameterized.expand([(False), (True)])
-    def test_simple(self, is_remote: bool):
+    @parameterized.expand([(True), (False)])
+    def test_simple(self, is_remote):
         class AccumulatedSate(BaseModel):
             sum: int = 19
 
@@ -90,8 +90,6 @@ class TestGraphReduce(unittest.TestCase):
 
         @indexify_function()
         def add_one(x: int) -> int:
-            # if x == 0:
-            # raise ValueError("test: add_one function failed")
             return x + 1
 
         @indexify_function(accumulate=AccumulatedSate)
