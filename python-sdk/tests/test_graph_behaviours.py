@@ -17,6 +17,7 @@ from indexify import (
     indexify_router,
 )
 from indexify.functions_sdk.data_objects import File
+from tests.testing import remote_or_local_graph
 
 
 class MyObject(BaseModel):
@@ -219,12 +220,6 @@ def create_simple_pipeline():
     p.add_step(sum_of_squares)
     p.add_step(make_it_string)
     return p
-
-
-def remote_or_local_graph(graph, remote=True) -> RemoteGraph | Graph:
-    if remote:
-        return RemoteGraph.deploy(graph)
-    return graph
 
 
 def remote_or_local_pipeline(pipeline, remote=True):
