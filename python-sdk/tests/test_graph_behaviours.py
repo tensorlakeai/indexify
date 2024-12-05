@@ -670,6 +670,36 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output, [5])
 
     @parameterized.expand([(False), (True)])
+    def test_return_pydantic_base_model_json(self, is_remote):
+        """
+        This test also serves as an example of how to use Pydantic BaseModel as JSON input and output.
+        """
+
+        class P1(BaseModel):
+            a: int
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func1(x: int) -> dict:
+            return P1(a=x).model_dump()
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(input: dict) -> int:
+            p = P1.model_validate(input)
+            return p.a
+
+        graph = Graph(
+            name="test_multiple_return_values_router",
+            description="test",
+            start_node=my_func1,
+        )
+        graph.add_edge(my_func1, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 1)
+
+    @parameterized.expand([(False), (True)])
     def test_unreachable_graph_nodes(self, is_remote):
         graph = Graph(
             name="test_unreachable_graph_nodes",
