@@ -215,7 +215,7 @@ pub async fn handle_task_finished(
                 );
 
                 // Prevent proceeding to edges too early if there are parent tasks that are
-                // still pending.
+                // still pending or that have failed.
                 if compute_graph
                     .get_compute_parent_nodes(compute_node.name())
                     .iter()
@@ -223,7 +223,8 @@ pub async fn handle_task_finished(
                         if let Some(parent_task_analytics) =
                             invocation_ctx.get_task_analytics(parent_node)
                         {
-                            parent_task_analytics.pending_tasks > 0
+                            parent_task_analytics.pending_tasks > 0 ||
+                                parent_task_analytics.failed_tasks > 0
                         } else {
                             false
                         }
@@ -265,27 +266,48 @@ pub async fn handle_task_finished(
             .get(edge)
             .ok_or(anyhow!("compute node not found: {:?}", edge))?;
 
-        let task_analytics_edge = invocation_ctx.get_task_analytics(&edge);
-        trace!(
-            compute_fn_name = compute_node.name(),
-            "task_analytics_edge: {:?}",
-            task_analytics_edge,
-        );
-        let (outstanding_tasks_for_node, successfull_tasks_for_node, failed_tasks_for_node) =
-            match task_analytics_edge {
-                Some(task_analytics) => (
-                    task_analytics.pending_tasks,
-                    task_analytics.successful_tasks,
-                    task_analytics.failed_tasks,
-                ),
-                None => {
-                    error!("task analytics not found for edge : {:?}", edge);
-                    (0, 0, 0)
-                }
-            };
-
         for output in &outputs {
             if compute_node.reducer() {
+                if let Some(task_analytics) =
+                    invocation_ctx.get_task_analytics(&task.compute_fn_name)
+                {
+                    // Do not schedule more tasks if the parent node of the reducer has failing
+                    // tasks.
+                    //
+                    // This protects against continuing the invocation with partial reduced results
+                    // which would lead to incorrect graph outputs.
+                    if task_analytics.failed_tasks > 0 {
+                        trace!(
+                            compute_fn_name = task.compute_fn_name,
+                            "Reducer parent node has failing tasks, not scheduling more tasks"
+                        );
+                        return Ok(TaskCreationResult::no_tasks(
+                            &task.namespace,
+                            &task.compute_graph_name,
+                            &task.invocation_id,
+                        ));
+                    }
+                }
+
+                let task_analytics_edge = invocation_ctx.get_task_analytics(&edge);
+                trace!(
+                    compute_fn_name = compute_node.name(),
+                    "task_analytics_edge: {:?}",
+                    task_analytics_edge,
+                );
+                let (outstanding_tasks_for_node, successfull_tasks_for_node, failed_tasks_for_node) =
+                    match task_analytics_edge {
+                        Some(task_analytics) => (
+                            task_analytics.pending_tasks,
+                            task_analytics.successful_tasks,
+                            task_analytics.failed_tasks,
+                        ),
+                        None => {
+                            error!("task analytics not found for edge : {:?}", edge);
+                            (0, 0, 0)
+                        }
+                    };
+
                 // If a previous reducer task failed, we need to stop queuing new tasks and
                 // finalize the invocation if we are finalizing the last task.
                 if failed_tasks_for_node > 0 {
