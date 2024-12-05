@@ -299,7 +299,7 @@ class ExtractorAgent:
                 image_version=image_version,
                 labels=runtime_probe.labels,
             ).model_dump()
-            logging.info("registering_executor", executor_id=self._executor_id)
+            logging.info("registering_executor", executor_id=self._executor_id, url=url)
             try:
                 async with get_httpx_client(self._config_path, True) as client:
                     async with aconnect_sse(
