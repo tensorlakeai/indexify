@@ -1,14 +1,13 @@
 
 
-import docker.api.image
 import structlog
 import hashlib
 import base64
-import pprint
-import sys
 
 import docker
 import docker.api.build
+import docker.api.image
+
 import boto3
 
 from indexify.http_client import IndexifyClient
@@ -16,6 +15,27 @@ from indexify.functions_sdk.image import ImageInformation
 
 
 logger = structlog.get_logger(module=__name__)
+class ImageBuildSpec:
+    def __init__(self, namespace, image_info:ImageInformation, sdk_version=None):
+        self.namespace = namespace
+        self.sdk_version = sdk_version
+        self.image_info = image_info
+
+    def hashFromImageInfo(self):
+        hash = hashlib.sha256(self.image_info.image_name.encode()) # Make a hash of the image name
+        hash.update(self.image_info.image_name.encode())
+        hash.update(self.image_info.tag.encode())
+        hash.update(self.image_info.base_image.encode())
+        hash.update("".join(self.image_info.run_strs).encode())
+        hash.update(self.sdk_version.encode())
+        return hash.hexdigest()
+
+    def taggedImageName(self):
+        return f"{self.imageName()}:{self.hashFromImageInfo()}"
+        
+    def imageName(self):
+        return f"{self.namespace}/{self.image_info.image_name}"
+    
 
 class Builder:
     def __init__(self, registry_driver, service_url="http://localhost:8900"):
@@ -26,20 +46,41 @@ class Builder:
 
         self.images_in_process = set()  # Images in process, 
 
-    def hashFromImageInfo(self, image_info:ImageInformation):
-        hash = hashlib.sha256(image_info.image_name.encode()) # Make a hash of the image name
-        hash.update(image_info.image_name.encode())
-        hash.update(image_info.tag.encode())
-        hash.update(image_info.base_image.encode())
-        hash.update("".join(image_info.run_strs).encode())
-        hash.update(image_info.sdk_version.encode())
-        
-        return hash.hexdigest()
+    def run(self):
+        """Scan the state of the server and look for image definitions.
+        """
+        foundImages = {}
+        for namespace in self.indexify.namespaces():
+            logger.debug(f"Scanning namespace {namespace}")
 
+            for graph in self.indexify.graphs(namespace=namespace):
+                logger.debug(f"Found graph {graph.name}")
+                for node in graph.nodes.values():
+                    if node.compute_fn is not None:
+                        spec = ImageBuildSpec(namespace,  node.compute_fn.image_information, sdk_version=graph.runtime_information.sdk_version)
+                        foundImages[spec.image_info.image_name] = spec.taggedImageName()
+
+                    if node.dynamic_router is not None:
+                        spec = ImageBuildSpec(namespace,  node.dynamic_router.image_information, sdk_version=graph.runtime_information.sdk_version)
+                        foundImages[spec.image_info.image_name] = spec.taggedImageName()        
+        
+
+        containers = {}
+        for container in self.docker.containers.list():
+            containers[container.name] = container
+
+        for image_name, image in foundImages.items():
+            container_name = image_name.replace("/", "-")
+
+            if container_name in containers: # If there is a running container, make sure it's using the right image
+                pass
+            else:
+                self.docker.containers.run(image, ["indexify-cli", "executor", "--server-addr", "host.docker.internal:8900"], name=container_name)
+        
     def scan(self):
         """Scan the state of the server and look for image definitions.
         """
-        foundImages = {} # imageName:tag = image_info
+        foundImages = [] # imageName:tag = image_info
 
         for namespace in self.indexify.namespaces():
             logger.debug(f"Scanning namespace {namespace}")
@@ -48,34 +89,39 @@ class Builder:
                 logger.debug(f"Found graph {graph.name}")
                 for node in graph.nodes.values():
                     if node.compute_fn is not None:
-                        imageHash = self.hashFromImageInfo(node.compute_fn.image_information)
-                        imageKey = f"{namespace}/{graph.name}:{imageHash}"
-                        foundImages[imageKey] = node.compute_fn.image_information
+                        foundImages.append(ImageBuildSpec(namespace,  node.compute_fn.image_information, sdk_version=graph.runtime_information.sdk_version))
 
                     if node.dynamic_router is not None:
-                        imageHash = self.hashFromImageInfo(node.dynamic_router.image_information)
-                        imageKey = f"{namespace}/{graph.name}:{imageHash}"
-                        foundImages[imageKey] = node.dynamic_router.image_information
+                        foundImages.append(ImageBuildSpec(namespace,  node.dynamic_router.image_information, sdk_version=graph.runtime_information.sdk_version))
 
         # Process found images, create repos if necessary and reject images that are already being built
-        imagesToBeBuilt = {}
-        
-        for image, image_info in foundImages.items():
-            image_name, image_tag = image.split(":")
+        imagesToBeBuilt = []
+        processedImages = []
+        for spec in foundImages:
+            repoName = spec.imageName()
+            taggedName = spec.taggedImageName()
+            
+            if taggedName in processedImages:
+                logger.debug(f"Skipping {taggedName} since we already checked it")
+                continue
+            processedImages.append(taggedName)
 
-            if self.registry.repoExists(image_name):
-                if self.registry.imageExists(image):
-                    logger.info(f"Image {image} already exists in repo, skipping")
+            if self.registry.repoExists(repoName):
+                if self.registry.imageExists(taggedName):
+                    logger.info(f"Image {taggedName} already exists in repo, skipping")
                     continue
-            else:   
-                self.registry.repoCreate(image_name)
+            else:
+                self.registry.repoCreate(repoName)
             
             # If we got here the image is being built
-            imagesToBeBuilt[image] = image_info
+            imagesToBeBuilt.append(spec)
 
         return imagesToBeBuilt
 
-    def buildImage(self, tag, image_info:ImageInformation, sdk_path=None, docker_client=None):
+    def buildImage(self, spec: ImageBuildSpec, docker_client=None, sdk_path=None):
+        image_info = spec.image_info
+        tag = spec.taggedImageName()
+
         docker_contents = [f"FROM {image_info.base_image}", 
                            "RUN mkdir -p ~/.indexify", 
                            "RUN touch ~/.indexify/image_name", 
@@ -84,12 +130,12 @@ class Builder:
 
         docker_contents.extend(["RUN " + i for i in image_info.run_strs])
 
-        if sdk_path:
-            logger.info(f"Building image {tag} local version of the SDK")
+        if sdk_path is not None:
+            logger.info(f"Building image {tag} with local version of the SDK")
             docker_contents.append(f"COPY {sdk_path} /app/python-sdk")
             docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
         else:
-            docker_contents.append(f"RUN pip install indexify=={image_info.sdk_version}") ## TODO: Pull the indexify version from the client somehow
+            docker_contents.append(f"RUN pip install indexify=={spec.sdk_version}")
 
         docker_file = "\n".join(docker_contents)
 
@@ -107,22 +153,19 @@ class Builder:
             tag=tag,
             rm=True
         )
-
+        
+        logger.info(f"Built image {tag}; arch:{image.attrs['Architecture']}; linux:{image.attrs["Os"]}; size:{image.attrs["Size"]}")
         return image
     
-    def pushImage(self, image_name, docker_client=None):
+    def pushImage(self, spec: ImageBuildSpec, docker_client=None):
         if docker_client is None:
             docker_client = self.docker_client
-            
-        self.registry.login(docker_client)
-        self.registry.imagePush(image_name, docker_client)
+        self.registry.imagePush(spec.taggedImageName(), docker_client)
 
 class RegistryDriver:
     """Abstract class for registry implementations
     """
-    def login(self, docker_client:docker.DockerClient):
-        raise NotImplemented
-    
+
     def repoCreate(self, name):
         raise NotImplemented
 
@@ -141,12 +184,6 @@ class ECRDriver(RegistryDriver):
     def __init__(self, region="us-east-1"):
         self.region = region
         self.client = boto3.client('ecr', region_name=self.region)
-
-    def login(self, docker_client:docker.DockerClient):
-        token = self.client.get_authorization_token()
-        username, password = base64.b64decode(token['authorizationData'][0]['authorizationToken']).decode().split(':')
-        registry = token['authorizationData'][0]['proxyEndpoint']
-        result = docker_client.login(username, password, registry=registry)
         
     def repoCreate(self, repo_name:str):
         self.client.create_repository(repositoryName=repo_name, 
@@ -167,16 +204,27 @@ class ECRDriver(RegistryDriver):
         return True
 
     def imagePush(self, image_name, docker_client:docker.DockerClient):
+        logger.info(f"Pushing {image_name} to ECR")
         repo_name, image_tag = image_name.split(":")
-
         image = docker_client.images.get(image_name)
 
         # Get the ARN of the repository
         result = self.client.describe_repositories(repositoryNames=[repo_name])
         repositoryUri = result['repositories'][0]['repositoryUri']
+
+        logger.debug(f"Repo URI is {repositoryUri}")
         image.tag(repositoryUri, tag=image_tag)
 
-        response = docker_client.images.push(repositoryUri, tag=image_tag)
+        # Authenticate with ECR
+        authResp = self.client.get_authorization_token()
+        token = base64.b64decode(authResp['authorizationData'][0]['authorizationToken']).decode()
+        username, password = token.split(':')
+        auth_config = {'username': username, 'password': password}
+
+        logger.debug("Authenticated with ECR, starting to push now")
+        start_time = time.time()
+        response = docker_client.images.push(repositoryUri, tag=image_tag, auth_config=auth_config)
+        logger.info(f"Push to ECR complete, took {time.time() - start_time} seconds")
         print(response)
         
     def imageExists(self, image):
@@ -202,19 +250,24 @@ if __name__ == "__main__":
     b = Builder(ecrDriver)
     executor = Pool(3)
 
+    def buildTask(spec):
+        docker_client = docker.from_env()
+        docker_client.ping()
+
+        # TODO: When running pool we need to mark this as in-process to avoid double scheduling
+        image = b.buildImage(spec, sdk_path="./", docker_client=docker_client) 
+        b.pushImage(spec, docker_client=docker_client)
+        # TODO: Mark the image build as complete.... somewhere
+
+        # TODO: Start SOCI indexing or something else to make loading faster
+
     while True:
-        images = b.scan() # This happens globally on a single thread
+        build_specs = b.scan() # This happens globally on a single thread
         
         # In a thread pool....
-        for image_name, image_info in images.items():
-            docker_client = docker.from_env()
-            docker_client.ping()
-
-            # TODO: Mark the image as building, set the tag that we are going to use
-            image = b.buildImage(image_name, image_info, sdk_path="./", docker_client=docker_client)
-            b.pushImage(image_name, docker_client=docker_client)
-            
-            # TODO: If there aren't any issues building the image, mark any 
-            # TODO: Start SOCI indexing or something else to make loading faster
+        for spec in build_specs:
+            buildTask(spec) # TODO: Put this in the pool
         
+        b.run()
+
         time.sleep(10)

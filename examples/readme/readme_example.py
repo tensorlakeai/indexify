@@ -1,11 +1,19 @@
 from pydantic import BaseModel
-from indexify import indexify_function, Graph
+from indexify import indexify_function, Graph, Image
 from typing import List
 
 class Total(BaseModel):
     val: int = 0
 
-@indexify_function()
+
+image_test = (
+    Image().name("readme/adder")
+    .run("pip install lancedb")
+    .run("pip install openai")
+    .run("pip install langchain")
+)
+
+@indexify_function(image=image_test)
 def generate_numbers(a: int) -> List[int]:
     return [i for i in range(a)]
 

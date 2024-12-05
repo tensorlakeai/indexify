@@ -36,6 +36,7 @@ class NodeMetadata(BaseModel):
 class RuntimeInformation(BaseModel):
     major_version: int
     minor_version: int
+    sdk_version: str
 
 
 class ComputeGraphMetadata(BaseModel):

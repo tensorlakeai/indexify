@@ -175,6 +175,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         }
@@ -198,7 +199,6 @@ pub mod tests {
                     "run 2".to_string(),
                     "run 3".to_string(),
                 ],
-                sdk_version: "1.2.3".to_string(),
                 image_hash: "".to_string(),
                 version: Default::default(),
             },
@@ -227,6 +227,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         }
@@ -260,6 +261,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         }

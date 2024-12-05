@@ -1,4 +1,5 @@
 import sys
+import importlib
 from collections import defaultdict
 from queue import deque
 from typing import (
@@ -206,6 +207,7 @@ class Graph:
             runtime_information=RuntimeInformation(
                 major_version=sys.version_info.major,
                 minor_version=sys.version_info.minor,
+                sdk_version=importlib.metadata.version("indexify")
             ),
         )
 

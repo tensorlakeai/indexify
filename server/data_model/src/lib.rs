@@ -98,23 +98,15 @@ pub struct ImageInformation {
     pub run_strs: Vec<String>,
     pub image_hash: String,
     pub version: ImageVersion, // this gets updated when the hash changes
-    pub sdk_version: String,
 }
 
 impl ImageInformation {
-    pub fn new(
-        image_name: String,
-        tag: String,
-        base_image: String,
-        run_strs: Vec<String>,
-        sdk_version: String,
-    ) -> Self {
+    pub fn new(image_name: String, tag: String, base_image: String, run_strs: Vec<String>) -> Self {
         let mut image_hasher = Sha256::new();
         image_hasher.update(image_name.clone());
         image_hasher.update(tag.clone());
         image_hasher.update(base_image.clone());
         image_hasher.update(run_strs.clone().join(""));
-        image_hasher.update(sdk_version.clone());
 
         ImageInformation {
             image_name,
@@ -123,7 +115,6 @@ impl ImageInformation {
             run_strs,
             image_hash: format!("{:x}", image_hasher.finalize()),
             version: ImageVersion::default(),
-            sdk_version,
         }
     }
 }
@@ -336,6 +327,7 @@ impl Default for ImageVersion {
 pub struct RuntimeInformation {
     pub major_version: u8,
     pub minor_version: u8,
+    pub sdk_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1064,6 +1056,7 @@ mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         };
@@ -1098,6 +1091,7 @@ mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 12, // updated
+                sdk_version: "1.2.3".to_string(),
             },
             ..graph.clone()
         };
@@ -1148,6 +1142,7 @@ mod tests {
                 runtime_information: RuntimeInformation {
                     major_version: 0,
                     minor_version: 0,
+                    sdk_version: "1.2.3".to_string(),
                 },
                 replaying: false,
             }
