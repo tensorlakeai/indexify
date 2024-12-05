@@ -25,6 +25,7 @@ export interface ComputeGraph {
   namespace: string;
   description: string;
   version?: string;
+  tags: string[];
   start_node: Node;
   nodes: Record<string, Node>;
   edges: Record<string, string[]>;

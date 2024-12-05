@@ -52,6 +52,9 @@ export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeG
               Version: {graph.version || 'N/A'}
             </Typography>
             <Typography variant="subtitle2" color="text.secondary">
+              Tags: {graph.tags?.join(', ') || 'N/A'}
+            </Typography>
+            <Typography variant="subtitle2" color="text.secondary">
               Namespace: {graph.namespace}
             </Typography>
             <Typography variant="subtitle2" color="text.secondary">
