@@ -28,5 +28,20 @@ services:
     deploy:
       mode: replicated
       replicas: 2
+
+  custom-executor:
+    image: ecr-repo:default-sequence_summer-99d8987b97bba46eb675dc0c346f8a86bf9e442a3e2e5a5afcd6dfad74abc06d
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "host.docker.internal:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
+    deploy:
 volumes:
   data:
