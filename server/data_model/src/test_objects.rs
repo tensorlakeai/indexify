@@ -167,6 +167,7 @@ pub mod tests {
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_A".to_string(),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
             nodes: HashMap::from([
                 ("fn_b".to_string(), Node::Compute(fn_b)),
                 ("fn_c".to_string(), Node::Compute(fn_c)),
@@ -221,6 +222,7 @@ pub mod tests {
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_B".to_string(),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
             nodes: HashMap::from([
                 ("fn_b".to_string(), Node::Compute(fn_b)),
                 ("fn_c".to_string(), Node::Compute(fn_c)),
@@ -252,6 +254,7 @@ pub mod tests {
         ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph_R".to_string(),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
             nodes: HashMap::from([
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
                 ("fn_b".to_string(), Node::Compute(fn_b)),

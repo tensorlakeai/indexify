@@ -345,6 +345,7 @@ pub struct ComputeGraph {
     pub name: String,
     pub description: String,
     pub version: GraphVersion, // Version incremented with code update
+    pub tags: Vec<String>,
     pub code: ComputeGraphCode,
     pub created_at: u64,
     pub start_fn: Node,
@@ -1053,6 +1054,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
             description: "description1".to_string(),
+            tags: vec![],
             nodes: HashMap::from([
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
                 ("fn_b".to_string(), Node::Compute(fn_b.clone())),
@@ -1144,6 +1146,7 @@ mod tests {
                 namespace: String::new(),
                 name: String::new(),
                 description: String::new(),
+                tags: vec![],
                 version: GraphVersion::default(),
                 code: ComputeGraphCode {
                     path: String::new(),
