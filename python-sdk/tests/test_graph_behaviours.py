@@ -239,6 +239,18 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
 
+    @parameterized.expand([(False), (True)])
+    def test_simple_function_with_json_encoding(self, is_remote):
+        graph = Graph(
+            name="test_simple_function_with_json_encoding",
+            description="test",
+            start_node=simple_function_with_json_encoder,
+        )
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x="a")
+        output = graph.output(invocation_id, "simple_function_with_json_encoder")
+        self.assertEqual(output, ["ab"])
+
     @parameterized.expand([(True)])
     def test_remote_graph_by_name(self, is_remote):
         graph = Graph(
@@ -277,18 +289,6 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output, ["abbbbbbbbbb"])
 
     @parameterized.expand([(False), (True)])
-    def test_simple_function_with_json_encoding(self, is_remote):
-        graph = Graph(
-            name="test_simple_function_with_json_encoding",
-            description="test",
-            start_node=simple_function_with_json_encoder,
-        )
-        graph = remote_or_local_graph(graph, is_remote)
-        invocation_id = graph.run(block_until_done=True, x="a")
-        output = graph.output(invocation_id, "simple_function_with_json_encoder")
-        self.assertEqual(output, ["ab"])
-
-    @parameterized.expand([(False), (True)])
     def test_simple_function_with_invalid_encoding(self, is_remote):
         graph = Graph(
             name="test_simple_function_with_invalid_encoding",
@@ -299,6 +299,228 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertRaises(
             ValueError, graph.run, block_until_done=True, x=MyObject(x="a")
         )
+
+    @parameterized.expand([(False), (True)])
+    def test_multiple_return_values(self, is_remote):
+        @indexify_function()
+        def my_func(x: int) -> tuple:
+            return 1, 2, 3
+
+        @indexify_function()
+        def my_func_2(x: int, y: int, z: int) -> int:
+            return x + y + z
+
+        graph = Graph(
+            name="test_multiple_return_values", description="test", start_node=my_func
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_multiple_return_values_router(self, is_remote):
+        @indexify_function()
+        def my_func(x: int) -> tuple:
+            return 1, 2, 3
+
+        @indexify_function()
+        def my_func_2(x: int, y: int, z: int) -> int:
+            return x + y + z
+
+        @indexify_function()
+        def my_func_3(x: int, y: int, z: int) -> int:
+            raise Exception("Should not be called")
+
+        @indexify_router()
+        def my_router(x: int, y: int, z: int) -> List[Union[my_func_2, my_func_3]]:
+            if x + y + z == 0:
+                return my_func_3
+            else:
+                return my_func_2
+
+        graph = Graph(
+            name="test_multiple_return_values_router",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_router)
+        graph.route(my_router, [my_func_2, my_func_3])
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_dict_as_args(self, is_remote):
+        @indexify_function()
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3)
+
+        @indexify_function()
+        def my_func_2(input: dict) -> int:
+            return input["x"] + input["y"] + input["z"]
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_args",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_multiple_dict_as_args(self, is_remote):
+        @indexify_function()
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3), dict(x=1, y=2, z=3)
+
+        @indexify_function()
+        def my_func_2(input1: dict, input2: dict) -> int:
+            return (
+                input1["x"]
+                + input1["y"]
+                + input1["z"]
+                + input2["x"]
+                + input2["y"]
+                + input2["z"]
+            )
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_args",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 12)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_dict_as_kwargs(self, is_remote):
+        @indexify_function()
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3)
+
+        @indexify_function()
+        def my_func_2(x: int, y: int, z: int) -> int:
+            return x + y + z
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_kwargs",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_multiple_return_values_json(self, is_remote):
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func(x: int) -> tuple:
+            return 1, 2, 3
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(x: int, y: int, z: int) -> int:
+            return x + y + z
+
+        graph = Graph(
+            name="test_multiple_return_values_json",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_dict_args_json(self, is_remote):
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func(x: int) -> tuple:
+            return dict(x=1, y=2, z=3)
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(input: dict) -> int:
+            return input["x"] + input["y"] + input["z"]
+
+        graph = Graph(
+            name="test_multiple_return_dict_args_json",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_multiple_dict_as_args(self, is_remote):
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3), dict(x=1, y=2, z=3)
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(input1: dict, input2: dict) -> int:
+            return (
+                input1["x"]
+                + input1["y"]
+                + input1["z"]
+                + input2["x"]
+                + input2["y"]
+                + input2["z"]
+            )
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_args",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 12)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_dict_as_kwargs_json(self, is_remote):
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3)
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(x: int, y: int, z: int) -> int:
+            return x + y + z
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_kwargs",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 6)
 
     @parameterized.expand([(False), (True)])
     def test_map_operation(self, is_remote):
@@ -435,6 +657,7 @@ class TestGraphBehaviors(unittest.TestCase):
         graph1 = RemoteGraph.deploy(graph1)
         invocation_id = graph1.run(block_until_done=True, x=MyObject(x="a"))
         output2 = graph1.output(invocation_id, "SimpleFunctionCtxC")
+        self.assertEqual(len(output2), 1)
         self.assertEqual(output2[0], 11)
 
     @parameterized.expand([(False), (True)])
@@ -445,6 +668,36 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=Sum(val=2))
         output = graph.output(invocation_id, "add_three")
         self.assertEqual(output, [5])
+
+    @parameterized.expand([(False), (True)])
+    def test_return_pydantic_base_model_json(self, is_remote):
+        """
+        This test also serves as an example of how to use Pydantic BaseModel as JSON input and output.
+        """
+
+        class P1(BaseModel):
+            a: int
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func1(x: int) -> dict:
+            return P1(a=x).model_dump()
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(input: dict) -> int:
+            p = P1.model_validate(input)
+            return p.a
+
+        graph = Graph(
+            name="test_multiple_return_values_router",
+            description="test",
+            start_node=my_func1,
+        )
+        graph.add_edge(my_func1, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 1)
 
     @parameterized.expand([(False), (True)])
     def test_unreachable_graph_nodes(self, is_remote):
