@@ -65,7 +65,11 @@ def is_pydantic_model_from_annotation(type_annotation):
 
 class Graph:
     def __init__(
-        self, name: str, start_node: IndexifyFunction, description: Optional[str] = None, tags: Optional[List[str]] = None
+        self,
+        name: str,
+        start_node: IndexifyFunction,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ):
         self.name = name
         self.description = description
