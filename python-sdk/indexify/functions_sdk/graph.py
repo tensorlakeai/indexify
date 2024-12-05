@@ -77,7 +77,7 @@ class Graph:
         self.routers: Dict[str, List[str]] = defaultdict(list)
         self.edges: Dict[str, List[str]] = defaultdict(list)
         self.accumulator_zero_values: Dict[str, Any] = {}
-        self.tags = tags or []
+        self.tags = tags
 
         self.add_node(start_node)
         if issubclass(start_node, IndexifyRouter):
@@ -210,6 +210,7 @@ class Graph:
             start_node=NodeMetadata(compute_fn=start_node),
             nodes=metadata_nodes,
             edges=metadata_edges,
+            tags=self.tags,
             runtime_information=RuntimeInformation(
                 major_version=sys.version_info.major,
                 minor_version=sys.version_info.minor,

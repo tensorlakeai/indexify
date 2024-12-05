@@ -43,6 +43,7 @@ class RuntimeInformation(BaseModel):
 class ComputeGraphMetadata(BaseModel):
     name: str
     description: str
+    tags: Optional[List[str]]
     start_node: NodeMetadata
     nodes: Dict[str, NodeMetadata]
     edges: Dict[str, List[str]]
