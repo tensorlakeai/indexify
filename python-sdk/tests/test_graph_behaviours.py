@@ -357,7 +357,7 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.expand([(False), (True)])
     def test_return_dict_as_args(self, is_remote):
         @indexify_function()
-        def my_func(x: int) -> tuple:
+        def my_func(x: int) -> dict:
             return dict(x=1, y=2, z=3)
 
         @indexify_function()
@@ -377,9 +377,38 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output[0], 6)
 
     @parameterized.expand([(False), (True)])
+    def test_return_multiple_dict_as_args(self, is_remote):
+        @indexify_function()
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3), dict(x=1, y=2, z=3)
+
+        @indexify_function()
+        def my_func_2(input1: dict, input2: dict) -> int:
+            return (
+                input1["x"]
+                + input1["y"]
+                + input1["z"]
+                + input2["x"]
+                + input2["y"]
+                + input2["z"]
+            )
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_args",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 12)
+
+    @parameterized.expand([(False), (True)])
     def test_return_dict_as_kwargs(self, is_remote):
         @indexify_function()
-        def my_func(x: int) -> tuple:
+        def my_func(x: int) -> dict:
             return dict(x=1, y=2, z=3)
 
         @indexify_function()
@@ -443,9 +472,38 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output[0], 6)
 
     @parameterized.expand([(False), (True)])
+    def test_return_multiple_dict_as_args(self, is_remote):
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func(x: int) -> dict:
+            return dict(x=1, y=2, z=3), dict(x=1, y=2, z=3)
+
+        @indexify_function(input_encoder="json", output_encoder="json")
+        def my_func_2(input1: dict, input2: dict) -> int:
+            return (
+                input1["x"]
+                + input1["y"]
+                + input1["z"]
+                + input2["x"]
+                + input2["y"]
+                + input2["z"]
+            )
+
+        graph = Graph(
+            name="test_multiple_return_dict_as_args",
+            description="test",
+            start_node=my_func,
+        )
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=1)
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0], 12)
+
+    @parameterized.expand([(False), (True)])
     def test_return_dict_as_kwargs_json(self, is_remote):
         @indexify_function(input_encoder="json", output_encoder="json")
-        def my_func(x: int) -> tuple:
+        def my_func(x: int) -> dict:
             return dict(x=1, y=2, z=3)
 
         @indexify_function(input_encoder="json", output_encoder="json")

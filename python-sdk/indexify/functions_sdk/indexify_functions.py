@@ -294,7 +294,6 @@ class IndexifyFunctionWrapper:
     def run_router(
         self, input: Union[Dict, Type[BaseModel]]
     ) -> Tuple[List[str], Optional[str]]:
-        # kwargs = input if isinstance(input, dict) else {"input": input}
         args = []
         kwargs = {}
         try:
