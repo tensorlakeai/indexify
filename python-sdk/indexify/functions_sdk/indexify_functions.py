@@ -117,7 +117,7 @@ from inspect import Parameter, signature
 from typing_extensions import get_type_hints
 
 
-def _process_dict_arg(dict_arg: dict, sig: inspect.Signature):
+def _process_dict_arg(dict_arg: dict, sig: inspect.Signature) -> Tuple[list, dict]:
     new_args = []
     new_kwargs = {}
     remaining_kwargs = dict_arg.copy()
@@ -134,8 +134,8 @@ def _process_dict_arg(dict_arg: dict, sig: inspect.Signature):
     elif len(remaining_kwargs) > 0:
         # If there are remaining kwargs, add them as a single dict argument
         new_args.append(remaining_kwargs)
-    else:
-        return new_args, new_kwargs
+
+    return new_args, new_kwargs
 
 
 def indexify_router(
