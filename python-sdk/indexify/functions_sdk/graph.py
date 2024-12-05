@@ -147,6 +147,11 @@ class Graph:
         from_node: Union[Type[IndexifyFunction], Type[IndexifyRouter]],
         to_node: List[Union[Type[IndexifyFunction], Type[IndexifyRouter]]],
     ) -> "Graph":
+        if issubclass(from_node, IndexifyRouter):
+            raise ValueError(
+                "Cannot add edges from a router node, use route method instead"
+            )
+
         self.add_node(from_node)
         from_node_name = from_node.name
         for node in to_node:
