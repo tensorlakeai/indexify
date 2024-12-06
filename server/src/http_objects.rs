@@ -286,6 +286,8 @@ pub struct ComputeGraph {
     pub start_node: Node,
     #[serde(skip_deserializing)]
     pub version: u32,
+    #[serde(default)]
+    pub tags: Option<HashMap<String, String>>,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     #[serde(default = "get_epoch_time_in_ms")]
@@ -313,6 +315,7 @@ impl ComputeGraph {
             namespace: self.namespace,
             description: self.description,
             start_fn,
+            tags: self.tags.unwrap_or_default(),
             version: Default::default(),
             code: ComputeGraphCode {
                 sha256_hash: sha256_hash.to_string(),
@@ -344,6 +347,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             namespace: compute_graph.namespace,
             description: compute_graph.description,
             start_node: start_fn,
+            tags: Some(compute_graph.tags),
             version: compute_graph.version.0,
             nodes,
             edges: compute_graph.edges,

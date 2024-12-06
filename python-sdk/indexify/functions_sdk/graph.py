@@ -65,7 +65,11 @@ def is_pydantic_model_from_annotation(type_annotation):
 
 class Graph:
     def __init__(
-        self, name: str, start_node: IndexifyFunction, description: Optional[str] = None
+        self,
+        name: str,
+        start_node: IndexifyFunction,
+        description: Optional[str] = None,
+        tags: Dict[str, str] = {},
     ):
         self.name = name
         self.description = description
@@ -73,6 +77,7 @@ class Graph:
         self.routers: Dict[str, List[str]] = defaultdict(list)
         self.edges: Dict[str, List[str]] = defaultdict(list)
         self.accumulator_zero_values: Dict[str, Any] = {}
+        self.tags = tags
 
         self.add_node(start_node)
         if issubclass(start_node, IndexifyRouter):
@@ -204,12 +209,15 @@ class Graph:
                     )
                 )
 
+        print("TAGS", self.tags)
+
         return ComputeGraphMetadata(
             name=self.name,
             description=self.description or "",
             start_node=NodeMetadata(compute_fn=start_node),
             nodes=metadata_nodes,
             edges=metadata_edges,
+            tags=self.tags,
             runtime_information=RuntimeInformation(
                 major_version=sys.version_info.major,
                 minor_version=sys.version_info.minor,

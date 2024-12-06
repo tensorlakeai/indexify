@@ -345,6 +345,8 @@ pub struct ComputeGraph {
     pub name: String,
     pub description: String,
     pub version: GraphVersion, // Version incremented with code update
+    #[serde(default)]
+    pub tags: HashMap<String, String>,
     pub code: ComputeGraphCode,
     pub created_at: u64,
     pub start_fn: Node,
@@ -376,6 +378,7 @@ impl ComputeGraph {
 
         self.description = update.description;
         self.runtime_information = update.runtime_information;
+        self.tags = update.tags;
 
         if self.code.sha256_hash != update.code.sha256_hash ||
             self.edges != update.edges ||
@@ -1053,6 +1056,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
             description: "description1".to_string(),
+            tags: HashMap::new(),
             nodes: HashMap::from([
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
                 ("fn_b".to_string(), Node::Compute(fn_b.clone())),
@@ -1083,6 +1087,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
             description: "description2".to_string(),
+            tags: HashMap::from([("tag1".to_string(), "val1".to_string())]),
             nodes: HashMap::from([
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
                 ("fn_b".to_string(), Node::Compute(fn_b.clone())),
@@ -1117,6 +1122,7 @@ mod tests {
         assert_eq!(graph.code.sha256_hash, "hash_code2", "update code");
         assert_eq!(graph.start_fn.name(), "fn_a", "update start_fn");
         assert_eq!(graph.version, GraphVersion(2), "update version");
+        assert!(graph.tags.contains_key("tag1"), "update tags");
         assert_eq!(
             graph.runtime_information.minor_version, 12,
             "update runtime_information"
@@ -1144,6 +1150,7 @@ mod tests {
                 namespace: String::new(),
                 name: String::new(),
                 description: String::new(),
+                tags: HashMap::new(),
                 version: GraphVersion::default(),
                 code: ComputeGraphCode {
                     path: String::new(),

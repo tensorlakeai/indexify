@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { Alert, Card, CardContent, Grid, IconButton, Typography } from '@mui/material'
+import {
+  Alert,
+  Card,
+  CardContent,
+  Chip,
+  Grid,
+  IconButton,
+  ListItem,
+  Typography,
+} from '@mui/material'
 import { Box, Stack } from '@mui/system'
 import { Cpu, InfoCircle } from 'iconsax-react'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -15,14 +24,22 @@ interface ComputeGraphsCardProps {
   namespace: string
 }
 
-export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeGraphsCardProps) {
-  const [localGraphs, setLocalGraphs] = useState<ComputeGraph[]>(computeGraphs.compute_graphs || [])
+export function ComputeGraphsCard({
+  client,
+  computeGraphs,
+  namespace,
+}: ComputeGraphsCardProps) {
+  const [localGraphs, setLocalGraphs] = useState<ComputeGraph[]>(
+    computeGraphs.compute_graphs || []
+  )
   const [error, setError] = useState<string | null>(null)
 
   async function handleDeleteGraph(graphName: string) {
     try {
       await client.deleteComputeGraph(graphName)
-      setLocalGraphs(prevGraphs => prevGraphs.filter(graph => graph.name !== graphName))
+      setLocalGraphs((prevGraphs) =>
+        prevGraphs.filter((graph) => graph.name !== graphName)
+      )
     } catch (err) {
       console.error('Error deleting compute graph:', err)
       setError('Failed to delete compute graph. Please try again.')
@@ -32,7 +49,13 @@ export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeG
   function renderGraphCard(graph: ComputeGraph) {
     return (
       <Grid item xs={12} sm={6} md={4} key={graph.name} mb={2}>
-        <Card sx={{ minWidth: 275, height: '100%', boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset' }}>
+        <Card
+          sx={{
+            minWidth: 275,
+            height: '100%',
+            boxShadow: '0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset',
+          }}
+        >
           <CardContent>
             <Box display="flex" justifyContent="space-between">
               <Link to={`/${namespace}/compute-graphs/${graph.name}`}>
@@ -40,8 +63,8 @@ export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeG
               </Link>
               <Box display="flex" flexDirection="row">
                 <CopyText text={graph.name} />
-                <IconButton 
-                  onClick={() => handleDeleteGraph(graph.name)} 
+                <IconButton
+                  onClick={() => handleDeleteGraph(graph.name)}
                   aria-label="delete compute graph"
                 >
                   <DeleteIcon color="error" />
@@ -57,6 +80,29 @@ export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeG
             <Typography variant="subtitle2" color="text.secondary">
               Number of Nodes: {Object.keys(graph.nodes || {}).length}
             </Typography>
+            {graph.created_at && (
+              <Typography variant="subtitle2" color="text.secondary">
+                Created At: {new Date(graph.created_at).toLocaleString()}
+              </Typography>
+            )}
+            <Typography variant="subtitle2" color="text.secondary">
+              Tags:
+              {Object.keys(graph.tags || {}).length > 0 && (
+                <Box display="flex" flexWrap="wrap" mt={1}>
+                  {Object.entries(graph.tags).map(([key, value]) => (
+                    <ListItem key={key}>
+                      <Chip
+                        key={key}
+                        label={`${key}: ${value}`}
+                        color="primary"
+                        size="small"
+                        sx={{ m: 0.5 }}
+                      />
+                    </ListItem>
+                  ))}
+                </Box>
+              )}
+            </Typography>
           </CardContent>
         </Card>
       </Grid>
@@ -64,13 +110,23 @@ export function ComputeGraphsCard({ client, computeGraphs, namespace }: ComputeG
   }
 
   function renderContent() {
-    if (error) 
-      return <Alert variant="outlined" severity="error" sx={{ my: 2 }}>{error}</Alert>
+    if (error)
+      return (
+        <Alert variant="outlined" severity="error" sx={{ my: 2 }}>
+          {error}
+        </Alert>
+      )
 
     if (!localGraphs.length)
-      return <Alert variant="outlined" severity="info" sx={{ my: 2 }}>No Graphs Found</Alert>
+      return (
+        <Alert variant="outlined" severity="info" sx={{ my: 2 }}>
+          No Graphs Found
+        </Alert>
+      )
 
-    const sortedGraphs = [...localGraphs].sort((a, b) => a.name.localeCompare(b.name))
+    const sortedGraphs = [...localGraphs].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
 
     return (
       <Box sx={{ width: '100%', overflow: 'auto', borderRadius: '5px' }} mt={2}>

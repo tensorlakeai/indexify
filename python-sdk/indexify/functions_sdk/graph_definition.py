@@ -44,6 +44,7 @@ class ComputeGraphMetadata(BaseModel):
     name: str
     description: str
     start_node: NodeMetadata
+    tags: Dict[str, str] = {}
     nodes: Dict[str, NodeMetadata]
     edges: Dict[str, List[str]]
     accumulator_zero_values: Dict[str, bytes] = {}
