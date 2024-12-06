@@ -135,38 +135,7 @@ impl TaskScheduler {
         let mut diagnostic_msgs = vec![];
 
         for executor in &executors {
-            if let Some(minor_version) = executor.labels.get("python_minor_version") {
-                if let Ok(executor_python_minor_version) =
-                    serde_json::from_value::<u8>(minor_version.clone())
-                {
-                    if executor_python_minor_version != graph_runtime.minor_version {
-                        info!(
-                            "skipping executor {} because python version does not match",
-                            executor.id
-                        );
-                        diagnostic_msgs.push(format!(
-                            "executor {} python version: {} does not match function python version: {}",
-                            executor.id, executor_python_minor_version, graph_runtime.minor_version
-                        ));
-                        continue;
-                    }
-                } else {
-                    error!("failed to parse python_minor_version label");
-                    continue;
-                }
-            }
-
-            if executor.image_name != node.image_name() {
-                diagnostic_msgs.push(format!(
-                    "executor {}, image name: {} does not match function image name {}",
-                    executor.id,
-                    executor.image_name,
-                    node.image_name()
-                ));
-                continue;
-            }
-
-            if node.matches_executor(executor, &mut diagnostic_msgs) {
+            if node.matches_executor(executor, graph_runtime) {
                 filtered_executors.push(executor.id.clone());
             }
         }
