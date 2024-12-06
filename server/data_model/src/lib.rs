@@ -378,10 +378,10 @@ impl ComputeGraph {
         self.description = update.description;
         self.runtime_information = update.runtime_information;
 
-        if self.code.sha256_hash != update.code.sha256_hash
-            || self.edges != update.edges
-            || self.nodes != update.nodes
-            || self.start_fn != update.start_fn
+        if self.code.sha256_hash != update.code.sha256_hash ||
+            self.edges != update.edges ||
+            self.nodes != update.nodes ||
+            self.start_fn != update.start_fn
         {
             // if the code has changed, increment the version.
             self.version = self.version.next();
@@ -989,8 +989,16 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        test_objects::tests::test_compute_fn, ComputeFn, ComputeGraph, ComputeGraphCode,
-        DynamicEdgeRouter, ExecutorMetadata, GraphVersion, ImageInformation, ImageVersion, Node,
+        test_objects::tests::test_compute_fn,
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphCode,
+        DynamicEdgeRouter,
+        ExecutorMetadata,
+        GraphVersion,
+        ImageInformation,
+        ImageVersion,
+        Node,
         RuntimeInformation,
     };
 

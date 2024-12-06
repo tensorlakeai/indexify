@@ -5,7 +5,10 @@ use data_model::{ChangeType, StateChangeId};
 use metrics::{scheduler_stats, Timer};
 use state_store::{
     requests::{
-        CreateTasksRequest, ReductionTasks, RequestPayload, SchedulerUpdateRequest,
+        CreateTasksRequest,
+        ReductionTasks,
+        RequestPayload,
+        SchedulerUpdateRequest,
         StateMachineUpdateRequest,
     },
     IndexifyState,
@@ -59,7 +62,7 @@ impl Scheduler {
             match self.process_state_change(state_change).await {
                 Ok(result) => {
                     processed_state_change_ids.push(state_change.id);
-                  
+
                     if let Some(result) = result {
                         let request = CreateTasksRequest {
                             namespace: result.namespace.clone(),
@@ -191,11 +194,27 @@ mod tests {
 
     use data_model::{
         test_objects::tests::{
-            mock_executor, mock_executor_id, mock_invocation_payload_graph_b, mock_node_fn_output,
-            reducer_fn, test_compute_fn, TEST_EXECUTOR_ID, TEST_NAMESPACE,
+            mock_executor,
+            mock_executor_id,
+            mock_invocation_payload_graph_b,
+            mock_node_fn_output,
+            reducer_fn,
+            test_compute_fn,
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
         },
-        ComputeGraph, ComputeGraphCode, DataPayload, ExecutorId, GraphVersion,
-        InvocationPayloadBuilder, Node, RuntimeInformation, StateChange, Task, TaskId, TaskOutcome,
+        ComputeGraph,
+        ComputeGraphCode,
+        DataPayload,
+        ExecutorId,
+        GraphVersion,
+        InvocationPayloadBuilder,
+        Node,
+        RuntimeInformation,
+        StateChange,
+        Task,
+        TaskId,
+        TaskOutcome,
     };
     use state_store::{
         requests::{CreateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest},
