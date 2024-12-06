@@ -156,22 +156,22 @@ impl ComputeFn {
     pub fn matches_executor(
         &self,
         executor: &ExecutorMetadata,
-        diagnostic_msgs: &mut Vec<String>,
+        graph_runtime: &RuntimeInformation,
     ) -> bool {
         if executor.image_name != self.image_name {
-            diagnostic_msgs.push(format!(
-                "executor {}, image name: {} does not match function image name {}",
-                executor.id, executor.image_name, self.image_name
-            ));
-
             return false;
         }
+        if let Some(minor_version) = executor.labels.get("python_minor_version") {
+                if let Ok(executor_python_minor_version) =
+                    serde_json::from_value::<u8>(minor_version.clone())
+                {
+                    if executor_python_minor_version != graph_runtime.minor_version {
+                        return false;
+                    }
+                }
+            }
 
         if self.image_information.version.0 != executor.image_version {
-            diagnostic_msgs.push(format!(
-                "executor {}, image version: {} does not match function image version {}",
-                executor.id, executor.image_version, self.image_information.version.0
-            ));
             return false;
         }
 
@@ -231,11 +231,11 @@ impl Node {
     pub fn matches_executor(
         &self,
         executor: &ExecutorMetadata,
-        diagnostic_msgs: &mut Vec<String>,
+        graph_runtime: &RuntimeInformation,
     ) -> bool {
         match self {
             Node::Router(_) => true,
-            Node::Compute(compute) => compute.matches_executor(executor, diagnostic_msgs),
+            Node::Compute(compute) => compute.matches_executor(executor, graph_runtime),
         }
     }
 
@@ -337,6 +337,15 @@ impl Default for ImageVersion {
 pub struct RuntimeInformation {
     pub major_version: u8,
     pub minor_version: u8,
+}
+
+impl Default for RuntimeInformation {
+    fn default() -> Self {
+        Self {
+            major_version: 3,
+            minor_version: 8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1021,7 +1030,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+        assert!(!compute_fn.matches_executor(&executor_metadata, &RuntimeInformation::default()));
     }
 
     #[test]
@@ -1042,7 +1051,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+        assert!(!compute_fn.matches_executor(&executor_metadata, &RuntimeInformation::default()));
     }
 
     #[test]
