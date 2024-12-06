@@ -138,12 +138,34 @@ class TestValidations(unittest.TestCase):
             return 1
 
         @indexify_router()
-        def route1(**kwargs: dict) -> Union[int, float]:
+        def route1(**kwargs: dict) -> Union[start, end]:
             return 10
 
         g = Graph(name="test", start_node=start)
         g.add_edge(start, route1)
-        g.route(route1, [end, end])
+        g.route(route1, [start, end])
+
+    def test_route_validation_used_as_edge(self):
+        @indexify_function()
+        def start() -> int:
+            return 1
+
+        @indexify_function()
+        def end() -> int:
+            return 1
+
+        @indexify_router()
+        def route1(**kwargs: dict) -> Union[start, end]:
+            return 10
+
+        g = Graph(name="test", start_node=start)
+        g.add_edge(start, route1)
+        with self.assertRaises(Exception) as cm:
+            g.add_edge(route1, [end, end])
+        self.assertEqual(
+            "Cannot add edges from a router node, use route method instead",
+            str(cm.exception),
+        )
 
 
 if __name__ == "__main__":

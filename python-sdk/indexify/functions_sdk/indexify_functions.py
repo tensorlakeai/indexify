@@ -112,9 +112,30 @@ class IndexifyRouter:
         pass
 
 
-from inspect import signature
+from inspect import Parameter, signature
 
 from typing_extensions import get_type_hints
+
+
+def _process_dict_arg(dict_arg: dict, sig: inspect.Signature) -> Tuple[list, dict]:
+    new_args = []
+    new_kwargs = {}
+    remaining_kwargs = dict_arg.copy()
+
+    # Match dictionary keys to function parameters
+    for param_name, param in sig.parameters.items():
+        if param_name in dict_arg:
+            new_args.append(dict_arg[param_name])
+            remaining_kwargs.pop(param_name, None)
+
+    if any(v.kind == Parameter.VAR_KEYWORD for v in sig.parameters.values()):
+        # Combine remaining dict items with additional kwargs
+        new_kwargs.update(remaining_kwargs)
+    elif len(remaining_kwargs) > 0:
+        # If there are remaining kwargs, add them as a single dict argument
+        new_args.append(remaining_kwargs)
+
+    return new_args, new_kwargs
 
 
 def indexify_router(
@@ -132,6 +153,13 @@ def indexify_router(
 
         # Create run method that preserves signature
         def run(self, *args, **kwargs):
+            # Process dictionary argument mapping it to args or to kwargs.
+            if len(args) == 1 and isinstance(args[0], dict):
+                sig = inspect.signature(fn)
+                dict_arg = args[0]
+                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+                return fn(*new_args, **new_kwargs)
+
             return fn(*args, **kwargs)
 
         # Apply original signature and annotations to run method
@@ -173,6 +201,20 @@ def indexify_function(
 
         # Create run method that preserves signature
         def run(self, *args, **kwargs):
+            # Process dictionary argument mapping it to args or to kwargs.
+            if self.accumulate and len(args) == 2 and isinstance(args[1], dict):
+                sig = inspect.signature(fn)
+                new_args = [args[0]]  # Keep the accumulate argument
+                dict_arg = args[1]
+                new_args_from_dict, new_kwargs = _process_dict_arg(dict_arg, sig)
+                new_args.extend(new_args_from_dict)
+                return fn(*new_args, **new_kwargs)
+            elif len(args) == 1 and isinstance(args[0], dict):
+                sig = inspect.signature(fn)
+                dict_arg = args[0]
+                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+                return fn(*new_args, **new_kwargs)
+
             return fn(*args, **kwargs)
 
         # Apply original signature and annotations to run method
@@ -252,14 +294,15 @@ class IndexifyFunctionWrapper:
     def run_router(
         self, input: Union[Dict, Type[BaseModel]]
     ) -> Tuple[List[str], Optional[str]]:
-        kwargs = input if isinstance(input, dict) else {"input": input}
         args = []
         kwargs = {}
-        if isinstance(input, dict):
-            kwargs = input
-        else:
-            args.append(input)
         try:
+            # tuple and list are considered positional arguments, list is used for compatibility
+            # with json encoding which won't deserialize in tuple.
+            if isinstance(input, tuple) or isinstance(input, list):
+                args += input
+            else:
+                args.append(input)
             extracted_data = self.indexify_function.run(*args, **kwargs)
         except Exception as e:
             return [], traceback.format_exc()
@@ -271,14 +314,18 @@ class IndexifyFunctionWrapper:
         return edges, None
 
     def run_fn(
-        self, input: Union[Dict, Type[BaseModel]], acc: Type[Any] = None
+        self, input: Union[Dict, Type[BaseModel], List, Tuple], acc: Type[Any] = None
     ) -> Tuple[List[Any], Optional[str]]:
         args = []
         kwargs = {}
+
         if acc is not None:
             args.append(acc)
-        if isinstance(input, dict):
-            kwargs = input
+
+        # tuple and list are considered positional arguments, list is used for compatibility
+        # with json encoding which won't deserialize in tuple.
+        if isinstance(input, tuple) or isinstance(input, list):
+            args += input
         else:
             args.append(input)
 
