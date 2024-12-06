@@ -1,6 +1,5 @@
 
 import sys
-import importlib.metadata
 from typing import List
 
 from pydantic import BaseModel
