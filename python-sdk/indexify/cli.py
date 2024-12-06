@@ -6,9 +6,11 @@ import subprocess
 import sys
 import threading
 import time
+from importlib.metadata import version
 from typing import Annotated, List, Optional
 
 import nanoid
+import structlog
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -32,6 +34,7 @@ custom_theme = Theme(
     }
 )
 
+logging = structlog.get_logger(module=__name__)
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
@@ -158,6 +161,9 @@ def build_default_image():
 @app.command(help="Joins the extractors to the coordinator server")
 def executor(
     server_addr: str = "localhost:8900",
+    dev: Annotated[
+        bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
+    ] = False,
     workers: Annotated[
         int, typer.Option(help="number of worker processes for extraction")
     ] = 1,
@@ -174,19 +180,26 @@ def executor(
         "1", help="Requested Image Version for this executor"
     ),
 ):
+    # configure structured logging
+    if not dev:
+        processors = [
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ]
+        structlog.configure(processors=processors)
+
     id = nanoid.generate()
-    console.print(
-        Panel(
-            f"Number of workers: {workers}\n"
-            f"Config path: {config_path}\n"
-            f"Server address: {server_addr}\n"
-            f"Executor ID: {id}\n"
-            f"Executor cache: {executor_cache}\n"
-            f"Name Alias: {name_alias}"
-            f"Image Version: {image_version}\n",
-            title="Agent Configuration",
-            border_style="info",
-        )
+    executor_version = version("indexify")
+    logging.info(
+        "executor started",
+        workers=workers,
+        server_addr=server_addr,
+        config_path=config_path,
+        executor_id=id,
+        executor_version=executor_version,
+        executor_cache=executor_cache,
+        name_alias=name_alias,
+        image_version=image_version,
     )
 
     from pathlib import Path
@@ -208,8 +221,8 @@ def executor(
 
     try:
         asyncio.get_event_loop().run_until_complete(agent.run())
-    except asyncio.CancelledError as ex:
-        console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
+    except asyncio.CancelledError:
+        logging.info("graceful shutdown")
 
 
 def _create_image(image: Image, python_sdk_path):
