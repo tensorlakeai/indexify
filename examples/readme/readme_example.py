@@ -11,6 +11,7 @@ image_test = (
     .run("pip install lancedb")
     .run("pip install openai")
     .run("pip install langchain")
+#    .run("pip install requests")
 )
 
 @indexify_function(image=image_test)
@@ -29,7 +30,6 @@ def add(total: Total, new: int) -> Total:
 g = Graph(name="sequence_summer", start_node=generate_numbers, description="Simple Sequence Summer")
 g.add_edge(generate_numbers, square)
 g.add_edge(square, add)
-
 
 print(g.definition().model_dump_json(exclude_none=True))
 

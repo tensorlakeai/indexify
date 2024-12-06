@@ -1,5 +1,4 @@
 
-
 import structlog
 import hashlib
 import base64
@@ -13,20 +12,20 @@ import boto3
 from indexify.http_client import IndexifyClient
 from indexify.functions_sdk.image import ImageInformation
 
-
 logger = structlog.get_logger(module=__name__)
+
 class ImageBuildSpec:
-    def __init__(self, namespace, image_info:ImageInformation, sdk_version=None):
+    def __init__(self, namespace, sdk_version, name, base_image, run_strs):
         self.namespace = namespace
         self.sdk_version = sdk_version
-        self.image_info = image_info
+        self.name = name
+        self.base_image = base_image
+        self.run_strs = run_strs
 
     def hashFromImageInfo(self):
-        hash = hashlib.sha256(self.image_info.image_name.encode()) # Make a hash of the image name
-        hash.update(self.image_info.image_name.encode())
-        hash.update(self.image_info.tag.encode())
-        hash.update(self.image_info.base_image.encode())
-        hash.update("".join(self.image_info.run_strs).encode())
+        hash = hashlib.sha256(self.name.encode()) # Make a hash of the image name
+        hash.update(self.base_image.encode())
+        hash.update("".join(self.run_strs).encode())
         hash.update(self.sdk_version.encode())
         return hash.hexdigest()
 
@@ -34,8 +33,12 @@ class ImageBuildSpec:
         return f"{self.imageName()}:{self.hashFromImageInfo()}"
         
     def imageName(self):
-        return f"{self.namespace}/{self.image_info.image_name}"
+        return f"{self.namespace}/{self.name}"
     
+    @classmethod
+    def fromImageInformation(cls, namespace, sdk_version, info: ImageInformation):
+        return cls(namespace, sdk_version, info.image_name, info.base_image, info.run_strs)
+
 
 class Builder:
     def __init__(self, registry_driver, service_url="http://localhost:8900"):
@@ -47,7 +50,7 @@ class Builder:
         self.images_in_process = set()  # Images in process, 
 
     def run(self):
-        """Scan the state of the server and look for image definitions.
+        """Run local containers for all graphs.
         """
         foundImages = {}
         for namespace in self.indexify.namespaces():
@@ -57,14 +60,13 @@ class Builder:
                 logger.debug(f"Found graph {graph.name}")
                 for node in graph.nodes.values():
                     if node.compute_fn is not None:
-                        spec = ImageBuildSpec(namespace,  node.compute_fn.image_information, sdk_version=graph.runtime_information.sdk_version)
-                        foundImages[spec.image_info.image_name] = spec.taggedImageName()
+                        spec = ImageBuildSpec.fromImageInformation(namespace, graph.runtime_information.sdk_version, node.compute_fn.image_information)
+                        foundImages[spec.name] = spec.taggedImageName()
 
                     if node.dynamic_router is not None:
-                        spec = ImageBuildSpec(namespace,  node.dynamic_router.image_information, sdk_version=graph.runtime_information.sdk_version)
-                        foundImages[spec.image_info.image_name] = spec.taggedImageName()        
-        
-
+                        spec = ImageBuildSpec.fromImageInformation(namespace, graph.runtime_information.sdk_version, node.dynamic_router.image_information)
+                        foundImages[spec.name] = spec.taggedImageName()        
+            
         containers = {}
         for container in self.docker.containers.list():
             containers[container.name] = container
@@ -73,9 +75,21 @@ class Builder:
             container_name = image_name.replace("/", "-")
 
             if container_name in containers: # If there is a running container, make sure it's using the right image
-                pass
+                container = containers[container_name]
+                logger.debug(f"Found matching container {container_name} with image {container.image.id}")
+                if image not in container.image.attrs['RepoTags']:
+                    logger.info(f"Container image is tagged for stale version of {image_name}, reloading with fresh image")
+                    container.stop()
+                    container.remove()
+                    self.docker.containers.run(image, ["indexify-cli", "executor", "--server-addr", "host.docker.internal:8900"], name=container_name, detach=True)
+                    logger.debug(f"New container running with image {image}")
+
+                else:
+                    logger.debug(f"Running container {container_name} matches current version of the image, leaving alone")
+
             else:
-                self.docker.containers.run(image, ["indexify-cli", "executor", "--server-addr", "host.docker.internal:8900"], name=container_name)
+                logger.info(f"Starting container for {image_name}")
+                self.docker.containers.run(image, ["indexify-cli", "executor", "--server-addr", "host.docker.internal:8900"], name=container_name, detach=True)
         
     def scan(self):
         """Scan the state of the server and look for image definitions.
@@ -89,11 +103,11 @@ class Builder:
                 logger.debug(f"Found graph {graph.name}")
                 for node in graph.nodes.values():
                     if node.compute_fn is not None:
-                        foundImages.append(ImageBuildSpec(namespace,  node.compute_fn.image_information, sdk_version=graph.runtime_information.sdk_version))
-
+                        foundImages.append(ImageBuildSpec.fromImageInformation(namespace, graph.runtime_information.sdk_version, node.compute_fn.image_information))
+                        
                     if node.dynamic_router is not None:
-                        foundImages.append(ImageBuildSpec(namespace,  node.dynamic_router.image_information, sdk_version=graph.runtime_information.sdk_version))
-
+                        foundImages.append(ImageBuildSpec.fromImageInformation(namespace, graph.runtime_information.sdk_version, node.dynamic_router.image_information))
+                    
         # Process found images, create repos if necessary and reject images that are already being built
         imagesToBeBuilt = []
         processedImages = []
@@ -119,16 +133,15 @@ class Builder:
         return imagesToBeBuilt
 
     def buildImage(self, spec: ImageBuildSpec, docker_client=None, sdk_path=None):
-        image_info = spec.image_info
         tag = spec.taggedImageName()
 
-        docker_contents = [f"FROM {image_info.base_image}", 
+        docker_contents = [f"FROM {spec.base_image}", 
                            "RUN mkdir -p ~/.indexify", 
                            "RUN touch ~/.indexify/image_name", 
-                           f"RUN  echo {image_info.image_name} > ~/.indexify/image_name",
+                           f"RUN  echo {spec.name} > ~/.indexify/image_name",
                            "WORKDIR /app"]
 
-        docker_contents.extend(["RUN " + i for i in image_info.run_strs])
+        docker_contents.extend(["RUN " + i for i in spec.run_strs])
 
         if sdk_path is not None:
             logger.info(f"Building image {tag} with local version of the SDK")
