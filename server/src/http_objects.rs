@@ -286,6 +286,7 @@ pub struct ComputeGraph {
     pub start_node: Node,
     #[serde(skip_deserializing)]
     pub version: u32,
+    #[serde(default)]
     pub tags: Option<HashMap<String, String>>,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
@@ -314,7 +315,7 @@ impl ComputeGraph {
             namespace: self.namespace,
             description: self.description,
             start_fn,
-            tags: self.tags.unwrap_or(HashMap::new()),
+            tags: self.tags.unwrap_or_default(),
             version: Default::default(),
             code: ComputeGraphCode {
                 sha256_hash: sha256_hash.to_string(),

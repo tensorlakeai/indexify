@@ -69,7 +69,7 @@ class Graph:
         name: str,
         start_node: IndexifyFunction,
         description: Optional[str] = None,
-        tags: Optional[Dict[str, str]] = None,
+        tags: Dict[str, str] = {},
     ):
         self.name = name
         self.description = description
@@ -203,6 +203,8 @@ class Graph:
                         output_encoder=node.output_encoder,
                     )
                 )
+
+        print("TAGS", self.tags)
 
         return ComputeGraphMetadata(
             name=self.name,
