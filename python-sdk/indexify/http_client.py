@@ -278,10 +278,10 @@ class IndexifyClient:
         self,
         graph: str,
         block_until_done: bool = False,
-        serializer: str = "cloudpickle",
+        input_encoding: str = "cloudpickle",
         **kwargs,
     ) -> str:
-        serializer = get_serializer(serializer)
+        serializer = get_serializer(input_encoding)
         ser_input = serializer.serialize(kwargs)
         params = {"block_until_finish": block_until_done}
         kwargs = {
@@ -355,11 +355,11 @@ class IndexifyClient:
         )
         response.raise_for_status()
         content_type = response.headers.get("Content-Type")
-        serializer = get_serializer(content_type)
-        decoded_response = serializer.deserialize(response.content)
-        return IndexifyData(
-            id=output_id, payload=decoded_response, encoder=serializer.encoding_type
-        )
+        if content_type == "application/octet-stream":
+            encoding = "cloudpickle"
+        else:
+            encoding = "json"
+        return IndexifyData(id=output_id, payload=response.content, encoder=encoding)
 
     def graph_outputs(
         self,

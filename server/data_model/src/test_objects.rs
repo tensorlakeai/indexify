@@ -188,7 +188,8 @@ pub mod tests {
             description: "description router_x".to_string(),
             source_fn: "fn_a".to_string(),
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
-            encoder: "cloudpickle".to_string(),
+            input_encoder: "cloudpickle".to_string(),
+            output_encoder: "cloudpickle".to_string(),
             image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             image_information: ImageInformation {
                 image_name: "test-image".to_string(),

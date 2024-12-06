@@ -83,7 +83,8 @@ class IndexifyFunction:
     image: Optional[Image] = DEFAULT_IMAGE
     placement_constraints: List[PlacementConstraints] = []
     accumulate: Optional[Type[Any]] = None
-    encoder: Optional[str] = "cloudpickle"
+    input_encoder: Optional[str] = "cloudpickle"
+    output_encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
@@ -95,7 +96,7 @@ class IndexifyFunction:
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
-        serializer = get_serializer(cls.encoder)
+        serializer = get_serializer(cls.output_encoder)
         return serializer.deserialize(output.payload)
 
 
@@ -104,15 +105,37 @@ class IndexifyRouter:
     description: str = ""
     image: Optional[Image] = DEFAULT_IMAGE
     placement_constraints: List[PlacementConstraints] = []
-    encoder: Optional[str] = "cloudpickle"
+    input_encoder: Optional[str] = "cloudpickle"
+    output_encoder: Optional[str] = "cloudpickle"
 
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
 
 
-from inspect import signature
+from inspect import Parameter, signature
 
 from typing_extensions import get_type_hints
+
+
+def _process_dict_arg(dict_arg: dict, sig: inspect.Signature) -> Tuple[list, dict]:
+    new_args = []
+    new_kwargs = {}
+    remaining_kwargs = dict_arg.copy()
+
+    # Match dictionary keys to function parameters
+    for param_name, param in sig.parameters.items():
+        if param_name in dict_arg:
+            new_args.append(dict_arg[param_name])
+            remaining_kwargs.pop(param_name, None)
+
+    if any(v.kind == Parameter.VAR_KEYWORD for v in sig.parameters.values()):
+        # Combine remaining dict items with additional kwargs
+        new_kwargs.update(remaining_kwargs)
+    elif len(remaining_kwargs) > 0:
+        # If there are remaining kwargs, add them as a single dict argument
+        new_args.append(remaining_kwargs)
+
+    return new_args, new_kwargs
 
 
 def indexify_router(
@@ -120,7 +143,8 @@ def indexify_router(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE,
     placement_constraints: List[PlacementConstraints] = [],
-    encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
         # Get function signature using inspect.signature
@@ -129,6 +153,13 @@ def indexify_router(
 
         # Create run method that preserves signature
         def run(self, *args, **kwargs):
+            # Process dictionary argument mapping it to args or to kwargs.
+            if len(args) == 1 and isinstance(args[0], dict):
+                sig = inspect.signature(fn)
+                dict_arg = args[0]
+                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+                return fn(*new_args, **new_kwargs)
+
             return fn(*args, **kwargs)
 
         # Apply original signature and annotations to run method
@@ -144,7 +175,8 @@ def indexify_router(
             ),
             "image": image,
             "placement_constraints": placement_constraints,
-            "encoder": encoder,
+            "input_encoder": input_encoder,
+            "output_encoder": output_encoder,
             "run": run,
         }
 
@@ -158,7 +190,8 @@ def indexify_function(
     description: Optional[str] = "",
     image: Optional[Image] = DEFAULT_IMAGE,
     accumulate: Optional[Type[BaseModel]] = None,
-    encoder: Optional[str] = "cloudpickle",
+    input_encoder: Optional[str] = "cloudpickle",
+    output_encoder: Optional[str] = "cloudpickle",
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
@@ -168,6 +201,20 @@ def indexify_function(
 
         # Create run method that preserves signature
         def run(self, *args, **kwargs):
+            # Process dictionary argument mapping it to args or to kwargs.
+            if self.accumulate and len(args) == 2 and isinstance(args[1], dict):
+                sig = inspect.signature(fn)
+                new_args = [args[0]]  # Keep the accumulate argument
+                dict_arg = args[1]
+                new_args_from_dict, new_kwargs = _process_dict_arg(dict_arg, sig)
+                new_args.extend(new_args_from_dict)
+                return fn(*new_args, **new_kwargs)
+            elif len(args) == 1 and isinstance(args[0], dict):
+                sig = inspect.signature(fn)
+                dict_arg = args[0]
+                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+                return fn(*new_args, **new_kwargs)
+
             return fn(*args, **kwargs)
 
         # Apply original signature and annotations to run method
@@ -184,7 +231,8 @@ def indexify_function(
             "image": image,
             "placement_constraints": placement_constraints,
             "accumulate": accumulate,
-            "encoder": encoder,
+            "input_encoder": input_encoder,
+            "output_encoder": output_encoder,
             "run": run,
         }
 
@@ -231,17 +279,30 @@ class IndexifyFunctionWrapper:
                 )
         return return_type
 
+    def get_input_types(self) -> Dict[str, Any]:
+        if not isinstance(self.indexify_function, IndexifyFunction):
+            raise TypeError("Input must be an instance of IndexifyFunction")
+
+        extract_method = self.indexify_function.run
+        type_hints = get_type_hints(extract_method)
+        return {
+            k: v
+            for k, v in type_hints.items()
+            if k != "return" and not is_pydantic_model_from_annotation(v)
+        }
+
     def run_router(
         self, input: Union[Dict, Type[BaseModel]]
     ) -> Tuple[List[str], Optional[str]]:
-        kwargs = input if isinstance(input, dict) else {"input": input}
         args = []
         kwargs = {}
-        if isinstance(input, dict):
-            kwargs = input
-        else:
-            args.append(input)
         try:
+            # tuple and list are considered positional arguments, list is used for compatibility
+            # with json encoding which won't deserialize in tuple.
+            if isinstance(input, tuple) or isinstance(input, list):
+                args += input
+            else:
+                args.append(input)
             extracted_data = self.indexify_function.run(*args, **kwargs)
         except Exception as e:
             return [], traceback.format_exc()
@@ -253,14 +314,18 @@ class IndexifyFunctionWrapper:
         return edges, None
 
     def run_fn(
-        self, input: Union[Dict, Type[BaseModel]], acc: Type[Any] = None
+        self, input: Union[Dict, Type[BaseModel], List, Tuple], acc: Type[Any] = None
     ) -> Tuple[List[Any], Optional[str]]:
         args = []
         kwargs = {}
+
         if acc is not None:
             args.append(acc)
-        if isinstance(input, dict):
-            kwargs = input
+
+        # tuple and list are considered positional arguments, list is used for compatibility
+        # with json encoding which won't deserialize in tuple.
+        if isinstance(input, tuple) or isinstance(input, list):
+            args += input
         else:
             args.append(input)
 
@@ -280,20 +345,17 @@ class IndexifyFunctionWrapper:
         self, name: str, input: IndexifyData, acc: Optional[Any] = None
     ) -> FunctionCallResult:
         input = self.deserialize_input(name, input)
-        serializer = get_serializer(self.indexify_function.encoder)
+        input_serializer = get_serializer(self.indexify_function.input_encoder)
+        output_serializer = get_serializer(self.indexify_function.output_encoder)
         if acc is not None:
-            acc = self.indexify_function.accumulate.model_validate(
-                serializer.deserialize(acc.payload)
-            )
+            acc = input_serializer.deserialize(acc.payload)
         if acc is None and self.indexify_function.accumulate is not None:
-            acc = self.indexify_function.accumulate.model_validate(
-                self.indexify_function.accumulate()
-            )
+            acc = self.indexify_function.accumulate()
         outputs, err = self.run_fn(input, acc=acc)
         ser_outputs = [
             IndexifyData(
-                payload=serializer.serialize(output),
-                encoder=self.indexify_function.encoder,
+                payload=output_serializer.serialize(output),
+                encoder=self.indexify_function.output_encoder,
             )
             for output in outputs
         ]

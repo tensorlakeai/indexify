@@ -23,7 +23,7 @@ class RemoteGraph:
         :param server_url: The URL of the server where the graph will be registered.
             Not used if client is provided.
         :param client: The IndexifyClient used to communicate with the server.
-            Prefered over server_url.
+            Preferred over server_url.
         """
         self._name = name
         if client:
@@ -88,7 +88,7 @@ class RemoteGraph:
         :param server_url: The URL of the server where the graph will be registered.
             Not used if client is provided.
         :param client: The IndexifyClient used to communicate with the server.
-            Prefered over server_url.
+            Preferred over server_url.
         """
         g.validate_graph()
         if not client:
@@ -110,7 +110,7 @@ class RemoteGraph:
         :param server_url: The URL of the server where the graph will be registered.
             Not used if client is provided.
         :param client: The IndexifyClient used to communicate with the server.
-            Prefered over server_url.
+            Preferred over server_url.
         :return: A RemoteGraph object.
         """
         return cls(name=name, server_url=server_url, client=client)

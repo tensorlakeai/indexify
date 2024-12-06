@@ -15,7 +15,6 @@ pub struct TaskCreationResult {
     pub tasks: Vec<Task>,
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
-    pub invocation_finished: bool,
     pub invocation_id: String,
 }
 
@@ -24,11 +23,10 @@ impl TaskCreationResult {
         Self {
             namespace: namespace.to_string(),
             compute_graph: compute_graph.to_string(),
+            invocation_id: invocation_id.to_string(),
             tasks: vec![],
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
-            invocation_finished: false,
-            invocation_id: invocation_id.to_string(),
         }
     }
 }

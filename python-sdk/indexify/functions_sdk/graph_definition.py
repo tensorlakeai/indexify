@@ -14,7 +14,8 @@ class FunctionMetadata(BaseModel):
     reducer: bool = False
     image_name: str
     image_information: ImageInformation
-    encoder: str = "cloudpickle"
+    input_encoder: str = "cloudpickle"
+    output_encoder: str = "cloudpickle"
 
 
 class RouterMetadata(BaseModel):
@@ -24,7 +25,8 @@ class RouterMetadata(BaseModel):
     target_fns: List[str]
     image_name: str
     image_information: ImageInformation
-    encoder: str = "cloudpickle"
+    input_encoder: str = "cloudpickle"
+    output_encoder: str = "cloudpickle"
 
 
 class NodeMetadata(BaseModel):
@@ -51,12 +53,12 @@ class ComputeGraphMetadata(BaseModel):
     version: Optional[int] = -1
 
     def get_input_payload_serializer(self):
-        return get_serializer(self.start_node.compute_fn.encoder)
+        return get_serializer(self.start_node.compute_fn.input_encoder)
 
     def get_input_encoder(self) -> str:
         if self.start_node.compute_fn:
-            return self.start_node.compute_fn.encoder
+            return self.start_node.compute_fn.input_encoder
         elif self.start_node.dynamic_router:
-            return self.start_node.dynamic_router.encoder
+            return self.start_node.dynamic_router.input_encoder
 
         raise ValueError("start node is not set on the graph")
