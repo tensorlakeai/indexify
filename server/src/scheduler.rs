@@ -609,7 +609,7 @@ mod tests {
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
-                tags: vec![],
+                tags: HashMap::new(),
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -857,7 +857,7 @@ mod tests {
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
-                tags: vec![],
+                tags: HashMap::new(),
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1170,7 +1170,7 @@ mod tests {
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
-                tags: vec![],
+                tags: HashMap::new(),
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1450,7 +1450,7 @@ mod tests {
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
-                tags: vec![],
+                tags: HashMap::new(),
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),

@@ -69,7 +69,7 @@ class Graph:
         name: str,
         start_node: IndexifyFunction,
         description: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        tags: Optional[Dict[str, str]] = None,
     ):
         self.name = name
         self.description = description
