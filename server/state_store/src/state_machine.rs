@@ -32,7 +32,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -629,6 +629,7 @@ pub(crate) enum InvocationCompletion {
 }
 
 // returns true if system task has finished
+#[instrument(skip(db, txn, req, sm_metrics))]
 pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,

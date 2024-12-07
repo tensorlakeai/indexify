@@ -1140,7 +1140,7 @@ mod tests {
     }
 
     // Check function pattern
-    fn check_compute_parent<F>(node: &str, expected_parents: Vec<&str>, configure_graph: F)
+    fn check_compute_parent<F>(node: &str, mut expected_parents: Vec<&str>, configure_graph: F)
     where
         F: FnOnce(&mut ComputeGraph),
     {
@@ -1172,12 +1172,11 @@ mod tests {
         let mut graph = create_test_graph();
         configure_graph(&mut graph);
 
-        assert_eq!(
-            graph.get_compute_parent_nodes(node).sort(),
-            expected_parents.clone().sort(),
-            "Failed for node: {}",
-            node
-        );
+        let mut parent_nodes = graph.get_compute_parent_nodes(node);
+        parent_nodes.sort();
+        expected_parents.sort();
+
+        assert_eq!(parent_nodes, expected_parents, "Failed for node: {}", node);
     }
 
     #[test]

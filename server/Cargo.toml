@@ -66,11 +66,13 @@ pin-project = "1.1.7"
 ciborium = "0.2.2"
 uuid = { version = "1.11.0", features = ["v4"] }
 url = "2.5.4"
-opentelemetry = { version="0.24.0", features = ["metrics"] }
-opentelemetry_sdk = { version = "0.24.0", features = ["metrics"] }
-opentelemetry-prometheus = {version = "0.17.0"}
+opentelemetry = { version="0.24", features = ["metrics", "trace"] }
+opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio", "metrics", "trace"] }
+opentelemetry-otlp = { version = "0.17", features = ["tokio", "metrics", "trace"] }
+opentelemetry-prometheus = { version = "0.17" }
 prometheus = {version = "0.13.4"}
-axum-otel-metrics = { version = "0.8.1"}
+axum-otel-metrics = { version = "0.9.0-alpha.2" }
+tracing-opentelemetry = "0.25"
 
 [dependencies]
 async-stream = {workspace = true}
@@ -106,14 +108,16 @@ hyper = {workspace=true}
 url = {workspace=true}
 opentelemetry = {workspace=true}
 opentelemetry-prometheus = {workspace=true}
-opentelemetry_sdk = { workspace=true }
+opentelemetry_sdk.workspace = true
 prometheus = {workspace=true}
 axum-otel-metrics = { workspace=true }
 metrics = {workspace=true}
+tracing-opentelemetry = {workspace=true}
+opentelemetry-otlp = {workspace=true}
+axum-tracing-opentelemetry = { version = "0.19.0", features = ["tracing_level_info"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-
 
 [build-dependencies]
 # All features enabled

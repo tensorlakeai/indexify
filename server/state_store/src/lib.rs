@@ -36,7 +36,7 @@ use tokio::sync::{
     watch::{Receiver, Sender},
     RwLock,
 };
-use tracing::{error, info};
+use tracing::{error, info, instrument, span};
 
 pub mod invocation_events;
 pub mod kv;
@@ -168,15 +168,33 @@ impl IndexifyState {
         self.system_tasks_rx.clone()
     }
 
+    #[tracing::instrument(
+        skip(self, request),
+        fields(
+            request_type = request.payload.as_ref(),
+            state_change_len = request.state_changes_processed.len(),
+            otel.name = format!("state_machine.write {}", request.payload.as_ref())
+        )
+    )]
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
-        tracing::info!("writing state machine update request: {}", request.payload,);
+        tracing::info!(
+            "writing state machine update request: {}",
+            request.payload.as_ref(),
+        );
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
         let mut allocated_tasks_by_executor = Vec::new();
         let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
         let txn = self.db.transaction();
         let new_state_changes = match &request.payload {
             requests::RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
+                let _enter = span!(
+                    tracing::Level::INFO,
+                    "invoke_compute_graph",
+                    namespace = invoke_compute_graph_request.namespace.clone(),
+                    invocation_id = invoke_compute_graph_request.invocation_payload.id.clone(),
+                    compute_graph = invoke_compute_graph_request.compute_graph_name.clone(),
+                );
                 let state_changes = self
                     .invoke_compute_graph(&invoke_compute_graph_request)
                     .await?;
@@ -484,6 +502,7 @@ impl IndexifyState {
         Ok(vec![state_change])
     }
 
+    #[instrument(skip(self, request))]
     async fn invoke_compute_graph(
         &self,
         request: &requests::InvokeComputeGraphRequest,

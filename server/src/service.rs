@@ -105,8 +105,8 @@ impl Service {
         axum_server::bind(addr)
             .handle(handle)
             .serve(app.into_make_service())
-            .await
-            .unwrap();
+            .await?;
+
         Ok(())
     }
 }
