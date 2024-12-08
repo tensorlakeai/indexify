@@ -23,6 +23,8 @@ docker = "^7.1.0"
 typer = "^0.13.0"
 httpx-sse = "^0.4.0"
 structlog = "^24.4.0"
+nvidia-ml-py = "12.560.30"
+psutil = "6.1.0"
 
 [tool.poetry.dev-dependencies]
 black = "^24.10.0"

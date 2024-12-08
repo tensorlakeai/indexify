@@ -24,6 +24,7 @@ from indexify.functions_sdk.image import (
     DEFAULT_IMAGE_3_11,
     Image,
 )
+from indexify.executor.api_objects import ImageInformation
 
 custom_theme = Theme(
     {
@@ -38,6 +39,24 @@ logging = structlog.get_logger(module=__name__)
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
+
+DEFAULT_EXECUTOR = "tensorlake/indexify-executor-default"
+DEFAULT_VERSION = 1
+
+
+def _read_image_name() -> str:
+    file_path = os.path.expanduser("~/.indexify/image_name")
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            return file.read().strip()
+    return DEFAULT_EXECUTOR
+
+def _read_image_version() -> int:
+    file_path = os.path.expanduser("~/.indexify/image_version")
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            return int(file.read().strip())
+    return DEFAULT_VERSION
 
 
 @app.command(
@@ -120,7 +139,7 @@ def server_dev_mode():
     finally:
         terminate_processes()
 
-    print("Script execution completed.")
+    print("script execution completed.")
 
 
 @app.command(help="Build image for function names")
@@ -173,11 +192,8 @@ def executor(
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
-    name_alias: Optional[str] = typer.Option(
-        None, help="Name alias for the executor if it's spun up with the base image"
-    ),
-    image_version: Optional[int] = typer.Option(
-        "1", help="Requested Image Version for this executor"
+    image_names: Optional[List[str]] = typer.Option(
+        None, help="List of image names to use for the executor"
     ),
 ):
     # configure structured logging
@@ -190,6 +206,11 @@ def executor(
 
     id = nanoid.generate()
     executor_version = version("indexify")
+    # Look for image names in ~/.indexify/image_name
+    if image_names is None:
+        image_name = _read_image_name()
+        image_version = _read_image_version()
+        images = [ImageInformation(name=image_name, version=image_version)]
     logging.info(
         "executor started",
         workers=workers,
@@ -198,9 +219,10 @@ def executor(
         executor_id=id,
         executor_version=executor_version,
         executor_cache=executor_cache,
-        name_alias=name_alias,
-        image_version=image_version,
+        images=images,
     )
+
+
 
     from pathlib import Path
 
@@ -215,8 +237,7 @@ def executor(
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
-        name_alias=name_alias,
-        image_version=image_version,
+        images=images,
     )
 
     try:

@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
-use filter::LabelsFilter;
+use filter::{Expression, LabelsFilter};
 use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -133,7 +133,6 @@ pub struct DynamicEdgeRouter {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -148,35 +147,7 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
-}
-
-impl ComputeFn {
-    pub fn matches_executor(
-        &self,
-        executor: &ExecutorMetadata,
-        graph_runtime: &RuntimeInformation,
-    ) -> bool {
-        if executor.image_name != self.image_name {
-            return false;
-        }
-        if let Some(minor_version) = executor.labels.get("python_minor_version") {
-                if let Ok(executor_python_minor_version) =
-                    serde_json::from_value::<u8>(minor_version.clone())
-                {
-                    if executor_python_minor_version != graph_runtime.minor_version {
-                        return false;
-                    }
-                }
-            }
-
-        if self.image_information.version.0 != executor.image_version {
-            return false;
-        }
-
-        self.placement_constraints.matches(&executor.labels)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -195,8 +166,22 @@ impl Node {
 
     pub fn image_name(&self) -> &str {
         match self {
-            Node::Router(router) => &router.image_name,
-            Node::Compute(compute) => &compute.image_name,
+            Node::Router(router) => &router.image_information.image_name,
+            Node::Compute(compute) => &compute.image_information.image_name,
+        }
+    }
+
+    pub fn image_information(&self) -> &ImageInformation {
+        match self {
+            Node::Router(router) => &router.image_information,
+            Node::Compute(compute) => &compute.image_information,
+        }
+    }
+
+    pub fn placement_constraints(&self) -> LabelsFilter {
+        match self {
+            Node::Router(_) => LabelsFilter(vec![]),
+            Node::Compute(compute) => compute.placement_constraints.clone(),
         }
     }
 
@@ -228,15 +213,45 @@ impl Node {
         }
     }
 
-    pub fn matches_executor(
+    pub fn filter_executors(
         &self,
-        executor: &ExecutorMetadata,
+        executor_idx: &im::HashMap<ExecutorId, ExecutorMetadata>,
+        executor_images_idx: &im::HashMap<String, im::HashSet<ExecutorId>>,
+        _executor_label_idx: &im::HashMap<String, im::HashSet<ExecutorId>>,
         graph_runtime: &RuntimeInformation,
-    ) -> bool {
-        match self {
-            Node::Router(_) => true,
-            Node::Compute(compute) => compute.matches_executor(executor, graph_runtime),
+    ) -> Vec<ExecutorId> {
+        let image_information = self.image_information();
+        let mut placement_constraints = self.placement_constraints().clone();
+        let requested_image_name = format!(
+            "{}:{}",
+            image_information.image_name, image_information.version.0
+        );
+        let requested_python_runtime = format!(
+            "{}.{}",
+            graph_runtime.major_version, graph_runtime.minor_version
+        );
+        placement_constraints.add_expression(Expression {
+            key: "python_runtime".to_string(),
+            value: serde_json::Value::String(requested_python_runtime),
+            operator: filter::Operator::Eq,
+        });
+        let matched_images = executor_images_idx.get(&requested_image_name);
+        if matched_images.is_none() {
+            return vec![];
         }
+        let matched_executors = matched_images
+            .unwrap()
+            .iter()
+            .filter_map(|executor_id| executor_idx.get(executor_id));
+        println!("matched_executors: {:?}", matched_executors.size_hint());
+        let mut filtered_executors = Vec::new();
+        for executor in matched_executors {
+            println!("executor labels: {:?}", &executor.labels);
+            if placement_constraints.matches(&executor.labels) {
+                filtered_executors.push(executor.id.clone());
+            }
+        }
+        filtered_executors
     }
 
     pub fn reducer(&self) -> bool {
@@ -703,11 +718,25 @@ impl ReduceTask {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
 pub enum TaskOutcome {
     Unknown,
     Success,
     Failure,
+}
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Hash)]
+pub struct AllocatedResources {
+    pub num_gpus: Option<u8>,
+    pub memory: u32,
+}
+
+impl Default for AllocatedResources {
+    fn default() -> Self {
+        Self {
+            num_gpus: None,
+            memory: 0,
+        }
+    }
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
@@ -725,6 +754,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub resources: AllocatedResources,
 }
 
 impl Task {
@@ -830,6 +860,7 @@ impl TaskBuilder {
             .graph_version
             .clone()
             .ok_or(anyhow!("graph version is not present"))?;
+        let resources = self.resources.clone().unwrap_or_default();
         let reducer_output_id = self.reducer_output_id.clone().flatten();
         let id = uuid::Uuid::new_v4().to_string();
         let task = Task {
@@ -844,6 +875,7 @@ impl TaskBuilder {
             diagnostics: None,
             reducer_output_id,
             graph_version,
+            resources,
         };
         Ok(task)
     }
@@ -882,16 +914,57 @@ fn default_executor_ver() -> String {
     "0.2.17".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+pub struct GPUResources {
+    pub gpu_model: String,
+    pub num_cards: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+pub struct ExecutorResource {
+    pub gpu_resources: Option<GPUResources>,
+    pub memory: u64,
+}
+impl Default for ExecutorResource {
+    fn default() -> Self {
+        Self {
+            gpu_resources: None,
+            memory: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Hash)]
+pub struct ExecutorImage {
+    pub name: String,
+    pub version: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
-    pub image_name: String,
-    pub image_version: u32,
+    pub images: Vec<ExecutorImage>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
+    pub resources: ExecutorResource,
+    pub allocated_resources: AllocatedResources,
 }
+
+impl Hash for ExecutorMetadata {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl PartialEq for ExecutorMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for ExecutorMetadata {}
 
 impl ExecutorMetadata {
     pub fn key(&self) -> String {
@@ -1001,58 +1074,13 @@ mod tests {
 
     use crate::{
         test_objects::tests::test_compute_fn,
-        ComputeFn,
         ComputeGraph,
         ComputeGraphCode,
         DynamicEdgeRouter,
-        ExecutorMetadata,
         GraphVersion,
-        ImageInformation,
-        ImageVersion,
         Node,
         RuntimeInformation,
     };
-
-    #[test]
-    fn test_compute_fn_neq_executor_for_image_name() {
-        let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
-            image_information: ImageInformation {
-                version: ImageVersion(1),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let executor_metadata = ExecutorMetadata {
-            image_name: "some_image_name1".to_string(),
-            image_version: 0,
-            ..Default::default()
-        };
-
-        assert!(!compute_fn.matches_executor(&executor_metadata, &RuntimeInformation::default()));
-    }
-
-    #[test]
-    fn test_compute_fn_neq_executor_for_image_version() {
-        // Test cascades with `test_compute_fn_neq_executor_for_image_name`
-        let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
-            image_information: ImageInformation {
-                version: ImageVersion(1),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let executor_metadata = ExecutorMetadata {
-            image_name: "some_image_name".to_string(),
-            image_version: 2,
-            ..Default::default()
-        };
-
-        assert!(!compute_fn.matches_executor(&executor_metadata, &RuntimeInformation::default()));
-    }
 
     #[test]
     fn test_compute_graph_update() {

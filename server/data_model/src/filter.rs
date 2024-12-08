@@ -125,6 +125,10 @@ impl LabelsFilter {
         &self.0
     }
 
+    pub fn add_expression(&mut self, expr: Expression) {
+        self.0.push(expr);
+    }
+
     pub fn matches(&self, values: &HashMap<String, Value>) -> bool {
         self.0.iter().all(|expr| {
             let value = values.get(&expr.key);

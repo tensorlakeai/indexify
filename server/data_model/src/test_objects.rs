@@ -16,6 +16,7 @@ pub mod tests {
         DataPayload,
         DynamicEdgeRouter,
         ExecutorId,
+        ExecutorImage,
         ExecutorMetadata,
         ImageInformation,
         InvocationPayload,
@@ -57,7 +58,6 @@ pub mod tests {
                     name: name.to_string(),
                     description: format!("description {}", name),
                     fn_name: name.to_string(),
-                    image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
                     image_information,
                     ..Default::default()
                 }
@@ -66,7 +66,6 @@ pub mod tests {
                 name: name.to_string(),
                 description: format!("description {}", name),
                 fn_name: name.to_string(),
-                image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
                 ..Default::default()
             },
         }
@@ -206,9 +205,8 @@ pub mod tests {
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
             input_encoder: "cloudpickle".to_string(),
             output_encoder: "cloudpickle".to_string(),
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             image_information: ImageInformation {
-                image_name: "test-image".to_string(),
+                image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
                 tag: "tag-1".to_string(),
                 base_image: "base-image".to_string(),
                 run_strs: vec![
@@ -298,10 +296,14 @@ pub mod tests {
         ExecutorMetadata {
             id: mock_executor_id(),
             executor_version: "1.0.0".to_string(),
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+            images: vec![ExecutorImage {
+                name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+                version: 1,
+            }],
             addr: "".to_string(),
             labels: Default::default(),
-            image_version: 1,
+            resources: Default::default(),
+            allocated_resources: Default::default(),
         }
     }
 }

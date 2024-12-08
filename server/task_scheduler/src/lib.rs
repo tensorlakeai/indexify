@@ -33,17 +33,14 @@ impl TaskCreationResult {
 
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
-    pub diagnostic_msgs: Vec<String>,
 }
 
 pub struct TaskPlacementResult {
     pub task_placements: Vec<TaskPlacement>,
-    pub diagnostic_msgs: Vec<String>,
 }
 
 struct ScheduleTaskResult {
     pub task_placements: Vec<TaskPlacement>,
-    pub diagnostic_msgs: Vec<String>,
 }
 
 pub struct TaskScheduler {
@@ -55,14 +52,13 @@ impl TaskScheduler {
         Self { indexify_state }
     }
 
-    pub fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
+    pub async fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
-        self.schedule_tasks(tasks)
+        self.schedule_tasks(tasks).await
     }
 
-    fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
+    async fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
         let mut task_placements = Vec::new();
-        let mut diagnostic_msgs = Vec::new();
         for task in tasks {
             let span = span!(
                 tracing::Level::INFO,
@@ -75,28 +71,22 @@ impl TaskScheduler {
             let _enter = span.enter();
 
             info!("scheduling task {:?}", task.id);
-            match self.schedule_task(task) {
+            match self.schedule_task(task).await {
                 Ok(ScheduleTaskResult {
                     task_placements: schedule_task_placements,
-                    diagnostic_msgs: schedule_diagnostic_msgs,
                 }) => {
                     task_placements.extend(schedule_task_placements);
-                    diagnostic_msgs.extend(schedule_diagnostic_msgs);
                 }
                 Err(err) => {
                     error!("failed to schedule task, skipping: {:?}", err);
                 }
             }
         }
-        Ok(TaskPlacementResult {
-            task_placements,
-            diagnostic_msgs,
-        })
+        Ok(TaskPlacementResult { task_placements })
     }
 
-    fn schedule_task(&self, task: Task) -> Result<ScheduleTaskResult> {
+    async fn schedule_task(&self, task: Task) -> Result<ScheduleTaskResult> {
         let mut task_placements = Vec::new();
-        let mut diagnostic_msgs = Vec::new();
         let cg = self
             .indexify_state
             .reader()
@@ -106,10 +96,9 @@ impl TaskScheduler {
             .nodes
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("compute fn not found"))?;
-        let filtered_executors = self.filter_executors(&compute_fn, &cg.runtime_information)?;
-        if !filtered_executors.diagnostic_msgs.is_empty() {
-            diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
-        }
+        let filtered_executors = self
+            .filter_executors(&compute_fn, &cg.runtime_information)
+            .await?;
         let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
         if let Some(executor_id) = executor_id {
             info!("assigning task {:?} to executor {:?}", task.id, executor_id);
@@ -118,33 +107,23 @@ impl TaskScheduler {
                 executor: executor_id.clone(),
             });
         }
-        return Ok(ScheduleTaskResult {
-            task_placements,
-            diagnostic_msgs,
-        });
+        return Ok(ScheduleTaskResult { task_placements });
     }
 
-    fn filter_executors(
+    async fn filter_executors(
         &self,
         node: &Node,
         graph_runtime: &RuntimeInformation,
     ) -> Result<FilteredExecutors> {
-        let executors = self.indexify_state.reader().get_all_executors()?;
-        let mut filtered_executors = Vec::new();
-
-        let mut diagnostic_msgs = vec![];
-
-        for executor in &executors {
-            if node.matches_executor(executor, graph_runtime) {
-                filtered_executors.push(executor.id.clone());
-            }
-        }
-        if !filtered_executors.is_empty() {
-            diagnostic_msgs.clear();
-        }
+        let state_cache = self.indexify_state.get_state_cache().await;
+        let filtered_executors = node.filter_executors(
+            &state_cache.executors_idx,
+            &state_cache.executors_images_idx,
+            &state_cache.executors_labels_idx,
+            graph_runtime,
+        );
         Ok(FilteredExecutors {
             executors: filtered_executors,
-            diagnostic_msgs,
         })
     }
 }
