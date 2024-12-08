@@ -1,6 +1,6 @@
 import unittest
 from pathlib import Path
-from typing import List, Union
+from typing import List, Tuple, Union
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -470,6 +470,54 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, my_func_2.name)
         self.assertEqual(len(output), 1)
         self.assertEqual(output[0], 6)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_dict_args_as_kwargs_in_list(self, is_remote):
+        @indexify_function()
+        def my_func(text: str) -> List[dict]:
+            return [dict(index=index, char=char) for index, char in enumerate(text)]
+
+        @indexify_function()
+        def my_func_2(index: int, char: str) -> str:
+            return f"{char}={index}"
+
+        graph = Graph(
+            name="test_return_dict_args_as_kwargs_in_list",
+            description="test",
+            start_node=my_func,
+        )
+
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, text="hi")
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 2)
+        self.assertIn("h=0", output)
+        self.assertIn("i=1", output)
+
+    @parameterized.expand([(False), (True)])
+    def test_return_dict_args_as_dict_in_list(self, is_remote):
+        @indexify_function()
+        def my_func(text: str) -> List[dict]:
+            return [dict(index=index, char=char) for index, char in enumerate(text)]
+
+        @indexify_function()
+        def my_func_2(data: dict) -> str:
+            return f"{data['char']}={data['index']}"
+
+        graph = Graph(
+            name="test_return_dict_args_as_dict_in_list",
+            description="test",
+            start_node=my_func,
+        )
+
+        graph.add_edge(my_func, my_func_2)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, text="hi")
+        output = graph.output(invocation_id, my_func_2.name)
+        self.assertEqual(len(output), 2)
+        self.assertIn("h=0", output)
+        self.assertIn("i=1", output)
 
     @parameterized.expand([(False), (True)])
     def test_return_multiple_dict_as_args(self, is_remote):
