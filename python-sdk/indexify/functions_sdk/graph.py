@@ -27,6 +27,7 @@ from .graph_definition import (
     NodeMetadata,
     RouterMetadata,
     RuntimeInformation,
+    ImageInformation,
 )
 from .graph_validation import validate_node, validate_route
 from .indexify_functions import (
@@ -169,7 +170,6 @@ class Graph:
             fn_name=start_node.name,
             description=start_node.description,
             reducer=is_reducer,
-            image_name=start_node.image._image_name,
             image_information=start_node.image.to_image_information(),
             input_encoder=start_node.input_encoder,
             output_encoder=start_node.output_encoder,
@@ -186,7 +186,6 @@ class Graph:
                         target_fns=self.routers[node_name],
                         input_encoder=node.input_encoder,
                         output_encoder=node.output_encoder,
-                        image_name=node.image._image_name,
                         image_information=node.image.to_image_information(),
                     )
                 )
@@ -197,7 +196,6 @@ class Graph:
                         fn_name=node.name,
                         description=node.description,
                         reducer=node.accumulate is not None,
-                        image_name=node.image._image_name,
                         image_information=node.image.to_image_information(),
                         input_encoder=node.input_encoder,
                         output_encoder=node.output_encoder,

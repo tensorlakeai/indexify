@@ -48,7 +48,8 @@ futures = "0.3.31"
 bytes = "1.9.0"
 pin-project-lite = "0.2.15"
 async-trait = "0.1.83"
-tokio-stream = "0.1.16"
+tokio-stream = "0.1.17"
+im = {version="15.1.0", features=["serde"]}
 slatedb = {git = "https://github.com/diptanu/slatedb"}
 rust-embed = {version="8.5.0", features=["mime-guess"]}
 reqwest = { version = "0.12.9", default-features = false, features = [
