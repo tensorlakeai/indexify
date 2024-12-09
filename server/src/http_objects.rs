@@ -140,7 +140,6 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -154,7 +153,6 @@ impl From<ComputeFn> for data_model::ComputeFn {
             reducer: val.reducer,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
-            image_name: val.image_name.clone(),
             image_information: val.image_information.into(),
         }
     }
@@ -169,7 +167,6 @@ impl From<data_model::ComputeFn> for ComputeFn {
             reducer: c.reducer,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
-            image_name: c.image_name,
             image_information: c.image_information.into(),
         }
     }
@@ -185,7 +182,6 @@ pub struct DynamicRouter {
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -198,7 +194,6 @@ impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
             target_functions: val.target_fns.clone(),
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
-            image_name: val.image_name.clone(),
             image_information: val.image_information.clone().into(),
         }
     }
@@ -213,7 +208,6 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             target_fns: d.target_functions,
             input_encoder: d.input_encoder,
             output_encoder: d.output_encoder,
-            image_name: d.image_name,
             image_information: d.image_information.into(),
         }
     }
@@ -518,14 +512,72 @@ pub struct InvocationId {
     pub id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GPUResources {
+    pub gpu_model: String,
+    pub num_cards: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ExecutorResource {
+    pub gpu_resources: Option<GPUResources>,
+    pub memory: u64,
+}
+
+impl From<ExecutorResource> for data_model::ExecutorResource {
+    fn from(resource: ExecutorResource) -> Self {
+        data_model::ExecutorResource {
+            gpu_resources: resource.gpu_resources.map(|gpu| data_model::GPUResources {
+                gpu_model: gpu.gpu_model,
+                num_cards: gpu.num_cards,
+            }),
+            memory: resource.memory,
+        }
+    }
+}
+impl From<data_model::ExecutorResource> for ExecutorResource {
+    fn from(resource: data_model::ExecutorResource) -> Self {
+        Self {
+            gpu_resources: resource.gpu_resources.map(|gpu| GPUResources {
+                gpu_model: gpu.gpu_model,
+                num_cards: gpu.num_cards,
+            }),
+            memory: resource.memory,
+        }
+    }
+}
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExecutorImage {
+    pub name: String,
+    pub version: u32,
+}
+
+impl From<data_model::ExecutorImage> for ExecutorImage {
+    fn from(image: data_model::ExecutorImage) -> Self {
+        Self {
+            name: image.name,
+            version: image.version,
+        }
+    }
+}
+
+impl From<ExecutorImage> for data_model::ExecutorImage {
+    fn from(image: ExecutorImage) -> Self {
+        Self {
+            name: image.name,
+            version: image.version,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
     pub addr: String,
-    pub image_name: String,
-    pub image_version: u32,
+    pub images: Vec<ExecutorImage>,
     pub labels: HashMap<String, serde_json::Value>,
+    pub resources: ExecutorResource,
 }
 
 impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
@@ -533,10 +585,10 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
         Self {
             id: executor.id.to_string(),
             executor_version: executor.executor_version,
+            images: executor.images.into_iter().map(|i| i.into()).collect(),
             addr: executor.addr,
-            image_name: executor.image_name,
-            image_version: executor.image_version,
             labels: executor.labels,
+            resources: executor.resources.into(),
         }
     }
 }

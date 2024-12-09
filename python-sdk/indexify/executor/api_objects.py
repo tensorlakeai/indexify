@@ -15,15 +15,25 @@ class Task(BaseModel):
     reducer_output_id: Optional[str] = None
     graph_version: int
 
+class ImageInformation(BaseModel):
+    name: str
+    version: int
+
+class GPUResources(BaseModel):
+    gpu_model: str
+    num_cards: int
+
+class ExecutorResource(BaseModel):
+    gpu_resources: Optional[GPUResources] = None
+    memory: int
 
 class ExecutorMetadata(BaseModel):
     id: str
     executor_version: str
     addr: str
-    image_name: str
-    image_version: int
+    images: List[ImageInformation]
     labels: Dict[str, Any]
-
+    resources: ExecutorResource
 
 class RouterOutput(BaseModel):
     edges: List[str]

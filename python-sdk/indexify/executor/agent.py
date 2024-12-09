@@ -16,7 +16,7 @@ from indexify.functions_sdk.data_objects import (
 )
 from indexify.http_client import IndexifyClient
 
-from .api_objects import ExecutorMetadata, Task
+from .api_objects import ImageInformation, ExecutorMetadata, Task, GPUResources, ExecutorResource
 from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
@@ -44,13 +44,11 @@ class ExtractorAgent:
         code_path: Path,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
-        name_alias: Optional[str] = None,
-        image_version: Optional[int] = None,
+        images: Optional[List[ImageInformation]] = None,
     ):
-        self.name_alias = name_alias
-        self.image_version = image_version
         self._config_path = config_path
         self._probe = RuntimeProbes()
+        self._images = images
 
         self.num_workers = num_workers
         if config_path:
@@ -88,17 +86,6 @@ class ExtractorAgent:
         while True:
             outcomes = await self._task_store.task_outcomes()
             for task_outcome in outcomes:
-                retryStr = (
-                    f"\nRetries: {task_outcome.reporting_retries}"
-                    if task_outcome.reporting_retries > 0
-                    else ""
-                )
-                outcome = task_outcome.task_outcome
-                style_outcome = (
-                    f"[bold red] {outcome} [/]"
-                    if "fail" in outcome
-                    else f"[bold green] {outcome} [/]"
-                )
                 logging.info(
                     "reporting_task_outcome",
                     task_id=task_outcome.task.id,
@@ -276,28 +263,24 @@ class ExtractorAgent:
         while self._should_run:
             url = f"{self._protocol}://{self._server_addr}/internal/executors/{self._executor_id}/tasks"
             runtime_probe: ProbeInfo = self._probe.probe()
-
             executor_version = version("indexify")
-
-            image_name = (
-                self.name_alias
-                if self.name_alias is not None
-                else runtime_probe.image_name
+            gpu_resources = None
+            if runtime_probe.gpu_resources:
+                gpu_resources = GPUResources(
+                    gpu_model=runtime_probe.gpu_resources.gpu_model,
+                    num_cards=runtime_probe.gpu_resources.num_cards,
+                )
+            resources = ExecutorResource(
+                memory=runtime_probe.memory,
+                gpu_resources=gpu_resources,
             )
-
-            image_version: int = (
-                self.image_version
-                if self.image_version is not None
-                else runtime_probe.image_version
-            )
-
             data = ExecutorMetadata(
                 id=self._executor_id,
                 executor_version=executor_version,
                 addr="",
-                image_name=image_name,
-                image_version=image_version,
+                images=self._images,
                 labels=runtime_probe.labels,
+                resources=resources,
             ).model_dump()
             logging.info(
                 "registering_executor",
