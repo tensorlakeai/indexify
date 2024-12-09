@@ -38,6 +38,7 @@ class NodeMetadata(BaseModel):
 class RuntimeInformation(BaseModel):
     major_version: int
     minor_version: int
+    sdk_version: str
 
 
 class ComputeGraphMetadata(BaseModel):
@@ -50,6 +51,7 @@ class ComputeGraphMetadata(BaseModel):
     accumulator_zero_values: Dict[str, bytes] = {}
     runtime_information: RuntimeInformation
     replaying: bool = False
+    version: Optional[int] = -1
 
     def get_input_payload_serializer(self):
         return get_serializer(self.start_node.compute_fn.input_encoder)

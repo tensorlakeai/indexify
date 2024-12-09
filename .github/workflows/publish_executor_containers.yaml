@@ -28,13 +28,20 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
           pip install indexify -U
-          indexify-cli build-default-image 
+          indexify-cli build-default-image --python-version 3.10
+          docker push tensorlake/indexify-executor-default:3.10
+          indexify-cli build-default-image --python-version 3.11
+          docker push tensorlake/indexify-executor-default:3.11
+          indexify-cli build-default-image --python-version 3.12
+          docker push tensorlake/indexify-executor-default:3.12
+          indexify-cli build-default-image --python-version 3.13
+          docker push tensorlake/indexify-executor-default:3.13
+
           indexify-cli build-image examples/pdf_document_extraction/images.py
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
           indexify-cli build-image examples/tweetsgenerator/workflow.py
           indexify-cli build-image examples/pdf_structured_extraction/document_ai_api_version_workflow.py
-          docker push tensorlake/indexify-executor-default:3.10
-          docker push tensorlake/indexify-executor-default:3.11
+          
           docker push tensorlake/pdf-blueprint-st
           docker push tensorlake/pdf-blueprint-lancdb
           docker push tensorlake/pdf-blueprint-pdf-parser-gpu
