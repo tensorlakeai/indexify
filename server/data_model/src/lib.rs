@@ -337,6 +337,7 @@ impl Default for ImageVersion {
 pub struct RuntimeInformation {
     pub major_version: u8,
     pub minor_version: u8,
+   #[serde(default)]
     pub sdk_version: String,
 }
 
