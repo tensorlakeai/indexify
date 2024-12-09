@@ -194,9 +194,9 @@ class IndexifyClient:
     def graphs(self, namespace="default") -> List[ComputeGraphMetadata]:
         response = self._get(f"namespaces/{namespace}/compute_graphs")
         graphs = []
-        for graph in response.json()['compute_graphs']:
+        for graph in response.json()["compute_graphs"]:
             graphs.append(ComputeGraphMetadata(**graph))
-        
+
         return graphs
 
     def graph(self, name: str) -> ComputeGraphMetadata:

@@ -20,10 +20,10 @@ from rich.theme import Theme
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.image import (
-    DEFAULT_IMAGE,
-    Image
+    LOCAL_PYTHON_VERSION,
+    GetDefaultPythonImage,
+    Image,
 )
-
 
 custom_theme = Theme(
     {
@@ -129,6 +129,10 @@ def build_image(
     image_names: Optional[List[str]] = None,
     python_sdk_path: Optional[str] = None,
 ):
+    python_version: Optional[str] = (
+        typer.Option(LOCAL_PYTHON_VERSION, help="Version of the config file to build"),
+    )
+
     globals_dict = {}
 
     # Add the folder in the workflow file path to the current Python path
@@ -149,8 +153,14 @@ def build_image(
 
 
 @app.command(help="Build default image for indexify")
-def build_default_image():
-    _build_image(image=DEFAULT_IMAGE)
+def build_default_image(
+    python_version: Optional[str] = typer.Option(
+        f"{sys.version_info.major}.{sys.version_info.minor}",
+        help="Python version to use in the base image",
+    )
+):
+
+    _build_image(image=GetDefaultPythonImage(python_version))
 
     console.print(
         Text(f"Built default indexify image", style="cyan"),

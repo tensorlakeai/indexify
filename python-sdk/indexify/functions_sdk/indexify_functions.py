@@ -16,7 +16,7 @@ from typing import (
 from pydantic import BaseModel, Field, PrivateAttr
 
 from .data_objects import IndexifyData
-from .image import Image, DEFAULT_IMAGE
+from .image import DEFAULT_IMAGE, Image
 from .object_serializer import get_serializer
 
 

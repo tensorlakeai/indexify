@@ -1,8 +1,8 @@
-
 import sys
 from typing import List
 
 from pydantic import BaseModel
+
 
 # Pydantic object for API
 class ImageInformation(BaseModel):
@@ -10,6 +10,7 @@ class ImageInformation(BaseModel):
     tag: str
     base_image: str
     run_strs: List[str]
+
 
 class Image:
     def __init__(self):
@@ -43,14 +44,15 @@ class Image:
             run_strs=self._run_strs,
         )
 
-
 LOCAL_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
-
 BASE_IMAGE_NAME = f"python:{LOCAL_PYTHON_VERSION}-slim-bookworm"
 
-DEFAULT_IMAGE = (
-    Image()
-    .name("tensorlake/indexify-executor-default")
-    .base_image(BASE_IMAGE_NAME)
-    .tag(LOCAL_PYTHON_VERSION)
-)
+def GetDefaultPythonImage(python_version: str):
+    return (
+        Image()
+        .name("tensorlake/indexify-executor-default")
+        .base_image(f"python:{python_version}-slim-bookworm")
+        .tag(python_version)
+    )
+
+DEFAULT_IMAGE = GetDefaultPythonImage(LOCAL_PYTHON_VERSION)
