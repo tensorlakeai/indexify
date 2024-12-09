@@ -10,7 +10,7 @@ class ImageInformation(BaseModel):
     tag: str
     base_image: str
     run_strs: List[str]
-    image_url: Optional[str]
+    image_url: Optional[str] = ""
 
 
 class Image:
