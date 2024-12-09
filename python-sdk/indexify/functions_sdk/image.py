@@ -45,8 +45,10 @@ class Image:
             run_strs=self._run_strs,
         )
 
+
 LOCAL_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 BASE_IMAGE_NAME = f"python:{LOCAL_PYTHON_VERSION}-slim-bookworm"
+
 
 def GetDefaultPythonImage(python_version: str):
     return (
@@ -55,5 +57,6 @@ def GetDefaultPythonImage(python_version: str):
         .base_image(f"python:{python_version}-slim-bookworm")
         .tag(python_version)
     )
+
 
 DEFAULT_IMAGE = GetDefaultPythonImage(LOCAL_PYTHON_VERSION)
