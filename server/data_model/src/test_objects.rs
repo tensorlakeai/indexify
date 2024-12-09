@@ -215,6 +215,7 @@ pub mod tests {
                 ],
                 image_hash: "".to_string(),
                 version: Default::default(),
+                image_uri: "1234567890.dkr.ecr.us-east-1.amazonaws.com/test".to_string(),
             },
         };
         let fn_b = test_compute_fn("fn_b", None);

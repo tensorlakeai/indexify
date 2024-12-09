@@ -98,6 +98,7 @@ pub struct ImageInformation {
     pub run_strs: Vec<String>,
     pub image_hash: String,
     pub version: ImageVersion, // this gets updated when the hash changes
+    pub image_uri: String,
 }
 
 impl ImageInformation {
@@ -115,6 +116,7 @@ impl ImageInformation {
             run_strs,
             image_hash: format!("{:x}", image_hasher.finalize()),
             version: ImageVersion::default(),
+            image_uri: "".to_string(),
         }
     }
 }
@@ -337,7 +339,7 @@ impl Default for ImageVersion {
 pub struct RuntimeInformation {
     pub major_version: u8,
     pub minor_version: u8,
-   #[serde(default)]
+    #[serde(default)]
     pub sdk_version: String,
 }
 

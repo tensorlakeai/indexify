@@ -91,6 +91,8 @@ pub struct ImageInformation {
     pub tag: String,
     pub base_image: String,
     pub run_strs: Vec<String>,
+    #[serde(default)]
+    pub image_uri: String,
 }
 
 impl fmt::Debug for ImageInformation {
@@ -122,6 +124,7 @@ impl From<data_model::ImageInformation> for ImageInformation {
             tag: value.tag,
             base_image: value.base_image,
             run_strs: value.run_strs,
+            image_uri: value.image_uri,
         }
     }
 }
@@ -258,6 +261,7 @@ impl From<data_model::Node> for Node {
 pub struct RuntimeInformation {
     pub major_version: u8,
     pub minor_version: u8,
+    #[serde(default)]
     pub sdk_version: String,
 }
 

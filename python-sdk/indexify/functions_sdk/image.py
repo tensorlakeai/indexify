@@ -1,5 +1,5 @@
 import sys
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -10,6 +10,7 @@ class ImageInformation(BaseModel):
     tag: str
     base_image: str
     run_strs: List[str]
+    image_url: Optional[str]
 
 
 class Image:
