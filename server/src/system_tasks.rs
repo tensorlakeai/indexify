@@ -201,7 +201,6 @@ mod tests {
     fn mock_node_fn_output(invocation_id: &str, graph: &str, compute_fn_name: &str) -> NodeOutput {
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
-            .graph_version(Default::default())
             .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
@@ -741,17 +740,11 @@ mod tests {
             .list_invocations(&graph.namespace, &graph.name, None, None)?
             .0;
         for invocation in invocations {
-            let outputs = state
+            let invocation_ctx = state
                 .reader()
-                .list_outputs_by_compute_graph(
-                    &graph.namespace,
-                    &graph.name,
-                    &invocation.id,
-                    None,
-                    None,
-                )?
-                .0;
-            assert!(outputs.iter().all(|o| o.graph_version == graph.version));
+                .invocation_ctx(&graph.namespace, &graph.name, &invocation.id)?
+                .unwrap();
+            assert!(invocation_ctx.graph_version == graph.version);
         }
 
         Ok(())

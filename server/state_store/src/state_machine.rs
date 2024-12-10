@@ -262,23 +262,6 @@ pub fn replay_invocations(
                 "{}|{}|{}|",
                 req.namespace, req.compute_graph_name, invocation_id
             );
-            let outputs = make_prefix_iterator(
-                &txn,
-                &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-                output_key.as_bytes(),
-                &None,
-            );
-            for output in outputs {
-                let (_, value) = output?;
-                let value: NodeOutput = JsonEncoder::decode(&value)?;
-                if value.graph_version >= req.graph_version {
-                    info!(
-                        "skipping replay of invocation: {}, already latest version of outputs",
-                        invocation_id
-                    );
-                    return Ok(None);
-                }
-            }
 
             // Delete any previous outputs and any in progress context.
             // The tasks will abort when they fail to find the context.
@@ -854,10 +837,7 @@ pub fn mark_task_completed(
         "Graph context not found for task: {}",
         &req.task_id
     ))?)?;
-    for mut output in req.node_outputs {
-        // Update with correct graph version
-        output.graph_version = graph_ctx.graph_version;
-
+    for output in req.node_outputs {
         let serialized_output = JsonEncoder::encode(&output)?;
         // Create an output key
         let output_key = output.key(&req.invocation_id);

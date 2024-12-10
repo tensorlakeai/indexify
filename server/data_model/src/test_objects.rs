@@ -103,7 +103,6 @@ pub mod tests {
         }
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
-            .graph_version(Default::default())
             .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
@@ -119,7 +118,6 @@ pub mod tests {
     pub fn mock_node_router_output_x(invocation_id: &str, graph: &str) -> NodeOutput {
         NodeOutputBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
-            .graph_version(Default::default())
             .compute_fn_name("router_x".to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
