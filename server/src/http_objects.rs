@@ -91,8 +91,7 @@ pub struct ImageInformation {
     pub tag: String,
     pub base_image: String,
     pub run_strs: Vec<String>,
-    #[serde(default)]
-    pub image_uri: String,
+    pub image_uri: Option<String>,
 }
 
 impl fmt::Debug for ImageInformation {
