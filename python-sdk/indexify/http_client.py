@@ -64,7 +64,6 @@ class IndexifyClient:
         self._service_url = service_url
         self._timeout = kwargs.get("timeout")
         self._graphs: Dict[str, Graph] = {}
-        self._fns: Dict[str, IndexifyFunction] = {}
         self._api_key = api_key
         if not self._api_key:
             print(
@@ -174,8 +173,6 @@ class IndexifyClient:
         )
         response.raise_for_status()
         self._graphs[graph.name] = graph
-        for fn_name, fn in graph.nodes.items():
-            self._fns[f"{graph.name}/{fn_name}"] = fn
 
     def delete_compute_graph(
         self,
@@ -202,13 +199,6 @@ class IndexifyClient:
     def graph(self, name: str) -> ComputeGraphMetadata:
         response = self._get(f"namespaces/{self.namespace}/compute_graphs/{name}")
         return ComputeGraphMetadata(**response.json())
-
-    def load_fn(self, name: str, fn_name: str) -> IndexifyFunction:
-        response = self._get(
-            f"internal/namespaces/{self.namespace}/compute_graphs/{name}/code"
-        )
-        pickled_functions_by_name = cloudpickle.loads(response.content)
-        return cloudpickle.loads(pickled_functions_by_name[fn_name])
 
     def namespaces(self) -> List[str]:
         response = self._get(f"namespaces")
@@ -355,30 +345,27 @@ class IndexifyClient:
         )
         response.raise_for_status()
         content_type = response.headers.get("Content-Type")
-        if content_type == "application/octet-stream":
-            encoding = "cloudpickle"
-        else:
+        if content_type == "application/json":
             encoding = "json"
+        else:
+            encoding = "cloudpickle"
         return IndexifyData(id=output_id, payload=response.content, encoder=encoding)
 
     def graph_outputs(
         self,
         graph: str,
         invocation_id: str,
-        fn_name: Optional[str],
+        fn_name: str,
     ) -> List[Any]:
         """
         Returns the extracted objects by a graph for an ingested object. If the extractor name is provided, only the objects extracted by that extractor are returned.
         If the extractor name is not provided, all the extracted objects are returned for the input object.
         graph: str: The name of the graph
-        invocation_id: str: The ID of the ingested object
-        extractor_name: Optional[str]: The name of the extractor whose output is to be returned if provided
-        block_until_done: bool = True: If True, the method will block until the extraction is done. If False, the method will return immediately.
+        invocation_id: str: The ID of the invocation.
+        fn_name: Optional[str]: The name of the function whose output is to be returned if provided
         return: Union[Dict[str, List[Any]], List[Any]]: The extracted objects. If the extractor name is provided, the output is a list of extracted objects by the extractor. If the extractor name is not provided, the output is a dictionary with the extractor name as the key and the extracted objects as the value. If no objects are found, an empty list is returned.
         """
         fn_key = f"{graph}/{fn_name}"
-        if fn_key not in self._fns:
-            self._fns[fn_key] = self.load_fn(graph, fn_name)
         response = self._get(
             f"namespaces/{self.namespace}/compute_graphs/{graph}/invocations/{invocation_id}/outputs",
         )
@@ -392,7 +379,8 @@ class IndexifyClient:
                 indexify_data = self._download_output(
                     self.namespace, graph, invocation_id, fn_name, output.id
                 )
-                output = self._fns[fn_key].deserialize_output(indexify_data)
+                serializer = get_serializer(indexify_data.encoder)
+                output = serializer.deserialize(indexify_data.payload)
                 outputs.append(output)
         return outputs
 

@@ -15,9 +15,7 @@ from indexify.functions_sdk.data_objects import (
 from indexify.functions_sdk.indexify_functions import (
     FunctionCallResult,
     GraphInvocationContext,
-    IndexifyFunction,
     IndexifyFunctionWrapper,
-    IndexifyRouter,
     RouterCallResult,
 )
 
