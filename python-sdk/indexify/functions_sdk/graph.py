@@ -209,8 +209,6 @@ class Graph:
                     )
                 )
 
-        print("TAGS", self.tags)
-
         return ComputeGraphMetadata(
             name=self.name,
             description=self.description or "",
