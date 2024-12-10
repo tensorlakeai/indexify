@@ -380,6 +380,7 @@ impl ComputeGraph {
         // self.namespace = other.namespace;
         // self.name = other.name;
         // self.created_at = other.created_at;
+        // self.replaying = other.replaying;
 
         self.description = update.description;
         self.tags = update.tags;
@@ -404,7 +405,17 @@ impl ComputeGraph {
             self.edges = update.edges;
             self.start_fn = update.start_fn;
             self.runtime_information = update.runtime_information;
-            self.nodes = update.nodes;
+
+            // if the image has changed, increment the version.
+            let mut updated_nodes = update.nodes.clone();
+            for (node_name, updated_node) in updated_nodes.iter_mut() {
+                if let Some(existing_node) = self.nodes.get(node_name) {
+                    if existing_node.image_hash() != updated_node.image_hash() {
+                        updated_node.set_image_version(existing_node.clone().image_version_next());
+                    }
+                }
+            }
+            self.nodes = updated_nodes;
 
             graph_version = Some(ComputeGraphVersion {
                 namespace: self.namespace.clone(),
@@ -1084,97 +1095,285 @@ mod tests {
     #[test]
     fn test_compute_graph_update() {
         const TEST_NAMESPACE: &str = "namespace1";
-        let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
-        let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
-        let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
+        fn check<F>(graph_update: F, check_fn: impl Fn(&ComputeGraph, Option<ComputeGraphVersion>))
+        where
+            F: FnOnce(ComputeGraph) -> ComputeGraph,
+        {
+            let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
+            let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
+            let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
 
-        let mut graph = ComputeGraph {
-            namespace: TEST_NAMESPACE.to_string(),
-            name: "graph1".to_string(),
-            description: "description1".to_string(),
-            tags: HashMap::new(),
-            nodes: HashMap::from([
-                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-            ]),
-            version: crate::GraphVersion(1),
-            edges: HashMap::from([(
-                "fn_a".to_string(),
-                vec!["fn_b".to_string(), "fn_c".to_string()],
-            )]),
-            code: ComputeGraphCode {
-                path: "cgc_path".to_string(),
-                size: 23,
-                sha256_hash: "hash_code".to_string(),
-            },
-            created_at: 5,
-            start_fn: Node::Compute(fn_a.clone()),
-            runtime_information: RuntimeInformation {
-                major_version: 3,
-                minor_version: 10,
-                sdk_version: "1.2.3".to_string(),
-            },
-            replaying: false,
-        };
+            let mut graph = ComputeGraph {
+                namespace: TEST_NAMESPACE.to_string(),
+                name: "graph1".to_string(),
+                description: "description1".to_string(),
+                tags: HashMap::new(),
+                nodes: HashMap::from([
+                    ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                    ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                    ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                ]),
+                version: crate::GraphVersion(1),
+                edges: HashMap::from([(
+                    "fn_a".to_string(),
+                    vec!["fn_b".to_string(), "fn_c".to_string()],
+                )]),
+                code: ComputeGraphCode {
+                    path: "cgc_path".to_string(),
+                    size: 23,
+                    sha256_hash: "hash_code".to_string(),
+                },
+                created_at: 5,
+                start_fn: Node::Compute(fn_a.clone()),
+                runtime_information: RuntimeInformation {
+                    major_version: 3,
+                    minor_version: 10,
+                    sdk_version: "1.2.3".to_string(),
+                },
+                replaying: false,
+            };
 
-        let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b2".to_string()));
-        let fn_d = test_compute_fn("fn_d", Some("some_hash_fn_d".to_string()));
-        let update = ComputeGraph {
-            namespace: TEST_NAMESPACE.to_string(),
-            name: "graph1".to_string(),
-            description: "description2".to_string(),
-            tags: HashMap::from([("tag1".to_string(), "val1".to_string())]),
-            nodes: HashMap::from([
-                ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-                ("fn_d".to_string(), Node::Compute(fn_d.clone())), // added
-            ]),
-            // should get computed and ignored.
-            version: crate::GraphVersion(100),
-            // changed
-            edges: HashMap::from([(
-                "fn_c".to_string(),
-                vec!["fn_b".to_string(), "fn_d".to_string(), "fn_a".to_string()],
-            )]),
-            // changed
-            code: ComputeGraphCode {
-                path: "cgc_path".to_string(),
-                size: 23,
-                sha256_hash: "hash_code2".to_string(),
-            },
-            created_at: 10, // different
-            start_fn: Node::Compute(fn_a),
-            runtime_information: RuntimeInformation {
-                major_version: 3,
-                minor_version: 12, // updated
-                sdk_version: "1.2.3".to_string(),
-            },
-            ..graph.clone()
-        };
+            let update = graph_update(graph.clone());
+            let (update, version) = graph.update(update);
+            check_fn(update, version);
+        }
 
-        graph.update(update);
-
-        assert_eq!(graph.description, "description2", "update description");
-        assert_eq!(graph.code.sha256_hash, "hash_code2", "update code");
-        assert_eq!(graph.start_fn.name(), "fn_a", "update start_fn");
-        assert_eq!(graph.version, GraphVersion(2), "update version");
-        assert!(graph.tags.contains_key("tag1"), "update tags");
-        assert_eq!(
-            graph.runtime_information.minor_version, 12,
-            "update runtime_information"
+        // immutable fields should not change
+        check(
+            |graph| -> ComputeGraph {
+                ComputeGraph {
+                    namespace: "namespace2".to_string(), // different
+                    name: "graph2".to_string(),          // different
+                    version: crate::GraphVersion(100),   // different
+                    created_at: 10,                      // different
+                    replaying: true,                     // different
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(
+                    graph.namespace, TEST_NAMESPACE,
+                    "namespace should not change"
+                );
+                assert_eq!(graph.name, "graph1", "name should not change");
+                assert_eq!(graph.version, GraphVersion(1), "should not update version");
+                assert_eq!(graph.created_at, 5, "created_at should not change");
+                assert!(!graph.replaying, "replaying should not change");
+                assert!(version.is_none(), "version should not be updated");
+            },
         );
-        let fn_b_image_version = graph
-            .nodes
-            .iter()
-            .find(|(k, _)| *k == "fn_b")
-            .unwrap()
-            .1
-            .image_version();
-        assert_eq!(*fn_b_image_version, 2, "update node fn_b image version");
 
-        assert_eq!(graph.created_at, 5, "created_at should not change");
+        // updating without changing anything should not change the version
+        check(
+            |graph| -> ComputeGraph { graph },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(1), "should not update version");
+                assert!(version.is_none(), "version should not be updated");
+            },
+        );
+
+        // changing runtime information should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                ComputeGraph {
+                    runtime_information: RuntimeInformation {
+                        major_version: 3,
+                        minor_version: 12, // updated
+                        sdk_version: "1.2.3".to_string(),
+                    },
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(
+                    graph.runtime_information.minor_version, 12,
+                    "update runtime_information"
+                );
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(
+                    version.runtime_information.minor_version, 12,
+                    "version runtime_information"
+                );
+            },
+        );
+
+        // changing code should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                ComputeGraph {
+                    code: ComputeGraphCode {
+                        path: "cgc_path2".to_string(),
+                        size: 23,
+                        sha256_hash: "hash_code2".to_string(), // different
+                    },
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(graph.code.sha256_hash, "hash_code2", "update code");
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(version.code.sha256_hash, "hash_code2", "version code");
+            },
+        );
+
+        // changing edges should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                ComputeGraph {
+                    edges: HashMap::from([(
+                        "fn_a".to_string(),
+                        vec!["fn_c".to_string(), "fn_b".to_string()], // c and b swapped
+                    )]),
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(graph.edges["fn_a"], vec!["fn_c", "fn_b"], "update edges");
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(version.edges["fn_a"], vec!["fn_c", "fn_b"], "version edges");
+            },
+        );
+
+        // changing start_fn should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_a".to_string()));
+                ComputeGraph {
+                    start_fn: Node::Compute(fn_b),
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(graph.start_fn.name(), "fn_b", "update start_fn");
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(version.start_fn.name(), "fn_b", "version start_fn");
+            },
+        );
+
+        // adding a node should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
+                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
+                let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
+                let fn_d = test_compute_fn("fn_d", Some("some_hash_fn_d".to_string()));
+                ComputeGraph {
+                    nodes: HashMap::from([
+                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                        ("fn_d".to_string(), Node::Compute(fn_d.clone())), // added
+                    ]),
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(graph.nodes.len(), 4, "update nodes");
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(version.nodes.len(), 4, "version nodes");
+            },
+        );
+
+        // removing a node should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
+                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
+                ComputeGraph {
+                    nodes: HashMap::from([
+                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                    ]),
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(graph.nodes.len(), 2, "update nodes");
+
+                let fn_a_image_version = *graph
+                    .nodes
+                    .iter()
+                    .find(|(k, _)| *k == "fn_a")
+                    .unwrap()
+                    .1
+                    .image_version();
+                assert_eq!(fn_a_image_version, 1, "update node fn_a image version");
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(version.nodes.len(), 2, "version nodes");
+            },
+        );
+
+        // changing a node's image should increase the version
+        check(
+            |graph| -> ComputeGraph {
+                let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a_updated".to_string()));
+                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
+                let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
+                ComputeGraph {
+                    nodes: HashMap::from([
+                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
+                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
+                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
+                    ]),
+                    ..graph
+                }
+            },
+            |graph, version| {
+                assert_eq!(graph.version, GraphVersion(2), "update version");
+                assert_eq!(graph.nodes.len(), 3, "update nodes");
+                assert_eq!(
+                    graph.nodes["fn_a"].image_hash(),
+                    "some_hash_fn_a_updated",
+                    "update node"
+                );
+
+                let fn_a_image_version = *graph
+                    .nodes
+                    .iter()
+                    .find(|(k, _)| *k == "fn_a")
+                    .unwrap()
+                    .1
+                    .image_version();
+                assert_eq!(fn_a_image_version, 2, "update node fn_a image version");
+
+                assert_eq!(graph.created_at, 5, "created_at should not change");
+
+                let version = version.expect("version should be created");
+                assert_eq!(version.version, GraphVersion(2), "update version");
+                assert_eq!(version.nodes.len(), 3, "version nodes");
+                assert_eq!(
+                    version.nodes["fn_a"].image_hash(),
+                    "some_hash_fn_a_updated",
+                    "version node"
+                );
+                let fn_a_image_version = *version
+                    .nodes
+                    .iter()
+                    .find(|(k, _)| *k == "fn_a")
+                    .unwrap()
+                    .1
+                    .image_version();
+                assert_eq!(fn_a_image_version, 2, "version node fn_a image version");
+            },
+        );
     }
 
     // Check function pattern
