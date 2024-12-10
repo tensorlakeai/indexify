@@ -178,7 +178,7 @@ mod tests {
     use metrics::scheduler_stats;
     use rand::Rng;
     use state_store::requests::{
-        CreateComputeGraphRequest,
+        CreateOrUpdateComputeGraphRequest,
         FinalizeTaskRequest,
         InvokeComputeGraphRequest,
         ReplayComputeGraphRequest,
@@ -259,13 +259,13 @@ mod tests {
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
         let graph = mock_graph_a(None);
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await
@@ -402,13 +402,13 @@ mod tests {
         let mut graph = graph;
         graph.code.sha256_hash = generate_random_hash();
 
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await
@@ -620,13 +620,13 @@ mod tests {
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
         let graph = mock_graph_a(None);
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await
@@ -669,13 +669,13 @@ mod tests {
         let mut graph = graph;
         graph.code.sha256_hash = generate_random_hash();
 
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await

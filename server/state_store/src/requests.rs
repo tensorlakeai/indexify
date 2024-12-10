@@ -25,7 +25,7 @@ pub enum RequestPayload {
     ReplayInvocations(ReplayInvocationsRequest),
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
-    CreateComputeGraph(CreateComputeGraphRequest),
+    CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
     DeleteInvocation(DeleteInvocationRequest),
     SchedulerUpdate(SchedulerUpdateRequest),
@@ -87,7 +87,7 @@ pub struct NamespaceRequest {
     pub name: String,
 }
 
-pub struct CreateComputeGraphRequest {
+pub struct CreateOrUpdateComputeGraphRequest {
     pub namespace: String,
     pub compute_graph: ComputeGraph,
 }

@@ -28,7 +28,7 @@ use prometheus::Encoder;
 use state_store::{
     kv::{WriteContextData, KVS},
     requests::{
-        CreateComputeGraphRequest,
+        CreateOrUpdateComputeGraphRequest,
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
         NamespaceRequest,
@@ -94,7 +94,7 @@ use crate::{
             namespaces,
             invoke::invoke_with_object,
             graph_invocations,
-            create_compute_graph,
+            create_or_update_compute_graph,
             list_compute_graphs,
             get_compute_graph,
             delete_compute_graph,
@@ -240,7 +240,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
     Router::new()
         .route(
             "/compute_graphs",
-            post(create_compute_graph).with_state(route_state.clone()),
+            post(create_or_update_compute_graph).with_state(route_state.clone()),
         )
         .route(
             "/compute_graphs",
@@ -395,22 +395,26 @@ struct ComputeGraphCreateType {
     tag = "operations",
     request_body(content_type = "multipart/form-data", content = inline(ComputeGraphCreateType)),
     responses(
-        (status = 200, description = "Create a Compute Graph"),
+        (status = 200, description = "Create or update a Compute Graph"),
         (status = INTERNAL_SERVER_ERROR, description = "Unable to create compute graphs")
     ),
 )]
-async fn create_compute_graph(
+async fn create_or_update_compute_graph(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
     mut compute_graph_code: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
     let mut put_result: Option<PutResult> = None;
-    while let Some(field) = compute_graph_code.next_field().await.unwrap() {
+    while let Some(field) = compute_graph_code
+        .next_field()
+        .await
+        .map_err(|err| IndexifyAPIError::internal_error(anyhow!(err)))?
+    {
         let name = field.name();
         if let Some(name) = name {
             if name == "code" {
-                let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
+                let stream = field.map(|res| res.map_err(|err| anyhow!(err)));
                 let file_name = format!("{}_{}", namespace, nanoid!());
                 let result = state
                     .blob_storage
@@ -430,24 +434,19 @@ async fn create_compute_graph(
         }
     }
 
-    if compute_graph_definition.is_none() {
-        return Err(IndexifyAPIError::bad_request(
-            "Compute graph definition is required",
-        ));
-    }
+    let compute_graph_definition = compute_graph_definition.ok_or(
+        IndexifyAPIError::bad_request("Compute graph definition is required"),
+    )?;
 
-    if put_result.is_none() {
-        return Err(IndexifyAPIError::bad_request("Code is required"));
-    }
-    let put_result = put_result.unwrap();
-    let compute_graph_definition = compute_graph_definition.unwrap();
+    let put_result = put_result.ok_or(IndexifyAPIError::bad_request("Code is required"))?;
+
     let compute_graph = compute_graph_definition.into_data_model(
         &put_result.url,
         &put_result.sha256_hash,
         put_result.size_bytes,
     )?;
     let name = compute_graph.name.clone();
-    let request = RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
+    let request = RequestPayload::CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest {
         namespace,
         compute_graph,
     });
@@ -459,7 +458,9 @@ async fn create_compute_graph(
         })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
+
     info!("compute graph created: {}", name);
+
     Ok(())
 }
 

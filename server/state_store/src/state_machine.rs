@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{
     ChangeType,
     ComputeGraph,
+    ComputeGraphVersion,
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
@@ -65,10 +66,14 @@ pub enum IndexifyObjectsColumns {
     Executors,            //  ExecutorId -> Executor Metadata
     Namespaces,           //  Namespaces
     ComputeGraphs,        //  Ns_ComputeGraphName -> ComputeGraph
-
-    Tasks,              //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
-    GraphInvocationCtx, //  Ns_CG_IngestedId -> GraphInvocationCtx
-    ReductionTasks,     //  Ns_CG_Fn_TaskId -> ReduceTask
+    /// Compute graph versions
+    ///
+    /// Keys:
+    /// - `<Ns>_<ComputeGraphName>_<Version> -> ComputeGraphVersion`
+    ComputeGraphVersions, //  Ns_ComputeGraphName_Version -> ComputeGraphVersion
+    Tasks,                //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
+    GraphInvocationCtx,   //  Ns_CG_IngestedId -> GraphInvocationCtx
+    ReductionTasks,       //  Ns_CG_Fn_TaskId -> ReduceTask
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
@@ -428,34 +433,52 @@ pub(crate) fn delete_input_data_object(
 // TODO: Do this in a transaction.
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
     mut compute_graph: ComputeGraph,
 ) -> Result<()> {
-    let existing_compute_graph = db.get_cf(
+    let existing_compute_graph = txn.get_for_update_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
+        true,
     )?;
 
-    if let Some(existing_compute_graph) = existing_compute_graph {
-        let existing_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
-        if compute_graph.code.sha256_hash != existing_compute_graph.code.sha256_hash ||
-            compute_graph.edges != existing_compute_graph.edges ||
-            compute_graph.nodes != existing_compute_graph.nodes ||
-            compute_graph.start_fn != existing_compute_graph.start_fn
-        {
-            compute_graph.version = existing_compute_graph.version.next();
-        }
+    let graph_version: Option<ComputeGraphVersion>;
 
-        for (node_name, node) in compute_graph.nodes.iter_mut() {
-            if let Some(existing_node) = existing_compute_graph.nodes.get(node_name) {
-                if node.image_hash() != existing_node.image_hash() {
-                    node.set_image_version(existing_node.clone().image_version_next());
-                }
-            }
-        }
-    };
+    if let Some(existing_compute_graph) = existing_compute_graph {
+        let mut existing_compute_graph: ComputeGraph =
+            JsonEncoder::decode(&existing_compute_graph)?;
+        let (updated_compute_graph, new_graph_version) =
+            existing_compute_graph.update(compute_graph).clone();
+        compute_graph = updated_compute_graph.clone();
+
+        graph_version = new_graph_version;
+    } else {
+        let initial_graph_version = ComputeGraphVersion {
+            namespace: compute_graph.namespace.clone(),
+            compute_graph_name: compute_graph.name.clone(),
+            created_at: compute_graph.created_at,
+            version: compute_graph.version,
+            code: compute_graph.code.clone(),
+            start_fn: compute_graph.start_fn.clone(),
+            nodes: compute_graph.nodes.clone(),
+            edges: compute_graph.edges.clone(),
+            runtime_information: compute_graph.runtime_information.clone(),
+        };
+
+        graph_version = Some(initial_graph_version);
+    }
+
+    if let Some(graph_version) = graph_version {
+        let serialized_compute_graph_version = JsonEncoder::encode(&graph_version)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
+            graph_version.key(),
+            &serialized_compute_graph_version,
+        )?;
+    }
 
     let serialized_compute_graph = JsonEncoder::encode(&compute_graph)?;
-    db.put_cf(
+    txn.put_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         compute_graph.key(),
         &serialized_compute_graph,

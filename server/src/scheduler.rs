@@ -218,7 +218,11 @@ mod tests {
         TaskOutcome,
     };
     use state_store::{
-        requests::{CreateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest},
+        requests::{
+            CreateOrUpdateComputeGraphRequest,
+            FinalizeTaskRequest,
+            InvokeComputeGraphRequest,
+        },
         serializer::{JsonEncode, JsonEncoder},
         state_machine::IndexifyObjectsColumns,
         test_state_store::tests::TestStateStore,
@@ -639,13 +643,13 @@ mod tests {
                 replaying: false,
             }
         };
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await?;
@@ -888,13 +892,13 @@ mod tests {
                 replaying: false,
             }
         };
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await?;
@@ -1202,13 +1206,13 @@ mod tests {
                 replaying: false,
             }
         };
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await?;
@@ -1483,13 +1487,13 @@ mod tests {
                 replaying: false,
             }
         };
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await?;
@@ -1864,13 +1868,13 @@ mod tests {
                 replaying: false,
             }
         };
-        let cg_request = CreateComputeGraphRequest {
+        let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(cg_request),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                 state_changes_processed: vec![],
             })
             .await?;
