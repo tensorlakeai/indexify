@@ -192,6 +192,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         }
@@ -218,6 +219,7 @@ pub mod tests {
                 ],
                 image_hash: "".to_string(),
                 version: Default::default(),
+                image_uri: "1234567890.dkr.ecr.us-east-1.amazonaws.com/test".to_string(),
             },
         };
         let fn_b = test_compute_fn("fn_b", None);
@@ -248,6 +250,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         }
@@ -285,6 +288,7 @@ pub mod tests {
             runtime_information: RuntimeInformation {
                 major_version: 3,
                 minor_version: 10,
+                sdk_version: "1.2.3".to_string(),
             },
             replaying: false,
         }

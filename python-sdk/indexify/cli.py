@@ -20,8 +20,8 @@ from rich.theme import Theme
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
 from indexify.functions_sdk.image import (
-    DEFAULT_IMAGE_3_10,
-    DEFAULT_IMAGE_3_11,
+    LOCAL_PYTHON_VERSION,
+    GetDefaultPythonImage,
     Image,
 )
 
@@ -129,6 +129,10 @@ def build_image(
     image_names: Optional[List[str]] = None,
     python_sdk_path: Optional[str] = None,
 ):
+    python_version: Optional[str] = (
+        typer.Option(LOCAL_PYTHON_VERSION, help="Version of the config file to build"),
+    )
+
     globals_dict = {}
 
     # Add the folder in the workflow file path to the current Python path
@@ -149,9 +153,14 @@ def build_image(
 
 
 @app.command(help="Build default image for indexify")
-def build_default_image():
-    _build_image(image=DEFAULT_IMAGE_3_10)
-    _build_image(image=DEFAULT_IMAGE_3_11)
+def build_default_image(
+    python_version: Optional[str] = typer.Option(
+        f"{sys.version_info.major}.{sys.version_info.minor}",
+        help="Python version to use in the base image",
+    )
+):
+
+    _build_image(image=GetDefaultPythonImage(python_version))
 
     console.print(
         Text(f"Built default indexify image", style="cyan"),
@@ -258,7 +267,6 @@ RUN  echo {image._image_name} > ~/.indexify/image_name
 WORKDIR /app
 
 """
-
     run_strs = ["RUN " + i for i in image._run_strs]
 
     docker_file += "\n".join(run_strs)
