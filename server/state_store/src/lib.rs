@@ -739,56 +739,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_version_bump_on_graph_update() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
-
-        // Create a compute graph and write it
-        let compute_graph = mock_graph_a(Some("Old Hash".to_string()));
-        _write_to_test_state_store(&indexify_state, compute_graph).await?;
-
-        // Read the compute graph
-        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
-
-        // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-
-        let nodes = &compute_graphs[0].nodes;
-        assert_eq!(*nodes["fn_a"].image_version(), 1);
-        assert_eq!(*nodes["fn_b"].image_version(), 1);
-        assert_eq!(*nodes["fn_c"].image_version(), 1);
-
-        assert_eq!(nodes["fn_a"].image_hash(), "Old Hash");
-        assert_eq!(nodes["fn_b"].image_hash(), "Old Hash");
-        assert_eq!(nodes["fn_c"].image_hash(), "Old Hash");
-
-        for i in 2..4 {
-            // Update the graph
-            let new_hash = format!("this is a new hash {}", i);
-            let compute_graph = mock_graph_a(Some(new_hash.clone()));
-
-            _write_to_test_state_store(&indexify_state, compute_graph).await?;
-
-            // Read it again
-            let compute_graphs = _read_cgs_from_state_store(&indexify_state);
-
-            // Verify the name is the same. Verify the version is different.
-            assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-            // println!("compute graph {:?}", compute_graphs[0]);
-            let nodes = &compute_graphs[0].nodes;
-            assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
-            assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
-            assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
-
-            assert_eq!(*nodes["fn_a"].image_version(), i);
-            assert_eq!(*nodes["fn_b"].image_version(), i);
-            assert_eq!(*nodes["fn_c"].image_version(), i);
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_task_stream() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;

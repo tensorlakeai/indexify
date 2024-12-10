@@ -97,7 +97,6 @@ pub struct ImageInformation {
     pub base_image: String,
     pub run_strs: Vec<String>,
     pub image_hash: String,
-    pub version: ImageVersion, // this gets updated when the hash changes
     pub image_uri: Option<String>,
 }
 
@@ -115,7 +114,6 @@ impl ImageInformation {
             base_image,
             run_strs,
             image_hash: format!("{:x}", image_hasher.finalize()),
-            version: ImageVersion::default(),
             image_uri: None,
         }
     }
@@ -169,14 +167,6 @@ impl ComputeFn {
             return false;
         }
 
-        if self.image_information.version.0 != executor.image_version {
-            diagnostic_msgs.push(format!(
-                "executor {}, image version: {} does not match function image version {}",
-                executor.id, executor.image_version, self.image_information.version.0
-            ));
-            return false;
-        }
-
         self.placement_constraints.matches(&executor.labels)
     }
 }
@@ -206,27 +196,6 @@ impl Node {
         match self {
             Node::Router(router) => &router.image_information.image_hash,
             Node::Compute(compute) => &compute.image_information.image_hash,
-        }
-    }
-
-    pub fn image_version(&self) -> &u32 {
-        match self {
-            Node::Router(router) => &router.image_information.version.0,
-            Node::Compute(compute) => &compute.image_information.version.0,
-        }
-    }
-
-    pub fn set_image_version(&mut self, image_version: ImageVersion) {
-        match self {
-            Node::Router(ref mut router) => router.image_information.version = image_version,
-            Node::Compute(ref mut compute) => compute.image_information.version = image_version,
-        }
-    }
-
-    pub fn image_version_next(self) -> ImageVersion {
-        match self {
-            Node::Router(router) => router.image_information.version.next(),
-            Node::Compute(compute) => compute.image_information.version.next(),
         }
     }
 
@@ -315,21 +284,6 @@ impl GraphVersion {
 }
 
 impl Default for GraphVersion {
-    fn default() -> Self {
-        Self(1)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq, Copy)]
-pub struct ImageVersion(pub u32);
-
-impl ImageVersion {
-    pub fn next(&self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-impl Default for ImageVersion {
     fn default() -> Self {
         Self(1)
     }
@@ -1003,7 +957,6 @@ mod tests {
         ExecutorMetadata,
         GraphVersion,
         ImageInformation,
-        ImageVersion,
         Node,
         RuntimeInformation,
     };
@@ -1013,7 +966,6 @@ mod tests {
         let compute_fn = ComputeFn {
             image_name: "some_image_name".to_string(),
             image_information: ImageInformation {
-                version: ImageVersion(1),
                 ..Default::default()
             },
             ..Default::default()
@@ -1022,27 +974,6 @@ mod tests {
         let executor_metadata = ExecutorMetadata {
             image_name: "some_image_name1".to_string(),
             image_version: 0,
-            ..Default::default()
-        };
-
-        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
-    }
-
-    #[test]
-    fn test_compute_fn_neq_executor_for_image_version() {
-        // Test cascades with `test_compute_fn_neq_executor_for_image_name`
-        let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
-            image_information: ImageInformation {
-                version: ImageVersion(1),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let executor_metadata = ExecutorMetadata {
-            image_name: "some_image_name".to_string(),
-            image_version: 2,
             ..Default::default()
         };
 
@@ -1133,15 +1064,6 @@ mod tests {
             graph.runtime_information.minor_version, 12,
             "update runtime_information"
         );
-        let fn_b_image_version = graph
-            .nodes
-            .iter()
-            .find(|(k, _)| *k == "fn_b")
-            .unwrap()
-            .1
-            .image_version();
-        assert_eq!(*fn_b_image_version, 2, "update node fn_b image version");
-
         assert_eq!(graph.created_at, 5, "created_at should not change");
     }
 
