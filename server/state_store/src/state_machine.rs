@@ -547,6 +547,27 @@ pub fn delete_compute_graph(
         )?;
     }
 
+    for iter in make_prefix_iterator(
+        txn,
+        &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
+        prefix.as_bytes(),
+        &None,
+    ) {
+        let (key, value) = iter?;
+        let value = JsonEncoder::decode::<ComputeGraphVersion>(&value)?;
+
+        // mark all code urls for gc.
+        txn.put_cf(
+            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+            value.code.path.as_bytes(),
+            [],
+        )?;
+        txn.delete_cf(
+            &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
+            &key,
+        )?;
+    }
+
     delete_cf_prefix(
         txn,
         &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
