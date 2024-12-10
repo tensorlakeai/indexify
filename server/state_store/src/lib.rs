@@ -645,6 +645,7 @@ mod tests {
         test_objects::tests::{create_mock_task, mock_graph_a, TEST_NAMESPACE},
         ComputeGraph,
         GraphInvocationCtxBuilder,
+        GraphVersion,
         Namespace,
     };
     use futures::StreamExt;
@@ -805,6 +806,7 @@ mod tests {
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
+            .graph_version(GraphVersion(1))
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
             .build(cg.clone())?;
@@ -858,6 +860,7 @@ mod tests {
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
+            .graph_version(GraphVersion(1))
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
             .build(cg.clone())?;

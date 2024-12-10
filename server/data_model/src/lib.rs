@@ -489,7 +489,6 @@ pub enum OutputPayload {
 #[builder(build_fn(skip))]
 pub struct NodeOutput {
     pub id: String,
-    pub graph_version: GraphVersion,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
@@ -548,7 +547,6 @@ impl NodeOutputBuilder {
             .encoding
             .clone()
             .unwrap_or_else(|| "application/octet-stream".to_string());
-        let graph_version = self.graph_version.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
         let created_at: u64 = get_epoch_time_in_ms();
@@ -568,7 +566,6 @@ impl NodeOutputBuilder {
         let id = format!("{:x}", hasher.finish());
         Ok(NodeOutput {
             id,
-            graph_version,
             namespace: ns,
             compute_graph_name: cg_name,
             invocation_id,
@@ -688,7 +685,10 @@ impl GraphInvocationCtxBuilder {
         for (fn_name, _node) in compute_graph.nodes.iter() {
             fn_task_analytics.insert(fn_name.clone(), TaskAnalytics::default());
         }
-        let graph_version = self.graph_version.clone().unwrap_or_default();
+        let graph_version = self
+            .graph_version
+            .clone()
+            .ok_or(anyhow!("graph version is required"))?;
         let is_system_task = self.is_system_task.unwrap_or(false);
         Ok(GraphInvocationCtx {
             namespace,
