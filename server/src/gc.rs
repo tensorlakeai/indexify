@@ -74,7 +74,7 @@ mod tests {
     use futures::stream;
     use state_store::{
         requests::{
-            CreateComputeGraphRequest,
+            CreateOrUpdateComputeGraphRequest,
             DeleteComputeGraphRequest,
             RequestPayload,
             StateMachineUpdateRequest,
@@ -111,10 +111,12 @@ mod tests {
         let compute_graph = mock_graph_a(None);
         state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    compute_graph: compute_graph.clone(),
-                }),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(
+                    CreateOrUpdateComputeGraphRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        compute_graph: compute_graph.clone(),
+                    },
+                ),
                 state_changes_processed: vec![],
             })
             .await?;

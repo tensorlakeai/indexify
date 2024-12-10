@@ -270,9 +270,10 @@ impl IndexifyState {
                 state_machine::create_namespace(self.db.clone(), &namespace_request)?;
                 vec![]
             }
-            requests::RequestPayload::CreateComputeGraph(req) => {
+            requests::RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 state_machine::create_or_update_compute_graph(
                     self.db.clone(),
+                    &txn,
                     req.compute_graph.clone(),
                 )?;
                 vec![]
@@ -648,7 +649,7 @@ mod tests {
     };
     use futures::StreamExt;
     use requests::{
-        CreateComputeGraphRequest,
+        CreateOrUpdateComputeGraphRequest,
         DeleteComputeGraphRequest,
         ReductionTasks,
         SchedulerUpdateRequest,
@@ -921,10 +922,12 @@ mod tests {
     ) -> Result<()> {
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::CreateComputeGraph(CreateComputeGraphRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    compute_graph: compute_graph.clone(),
-                }),
+                payload: RequestPayload::CreateOrUpdateComputeGraph(
+                    CreateOrUpdateComputeGraphRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        compute_graph: compute_graph.clone(),
+                    },
+                ),
                 state_changes_processed: vec![],
             })
             .await

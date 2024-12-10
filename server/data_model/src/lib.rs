@@ -348,17 +348,18 @@ pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
     pub description: String,
-    pub version: GraphVersion, // Version incremented with code update
     #[serde(default)]
     pub tags: HashMap<String, String>,
-    pub code: ComputeGraphCode,
+    #[serde(default)]
+    pub replaying: bool,
     pub created_at: u64,
+    // Fields below are versioned
+    pub version: GraphVersion, // Version incremented with code update
+    pub code: ComputeGraphCode,
     pub start_fn: Node,
     pub nodes: HashMap<String, Node>,
     pub edges: HashMap<String, Vec<String>>,
     pub runtime_information: RuntimeInformation,
-    #[serde(default)]
-    pub replaying: bool,
 }
 
 impl ComputeGraph {
@@ -374,58 +375,88 @@ impl ComputeGraph {
     /// fields.
     ///
     /// Assumes validated update values.
-    pub fn update(&mut self, update: ComputeGraph) -> &Self {
+    pub fn update(&mut self, update: ComputeGraph) -> (&Self, Option<ComputeGraphVersion>) {
         // immutable fields
         // self.namespace = other.namespace;
         // self.name = other.name;
         // self.created_at = other.created_at;
 
         self.description = update.description;
-        self.runtime_information = update.runtime_information;
         self.tags = update.tags;
 
+        let mut graph_version: Option<ComputeGraphVersion> = None;
+
         if self.code.sha256_hash != update.code.sha256_hash ||
+            self.runtime_information != update.runtime_information ||
             self.edges != update.edges ||
-            self.nodes != update.nodes ||
-            self.start_fn != update.start_fn
+            self.start_fn != update.start_fn ||
+            self.nodes.len() != update.nodes.len() ||
+            self.nodes.iter().any(|(k, v)| {
+                update
+                    .nodes
+                    .get(k)
+                    .map_or(true, |n| n.image_hash() != v.image_hash())
+            })
         {
             // if the code has changed, increment the version.
             self.version = self.version.next();
             self.code = update.code;
             self.edges = update.edges;
             self.start_fn = update.start_fn;
+            self.runtime_information = update.runtime_information;
+            self.nodes = update.nodes;
+
+            graph_version = Some(ComputeGraphVersion {
+                namespace: self.namespace.clone(),
+                compute_graph_name: self.name.clone(),
+                created_at: get_epoch_time_in_ms(),
+                version: self.version,
+                code: self.code.clone(),
+                start_fn: self.start_fn.clone(),
+                nodes: self.nodes.clone(),
+                edges: self.edges.clone(),
+                runtime_information: self.runtime_information.clone(),
+            });
         }
 
-        // if the image has changed, increment the version.
-        let mut new_nodes = update.nodes.clone();
-        for (node_name, node) in new_nodes.iter_mut() {
-            if let Some(existing_node) = self.nodes.get(node_name) {
-                if existing_node.image_hash() != node.image_hash() {
-                    node.set_image_version(existing_node.clone().image_version_next());
-                }
-            }
-        }
-        self.nodes = new_nodes;
+        (self, graph_version)
+    }
+}
 
-        self
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraphVersion {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub created_at: u64,
+    pub version: GraphVersion,
+    pub code: ComputeGraphCode,
+    pub start_fn: Node,
+    pub nodes: HashMap<String, Node>,
+    pub edges: HashMap<String, Vec<String>>,
+    pub runtime_information: RuntimeInformation,
+}
+
+impl ComputeGraphVersion {
+    pub fn key(&self) -> String {
+        ComputeGraphVersion::key_from(&self.namespace, &self.compute_graph_name, self.version)
     }
 
-    pub fn get_compute_parent_nodes(&self, node_name: &str) -> Vec<&str> {
+    pub fn key_from(namespace: &str, compute_graph_name: &str, version: GraphVersion) -> String {
+        format!("{}|{}|{}", namespace, compute_graph_name, version.0)
+    }
+
+    pub fn get_compute_parent_nodes(&self, node_name: &str) -> Vec<String> {
         // Find parent of the node
         self.edges
             .iter()
-            .filter_map(|(parent, successors)| {
-                successors
-                    .contains(&node_name.to_string())
-                    .then(|| parent.as_str())
-            })
+            .filter(|&(_, successors)| successors.contains(&node_name.to_string()))
+            .map(|(parent, _)| parent.as_str())
             // Filter for compute node parent, traversing through routers
-            .map(|parent_name| match self.nodes.get(parent_name) {
-                Some(Node::Compute(_)) => vec![parent_name],
+            .flat_map(|parent_name| match self.nodes.get(parent_name) {
+                Some(Node::Compute(_)) => vec![parent_name.to_string()],
                 Some(Node::Router(_)) => self.get_compute_parent_nodes(parent_name),
                 None => vec![],
             })
-            .flatten()
             .collect()
     }
 }
@@ -999,6 +1030,7 @@ mod tests {
         ComputeFn,
         ComputeGraph,
         ComputeGraphCode,
+        ComputeGraphVersion,
         DynamicEdgeRouter,
         ExecutorMetadata,
         GraphVersion,
@@ -1148,22 +1180,20 @@ mod tests {
     // Check function pattern
     fn check_compute_parent<F>(node: &str, mut expected_parents: Vec<&str>, configure_graph: F)
     where
-        F: FnOnce(&mut ComputeGraph),
+        F: FnOnce(&mut ComputeGraphVersion),
     {
-        fn create_test_graph() -> ComputeGraph {
+        fn create_test_graph_version() -> ComputeGraphVersion {
             let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
-            ComputeGraph {
+            ComputeGraphVersion {
                 namespace: String::new(),
-                name: String::new(),
-                description: String::new(),
-                tags: HashMap::new(),
+                compute_graph_name: String::new(),
+                created_at: 0,
                 version: GraphVersion::default(),
                 code: ComputeGraphCode {
                     path: String::new(),
                     size: 0,
                     sha256_hash: String::new(),
                 },
-                created_at: 0,
                 start_fn: Node::Compute(fn_a),
                 nodes: HashMap::new(),
                 edges: HashMap::new(),
@@ -1172,14 +1202,13 @@ mod tests {
                     minor_version: 0,
                     sdk_version: "1.2.3".to_string(),
                 },
-                replaying: false,
             }
         }
 
-        let mut graph = create_test_graph();
-        configure_graph(&mut graph);
+        let mut graph_version = create_test_graph_version();
+        configure_graph(&mut graph_version);
 
-        let mut parent_nodes = graph.get_compute_parent_nodes(node);
+        let mut parent_nodes = graph_version.get_compute_parent_nodes(node);
         parent_nodes.sort();
         expected_parents.sort();
 

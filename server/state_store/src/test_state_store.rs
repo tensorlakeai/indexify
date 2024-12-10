@@ -22,7 +22,7 @@ pub mod tests {
 
     use crate::{
         requests::{
-            CreateComputeGraphRequest,
+            CreateOrUpdateComputeGraphRequest,
             FinalizeTaskRequest,
             InvokeComputeGraphRequest,
             RequestPayload,
@@ -45,13 +45,13 @@ pub mod tests {
         }
 
         pub async fn with_simple_graph(&self) -> String {
-            let cg_request = CreateComputeGraphRequest {
+            let cg_request = CreateOrUpdateComputeGraphRequest {
                 namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: tests::mock_graph_a(None),
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateComputeGraph(cg_request),
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                     state_changes_processed: vec![],
                 })
                 .await
@@ -73,13 +73,13 @@ pub mod tests {
         }
 
         pub async fn with_router_graph(&self) -> String {
-            let cg_request = CreateComputeGraphRequest {
+            let cg_request = CreateOrUpdateComputeGraphRequest {
                 namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: tests::mock_graph_b(),
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateComputeGraph(cg_request),
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                     state_changes_processed: vec![],
                 })
                 .await
@@ -102,13 +102,13 @@ pub mod tests {
         }
 
         pub async fn with_reducer_graph(&self) -> String {
-            let cg_request = CreateComputeGraphRequest {
+            let cg_request = CreateOrUpdateComputeGraphRequest {
                 namespace: TEST_NAMESPACE.to_string(),
                 compute_graph: tests::mock_graph_with_reducer(),
             };
             self.indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::CreateComputeGraph(cg_request),
+                    payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
                     state_changes_processed: vec![],
                 })
                 .await
