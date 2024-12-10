@@ -175,6 +175,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(get_code).with_state(route_state.clone()),
         )
         .route(
+            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/versions/:version/code",
+            get(get_code).with_state(route_state.clone()),
+        )
+        .route(
             "/internal/ingest_files",
             post(ingest_files_from_executor).with_state(route_state.clone()),
         )
@@ -804,18 +808,60 @@ async fn delete_invocation(
 }
 
 async fn get_code(
-    Path((namespace, compute_graph)): Path<(String, String)>,
+    Path((namespace, compute_graph, version)): Path<(String, String, Option<GraphVersion>)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    if let Some(version) = version {
+        info!(
+            "getting code for compute graph {} version {}",
+            compute_graph, version.0
+        );
+        let compute_graph_version = state
+            .indexify_state
+            .reader()
+            .get_compute_graph_version(&namespace, &compute_graph, version.into())
+            .map_err(IndexifyAPIError::internal_error)?;
+
+        let compute_graph_version = compute_graph_version.ok_or(IndexifyAPIError::not_found(
+            "compute graph version not found",
+        ))?;
+
+        let storage_reader = state
+            .blob_storage
+            .get(&compute_graph_version.code.path)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!(
+                    "unable to read from blob storage {:?}",
+                    e
+                ))
+            })?;
+
+        return Ok(Response::builder()
+            .header("Content-Type", "application/octet-stream")
+            .header(
+                "Content-Length",
+                compute_graph_version.code.size.to_string(),
+            )
+            .body(Body::from_stream(storage_reader))
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!(
+                    "unable to stream from blob storage {:?}",
+                    e
+                ))
+            }));
+    }
+
+    // Getting code without the compute graph version is deprecated.
+    // TODO: Remove this block after all clients are updated.
+
     let compute_graph = state
         .indexify_state
         .reader()
         .get_compute_graph(&namespace, &compute_graph)
         .map_err(IndexifyAPIError::internal_error)?;
-    if compute_graph.is_none() {
-        return Err(IndexifyAPIError::not_found("Compute Graph not found"));
-    }
-    let compute_graph = compute_graph.unwrap();
+    let compute_graph =
+        compute_graph.ok_or(IndexifyAPIError::not_found("Compute Graph not found"))?;
     let storage_reader = state
         .blob_storage
         .get(&compute_graph.code.path)
@@ -823,14 +869,15 @@ async fn get_code(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {}", e))
         })?;
-    Response::builder()
+
+    Ok(Response::builder()
         .header("Content-Type", "application/octet-stream")
         .header(
             "Content-Length",
             compute_graph.code.clone().size.to_string(),
         )
         .body(Body::from_stream(storage_reader))
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string())))
 }
 
 async fn set_ctx_state_key(

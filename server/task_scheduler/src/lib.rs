@@ -97,16 +97,21 @@ impl TaskScheduler {
     fn schedule_task(&self, task: Task) -> Result<ScheduleTaskResult> {
         let mut task_placements = Vec::new();
         let mut diagnostic_msgs = Vec::new();
-        let cg = self
+        let compute_graph_version = self
             .indexify_state
             .reader()
-            .get_compute_graph(&task.namespace, &task.compute_graph_name)?
+            .get_compute_graph_version(
+                &task.namespace,
+                &task.compute_graph_name,
+                task.graph_version,
+            )?
             .ok_or(anyhow!("compute graph not found"))?;
-        let compute_fn = cg
+        let compute_fn = compute_graph_version
             .nodes
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("compute fn not found"))?;
-        let filtered_executors = self.filter_executors(&compute_fn, &cg.runtime_information)?;
+        let filtered_executors =
+            self.filter_executors(&compute_fn, &compute_graph_version.runtime_information)?;
         if !filtered_executors.diagnostic_msgs.is_empty() {
             diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
         }
