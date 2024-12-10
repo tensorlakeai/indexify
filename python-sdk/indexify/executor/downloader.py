@@ -36,7 +36,7 @@ class Downloader:
             "downloading graph", namespace=namespace, name=name, version=version
         )
         response = self._client.get(
-            f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/code"
+            f"{self.base_url}/internal/namespaces/{namespace}/compute_graphs/{name}/versions/{version}/code"
         )
         try:
             response.raise_for_status()

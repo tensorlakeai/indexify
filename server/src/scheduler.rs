@@ -139,27 +139,35 @@ impl Scheduler {
                 }
                 let task =
                     task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
-                let compute_graph = self
+
+                let compute_graph_version = self
                     .indexify_state
                     .reader()
-                    .get_compute_graph(&task.namespace, &task.compute_graph_name)
+                    .get_compute_graph_version(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        task.graph_version,
+                    )
                     .map_err(|e| {
-                        error!("error getting compute graph: {:?}", e);
+                        error!("error getting compute graph version: {:?}", e);
                         e
                     })?;
-                if compute_graph.is_none() {
+                if compute_graph_version.is_none() {
                     error!(
-                        "compute graph not found: {:?} {:?}",
+                        "compute graph version not found: {:?} {:?}",
                         task.namespace, task.compute_graph_name
                     );
                     return Ok(None);
                 }
-                let compute_graph = compute_graph.ok_or(anyhow!(
-                    "compute graph not found: {:?} {:?}",
+                let compute_graph_version = compute_graph_version.ok_or(anyhow!(
+                    "compute graph version not found: {:?} {:?}",
                     task.namespace,
                     task.compute_graph_name
                 ))?;
-                Some(handle_task_finished(self.indexify_state.clone(), task, compute_graph).await?)
+                Some(
+                    handle_task_finished(self.indexify_state.clone(), task, compute_graph_version)
+                        .await?,
+                )
             }
             _ => None,
         };

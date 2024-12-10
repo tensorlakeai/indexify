@@ -1,7 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraph, InvokeComputeGraphEvent, Node, OutputPayload, Task, TaskOutcome};
+use data_model::{
+    ComputeGraphVersion,
+    InvokeComputeGraphEvent,
+    Node,
+    OutputPayload,
+    Task,
+    TaskOutcome,
+};
 use state_store::IndexifyState;
 use tracing::{error, info, instrument, trace};
 
@@ -15,32 +22,74 @@ pub async fn handle_invoke_compute_graph(
     indexify_state: Arc<IndexifyState>,
     event: InvokeComputeGraphEvent,
 ) -> Result<TaskCreationResult> {
-    let compute_graph = indexify_state
+    let invocation_ctx = indexify_state
         .reader()
-        .get_compute_graph(&event.namespace, &event.compute_graph)?;
-    if compute_graph.is_none() {
-        error!(
-            "compute graph not found: {:?} {:?}",
-            event.namespace, event.compute_graph
+        .invocation_ctx(&event.namespace, &event.compute_graph, &event.invocation_id)
+        .map_err(|e| {
+            anyhow!(
+                "error getting invocation context for invocation {}: {:?}",
+                event.invocation_id,
+                e
+            )
+        })?;
+    if invocation_ctx.is_none() {
+        info!(
+            "invocation context not found for invocation_id {}",
+            event.invocation_id
         );
-        return Ok(TaskCreationResult {
-            tasks: vec![],
-            namespace: event.namespace.clone(),
-            invocation_id: event.invocation_id.clone(),
-            compute_graph: event.compute_graph.clone(),
-            new_reduction_tasks: vec![],
-            processed_reduction_tasks: vec![],
-        });
+        return Ok(TaskCreationResult::no_tasks(
+            &event.namespace,
+            &event.compute_graph,
+            &event.invocation_id,
+        ));
     }
-    let compute_graph = compute_graph.unwrap();
+    let invocation_ctx = invocation_ctx.ok_or(anyhow!(
+        "invocation context not found for invocation_id {}",
+        event.invocation_id
+    ))?;
+
+    let compute_graph_version = indexify_state
+        .reader()
+        .get_compute_graph_version(
+            &event.namespace,
+            &event.compute_graph,
+            invocation_ctx.graph_version,
+        )
+        .map_err(|e| {
+            anyhow!(
+                "error getting compute graph version: {:?} {:?} {:?} {:?}",
+                event.namespace,
+                event.compute_graph,
+                invocation_ctx.graph_version,
+                e
+            )
+        })?;
+    if compute_graph_version.is_none() {
+        info!(
+            "compute graph version not found: {:?} {:?} {:?}",
+            event.namespace, event.compute_graph, invocation_ctx.graph_version,
+        );
+        return Ok(TaskCreationResult::no_tasks(
+            &event.namespace,
+            &event.compute_graph,
+            &event.invocation_id,
+        ));
+    }
+    let compute_graph_version = compute_graph_version.ok_or(anyhow!(
+        "compute graph version not found: {:?} {:?} {:?}",
+        event.namespace,
+        event.compute_graph,
+        invocation_ctx.graph_version,
+    ))?;
+
     // Create a task for the compute graph
-    let task = compute_graph.start_fn.create_task(
+    let task = compute_graph_version.start_fn.create_task(
         &event.namespace,
         &event.compute_graph,
         &event.invocation_id,
         &event.invocation_id,
         None,
-        compute_graph.version,
+        compute_graph_version.version,
     )?;
     trace!(
         task_key = task.key(),
@@ -57,7 +106,7 @@ pub async fn handle_invoke_compute_graph(
 }
 
 #[instrument(
-    skip(indexify_state, task, compute_graph),
+    skip(indexify_state, task, compute_graph_version),
     fields(
         namespace = task.namespace, compute_graph = task.compute_graph_name, invocation_id = task.invocation_id,
         finished_task_compute_fn_name = task.compute_fn_name, finished_task_key = task.key()
@@ -66,7 +115,7 @@ pub async fn handle_invoke_compute_graph(
 pub async fn handle_task_finished(
     indexify_state: Arc<IndexifyState>,
     task: Task,
-    compute_graph: ComputeGraph,
+    compute_graph_version: ComputeGraphVersion,
 ) -> Result<TaskCreationResult> {
     let invocation_ctx = indexify_state
         .reader()
@@ -97,7 +146,7 @@ pub async fn handle_task_finished(
     trace!("invocation context: {:?}", invocation_ctx);
 
     if task.outcome == TaskOutcome::Failure {
-        info!("task failed, stopping schedulig of child tasks");
+        info!("task failed, stopping scheduling of child tasks");
         return Ok(TaskCreationResult::no_tasks(
             &task.namespace,
             &task.compute_graph_name,
@@ -122,7 +171,7 @@ pub async fn handle_task_finished(
         }
         if !router_edges.is_empty() {
             for edge in router_edges {
-                let compute_fn = compute_graph
+                let compute_fn = compute_graph_version
                     .nodes
                     .get(edge)
                     .ok_or(anyhow!("compute node not found: {:?}", edge))?;
@@ -153,7 +202,7 @@ pub async fn handle_task_finished(
 
     // When a reducer task finishes, check for more queued reduction tasks to create
     // to ensure sequential execution.
-    if let Some(compute_node) = compute_graph.nodes.get(&task.compute_fn_name) {
+    if let Some(compute_node) = compute_graph_version.nodes.get(&task.compute_fn_name) {
         if let Node::Compute(compute_fn) = compute_node {
             if compute_fn.reducer {
                 if let Some(task_analytics) =
@@ -216,7 +265,7 @@ pub async fn handle_task_finished(
 
                 // Prevent proceeding to edges too early if there are parent tasks that are
                 // still pending or that have failed.
-                if compute_graph
+                if compute_graph_version
                     .get_compute_parent_nodes(compute_node.name())
                     .iter()
                     .any(|parent_node| {
@@ -245,7 +294,7 @@ pub async fn handle_task_finished(
     }
 
     // Find the edges of the function
-    let edges = compute_graph.edges.get(&task.compute_fn_name);
+    let edges = compute_graph_version.edges.get(&task.compute_fn_name);
 
     // If there are no edges, check if the invocation should be finished.
     if edges.is_none() {
@@ -261,7 +310,7 @@ pub async fn handle_task_finished(
     let mut new_reduction_tasks = vec![];
     let edges = edges.unwrap();
     for edge in edges {
-        let compute_node = compute_graph
+        let compute_node = compute_graph_version
             .nodes
             .get(edge)
             .ok_or(anyhow!("compute node not found: {:?}", edge))?;
@@ -295,7 +344,7 @@ pub async fn handle_task_finished(
                     "task_analytics_edge: {:?}",
                     task_analytics_edge,
                 );
-                let (outstanding_tasks_for_node, successfull_tasks_for_node, failed_tasks_for_node) =
+                let (outstanding_tasks_for_node, successful_tasks_for_node, failed_tasks_for_node) =
                     match task_analytics_edge {
                         Some(task_analytics) => (
                             task_analytics.pending_tasks,
@@ -345,7 +394,7 @@ pub async fn handle_task_finished(
                 // a new reducer task here without queuing it.
                 //
                 // To do so, we need to find the previous reducer task to reuse its output.
-                if successfull_tasks_for_node > 0 {
+                if successful_tasks_for_node > 0 {
                     let (prev_reducer_tasks, _) = indexify_state.reader().get_task_by_fn(
                         &task.namespace,
                         &task.compute_graph_name,

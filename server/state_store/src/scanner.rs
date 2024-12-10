@@ -3,10 +3,12 @@ use std::{mem, sync::Arc};
 use anyhow::{anyhow, Result};
 use data_model::{
     ComputeGraph,
+    ComputeGraphVersion,
     DataPayload,
     ExecutorId,
     ExecutorMetadata,
     GraphInvocationCtx,
+    GraphVersion,
     InvocationPayload,
     Namespace,
     NodeOutput,
@@ -535,6 +537,21 @@ impl StateReader {
         let key = ComputeGraph::key_from(namespace, name);
         let compute_graph = self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphs, key)?;
         Ok(compute_graph)
+    }
+
+    pub fn get_compute_graph_version(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: GraphVersion,
+    ) -> Result<Option<ComputeGraphVersion>> {
+        let kvs = &[KeyValue::new("op", "get_compute_graph_version")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key = ComputeGraphVersion::key_from(namespace, name, version);
+        let compute_graph_version =
+            self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphVersions, key)?;
+        Ok(compute_graph_version)
     }
 
     pub fn list_outputs_by_compute_graph(
