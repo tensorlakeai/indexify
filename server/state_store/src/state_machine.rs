@@ -1009,7 +1009,7 @@ fn mark_invocation_finished(
             }
             None => 0,
         };
-        pending_system_tasks -= 1;
+        pending_system_tasks = pending_system_tasks.saturating_sub(1);
         txn.put_cf(&cf, key, &pending_system_tasks.to_be_bytes())?;
 
         // Decrement the number of running invocations on the system task to allow
