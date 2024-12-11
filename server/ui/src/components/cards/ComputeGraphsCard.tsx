@@ -80,29 +80,32 @@ export function ComputeGraphsCard({
             <Typography variant="subtitle2" color="text.secondary">
               Number of Nodes: {Object.keys(graph.nodes || {}).length}
             </Typography>
-            {graph.created_at && (
+            {graph.created_at !== undefined && graph.created_at > 0 && (
               <Typography variant="subtitle2" color="text.secondary">
                 Created At: {new Date(graph.created_at).toLocaleString()}
               </Typography>
             )}
             <Typography variant="subtitle2" color="text.secondary">
-              Tags:
-              {Object.keys(graph.tags || {}).length > 0 && (
-                <Box display="flex" flexWrap="wrap" mt={1}>
-                  {Object.entries(graph.tags).map(([key, value]) => (
-                    <ListItem key={key}>
-                      <Chip
-                        key={key}
-                        label={`${key}: ${value}`}
-                        color="primary"
-                        size="small"
-                        sx={{ m: 0.5 }}
-                      />
-                    </ListItem>
-                  ))}
-                </Box>
-              )}
+              SDK Version: {graph?.runtime_information?.sdk_version || 'unknown'}
             </Typography>
+            {Object.keys(graph.tags || {}).length > 0 && (
+              <Typography variant="subtitle2" color="text.secondary">
+                Tags:
+                  <Box display="flex" flexWrap="wrap" mt={1}>
+                    {Object.entries(graph.tags).map(([key, value]) => (
+                      <ListItem key={key}>
+                        <Chip
+                          key={key}
+                          label={`${key}: ${value}`}
+                          color="primary"
+                          size="small"
+                          sx={{ m: 0.5 }}
+                        />
+                      </ListItem>
+                    ))}
+                  </Box>
+              </Typography>
+            )}
           </CardContent>
         </Card>
       </Grid>
