@@ -79,7 +79,7 @@ mod tests {
     use std::sync::Arc;
 
     use anyhow::Result;
-    use data_model::{ExecutorId, ExecutorMetadata};
+    use data_model::{ExecutorId, ExecutorImage, ExecutorMetadata};
     use state_store::IndexifyState;
 
     use super::*;
@@ -94,10 +94,13 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
-            image_name: "test".to_string(),
-            image_version: 1,
+            images: vec![ExecutorImage {
+                name: "test".to_string(),
+                version: 1,
+            }],
             addr: "".to_string(),
             labels: Default::default(),
+            ..Default::default()
         };
         ex.register_executor(executor).await?;
 
@@ -118,10 +121,13 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
-            image_name: "test".to_string(),
-            image_version: 0,
+            images: vec![ExecutorImage {
+                name: "test".to_string(),
+                version: 0,
+            }],
             addr: "".to_string(),
             labels: Default::default(),
+            ..Default::default()
         };
         ex.register_executor(executor.clone()).await?;
 

@@ -12,6 +12,7 @@ use std::{
 
 use ::metrics::{StateStoreMetrics, Timer};
 use anyhow::{anyhow, Result};
+use cache::CEInMemoryState;
 use data_model::{
     ChangeType,
     ExecutorId,
@@ -29,6 +30,7 @@ use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use opentelemetry::KeyValue;
 use requests::StateMachineUpdateRequest;
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
+use scanner::StateReader;
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
 use strum::IntoEnumIterator;
 use tokio::sync::{
@@ -38,6 +40,7 @@ use tokio::sync::{
 };
 use tracing::{error, info, instrument, span};
 
+pub mod cache;
 pub mod invocation_events;
 pub mod kv;
 pub mod requests;
@@ -108,6 +111,7 @@ pub struct IndexifyState {
     pub system_tasks_tx: tokio::sync::watch::Sender<()>,
     pub system_tasks_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
+    pub ce_in_memory_state: RwLock<CEInMemoryState>,
 }
 
 impl IndexifyState {
@@ -130,8 +134,11 @@ impl IndexifyState {
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
+        let db = Arc::new(db);
+        let state_reader = StateReader::new(db.clone(), state_store_metrics.clone());
+        let ce_in_memory_state = CEInMemoryState::new(state_reader)?;
         let s = Arc::new(Self {
-            db: Arc::new(db),
+            db,
             state_change_tx: tx,
             state_change_rx: rx,
             last_state_change_id: Arc::new(AtomicU64::new(0)),
@@ -142,6 +149,7 @@ impl IndexifyState {
             system_tasks_tx,
             system_tasks_rx,
             metrics: state_store_metrics,
+            ce_in_memory_state: RwLock::new(ce_in_memory_state),
         });
 
         let executors = s.reader().get_all_executors()?;
@@ -391,6 +399,10 @@ impl IndexifyState {
             &request.state_changes_processed.clone(),
         )?;
         txn.commit()?;
+        // Update the in-memory state
+        if let Err(e) = self.ce_in_memory_state.write().await.update(&request) {
+            error!("failed to update in-memory state: {:?}", e);
+        }
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
                 .write()
@@ -477,6 +489,10 @@ impl IndexifyState {
             }
             _ => {}
         }
+    }
+
+    pub async fn get_state_cache(&self) -> CEInMemoryState {
+        self.ce_in_memory_state.read().await.clone()
     }
 
     async fn finalize_task(

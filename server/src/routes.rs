@@ -634,15 +634,17 @@ async fn executor_tasks(
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
+    let executor_images = payload.images.into_iter().map(|i| i.into()).collect();
     let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
             id: executor_id.clone(),
             executor_version: payload.executor_version.clone(),
-            image_name: payload.image_name.clone(),
+            images: executor_images,
             addr: payload.addr.clone(),
             labels: payload.labels.clone(),
-            image_version: payload.image_version,
+            resources: payload.resources.into(),
+            ..Default::default()
         })
         .await;
     if let Err(e) = err {
