@@ -23,7 +23,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -551,7 +551,19 @@ impl StateReader {
         let key = ComputeGraphVersion::key_from(namespace, name, version);
         let compute_graph_version =
             self.get_from_cf(&IndexifyObjectsColumns::ComputeGraphVersions, key)?;
-        Ok(compute_graph_version)
+        if compute_graph_version.is_some() {
+            return Ok(compute_graph_version);
+        }
+
+        debug!(
+            "Falling back to compute graph to get version for graph {}",
+            name
+        );
+        let compute_graph = self.get_compute_graph(namespace, name)?;
+        match compute_graph {
+            Some(compute_graph) => Ok(Some(compute_graph.into_version())),
+            None => Ok(None),
+        }
     }
 
     pub fn list_outputs_by_compute_graph(
