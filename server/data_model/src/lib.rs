@@ -99,7 +99,7 @@ pub struct ImageInformation {
     pub image_hash: String,
     pub version: ImageVersion, // this gets updated when the hash changes
     pub image_uri: Option<String>,
-    pub sdk_version: String,
+    pub sdk_version: Option<String>,
 }
 
 impl ImageInformation {
@@ -108,13 +108,13 @@ impl ImageInformation {
         tag: String,
         base_image: String,
         run_strs: Vec<String>,
-        sdk_version: String,
+        sdk_version: Option<String>,
     ) -> Self {
         let mut image_hasher = Sha256::new();
         image_hasher.update(image_name.clone());
         image_hasher.update(base_image.clone());
         image_hasher.update(run_strs.clone().join(""));
-        image_hasher.update(sdk_version.clone());
+        image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
 
         ImageInformation {
             image_name,
@@ -1064,7 +1064,7 @@ mod tests {
             "test".to_string(),
             "static_base_image".to_string(),
             vec!["pip install all_the_things".to_string()],
-            "1.2.3".to_string(),
+            Some("1.2.3".to_string()),
         );
 
         assert_eq!(

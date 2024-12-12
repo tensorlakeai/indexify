@@ -92,7 +92,7 @@ pub struct ImageInformation {
     pub base_image: String,
     pub run_strs: Vec<String>,
     pub image_uri: Option<String>,
-    pub sdk_version: String,
+    pub sdk_version: Option<String>,
 }
 
 impl fmt::Debug for ImageInformation {
