@@ -112,7 +112,6 @@ impl ImageInformation {
     ) -> Self {
         let mut image_hasher = Sha256::new();
         image_hasher.update(image_name.clone());
-        image_hasher.update(tag.clone());
         image_hasher.update(base_image.clone());
         image_hasher.update(run_strs.clone().join(""));
         image_hasher.update(sdk_version.clone());
@@ -1050,10 +1049,27 @@ mod tests {
     };
 
     #[test]
+    fn test_image_hash_consistency() {
+        let image_info = ImageInformation::new(
+            "test".to_string(),
+            "test".to_string(),
+            "static_base_image".to_string(),
+            vec!["pip install all_the_things".to_string()],
+            "1.2.3".to_string(),
+        );
+
+        assert_eq!(
+            image_info.image_hash,
+            "229514da1c19e40fda77e8b4a4990f69ce1ec460f025f4e1367bb2219f6abea1",
+            "image hash should not change"
+        );
+    }
+
+    #[test]
     fn test_compute_fn_neq_executor_for_image_name() {
         let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
             image_information: ImageInformation {
+                image_name: "some_image_name".to_string(),
                 version: ImageVersion(1),
                 ..Default::default()
             },
@@ -1073,8 +1089,8 @@ mod tests {
     fn test_compute_fn_neq_executor_for_image_version() {
         // Test cascades with `test_compute_fn_neq_executor_for_image_name`
         let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
             image_information: ImageInformation {
+                image_name: "some_image_name".to_string(),
                 version: ImageVersion(1),
                 ..Default::default()
             },
@@ -1086,7 +1102,6 @@ mod tests {
             image_version: 2,
             ..Default::default()
         };
-
         assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
     }
 
