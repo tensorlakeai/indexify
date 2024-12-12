@@ -15,13 +15,19 @@ class ProcessFunctionExecutor(FunctionExecutor):
     """A FunctionExecutor that runs in a separate host process."""
 
     def __init__(
-        self, process: asyncio.subprocess.Process, port: int, address: str, logger: Any
+        self,
+        process: asyncio.subprocess.Process,
+        port: int,
+        address: str,
+        logger: Any,
+        state: Optional[Any] = None,
     ):
         self._proc = process
         self._port = port
         self._address = address
         self._logger = logger.bind(module=__name__)
         self._channel: Optional[grpc.aio.Channel] = None
+        self._state: Optional[Any] = state
 
     async def channel(self) -> grpc.aio.Channel:
         # Not thread safe but async safe because we don't await.
@@ -53,3 +59,6 @@ class ProcessFunctionExecutor(FunctionExecutor):
                 f"failed to connect to the gRPC server at {self._address} within {FUNCTION_EXECUTOR_READY_TIMEOUT_SEC} seconds"
             )
             raise
+
+    def state(self) -> Optional[Any]:
+        return self._state

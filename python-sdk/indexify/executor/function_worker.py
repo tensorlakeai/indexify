@@ -1,4 +1,5 @@
-from typing import Optional
+import asyncio
+from typing import Any, Dict, Optional
 
 import grpc
 import structlog
@@ -58,24 +59,115 @@ class FunctionWorkerOutput:
         self.success = success
 
 
+class FunctionExecutorState:
+    def __init__(
+        self,
+        function_id_with_version: str,
+        function_id_without_version: str,
+        ongoing_tasks_count: int,
+    ):
+        self.function_id_with_version: str = function_id_with_version
+        self.function_id_without_version: str = function_id_without_version
+        self.ongoing_tasks_count: int = ongoing_tasks_count
+
+
 class FunctionWorker:
     def __init__(self, function_executor_factory: FunctionExecutorFactory):
         self._function_executors = FunctionExecutorMap(function_executor_factory)
 
     async def run(self, input: FunctionWorkerInput) -> FunctionWorkerOutput:
-        function_id = _function_id(input.task)
+        logger = _logger(input.task)
         function_executor: Optional[FunctionExecutor] = None
-
         try:
-            logger = structlog.get_logger(
-                module=__name__,
-                namespace=input.task.namespace,
-                graph_name=input.task.compute_graph,
-                graph_version=input.task.graph_version,
-                function_name=input.task.compute_fn,
-                graph_invocation_id=input.task.invocation_id,
-                task_id=input.task.id,
+            function_executor = await self._obtain_function_executor(input, logger)
+            return await self._run_in_executor(
+                function_executor=function_executor, input=input
             )
+        except Exception as e:
+            logger.error(
+                "failed running the task",
+                exc_info=e,
+            )
+            if function_executor is not None:
+                # This will fail all the tasks concurrently running in this Function Executor. Not great.
+                await self._function_executors.delete(
+                    id=_function_id_without_version(input.task),
+                    function_executor=function_executor,
+                    logger=logger,
+                )
+            return _internal_error_output()
+
+    async def _obtain_function_executor(
+        self, input: FunctionWorkerInput, logger: Any
+    ) -> FunctionExecutor:
+        # Temporary policy for Function Executors lifecycle:
+        # There can only be a single Function Executor per function.
+        # If a Function Executor already exists for a different function version then wait until
+        # all the tasks finish in the existing Function Executor and then destroy it first.
+        initialize_request: InitializeRequest = InitializeRequest(
+            namespace=input.task.namespace,
+            graph_name=input.task.compute_graph,
+            graph_version=input.task.graph_version,
+            function_name=input.task.compute_fn,
+            graph=input.graph,
+        )
+        initial_function_executor_state: FunctionExecutorState = FunctionExecutorState(
+            function_id_with_version=_function_id_with_version(input.task),
+            function_id_without_version=_function_id_without_version(input.task),
+            ongoing_tasks_count=0,
+        )
+
+        while True:
+            function_executor = await self._function_executors.get_or_create(
+                id=_function_id_without_version(input.task),
+                initialize_request=initialize_request,
+                initial_state=initial_function_executor_state,
+                logger=logger,
+            )
+
+            # No need to lock Function Executor state as we are not awaiting.
+            function_executor_state: FunctionExecutorState = function_executor.state()
+            if (
+                function_executor_state.function_id_with_version
+                == _function_id_with_version(input.task)
+            ):
+                # The existing Function Executor is for the same function version so we can run the task in it.
+                # Increment the ongoing tasks count before awaiting to prevent the Function Executor from being destroyed
+                # by another coroutine.
+                function_executor_state.ongoing_tasks_count += 1
+                return function_executor
+
+            # This loop implements the temporary policy so it's implemented using polling instead of a lower
+            # latency event based mechanism with a higher complexity.
+            if function_executor_state.ongoing_tasks_count == 0:
+                logger.info(
+                    "destroying existing Function Executor for different function version",
+                    function_id=_function_id_with_version(input.task),
+                    executor_function_id=function_executor_state.function_id_with_version,
+                )
+                await self._function_executors.delete(
+                    id=_function_id_without_version(input.task),
+                    function_executor=function_executor,
+                    logger=logger,
+                )
+            else:
+                logger.info(
+                    "waiting for existing Function Executor to finish",
+                    function_id=_function_id_with_version(input.task),
+                    executor_function_id=function_executor_state.function_id_with_version,
+                )
+                await asyncio.sleep(
+                    5
+                )  # Wait for 5 secs before checking if all tasks for the existing Function Executor finished.
+
+    async def _run_in_executor(
+        self, function_executor: FunctionExecutor, input: FunctionWorkerInput
+    ) -> FunctionWorkerOutput:
+        """Runs the task in the Function Executor.
+
+        The Function Executor's ongoing_tasks_count must be incremented before calling this function.
+        """
+        try:
             run_task_request: RunTaskRequest = RunTaskRequest(
                 graph_invocation_id=input.task.invocation_id,
                 task_id=input.task.id,
@@ -85,45 +177,15 @@ class FunctionWorker:
                 run_task_request.function_init_value.CopyFrom(
                     input.function_input.init_value
                 )
-
-            function_executor = await self._function_executors.get_or_create(
-                id=function_id,
-                initialize_request=InitializeRequest(
-                    namespace=input.task.namespace,
-                    graph_name=input.task.compute_graph,
-                    graph_version=input.task.graph_version,
-                    function_name=input.task.compute_fn,
-                    graph=input.graph,
-                ),
-                logger=logger,
-            )
             channel: grpc.aio.Channel = await function_executor.channel()
             run_task_response: RunTaskResponse = await FunctionExecutorStub(
                 channel
             ).RunTask(run_task_request)
-            return _worker_output(run_task_response)
-        except Exception as e:
-            logger.error(
-                "failed running function in Function Executor",
-                exc_info=e,
-            )
-            if function_executor is not None:
-                # This will fail all the tasks concurrently running in this Function Executor. Not great.
-                await self._function_executors.delete_and_destroy(
-                    id=function_id,
-                    logger=logger,
-                )
-            return FunctionWorkerOutput(
-                function_output=None,
-                router_output=None,
-                stdout=None,
-                # We are not sharing internal error messages with the customer.
-                # If customer code failed then we won't get any exceptions here.
-                # All customer code errors are returned in the gRPC response.
-                stderr="Platform failed to execute the function.",
-                reducer=False,
-                success=False,
-            )
+            return _to_output(run_task_response)
+        finally:
+            # If this Function Executor was destroyed then it's not
+            # visible in the map but we still have a reference to it.
+            function_executor.state().ongoing_tasks_count -= 1
 
     async def shutdown(self) -> None:
         await self._function_executors.clear(
@@ -131,7 +193,7 @@ class FunctionWorker:
         )
 
 
-def _worker_output(response: RunTaskResponse) -> FunctionWorkerOutput:
+def _to_output(response: RunTaskResponse) -> FunctionWorkerOutput:
     required_fields = [
         "stdout",
         "stderr",
@@ -158,7 +220,36 @@ def _worker_output(response: RunTaskResponse) -> FunctionWorkerOutput:
     return output
 
 
-def _function_id(task: Task) -> str:
-    return (
-        f"{task.namespace}/{task.compute_graph}/{task.graph_version}/{task.compute_fn}"
+def _internal_error_output() -> FunctionWorkerOutput:
+    return FunctionWorkerOutput(
+        function_output=None,
+        router_output=None,
+        stdout=None,
+        # We are not sharing internal error messages with the customer.
+        # If customer code failed then we won't get any exceptions here.
+        # All customer code errors are returned in the gRPC response.
+        stderr="Platform failed to execute the function.",
+        reducer=False,
+        success=False,
     )
+
+
+def _logger(task: Task) -> Any:
+    return structlog.get_logger(
+        module=__name__,
+        namespace=task.namespace,
+        graph_name=task.compute_graph,
+        graph_version=task.graph_version,
+        function_name=task.compute_fn,
+        graph_invocation_id=task.invocation_id,
+        task_id=task.id,
+        function_id=_function_id_with_version(task),
+    )
+
+
+def _function_id_with_version(task: Task) -> str:
+    return f"versioned/{task.namespace}/{task.compute_graph}/{task.graph_version}/{task.compute_fn}"
+
+
+def _function_id_without_version(task: Task) -> str:
+    return f"not_versioned/{task.namespace}/{task.compute_graph}/{task.compute_fn}"

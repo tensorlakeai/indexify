@@ -18,7 +18,9 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
         # Registred ports range end at 49151. We start from 50000 to hopefully avoid conflicts.
         self._free_ports = set(range(50000, 51000))
 
-    async def create(self, logger: Any) -> ProcessFunctionExecutor:
+    async def create(
+        self, logger: Any, state: Optional[Any] = None
+    ) -> ProcessFunctionExecutor:
         logger = logger.bind(module=__name__)
         port: Optional[int] = None
 
@@ -44,7 +46,11 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
                 *args,
             )
             return ProcessFunctionExecutor(
-                process=proc, port=port, address=_server_address(port), logger=logger
+                process=proc,
+                port=port,
+                address=_server_address(port),
+                logger=logger,
+                state=state,
             )
         except Exception as e:
             if port is not None:

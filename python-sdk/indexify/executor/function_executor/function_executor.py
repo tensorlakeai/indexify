@@ -1,3 +1,5 @@
+from typing import Any, Optional
+
 import grpc
 
 # Timeout for Function Executor startup in seconds.
@@ -20,4 +22,11 @@ class FunctionExecutor:
         and can be shared among coroutines running in the same event loop in the same thread. Users should
         not close the channel as it's reused for all requests.
         Raises Exception if an error occurred."""
+        raise NotImplementedError
+
+    def state(self) -> Optional[Any]:
+        """Returns optional state object.
+
+        The state object can be used to associate any data with the Function Executor.
+        """
         raise NotImplementedError
