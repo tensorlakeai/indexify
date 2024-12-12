@@ -239,6 +239,9 @@ class ExtractorAgent:
         asyncio.get_event_loop().add_signal_handler(
             signal.SIGINT, self.shutdown, asyncio.get_event_loop()
         )
+        asyncio.get_event_loop().add_signal_handler(
+            signal.SIGTERM, self.shutdown, asyncio.get_event_loop()
+        )
         asyncio.create_task(self.task_launcher())
         asyncio.create_task(self.task_completion_reporter())
         self._should_run = True
