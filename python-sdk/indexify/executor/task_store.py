@@ -1,23 +1,38 @@
 import asyncio
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel
-from rich import print
+import structlog
 
-from indexify.functions_sdk.data_objects import IndexifyData, RouterOutput
+from indexify.function_executor.proto.function_executor_pb2 import (
+    FunctionOutput,
+    RouterOutput,
+)
 
 from .api_objects import Task
 
+logger = structlog.get_logger(module=__name__)
 
-class CompletedTask(BaseModel):
-    task: Task
-    task_outcome: Literal["success", "failure"]
-    outputs: Optional[List[IndexifyData]] = None
-    router_output: Optional[RouterOutput] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
-    reducer: bool = False
-    reporting_retries: int = 0
+
+class CompletedTask:
+    def __init__(
+        self,
+        task: Task,
+        task_outcome: Literal["success", "failure"],
+        function_output: Optional[FunctionOutput] = None,
+        router_output: Optional[RouterOutput] = None,
+        stdout: Optional[str] = None,
+        stderr: Optional[str] = None,
+        reducer: bool = False,
+        reporting_retries: int = 0,
+    ):
+        self.task = task
+        self.task_outcome = task_outcome
+        self.function_output = function_output
+        self.router_output = router_output
+        self.stdout = stdout
+        self.stderr = stderr
+        self.reducer = reducer
+        self.reporting_retries = reporting_retries
 
 
 class TaskStore:
@@ -41,8 +56,12 @@ class TaskStore:
                 or (task.id in self._finished)
             ):
                 continue
-            print(
-                f"[bold] task store: [/bold] added task: {task.id} graph: {task.compute_graph} fn: {task.compute_fn} to queue"
+            logger.info(
+                "added task",
+                task_id=task.id,
+                namespace=task.namespace,
+                graph=task.compute_graph,
+                fn=task.compute_fn,
             )
             self._tasks[task.id] = task
             self._new_task_event.set()
@@ -87,7 +106,7 @@ class TaskStore:
     def mark_reported(self, task_id: str):
         self._tasks.pop(task_id)
         self._finished.pop(task_id)
-        print(f"[bold] task store: [/bold] removed task: {task_id} from queue")
+        logger.info("removed task", task_id=task_id)
 
     def report_failed(self, task_id: str):
         if self._finished[task_id].task_outcome != "Failed":

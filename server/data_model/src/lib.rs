@@ -423,20 +423,24 @@ impl ComputeGraph {
             }
             self.nodes = updated_nodes;
 
-            graph_version = Some(ComputeGraphVersion {
-                namespace: self.namespace.clone(),
-                compute_graph_name: self.name.clone(),
-                created_at: get_epoch_time_in_ms(),
-                version: self.version,
-                code: self.code.clone(),
-                start_fn: self.start_fn.clone(),
-                nodes: self.nodes.clone(),
-                edges: self.edges.clone(),
-                runtime_information: self.runtime_information.clone(),
-            });
+            graph_version = Some(self.into_version());
         }
 
         (self, graph_version)
+    }
+
+    pub fn into_version(&self) -> ComputeGraphVersion {
+        ComputeGraphVersion {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.name.clone(),
+            created_at: self.created_at,
+            version: self.version,
+            code: self.code.clone(),
+            start_fn: self.start_fn.clone(),
+            nodes: self.nodes.clone(),
+            edges: self.edges.clone(),
+            runtime_information: self.runtime_information.clone(),
+        }
     }
 }
 

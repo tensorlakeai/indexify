@@ -1,73 +1,58 @@
 import asyncio
-from typing import Optional
 
-from indexify.functions_sdk.data_objects import IndexifyData
+from pydantic import BaseModel
 
 from .api_objects import Task
 from .downloader import Downloader
-from .function_worker import FunctionWorker
+from .function_worker import FunctionWorker, FunctionWorkerInput
 
 
 class DownloadGraphTask(asyncio.Task):
     def __init__(
         self,
         *,
-        task: Task,
+        function_worker_input: FunctionWorkerInput,
         downloader: Downloader,
         **kwargs,
     ):
         kwargs["name"] = "download_graph"
         kwargs["loop"] = asyncio.get_event_loop()
         super().__init__(
-            downloader.download_graph(
-                task.namespace, task.compute_graph, task.graph_version
-            ),
+            downloader.download_graph(function_worker_input.task),
             **kwargs,
         )
-        self.task = task
+        self.function_worker_input = function_worker_input
 
 
-class DownloadInputTask(asyncio.Task):
+class DownloadInputsTask(asyncio.Task):
     def __init__(
         self,
         *,
-        task: Task,
+        function_worker_input: FunctionWorkerInput,
         downloader: Downloader,
         **kwargs,
     ):
-        kwargs["name"] = "download_input"
+        kwargs["name"] = "download_inputs"
         kwargs["loop"] = asyncio.get_event_loop()
         super().__init__(
-            downloader.download_input(task),
+            downloader.download_inputs(function_worker_input.task),
             **kwargs,
         )
-        self.task = task
+        self.function_worker_input = function_worker_input
 
 
-class ExtractTask(asyncio.Task):
+class RunTask(asyncio.Task):
     def __init__(
         self,
         *,
         function_worker: FunctionWorker,
-        task: Task,
-        input: IndexifyData,
-        init_value: Optional[IndexifyData] = None,
-        code_path: str,
+        function_worker_input: FunctionWorkerInput,
         **kwargs,
     ):
-        kwargs["name"] = "run_function"
+        kwargs["name"] = "run_task"
         kwargs["loop"] = asyncio.get_event_loop()
         super().__init__(
-            function_worker.async_submit(
-                namespace=task.namespace,
-                graph_name=task.compute_graph,
-                fn_name=task.compute_fn,
-                input=input,
-                init_value=init_value,
-                code_path=code_path,
-                version=task.graph_version,
-                invocation_id=task.invocation_id,
-            ),
+            function_worker.run(function_worker_input),
             **kwargs,
         )
-        self.task = task
+        self.function_worker_input = function_worker_input

@@ -1,3 +1,8 @@
+from .logging import configure_logging_early, configure_production_logging
+
+configure_logging_early()
+
+
 import asyncio
 import os
 import shutil
@@ -18,12 +23,18 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
-from indexify.executor.function_worker import FunctionWorker
+from indexify.function_executor.function_executor_service import (
+    FunctionExecutorService,
+)
+from indexify.function_executor.server import Server as FunctionExecutorServer
 from indexify.functions_sdk.image import (
     LOCAL_PYTHON_VERSION,
     GetDefaultPythonImage,
     Image,
 )
+from indexify.http_client import IndexifyClient
+
+logger = structlog.get_logger(module=__name__)
 
 custom_theme = Theme(
     {
@@ -34,10 +45,12 @@ custom_theme = Theme(
     }
 )
 
-logging = structlog.get_logger(module=__name__)
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
+config_path_option: Optional[str] = typer.Option(
+    None, help="Path to the TLS configuration file"
+)
 
 
 @app.command(
@@ -173,12 +186,7 @@ def executor(
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
-    workers: Annotated[
-        int, typer.Option(help="number of worker processes for extraction")
-    ] = 1,
-    config_path: Optional[str] = typer.Option(
-        None, help="Path to the TLS configuration file"
-    ),
+    config_path: Optional[str] = config_path_option,
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
@@ -189,19 +197,13 @@ def executor(
         "1", help="Requested Image Version for this executor"
     ),
 ):
-    # configure structured logging
     if not dev:
-        processors = [
-            structlog.processors.dict_tracebacks,
-            structlog.processors.JSONRenderer(),
-        ]
-        structlog.configure(processors=processors)
+        configure_production_logging()
 
     id = nanoid.generate()
     executor_version = version("indexify")
-    logging.info(
+    logger.info(
         "executor started",
-        workers=workers,
         server_addr=server_addr,
         config_path=config_path,
         executor_id=id,
@@ -209,6 +211,7 @@ def executor(
         executor_cache=executor_cache,
         name_alias=name_alias,
         image_version=image_version,
+        dev_mode=dev,
     )
 
     from pathlib import Path
@@ -220,18 +223,47 @@ def executor(
 
     agent = ExtractorAgent(
         id,
-        num_workers=workers,
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
         name_alias=name_alias,
         image_version=image_version,
+        development_mode=dev,
     )
 
     try:
         asyncio.get_event_loop().run_until_complete(agent.run())
     except asyncio.CancelledError:
-        logging.info("graceful shutdown")
+        logger.info("graceful shutdown")
+
+
+@app.command(help="Runs a Function Executor server")
+def function_executor(
+    function_executor_server_address: str = typer.Option(
+        help="Function Executor server address"
+    ),
+    indexify_server_address: str = typer.Option(help="Indexify server address"),
+    dev: Annotated[
+        bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
+    ] = False,
+    config_path: Optional[str] = config_path_option,
+):
+    if not dev:
+        configure_production_logging()
+
+    logger.info(
+        "starting function executor server",
+        function_executor_server_address=function_executor_server_address,
+        indexify_server_address=indexify_server_address,
+        config_path=config_path,
+    )
+
+    FunctionExecutorServer(
+        server_address=function_executor_server_address,
+        service=FunctionExecutorService(
+            indexify_server_address=indexify_server_address, config_path=config_path
+        ),
+    ).run()
 
 
 def _create_image(image: Image, python_sdk_path):
