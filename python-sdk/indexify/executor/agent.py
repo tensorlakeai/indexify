@@ -8,9 +8,6 @@ import structlog
 from httpx_sse import aconnect_sse
 
 from indexify.common_util import get_httpx_client
-from indexify.function_executor.proto.function_executor_pb2 import (
-    SerializedObject,
-)
 
 from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
