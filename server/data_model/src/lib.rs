@@ -99,15 +99,22 @@ pub struct ImageInformation {
     pub image_hash: String,
     pub version: ImageVersion, // this gets updated when the hash changes
     pub image_uri: Option<String>,
+    pub sdk_version: Option<String>,
 }
 
 impl ImageInformation {
-    pub fn new(image_name: String, tag: String, base_image: String, run_strs: Vec<String>) -> Self {
+    pub fn new(
+        image_name: String,
+        tag: String,
+        base_image: String,
+        run_strs: Vec<String>,
+        sdk_version: Option<String>,
+    ) -> Self {
         let mut image_hasher = Sha256::new();
         image_hasher.update(image_name.clone());
-        image_hasher.update(tag.clone());
         image_hasher.update(base_image.clone());
         image_hasher.update(run_strs.clone().join(""));
+        image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
 
         ImageInformation {
             image_name,
@@ -117,6 +124,7 @@ impl ImageInformation {
             image_hash: format!("{:x}", image_hasher.finalize()),
             version: ImageVersion::default(),
             image_uri: None,
+            sdk_version,
         }
     }
 }
@@ -135,7 +143,6 @@ pub struct DynamicEdgeRouter {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -150,7 +157,6 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -160,10 +166,10 @@ impl ComputeFn {
         executor: &ExecutorMetadata,
         diagnostic_msgs: &mut Vec<String>,
     ) -> bool {
-        if executor.image_name != self.image_name {
+        if executor.image_name != self.image_information.image_name {
             diagnostic_msgs.push(format!(
                 "executor {}, image name: {} does not match function image name {}",
-                executor.id, executor.image_name, self.image_name
+                executor.id, executor.image_name, self.image_information.image_name
             ));
 
             return false;
@@ -197,8 +203,8 @@ impl Node {
 
     pub fn image_name(&self) -> &str {
         match self {
-            Node::Router(router) => &router.image_name,
-            Node::Compute(compute) => &compute.image_name,
+            Node::Router(router) => &router.image_information.image_name,
+            Node::Compute(compute) => &compute.image_information.image_name,
         }
     }
 
@@ -1056,10 +1062,27 @@ mod tests {
     };
 
     #[test]
+    fn test_image_hash_consistency() {
+        let image_info = ImageInformation::new(
+            "test".to_string(),
+            "test".to_string(),
+            "static_base_image".to_string(),
+            vec!["pip install all_the_things".to_string()],
+            Some("1.2.3".to_string()),
+        );
+
+        assert_eq!(
+            image_info.image_hash,
+            "229514da1c19e40fda77e8b4a4990f69ce1ec460f025f4e1367bb2219f6abea1",
+            "image hash should not change"
+        );
+    }
+
+    #[test]
     fn test_compute_fn_neq_executor_for_image_name() {
         let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
             image_information: ImageInformation {
+                image_name: "some_image_name".to_string(),
                 version: ImageVersion(1),
                 ..Default::default()
             },
@@ -1079,8 +1102,8 @@ mod tests {
     fn test_compute_fn_neq_executor_for_image_version() {
         // Test cascades with `test_compute_fn_neq_executor_for_image_name`
         let compute_fn = ComputeFn {
-            image_name: "some_image_name".to_string(),
             image_information: ImageInformation {
+                image_name: "some_image_name".to_string(),
                 version: ImageVersion(1),
                 ..Default::default()
             },
@@ -1092,7 +1115,6 @@ mod tests {
             image_version: 2,
             ..Default::default()
         };
-
         assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
     }
 

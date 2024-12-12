@@ -48,16 +48,16 @@ pub mod tests {
     }
 
     pub fn test_compute_fn(name: &str, image_hash: Option<String>) -> ComputeFn {
+        let mut image_information = ImageInformation::default();
+        image_information.image_name = TEST_EXECUTOR_IMAGE_NAME.to_string();
         match image_hash {
             Some(image_hash) => {
-                let mut image_information = ImageInformation::default();
                 image_information.image_hash = image_hash.to_string();
 
                 ComputeFn {
                     name: name.to_string(),
                     description: format!("description {}", name),
                     fn_name: name.to_string(),
-                    image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
                     image_information,
                     ..Default::default()
                 }
@@ -66,7 +66,7 @@ pub mod tests {
                 name: name.to_string(),
                 description: format!("description {}", name),
                 fn_name: name.to_string(),
-                image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+                image_information,
                 ..Default::default()
             },
         }
@@ -205,9 +205,8 @@ pub mod tests {
             target_functions: vec!["fn_b".to_string(), "fn_c".to_string()],
             input_encoder: "cloudpickle".to_string(),
             output_encoder: "cloudpickle".to_string(),
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
             image_information: ImageInformation {
-                image_name: "test-image".to_string(),
+                image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
                 tag: "tag-1".to_string(),
                 base_image: "base-image".to_string(),
                 run_strs: vec![
@@ -218,6 +217,7 @@ pub mod tests {
                 image_hash: "".to_string(),
                 version: Default::default(),
                 image_uri: Some("1234567890.dkr.ecr.us-east-1.amazonaws.com/test".to_string()),
+                sdk_version: Some("1.2.3".to_string()),
             },
         };
         let fn_b = test_compute_fn("fn_b", None);
