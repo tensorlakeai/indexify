@@ -167,6 +167,69 @@ class TestValidations(unittest.TestCase):
             str(cm.exception),
         )
 
+    def test_unreachable_graph_nodes(self):
+        @indexify_function()
+        def start() -> int:
+            return 1
+
+        @indexify_function()
+        def middle() -> int:
+            return 1
+
+        @indexify_function()
+        def end() -> int:
+            return 1
+
+        graph = Graph(
+            name="test_unreachable_graph_nodes",
+            start_node=start,
+        )
+        graph.add_edge(middle, end)
+        with self.assertRaises(Exception) as cm:
+            graph.validate_graph()
+        self.assertEqual(
+            "Some nodes in the graph are not reachable from start node",
+            str(cm.exception),
+        )
+
+    def test_validation_does_not_change_graph(self):
+        """
+        Ensure that the graph is not changed when calling validate_graph.
+
+        This is to catch potential regressions like doing a defaultdict key creation.
+        """
+
+        @indexify_function()
+        def start() -> int:
+            return 1
+
+        @indexify_function()
+        def middle() -> int:
+            return 1
+
+        @indexify_function()
+        def end() -> int:
+            return 1
+
+        graph = Graph(
+            name="test_unreachable_graph_nodes",
+            start_node=start,
+        )
+        graph.add_edge(start, middle)
+        graph.add_edge(middle, end)
+
+        graph_def = graph.definition()
+
+        graph.validate_graph()
+
+        graph_def2 = graph.definition()
+
+        self.assertEqual(
+            graph_def,
+            graph_def2,
+            "ensure graph is not changed for example by triggering a defaultdict key creation",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

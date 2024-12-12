@@ -264,9 +264,14 @@ class Graph:
             current_node_name = queue.popleft()
             neighbours = (
                 self.edges[current_node_name]
-                if self.edges[current_node_name]
-                else self.routers[current_node_name]
+                if current_node_name in self.edges
+                else (
+                    self.routers[current_node_name]
+                    if current_node_name in self.routers
+                    else []
+                )
             )
+
             for neighbour in neighbours:
                 if neighbour in visited:
                     continue
@@ -276,9 +281,7 @@ class Graph:
 
         if total_number_of_nodes != len(visited):
             # all the nodes are not reachable from the start_node.
-            raise Exception(
-                "Some nodes in the graph are not reachable from start node."
-            )
+            raise Exception("Some nodes in the graph are not reachable from start node")
 
     def _run(
         self,
