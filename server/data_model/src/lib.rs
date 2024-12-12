@@ -99,10 +99,17 @@ pub struct ImageInformation {
     pub image_hash: String,
     pub version: ImageVersion, // this gets updated when the hash changes
     pub image_uri: Option<String>,
+    pub sdk_version: String,
 }
 
 impl ImageInformation {
-    pub fn new(image_name: String, tag: String, base_image: String, run_strs: Vec<String>) -> Self {
+    pub fn new(
+        image_name: String,
+        tag: String,
+        base_image: String,
+        run_strs: Vec<String>,
+        sdk_version: String,
+    ) -> Self {
         let mut image_hasher = Sha256::new();
         image_hasher.update(image_name.clone());
         image_hasher.update(tag.clone());
@@ -117,6 +124,7 @@ impl ImageInformation {
             image_hash: format!("{:x}", image_hasher.finalize()),
             version: ImageVersion::default(),
             image_uri: None,
+            sdk_version,
         }
     }
 }
@@ -387,12 +395,12 @@ impl ComputeGraph {
 
         let mut graph_version: Option<ComputeGraphVersion> = None;
 
-        if self.code.sha256_hash != update.code.sha256_hash ||
-            self.runtime_information != update.runtime_information ||
-            self.edges != update.edges ||
-            self.start_fn != update.start_fn ||
-            self.nodes.len() != update.nodes.len() ||
-            self.nodes.iter().any(|(k, v)| {
+        if self.code.sha256_hash != update.code.sha256_hash
+            || self.runtime_information != update.runtime_information
+            || self.edges != update.edges
+            || self.start_fn != update.start_fn
+            || self.nodes.len() != update.nodes.len()
+            || self.nodes.iter().any(|(k, v)| {
                 update
                     .nodes
                     .get(k)
@@ -1037,18 +1045,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        test_objects::tests::test_compute_fn,
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        ComputeGraphVersion,
-        DynamicEdgeRouter,
-        ExecutorMetadata,
-        GraphVersion,
-        ImageInformation,
-        ImageVersion,
-        Node,
-        RuntimeInformation,
+        test_objects::tests::test_compute_fn, ComputeFn, ComputeGraph, ComputeGraphCode,
+        ComputeGraphVersion, DynamicEdgeRouter, ExecutorMetadata, GraphVersion, ImageInformation,
+        ImageVersion, Node, RuntimeInformation,
     };
 
     #[test]

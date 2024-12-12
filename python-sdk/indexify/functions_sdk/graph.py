@@ -291,9 +291,9 @@ class Graph:
         queue = deque([(self._start_node, initial_input)])
         while queue:
             node_name, input = queue.popleft()
-            function_outputs: Union[FunctionCallResult, RouterCallResult] = (
-                self._invoke_fn(node_name, input)
-            )
+            function_outputs: Union[
+                FunctionCallResult, RouterCallResult
+            ] = self._invoke_fn(node_name, input)
             self._log_local_exec_tracebacks(function_outputs)
             if isinstance(function_outputs, RouterCallResult):
                 for edge in function_outputs.edges:

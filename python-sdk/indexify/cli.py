@@ -243,6 +243,7 @@ def _create_image(image: Image, python_sdk_path):
 
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
+
     try:
         import docker
 
@@ -255,38 +256,37 @@ def _build_image(image: Image, python_sdk_path: Optional[str] = None):
         )
         exit(-1)
 
-    docker_file = f"""
-FROM {image._base_image}
+    docker_contents = [
+        f"FROM {image._base_image}",
+        "RUN mkdir -p ~/.indexify",
+        "RUN touch ~/.indexify/image_name",
+        f"RUN echo {image._image_name} > ~/.indexify/image_name",
+        f"RUN echo {image.hash()} > ~/.indexify/image_hash",
+        "WORKDIR /app",
+    ]
 
-RUN mkdir -p ~/.indexify
+    docker_contents.extend(["RUN " + i for i in image._run_strs])
 
-RUN touch ~/.indexify/image_name
+    if python_sdk_path is not None:
+        logging.info(
+            f"Building image {image._image_name} with local version of the SDK"
+        )
+        if not os.path.exists(python_sdk_path):
+            print(f"error: {python_sdk_path} does not exist")
+            os.exit(1)
+        docker_contents.append(f"COPY {python_sdk_path} /app/python-sdk")
+        docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
+    else:
+        docker_contents.append(f"RUN pip install indexify=={image._sdk_version}")
 
-RUN  echo {image._image_name} > ~/.indexify/image_name
+    docker_file = "\n".join(docker_contents)
 
-WORKDIR /app
-
-"""
-    run_strs = ["RUN " + i for i in image._run_strs]
-
-    docker_file += "\n".join(run_strs)
-    print(os.getcwd())
-    import docker
     import docker.api.build
 
     docker.api.build.process_dockerfile = lambda dockerfile, path: (
         "Dockerfile",
         dockerfile,
     )
-
-    if python_sdk_path is not None:
-        if not os.path.exists(python_sdk_path):
-            print(f"error: {python_sdk_path} does not exist")
-            os.exit(1)
-        docker_file += f"\nCOPY {python_sdk_path} /app/python-sdk"
-        docker_file += f"\nRUN (cd /app/python-sdk && pip install .)"
-    else:
-        docker_file += f"\nRUN pip install indexify"
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
     print(f"{docker_file}")
