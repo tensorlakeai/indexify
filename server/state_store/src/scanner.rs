@@ -23,7 +23,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::{info, instrument};
+use tracing::{debug, instrument};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -555,7 +555,7 @@ impl StateReader {
             return Ok(compute_graph_version);
         }
 
-        info!(
+        debug!(
             "Falling back to compute graph to get version for graph {}",
             name
         );
