@@ -129,10 +129,6 @@ def build_image(
     image_names: Optional[List[str]] = None,
     python_sdk_path: Optional[str] = None,
 ):
-    python_version: Optional[str] = (
-        typer.Option(LOCAL_PYTHON_VERSION, help="Version of the config file to build"),
-    )
-
     globals_dict = {}
 
     # Add the folder in the workflow file path to the current Python path
@@ -159,11 +155,13 @@ def build_default_image(
         help="Python version to use in the base image",
     )
 ):
-
-    _build_image(image=GetDefaultPythonImage(python_version))
-
+    image = GetDefaultPythonImage(python_version)
+    
+    _build_image(image=image)
+    
     console.print(
-        Text(f"Built default indexify image", style="cyan"),
+        Text(f"Built default indexify image with hash {image.hash()}\n", style="cyan"),
+        Text(f"Don't forget to update your executors to run this image!", style="yellow")
     )
 
 
@@ -301,5 +299,6 @@ def _build_image(image: Image, python_sdk_path: Optional[str] = None):
     )
     for result in generator:
         print(result)
+
 
     print(f"built image: {image_name}")
