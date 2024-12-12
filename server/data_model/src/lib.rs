@@ -115,6 +115,7 @@ impl ImageInformation {
         image_hasher.update(tag.clone());
         image_hasher.update(base_image.clone());
         image_hasher.update(run_strs.clone().join(""));
+        image_hasher.update(sdk_version.clone());
 
         ImageInformation {
             image_name,
@@ -143,7 +144,6 @@ pub struct DynamicEdgeRouter {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -158,7 +158,6 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -168,10 +167,10 @@ impl ComputeFn {
         executor: &ExecutorMetadata,
         diagnostic_msgs: &mut Vec<String>,
     ) -> bool {
-        if executor.image_name != self.image_name {
+        if executor.image_name != self.image_information.image_name {
             diagnostic_msgs.push(format!(
                 "executor {}, image name: {} does not match function image name {}",
-                executor.id, executor.image_name, self.image_name
+                executor.id, executor.image_name, self.image_information.image_name
             ));
 
             return false;
@@ -205,8 +204,8 @@ impl Node {
 
     pub fn image_name(&self) -> &str {
         match self {
-            Node::Router(router) => &router.image_name,
-            Node::Compute(compute) => &compute.image_name,
+            Node::Router(router) => &router.image_information.image_name,
+            Node::Compute(compute) => &compute.image_information.image_name,
         }
     }
 

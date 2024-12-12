@@ -12,8 +12,7 @@ class FunctionMetadata(BaseModel):
     fn_name: str
     description: str
     reducer: bool = False
-    image_name: str
-    image_information: ImageInformation
+    image_information: ImageInformation 
     input_encoder: str = "cloudpickle"
     output_encoder: str = "cloudpickle"
 
@@ -23,7 +22,6 @@ class RouterMetadata(BaseModel):
     description: str
     source_fn: str
     target_fns: List[str]
-    image_name: str
     image_information: ImageInformation
     input_encoder: str = "cloudpickle"
     output_encoder: str = "cloudpickle"

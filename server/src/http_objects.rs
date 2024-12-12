@@ -145,7 +145,6 @@ pub struct ComputeFn {
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -159,7 +158,6 @@ impl From<ComputeFn> for data_model::ComputeFn {
             reducer: val.reducer,
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
-            image_name: val.image_name.clone(),
             image_information: val.image_information.into(),
         }
     }
@@ -174,7 +172,6 @@ impl From<data_model::ComputeFn> for ComputeFn {
             reducer: c.reducer,
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
-            image_name: c.image_name,
             image_information: c.image_information.into(),
         }
     }
@@ -190,7 +187,6 @@ pub struct DynamicRouter {
     pub input_encoder: String,
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
-    pub image_name: String,
     pub image_information: ImageInformation,
 }
 
@@ -203,7 +199,6 @@ impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
             target_functions: val.target_fns.clone(),
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
-            image_name: val.image_name.clone(),
             image_information: val.image_information.clone().into(),
         }
     }
@@ -218,7 +213,6 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             target_fns: d.target_functions,
             input_encoder: d.input_encoder,
             output_encoder: d.output_encoder,
-            image_name: d.image_name,
             image_information: d.image_information.into(),
         }
     }

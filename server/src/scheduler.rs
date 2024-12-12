@@ -5,10 +5,7 @@ use data_model::{ChangeType, StateChangeId};
 use metrics::{scheduler_stats, Timer};
 use state_store::{
     requests::{
-        CreateTasksRequest,
-        ReductionTasks,
-        RequestPayload,
-        SchedulerUpdateRequest,
+        CreateTasksRequest, ReductionTasks, RequestPayload, SchedulerUpdateRequest,
         StateMachineUpdateRequest,
     },
     IndexifyState,
@@ -50,9 +47,9 @@ impl Scheduler {
             let mut new_reduction_tasks = vec![];
             let mut processed_reduction_tasks = vec![];
             let mut diagnostic_msgs = vec![];
-            let requires_task_allocation = state_change.change_type == ChangeType::TaskCreated ||
-                state_change.change_type == ChangeType::ExecutorAdded ||
-                state_change.change_type == ChangeType::ExecutorRemoved;
+            let requires_task_allocation = state_change.change_type == ChangeType::TaskCreated
+                || state_change.change_type == ChangeType::ExecutorAdded
+                || state_change.change_type == ChangeType::ExecutorRemoved;
             let span = span!(
                 tracing::Level::INFO,
                 "process_state_change",
@@ -203,33 +200,15 @@ mod tests {
 
     use data_model::{
         test_objects::tests::{
-            mock_executor,
-            mock_executor_id,
-            mock_invocation_payload_graph_b,
-            mock_node_fn_output,
-            reducer_fn,
-            test_compute_fn,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
+            mock_executor, mock_executor_id, mock_invocation_payload_graph_b, mock_node_fn_output,
+            reducer_fn, test_compute_fn, TEST_EXECUTOR_ID, TEST_NAMESPACE,
         },
-        ComputeGraph,
-        ComputeGraphCode,
-        DataPayload,
-        ExecutorId,
-        GraphVersion,
-        InvocationPayloadBuilder,
-        Node,
-        RuntimeInformation,
-        StateChange,
-        Task,
-        TaskId,
-        TaskOutcome,
+        ComputeGraph, ComputeGraphCode, DataPayload, ExecutorId, GraphVersion,
+        InvocationPayloadBuilder, Node, RuntimeInformation, StateChange, Task, TaskId, TaskOutcome,
     };
     use state_store::{
         requests::{
-            CreateOrUpdateComputeGraphRequest,
-            FinalizeTaskRequest,
-            InvokeComputeGraphRequest,
+            CreateOrUpdateComputeGraphRequest, FinalizeTaskRequest, InvokeComputeGraphRequest,
         },
         serializer::{JsonEncode, JsonEncoder},
         state_machine::IndexifyObjectsColumns,
