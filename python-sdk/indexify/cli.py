@@ -156,12 +156,14 @@ def build_default_image(
     )
 ):
     image = GetDefaultPythonImage(python_version)
-    
+
     _build_image(image=image)
-    
+
     console.print(
         Text(f"Built default indexify image with hash {image.hash()}\n", style="cyan"),
-        Text(f"Don't forget to update your executors to run this image!", style="yellow")
+        Text(
+            f"Don't forget to update your executors to run this image!", style="yellow"
+        ),
     )
 
 
@@ -299,6 +301,5 @@ def _build_image(image: Image, python_sdk_path: Optional[str] = None):
     )
     for result in generator:
         print(result)
-
 
     print(f"built image: {image_name}")

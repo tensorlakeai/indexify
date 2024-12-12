@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 DEFAULT_EXECUTOR = "tensorlake/indexify-executor-default"
 DEFAULT_VERSION = 1
+DEFAULT_HASH = "deadbeefcafe"
 
 
 class ProbeInfo(BaseModel):
@@ -21,6 +22,8 @@ class RuntimeProbes:
     def __init__(self) -> None:
         self._image_name = self._read_image_name()
         self._image_version = self._read_image_version()
+        self._image_hash = self._read_image_hash()
+
         self._os_name = platform.system()
         self._architecture = platform.machine()
         (
@@ -41,6 +44,13 @@ class RuntimeProbes:
             with open(file_path, "r") as file:
                 return int(file.read().strip())
         return DEFAULT_VERSION
+
+    def _read_image_hash(self) -> int:
+        file_path = os.path.expanduser("~/.indexify/image_hash")
+        if os.path.exists(file_path):
+            with open(file_path, "r") as file:
+                return int(file.read().strip())
+        return DEFAULT_HASH
 
     def _get_python_version(self) -> Tuple[int, int]:
         version_info = sys.version_info

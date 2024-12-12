@@ -12,7 +12,7 @@ class FunctionMetadata(BaseModel):
     fn_name: str
     description: str
     reducer: bool = False
-    image_information: ImageInformation 
+    image_information: ImageInformation
     input_encoder: str = "cloudpickle"
     output_encoder: str = "cloudpickle"
 

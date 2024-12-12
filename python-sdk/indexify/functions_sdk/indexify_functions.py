@@ -257,9 +257,9 @@ class IndexifyFunctionWrapper:
         indexify_function: Union[IndexifyFunction, IndexifyRouter],
         context: GraphInvocationContext,
     ):
-        self.indexify_function: Union[
-            IndexifyFunction, IndexifyRouter
-        ] = indexify_function()
+        self.indexify_function: Union[IndexifyFunction, IndexifyRouter] = (
+            indexify_function()
+        )
         self.indexify_function._ctx = context
 
     def get_output_model(self) -> Any:
