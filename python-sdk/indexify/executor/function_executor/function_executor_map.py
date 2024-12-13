@@ -56,7 +56,7 @@ class FunctionExecutorMap:
                 executor = await self._factory.create(logger, state=initial_state)
                 channel: grpc.aio.Channel = await executor.channel()
                 stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-                initialize_response: InitializeResponse = await stub.Initialize(
+                initialize_response: InitializeResponse = await stub.initialize(
                     initialize_request
                 )
                 if not initialize_response.success:

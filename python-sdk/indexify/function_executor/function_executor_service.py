@@ -34,7 +34,7 @@ class FunctionExecutorService(FunctionExecutorServicer):
         self._function_name: Optional[str] = None
         self._function: Optional[Union[IndexifyFunction, IndexifyRouter]] = None
 
-    def Initialize(
+    def initialize(
         self, request: InitializeRequest, context: grpc.ServicerContext
     ) -> InitializeResponse:
         request_validator: InitializeRequestValidator = InitializeRequestValidator(
@@ -65,13 +65,13 @@ class FunctionExecutorService(FunctionExecutorServicer):
 
         return InitializeResponse(success=True)
 
-    def RunTask(
+    def run_task(
         self, request: RunTaskRequest, context: grpc.ServicerContext
     ) -> RunTaskResponse:
         # Customer function code never raises an exception because we catch all of them and add
         # their details to the response. We can only get an exception here if our own code failed.
         # If our code raises an exception the grpc framework converts it into GRPC_STATUS_UNKNOWN
-        # error with the exception message. This is good enough for now.
+        # error with the exception message. Differentiating errors is not needed for now.
         RunTaskRequestValidator(request=request).check()
         return RunTaskHandler(
             request=request,

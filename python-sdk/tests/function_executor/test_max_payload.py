@@ -76,7 +76,7 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
 
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-            initialize_response: InitializeResponse = stub.Initialize(
+            initialize_response: InitializeResponse = stub.initialize(
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
@@ -92,7 +92,7 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.RunTask(
+            run_task_response: RunTaskResponse = stub.run_task(
                 RunTaskRequest(
                     graph_invocation_id="123",
                     task_id="test-task",
@@ -124,7 +124,7 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
 
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-            initialize_response: InitializeResponse = stub.Initialize(
+            initialize_response: InitializeResponse = stub.initialize(
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
@@ -140,7 +140,7 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.RunTask(
+            run_task_response: RunTaskResponse = stub.run_task(
                 RunTaskRequest(
                     graph_invocation_id="123",
                     task_id="test-task",
