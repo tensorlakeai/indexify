@@ -257,7 +257,7 @@ mod tests {
         );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
-        let graph = mock_graph_a(None);
+        let graph = mock_graph_a("image_hash".to_string());
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
@@ -618,7 +618,7 @@ mod tests {
         );
         let mut executor = SystemTasksExecutor::new(state.clone(), shutdown_rx);
 
-        let graph = mock_graph_a(None);
+        let graph = mock_graph_a("image_hash".to_string());
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),

@@ -527,7 +527,8 @@ pub struct ExecutorMetadata {
     pub executor_version: String,
     pub addr: String,
     pub image_name: String,
-    pub image_version: u32,
+    #[serde(default)]
+    pub image_hash: String,
     pub labels: HashMap<String, serde_json::Value>,
 }
 
@@ -538,7 +539,7 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             executor_version: executor.executor_version,
             addr: executor.addr,
             image_name: executor.image_name,
-            image_version: executor.image_version,
+            image_hash: executor.image_hash,
             labels: executor.labels,
         }
     }
