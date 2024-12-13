@@ -180,7 +180,7 @@ class FunctionWorker:
             channel: grpc.aio.Channel = await function_executor.channel()
             run_task_response: RunTaskResponse = await FunctionExecutorStub(
                 channel
-            ).RunTask(run_task_request)
+            ).run_task(run_task_request)
             return _to_output(run_task_response)
         finally:
             # If this Function Executor was destroyed then it's not

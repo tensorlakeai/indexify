@@ -1,5 +1,7 @@
 all: build
 
+# .proto file and generated Python files have to be in the same directory.
+# See known issue https://github.com/grpc/grpc/issues/29459.
 FUNCTION_EXECUTOR_PROTO_DIR=indexify/function_executor/proto
 
 build:

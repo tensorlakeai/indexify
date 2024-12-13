@@ -75,7 +75,7 @@ class TestRPCServer(FunctionExecutorServerTestCase):
     def test_run_task_success(self):
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-            initialize_response: InitializeResponse = stub.Initialize(
+            initialize_response: InitializeResponse = stub.initialize(
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
@@ -93,7 +93,7 @@ class TestRPCServer(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.RunTask(
+            run_task_response: RunTaskResponse = stub.run_task(
                 RunTaskRequest(
                     graph_invocation_id="123",
                     task_id="test-task",
@@ -123,7 +123,7 @@ class TestRPCServer(FunctionExecutorServerTestCase):
     def test_run_task_extractor_raises_error(self):
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-            initialize_response: InitializeResponse = stub.Initialize(
+            initialize_response: InitializeResponse = stub.initialize(
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
@@ -141,7 +141,7 @@ class TestRPCServer(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.RunTask(
+            run_task_response: RunTaskResponse = stub.run_task(
                 RunTaskRequest(
                     graph_invocation_id="123",
                     task_id="test-task",
