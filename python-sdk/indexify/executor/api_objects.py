@@ -19,7 +19,7 @@ class ExecutorMetadata(BaseModel):
     executor_version: str
     addr: str
     image_name: str
-    image_version: int
+    image_hash: str
     labels: Dict[str, Any]
 
 

@@ -36,10 +36,10 @@ class ExtractorAgent:
         development_mode: bool = False,
         config_path: Optional[str] = None,
         name_alias: Optional[str] = None,
-        image_version: Optional[int] = None,
+        image_hash: Optional[str] = None,
     ):
         self.name_alias = name_alias
-        self.image_version = image_version
+        self.image_hash = image_hash
         self._config_path = config_path
         self._probe = RuntimeProbes()
 
@@ -254,10 +254,10 @@ class ExtractorAgent:
                 else runtime_probe.image_name
             )
 
-            image_version: int = (
-                self.image_version
-                if self.image_version is not None
-                else runtime_probe.image_version
+            image_hash: str = (
+                self.image_hash
+                if self.image_hash is not None
+                else runtime_probe.image_hash
             )
 
             data = ExecutorMetadata(
@@ -265,7 +265,7 @@ class ExtractorAgent:
                 executor_version=executor_version,
                 addr="",
                 image_name=image_name,
-                image_version=image_version,
+                image_hash=image_hash,
                 labels=runtime_probe.labels,
             ).model_dump()
             logger.info(
@@ -273,6 +273,9 @@ class ExtractorAgent:
                 executor_id=self._executor_id,
                 url=url,
                 executor_version=executor_version,
+                image=image_name,
+                image_hash=image_hash,
+                labels=runtime_probe.labels,
             )
             try:
                 async with get_httpx_client(self._config_path, True) as client:

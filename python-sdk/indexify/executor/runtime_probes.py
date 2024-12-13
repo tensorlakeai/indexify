@@ -6,13 +6,13 @@ from typing import Any, Dict, Tuple
 from pydantic import BaseModel
 
 DEFAULT_EXECUTOR = "tensorlake/indexify-executor-default"
-DEFAULT_VERSION = 1
-DEFAULT_HASH = "deadbeefcafe"
+# Empty string is used as a default hash which tells the scheduler to accept any hash.
+DEFAULT_HASH = ""
 
 
 class ProbeInfo(BaseModel):
     image_name: str
-    image_version: int
+    image_hash: str
     python_major_version: int
     labels: Dict[str, Any] = {}
     is_default_executor: bool
@@ -21,9 +21,7 @@ class ProbeInfo(BaseModel):
 class RuntimeProbes:
     def __init__(self) -> None:
         self._image_name = self._read_image_name()
-        self._image_version = self._read_image_version()
         self._image_hash = self._read_image_hash()
-
         self._os_name = platform.system()
         self._architecture = platform.machine()
         (
@@ -38,18 +36,11 @@ class RuntimeProbes:
                 return file.read().strip()
         return DEFAULT_EXECUTOR
 
-    def _read_image_version(self) -> int:
-        file_path = os.path.expanduser("~/.indexify/image_version")
-        if os.path.exists(file_path):
-            with open(file_path, "r") as file:
-                return int(file.read().strip())
-        return DEFAULT_VERSION
-
-    def _read_image_hash(self) -> int:
+    def _read_image_hash(self) -> str:
         file_path = os.path.expanduser("~/.indexify/image_hash")
         if os.path.exists(file_path):
             with open(file_path, "r") as file:
-                return int(file.read().strip())
+                return file.read().strip()
         return DEFAULT_HASH
 
     def _get_python_version(self) -> Tuple[int, int]:
@@ -70,7 +61,7 @@ class RuntimeProbes:
 
         return ProbeInfo(
             image_name=self._image_name,
-            image_version=self._image_version,
+            image_hash=self._image_hash,
             python_major_version=self._python_version_major,
             labels=labels,
             is_default_executor=self._is_default_executor(),

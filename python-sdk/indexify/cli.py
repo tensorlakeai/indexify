@@ -191,10 +191,10 @@ def executor(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
     name_alias: Optional[str] = typer.Option(
-        None, help="Name alias for the executor if it's spun up with the base image"
+        None, help="Image name override for the executor"
     ),
-    image_version: Optional[int] = typer.Option(
-        "1", help="Requested Image Version for this executor"
+    image_hash: Optional[str] = typer.Option(
+        None, help="Image hash override for the executor"
     ),
 ):
     if not dev:
@@ -210,7 +210,7 @@ def executor(
         executor_version=executor_version,
         executor_cache=executor_cache,
         name_alias=name_alias,
-        image_version=image_version,
+        image_hash=image_hash,
         dev_mode=dev,
     )
 
@@ -227,7 +227,7 @@ def executor(
         config_path=config_path,
         code_path=executor_cache,
         name_alias=name_alias,
-        image_version=image_version,
+        image_hash=image_hash,
         development_mode=dev,
     )
 
