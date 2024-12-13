@@ -160,33 +160,6 @@ pub struct ComputeFn {
     pub image_information: ImageInformation,
 }
 
-impl ComputeFn {
-    pub fn matches_executor(
-        &self,
-        executor: &ExecutorMetadata,
-        diagnostic_msgs: &mut Vec<String>,
-    ) -> bool {
-        if executor.image_name != self.image_information.image_name {
-            diagnostic_msgs.push(format!(
-                "executor {}, image name: {} does not match function image name {}",
-                executor.id, executor.image_name, self.image_information.image_name
-            ));
-
-            return false;
-        }
-
-        if self.image_information.version.0 != executor.image_version {
-            diagnostic_msgs.push(format!(
-                "executor {}, image version: {} does not match function image version {}",
-                executor.id, executor.image_version, self.image_information.version.0
-            ));
-            return false;
-        }
-
-        self.placement_constraints.matches(&executor.labels)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Node {
     Router(DynamicEdgeRouter),
@@ -241,10 +214,29 @@ impl Node {
         executor: &ExecutorMetadata,
         diagnostic_msgs: &mut Vec<String>,
     ) -> bool {
-        match self {
-            Node::Router(_) => true,
-            Node::Compute(compute) => compute.matches_executor(executor, diagnostic_msgs),
+        if executor.image_name != self.image_name() {
+            diagnostic_msgs.push(format!(
+                "executor {}, image name: {} does not match function image name {}. Make sure the executor is running the latest image.",
+                executor.id,
+                executor.image_name,
+                self.image_name()
+            ));
+            return false;
         }
+
+        // Empty executor image hash means that the executor can accept any image
+        // version. This is needed for backwards compatibility.
+        if !executor.image_hash.is_empty() && executor.image_hash != self.image_hash() {
+            diagnostic_msgs.push(format!(
+                "executor {}, image hash: {} does not match function image hash {}. Make sure the executor is running the latest image.",
+                executor.id,
+                executor.image_hash,
+                self.image_hash()
+            ));
+            return false;
+        }
+
+        true
     }
 
     pub fn reducer(&self) -> bool {
@@ -935,7 +927,8 @@ pub struct ExecutorMetadata {
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
     pub image_name: String,
-    pub image_version: u32,
+    #[serde(default)]
+    pub image_hash: String,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
 }
@@ -1056,7 +1049,6 @@ mod tests {
         ExecutorMetadata,
         GraphVersion,
         ImageInformation,
-        ImageVersion,
         Node,
         RuntimeInformation,
     };
@@ -1079,43 +1071,101 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_fn_neq_executor_for_image_name() {
-        let compute_fn = ComputeFn {
-            image_information: ImageInformation {
-                image_name: "some_image_name".to_string(),
-                version: ImageVersion(1),
+    fn test_node_matches_executor_scenarios() {
+        fn check(
+            test_name: &str,
+            image_name: &str,
+            image_hash: &str,
+            executor_image_name: &str,
+            executor_image_hash: &str,
+            expected: bool,
+        ) {
+            let executor_metadata = ExecutorMetadata {
+                image_name: executor_image_name.to_string(),
+                image_hash: executor_image_hash.to_string(),
                 ..Default::default()
-            },
-            ..Default::default()
-        };
+            };
+            let mut diagnostic_msgs = vec![];
 
-        let executor_metadata = ExecutorMetadata {
-            image_name: "some_image_name1".to_string(),
-            image_version: 0,
-            ..Default::default()
-        };
-
-        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
-    }
-
-    #[test]
-    fn test_compute_fn_neq_executor_for_image_version() {
-        // Test cascades with `test_compute_fn_neq_executor_for_image_name`
-        let compute_fn = ComputeFn {
-            image_information: ImageInformation {
-                image_name: "some_image_name".to_string(),
-                version: ImageVersion(1),
+            let compute_fn = ComputeFn {
+                name: "fn1".to_string(),
+                image_information: ImageInformation {
+                    image_name: image_name.to_string(),
+                    image_hash: image_hash.to_string(),
+                    ..Default::default()
+                },
                 ..Default::default()
-            },
-            ..Default::default()
-        };
+            };
 
-        let executor_metadata = ExecutorMetadata {
-            image_name: "some_image_name".to_string(),
-            image_version: 2,
-            ..Default::default()
-        };
-        assert!(!compute_fn.matches_executor(&executor_metadata, &mut vec!()));
+            let router = DynamicEdgeRouter {
+                name: "router1".to_string(),
+                image_information: ImageInformation {
+                    image_name: image_name.to_string(),
+                    image_hash: image_hash.to_string(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            print!("{:?}", executor_metadata);
+
+            assert_eq!(
+                Node::Compute(compute_fn)
+                    .matches_executor(&executor_metadata, &mut diagnostic_msgs),
+                expected,
+                "Failed for test: {}, {}",
+                test_name,
+                diagnostic_msgs.join(", ")
+            );
+
+            assert_eq!(
+                Node::Router(router).matches_executor(&executor_metadata, &mut diagnostic_msgs),
+                expected,
+                "Failed for test: {}, {}",
+                test_name,
+                diagnostic_msgs.join(", ")
+            );
+        }
+
+        // Test case: Image name does not match
+        check(
+            "Image name does not match",
+            "some_image_name",
+            "some_image_hash",
+            "some_image_name1",
+            "some_image_hash",
+            false,
+        );
+
+        // Test case: Image hash does not match
+        check(
+            "Image hash does not match",
+            "some_image_name",
+            "some_image_hash",
+            "some_image_name",
+            "different_image_hash",
+            false,
+        );
+
+        // Test case: Image name and hash match
+        check(
+            "Image name and hash match",
+            "some_image_name",
+            "some_image_hash",
+            "some_image_name",
+            "some_image_hash",
+            true,
+        );
+
+        // Test case: Executor Image hash is empty so it should match any image hash
+        check(
+            "Executor Image hash is empty",
+            "some_image_name",
+            "some_image_hash",
+            "some_image_name",
+            "", // empty hash
+            true,
+        );
     }
 
     #[test]
@@ -1125,9 +1175,9 @@ mod tests {
         where
             F: FnOnce(ComputeGraph) -> ComputeGraph,
         {
-            let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
-            let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
-            let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
+            let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string());
+            let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string());
+            let fn_c = test_compute_fn("fn_c", "some_hash_fn_c".to_string());
 
             let mut graph = ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
@@ -1272,7 +1322,7 @@ mod tests {
         // changing start_fn should increase the version
         check(
             |graph| -> ComputeGraph {
-                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_a".to_string()));
+                let fn_b = test_compute_fn("fn_b", "some_hash_fn_a".to_string());
                 ComputeGraph {
                     start_fn: Node::Compute(fn_b),
                     ..graph
@@ -1291,10 +1341,10 @@ mod tests {
         // adding a node should increase the version
         check(
             |graph| -> ComputeGraph {
-                let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
-                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
-                let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
-                let fn_d = test_compute_fn("fn_d", Some("some_hash_fn_d".to_string()));
+                let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string());
+                let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string());
+                let fn_c = test_compute_fn("fn_c", "some_hash_fn_c".to_string());
+                let fn_d = test_compute_fn("fn_d", "some_hash_fn_d".to_string());
                 ComputeGraph {
                     nodes: HashMap::from([
                         ("fn_a".to_string(), Node::Compute(fn_a.clone())),
@@ -1318,8 +1368,8 @@ mod tests {
         // removing a node should increase the version
         check(
             |graph| -> ComputeGraph {
-                let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
-                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
+                let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string());
+                let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string());
                 ComputeGraph {
                     nodes: HashMap::from([
                         ("fn_a".to_string(), Node::Compute(fn_a.clone())),
@@ -1350,9 +1400,9 @@ mod tests {
         // changing a node's image should increase the version
         check(
             |graph| -> ComputeGraph {
-                let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a_updated".to_string()));
-                let fn_b = test_compute_fn("fn_b", Some("some_hash_fn_b".to_string()));
-                let fn_c = test_compute_fn("fn_c", Some("some_hash_fn_c".to_string()));
+                let fn_a = test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string());
+                let fn_b = test_compute_fn("fn_b", "some_hash_fn_b".to_string());
+                let fn_c = test_compute_fn("fn_c", "some_hash_fn_c".to_string());
                 ComputeGraph {
                     nodes: HashMap::from([
                         ("fn_a".to_string(), Node::Compute(fn_a.clone())),
@@ -1408,7 +1458,7 @@ mod tests {
         F: FnOnce(&mut ComputeGraphVersion),
     {
         fn create_test_graph_version() -> ComputeGraphVersion {
-            let fn_a = test_compute_fn("fn_a", Some("some_hash_fn_a".to_string()));
+            let fn_a = test_compute_fn("fn_a", "some_hash_fn_a".to_string());
             ComputeGraphVersion {
                 namespace: String::new(),
                 compute_graph_name: String::new(),
@@ -1447,11 +1497,11 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute1".to_string(),
-                    Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
                 ),
             ]);
         });
@@ -1460,7 +1510,7 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute4".to_string(),
-                    Node::Compute(test_compute_fn("compute4", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute4", "image_hash".to_string())),
                 ),
                 (
                     "router2".to_string(),
@@ -1482,7 +1532,7 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute1".to_string(),
-                    Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                 ),
                 (
                     "router1".to_string(),
@@ -1493,7 +1543,7 @@ mod tests {
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
                 ),
             ]);
         });
@@ -1506,7 +1556,7 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute3".to_string(),
-                    Node::Compute(test_compute_fn("compute3", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute3", "image_hash".to_string())),
                 ),
                 (
                     "router1".to_string(),
@@ -1517,7 +1567,7 @@ mod tests {
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
                 ),
             ]);
         });
@@ -1530,7 +1580,7 @@ mod tests {
             graph.nodes = HashMap::from([
                 (
                     "compute3".to_string(),
-                    Node::Compute(test_compute_fn("compute3", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute3", "image_hash".to_string())),
                 ),
                 (
                     "router1".to_string(),
@@ -1541,7 +1591,7 @@ mod tests {
                 ),
                 (
                     "compute2".to_string(),
-                    Node::Compute(test_compute_fn("compute2", Some("image_hash".to_string()))),
+                    Node::Compute(test_compute_fn("compute2", "image_hash".to_string())),
                 ),
             ]);
         });
@@ -1560,27 +1610,27 @@ mod tests {
                 graph.nodes = HashMap::from([
                     (
                         "compute1".to_string(),
-                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                     ),
                     (
                         "compute2".to_string(),
-                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                     ),
                     (
                         "compute3".to_string(),
-                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                     ),
                     (
                         "compute4".to_string(),
-                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                     ),
                     (
                         "compute5".to_string(),
-                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                     ),
                     (
                         "compute6".to_string(),
-                        Node::Compute(test_compute_fn("compute1", Some("image_hash".to_string()))),
+                        Node::Compute(test_compute_fn("compute1", "image_hash".to_string())),
                     ),
                 ]);
             },

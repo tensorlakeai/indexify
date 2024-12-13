@@ -150,7 +150,7 @@ impl TaskScheduler {
                             executor.id
                         );
                         diagnostic_msgs.push(format!(
-                            "executor {} python version: {} does not match function python version: {}",
+                            "executor {} python version: 3.{} does not match function python version: 3.{}",
                             executor.id, executor_python_minor_version, graph_runtime.minor_version
                         ));
                         continue;
@@ -159,16 +159,6 @@ impl TaskScheduler {
                     error!("failed to parse python_minor_version label");
                     continue;
                 }
-            }
-
-            if executor.image_name != node.image_name() {
-                diagnostic_msgs.push(format!(
-                    "executor {}, image name: {} does not match function image name {}",
-                    executor.id,
-                    executor.image_name,
-                    node.image_name()
-                ));
-                continue;
             }
 
             if node.matches_executor(executor, &mut diagnostic_msgs) {

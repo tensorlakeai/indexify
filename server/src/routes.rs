@@ -647,7 +647,7 @@ async fn executor_tasks(
             image_name: payload.image_name.clone(),
             addr: payload.addr.clone(),
             labels: payload.labels.clone(),
-            image_version: payload.image_version,
+            image_hash: payload.image_hash,
         })
         .await;
     if let Err(e) = err {
