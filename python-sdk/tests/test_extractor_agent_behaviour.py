@@ -54,7 +54,7 @@ class TestExtractorAgent(unittest.TestCase):
 
         # Verify TLS config in Agent
         self.assertEqual(agent._server_addr, service_url)
-        self.assertEqual(agent._protocol, "https")
+        self.assertTrue(agent._base_url.startswith("https://"))
 
     def test_no_tls_configuration(self):
         # Create an instance of ExtractorAgent without TLS
@@ -65,7 +65,7 @@ class TestExtractorAgent(unittest.TestCase):
         )
 
         # Verify the protocol is set to "http"
-        self.assertEqual(agent._protocol, "http")
+        self.assertTrue(agent._base_url.startswith("http://"))
 
 
 if __name__ == "__main__":
