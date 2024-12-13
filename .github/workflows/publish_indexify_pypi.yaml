@@ -71,9 +71,9 @@ jobs:
         with:
           python-version: "3.9"
       - name: Install Poetry
-        run: python3 -m pip install poetry --user
-      - name: Build Packages
-        run: python3 -m poetry build
+        run: pipx install poetry
+      - name: Build python-sdk
+        run: make build
       - name: Publish Indexify Client to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
