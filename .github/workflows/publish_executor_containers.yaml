@@ -27,7 +27,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
-          pip install indexify -U
+          curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
+          uv pip install indexify -U
           indexify-cli build-default-image
           docker push tensorlake/indexify-executor-default:3.10
           docker push tensorlake/indexify-executor-default:3.11
