@@ -45,6 +45,7 @@ class TestExtractorAgent(unittest.TestCase):
             cert=(cert_path, key_path),
             verify=ca_bundle_path,
         )
+
         # Verify TLS config in httpsx AsyncClient
         mock_async_client.assert_called_with(
             http2=True,

@@ -31,13 +31,11 @@ class FunctionWorkerInput:
     def __init__(
         self,
         task: Task,
-        graph: Optional[SerializedObject] = None,
-        function_input: Optional[DownloadedInputs] = None,
+        graph: SerializedObject,
+        function_input: DownloadedInputs,
     ):
         self.task = task
-        # Must not be None when running the task.
         self.graph = graph
-        # Must not be None when running the task.
         self.function_input = function_input
 
 
