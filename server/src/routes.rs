@@ -172,11 +172,11 @@ pub fn create_routes(route_state: RouteState) -> Router {
         )
         .route(
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
-            get(get_code).with_state(route_state.clone()),
+            get(get_unversioned_code).with_state(route_state.clone()),
         )
         .route(
             "/internal/namespaces/:namespace/compute_graphs/:compute_graph/versions/:version/code",
-            get(get_code).with_state(route_state.clone()),
+            get(get_versioned_code).with_state(route_state.clone()),
         )
         .route(
             "/internal/ingest_files",
@@ -807,7 +807,14 @@ async fn delete_invocation(
     Ok(())
 }
 
-async fn get_code(
+async fn get_unversioned_code(
+    Path((namespace, compute_graph)): Path<(String, String)>,
+    State(state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    get_versioned_code(Path((namespace, compute_graph, None)), State(state)).await
+}
+
+async fn get_versioned_code(
     Path((namespace, compute_graph, version)): Path<(String, String, Option<GraphVersion>)>,
     State(state): State<RouteState>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
