@@ -37,3 +37,4 @@ class TaskResult(BaseModel):
     executor_id: str
     task_id: str
     reducer: bool = False
+
