@@ -2,7 +2,6 @@ import json
 from importlib.metadata import version
 from typing import AsyncGenerator, Optional
 
-import httpx
 import structlog
 from httpx_sse import aconnect_sse
 
@@ -66,7 +65,7 @@ class TaskFetcher:
                 except Exception as e:
                     await event_source.response.aread()
                     raise Exception(
-                        "Failed to register at server. "
+                        "failed to register at server. "
                         f"Response code: {event_source.response.status_code}. "
                         f"Response text: '{event_source.response.text}'."
                     ) from e
