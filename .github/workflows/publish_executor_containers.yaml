@@ -3,11 +3,6 @@ name: Publish Example Executor Containers
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-  actions: write
-  packages: write
-
 jobs:
   build-and-push-docker-images:
     name: Build and Push Docker Executor 
