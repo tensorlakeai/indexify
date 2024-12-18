@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.executor.agent import ExtractorAgent
+from indexify.executor.executor import Executor
 from indexify.function_executor.function_executor_service import (
     FunctionExecutorService,
 )
@@ -221,7 +221,7 @@ def executor(
         shutil.rmtree(executor_cache)
     Path(executor_cache).mkdir(parents=True, exist_ok=True)
 
-    agent = ExtractorAgent(
+    executor = Executor(
         id,
         server_addr=server_addr,
         config_path=config_path,
@@ -232,7 +232,7 @@ def executor(
     )
 
     try:
-        asyncio.get_event_loop().run_until_complete(agent.run())
+        asyncio.get_event_loop().run_until_complete(executor.run())
     except asyncio.CancelledError:
         logger.info("graceful shutdown")
 
