@@ -1,10 +1,20 @@
-import os
 import subprocess
 import unittest
+from typing import Any, List
 
 import grpc
 
 from indexify.function_executor.proto.configuration import GRPC_CHANNEL_OPTIONS
+from indexify.function_executor.proto.function_executor_pb2 import (
+    FunctionOutput,
+    RunTaskRequest,
+    RunTaskResponse,
+    SerializedObject,
+)
+from indexify.function_executor.proto.function_executor_pb2_grpc import (
+    FunctionExecutorStub,
+)
+from indexify.functions_sdk.object_serializer import CloudPickleSerializer
 
 
 class FunctionExecutorServerTestCase(unittest.TestCase):
@@ -23,8 +33,6 @@ class FunctionExecutorServerTestCase(unittest.TestCase):
                 "--dev",
                 "--function-executor-server-address",
                 cls.FUNCTION_EXECUTOR_SERVER_ADDRESS,
-                "--indexify-server-address",
-                os.environ.get("INDEXIFY_URL"),
             ]
         )
 
@@ -51,3 +59,26 @@ class FunctionExecutorServerTestCase(unittest.TestCase):
             self.fail(
                 f"Failed to connect to the gRPC server within {SERVER_STARTUP_TIMEOUT_SEC} seconds: {e}"
             )
+
+
+def run_task(stub: FunctionExecutorStub, input: Any) -> RunTaskResponse:
+    return stub.run_task(
+        RunTaskRequest(
+            graph_invocation_id="123",
+            task_id="test-task",
+            function_input=SerializedObject(
+                bytes=CloudPickleSerializer.serialize(input),
+                content_type=CloudPickleSerializer.content_type,
+            ),
+        )
+    )
+
+
+def deserialized_function_output(
+    test_case: unittest.TestCase, function_output: FunctionOutput
+) -> List[Any]:
+    outputs: List[Any] = []
+    for output in function_output.outputs:
+        test_case.assertEqual(output.content_type, CloudPickleSerializer.content_type)
+        outputs.append(CloudPickleSerializer.deserialize(output.bytes))
+    return outputs

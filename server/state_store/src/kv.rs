@@ -14,6 +14,14 @@ pub struct WriteContextData {
     pub key: String,
     pub value: Vec<u8>,
 }
+
+pub struct ReadContextData {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
+    pub key: String,
+}
+
 pub struct KVS {
     kv_store: Arc<Db>,
     metrics: Metrics,
@@ -47,17 +55,14 @@ impl KVS {
         Ok(())
     }
 
-    pub async fn get_ctx_state_key(
-        &self,
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        key: &str,
-    ) -> Result<Option<Bytes>> {
+    pub async fn get_ctx_state_key(&self, req: ReadContextData) -> Result<Option<Bytes>> {
         let timer_kvs = &[KeyValue::new("op", "get_ctx_state_key")];
         let _timer = Timer::start_with_labels(&self.metrics.reads, timer_kvs);
 
-        let key = format!("{}|{}|{}|{}", namespace, compute_graph, invocation_id, key);
+        let key = format!(
+            "{}|{}|{}|{}",
+            req.namespace, req.compute_graph, req.invocation_id, req.key
+        );
         let value = self.kv_store.get(key.as_bytes()).await?;
         Ok(value)
     }

@@ -66,7 +66,7 @@ class ComplexObject(BaseModel):
 @indexify_function()
 def simple_function_ctx(x: MyObject) -> ComplexObject:
     ctx = get_ctx()
-    ctx.set_state_key("my_key", 10)
+    ctx.invocation_state.set("my_key", 10)
     return ComplexObject(
         invocation_id=ctx.invocation_id,
         graph_name=ctx.graph_name,
@@ -77,7 +77,7 @@ def simple_function_ctx(x: MyObject) -> ComplexObject:
 @indexify_function()
 def simple_function_ctx_b(x: ComplexObject) -> int:
     ctx = get_ctx()
-    val = ctx.get_state_key("my_key")
+    val = ctx.invocation_state.get("my_key")
     return val + 1
 
 
@@ -90,9 +90,9 @@ class SimpleFunctionCtxC(IndexifyFunction):
     def run(self, x: ComplexObject) -> int:
         ctx = get_ctx()
         print(f"ctx: {ctx}")
-        val = ctx.get_state_key("my_key")
+        val = ctx.invocation_state.get("my_key")
         assert val == 10
-        not_present = ctx.get_state_key("not_present")
+        not_present = ctx.invocation_state.get("not_present")
         assert not_present is None
         return val + 1
 

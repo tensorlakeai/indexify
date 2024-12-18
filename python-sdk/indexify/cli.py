@@ -45,9 +45,6 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
-config_path_option: Optional[str] = typer.Option(
-    None, help="Path to the TLS configuration file"
-)
 
 
 @app.command(
@@ -209,7 +206,9 @@ def executor(
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
-    config_path: Optional[str] = config_path_option,
+    config_path: Optional[str] = typer.Option(
+        None, help="Path to the TLS configuration file"
+    ),
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
@@ -264,11 +263,9 @@ def function_executor(
     function_executor_server_address: str = typer.Option(
         help="Function Executor server address"
     ),
-    indexify_server_address: str = typer.Option(help="Indexify server address"),
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
-    config_path: Optional[str] = config_path_option,
 ):
     if not dev:
         configure_production_logging()
@@ -276,15 +273,11 @@ def function_executor(
     logger.info(
         "starting function executor server",
         function_executor_server_address=function_executor_server_address,
-        indexify_server_address=indexify_server_address,
-        config_path=config_path,
     )
 
     FunctionExecutorServer(
         server_address=function_executor_server_address,
-        service=FunctionExecutorService(
-            indexify_server_address=indexify_server_address, config_path=config_path
-        ),
+        service=FunctionExecutorService(),
     ).run()
 
 
