@@ -35,19 +35,23 @@ jobs:
           uv pip install --system 'indexify==${{ inputs.indexify_version }}' -U
           indexify-cli build-default-image --python-version 3.10
           docker tag tensorlake/indexify-executor-default:3.10 tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
-          docker push tensorlake/indexify-executor-default:3.10 tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
+          docker push tensorlake/indexify-executor-default:3.10
+          docker push tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
 
           indexify-cli build-default-image --python-version 3.11
           docker tag tensorlake/indexify-executor-default:3.11 tensorlake/indexify-executor-default:3.11-${{ inputs.indexify_version }}
-          docker push tensorlake/indexify-executor-default:3.11 tensorlake/indexify-executor-default:3.11-${{ inputs.indexify_version }}
+          docker push tensorlake/indexify-executor-default:3.11
+          docker push tensorlake/indexify-executor-default:3.11-${{ inputs.indexify_version }}
 
           indexify-cli build-default-image --python-version 3.12
           docker tag tensorlake/indexify-executor-default:3.12 tensorlake/indexify-executor-default:3.12-${{ inputs.indexify_version }}
-          docker push tensorlake/indexify-executor-default:3.12 tensorlake/indexify-executor-default:3.12-${{ inputs.indexify_version }}
+          docker push tensorlake/indexify-executor-default:3.12
+          docker push tensorlake/indexify-executor-default:3.12-${{ inputs.indexify_version }}
 
           indexify-cli build-default-image --python-version 3.13
           docker tag tensorlake/indexify-executor-default:3.13 tensorlake/indexify-executor-default:3.13-${{ inputs.indexify_version }}
-          docker push tensorlake/indexify-executor-default:3.13 tensorlake/indexify-executor-default:3.13-${{ inputs.indexify_version }}
+          docker push tensorlake/indexify-executor-default:3.13
+          docker push tensorlake/indexify-executor-default:3.13-${{ inputs.indexify_version }}
 
           indexify-cli build-image examples/pdf_document_extraction/images.py
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
