@@ -2,6 +2,13 @@ name: Publish Example Executor Containers
 
 on:
   workflow_dispatch:
+    inputs:
+      indexify_version:
+        type: string
+        description: |
+          Indexify version to use to build the executor containers.
+          Note: Should ideally match the tag used for this workflow.
+        required: true
 
 jobs:
   build-and-push-docker-images:
@@ -9,9 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -23,10 +32,18 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
-          uv pip install --system indexify -U
-          indexify-cli build-default-image
+          uv pip install --system 'indexify==${{ inputs.indexify_version }}' -U
+          indexify-cli build-default-image --python-version 3.10
           docker push tensorlake/indexify-executor-default:3.10
+
+          indexify-cli build-default-image --python-version 3.11
           docker push tensorlake/indexify-executor-default:3.11
+
+          indexify-cli build-default-image --python-version 3.12
+          docker push tensorlake/indexify-executor-default:3.12
+
+          indexify-cli build-default-image --python-version 3.13
+          docker push tensorlake/indexify-executor-default:3.13
 
           indexify-cli build-image examples/pdf_document_extraction/images.py
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
