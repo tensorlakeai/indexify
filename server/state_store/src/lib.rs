@@ -711,7 +711,7 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         // Create a compute graph
-        let compute_graph = mock_graph_a(None);
+        let compute_graph = mock_graph_a("image_hash".to_string());
         _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
         // Read the compute graph
@@ -746,7 +746,7 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         // Create a compute graph and write it
-        let compute_graph = mock_graph_a(Some("Old Hash".to_string()));
+        let compute_graph = mock_graph_a("Old Hash".to_string());
         _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
         // Read the compute graph
@@ -767,7 +767,7 @@ mod tests {
         for i in 2..4 {
             // Update the graph
             let new_hash = format!("this is a new hash {}", i);
-            let compute_graph = mock_graph_a(Some(new_hash.clone()));
+            let compute_graph = mock_graph_a(new_hash.clone());
 
             _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
@@ -796,7 +796,7 @@ mod tests {
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
         let executor_id = ExecutorId::new("executor1".to_string());
-        let cg = mock_graph_a(None);
+        let cg = mock_graph_a("image_hash".to_string());
         let task = create_mock_task(
             &cg,
             "fn",

@@ -59,12 +59,12 @@ message RunTaskResponse {
 }
 
 service FunctionExecutor {
-    // Initialize initializes the Function Executor to run tasks
+    // Initializes the Function Executor to run tasks
     // for a particular function. This method is called only
     // once per Function Executor as it can only run a single function.
     // It should be called before calling RunTask for the function.
-    rpc Initialize(InitializeRequest) returns (InitializeResponse);
-    // RunTask executes the task defined in the request.
+    rpc initialize(InitializeRequest) returns (InitializeResponse);
+    // Executes the task defined in the request.
     // Multiple tasks can be running in parallel.
-    rpc RunTask(RunTaskRequest) returns (RunTaskResponse);
+    rpc run_task(RunTaskRequest) returns (RunTaskResponse);
 }

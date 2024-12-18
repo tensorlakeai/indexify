@@ -10,7 +10,7 @@ from test_constants import (
     service_url,
 )
 
-from indexify.executor.agent import ExtractorAgent
+from indexify.executor.executor import Executor
 
 
 class TestExtractorAgent(unittest.TestCase):
@@ -28,8 +28,8 @@ class TestExtractorAgent(unittest.TestCase):
     @patch("httpx.Client")
     @patch("httpx.AsyncClient")
     def test_tls_configuration(self, mock_async_client, mock_sync_client, mock_file):
-        # Create an instance of ExtractorAgent with the mock config
-        agent = ExtractorAgent(
+        # Create an instance of Executor with the mock config
+        executor = Executor(
             executor_id="unit-test",
             code_path=Path("test"),
             server_addr=service_url,
@@ -45,6 +45,7 @@ class TestExtractorAgent(unittest.TestCase):
             cert=(cert_path, key_path),
             verify=ca_bundle_path,
         )
+
         # Verify TLS config in httpsx AsyncClient
         mock_async_client.assert_called_with(
             http2=True,
@@ -52,20 +53,20 @@ class TestExtractorAgent(unittest.TestCase):
             verify=ca_bundle_path,
         )
 
-        # Verify TLS config in Agent
-        self.assertEqual(agent._server_addr, service_url)
-        self.assertEqual(agent._protocol, "https")
+        # Verify TLS config in Executor
+        self.assertEqual(executor._server_addr, service_url)
+        self.assertTrue(executor._base_url.startswith("https://"))
 
     def test_no_tls_configuration(self):
-        # Create an instance of ExtractorAgent without TLS
-        agent = ExtractorAgent(
+        # Create an instance of Executor without TLS
+        executor = Executor(
             executor_id="unit-test",
             code_path=Path("test"),
             server_addr="localhost:8900",
         )
 
         # Verify the protocol is set to "http"
-        self.assertEqual(agent._protocol, "http")
+        self.assertTrue(executor._base_url.startswith("http://"))
 
 
 if __name__ == "__main__":

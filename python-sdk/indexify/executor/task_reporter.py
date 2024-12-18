@@ -1,16 +1,16 @@
-from typing import Optional
+import asyncio
+from typing import Any, List, Optional, Tuple
 
 import nanoid
-import structlog
 from httpx import Timeout
-from pydantic import BaseModel
 
 from indexify.common_util import get_httpx_client
-from indexify.executor.api_objects import RouterOutput as ApiRouterOutput
-from indexify.executor.api_objects import TaskResult
-from indexify.executor.task_store import CompletedTask
+from indexify.executor.api_objects import RouterOutput, Task, TaskResult
+from indexify.function_executor.proto.function_executor_pb2 import (
+    FunctionOutput,
+)
 
-logger = structlog.get_logger(__name__)
+from .function_worker import FunctionWorkerOutput
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -23,13 +23,16 @@ FORCE_MULTIPART = ForceMultipartDict()
 UTF_8_CONTENT_TYPE = "application/octet-stream"
 
 
-class ReportingData(BaseModel):
-    output_count: int = 0
-    output_total_bytes: int = 0
-    stdout_count: int = 0
-    stdout_total_bytes: int = 0
-    stderr_count: int = 0
-    stderr_total_bytes: int = 0
+class TaskOutputSummary:
+    def __init__(self):
+        self.output_count: int = 0
+        self.output_total_bytes: int = 0
+        self.router_output_count: int = 0
+        self.stdout_count: int = 0
+        self.stdout_total_bytes: int = 0
+        self.stderr_count: int = 0
+        self.stderr_total_bytes: int = 0
+        self.total_bytes: int = 0
 
 
 class TaskReporter:
@@ -38,89 +41,39 @@ class TaskReporter:
     ):
         self._base_url = base_url
         self._executor_id = executor_id
-        self._client = get_httpx_client(config_path)
+        # Use thread-safe sync client due to issues with async client.
+        # Async client attempts to use connections it already closed.
+        # See e.g. https://github.com/encode/httpx/issues/2337.
+        # Creating a new async client for each request fixes this but it
+        # results in not reusing established TCP connections to server.
+        self._client = get_httpx_client(config_path, make_async=False)
 
-    def report_task_outcome(self, completed_task: CompletedTask):
-        report = ReportingData()
-        fn_outputs = []
+    async def report(
+        self, task: Task, output: Optional[FunctionWorkerOutput], logger: Any
+    ):
+        """Reports result of the supplied task.
 
-        if completed_task.function_output:
-            for output in completed_task.function_output.outputs or []:
-                payload = output.bytes if output.HasField("bytes") else output.string
-                fn_outputs.append(
-                    (
-                        "node_outputs",
-                        (nanoid.generate(), payload, output.content_type),
-                    )
-                )
-                report.output_count += 1
-                report.output_total_bytes += len(payload)
-
-        if completed_task.stdout:
-            fn_outputs.append(
-                (
-                    "stdout",
-                    (
-                        nanoid.generate(),
-                        completed_task.stdout.encode(),
-                        UTF_8_CONTENT_TYPE,
-                    ),
-                )
-            )
-            report.stdout_count += 1
-            report.stdout_total_bytes += len(completed_task.stdout)
-
-        if completed_task.stderr:
-            fn_outputs.append(
-                (
-                    "stderr",
-                    (
-                        nanoid.generate(),
-                        completed_task.stderr.encode(),
-                        UTF_8_CONTENT_TYPE,
-                    ),
-                )
-            )
-            report.stderr_count += 1
-            report.stderr_total_bytes += len(completed_task.stderr)
-
-        router_output = (
-            ApiRouterOutput(edges=completed_task.router_output.edges)
-            if completed_task.router_output
-            else None
-        )
-
-        task_result = TaskResult(
-            router_output=router_output,
-            outcome=completed_task.task_outcome,
-            namespace=completed_task.task.namespace,
-            compute_graph=completed_task.task.compute_graph,
-            compute_fn=completed_task.task.compute_fn,
-            invocation_id=completed_task.task.invocation_id,
-            executor_id=self._executor_id,
-            task_id=completed_task.task.id,
-            reducer=completed_task.reducer,
+        If FunctionWorkerOutput is None this means that the task didn't finish and failed with internal error.
+        """
+        logger = logger.bind(module=__name__)
+        task_result, output_files, output_summary = self._process_task_output(
+            task, output
         )
         task_result_data = task_result.model_dump_json(exclude_none=True)
 
-        total_bytes = (
-            report.output_total_bytes
-            + report.stdout_total_bytes
-            + report.stderr_total_bytes
-        )
-
         logger.info(
             "reporting task outcome",
-            task_id=completed_task.task.id,
-            retries=completed_task.reporting_retries,
-            total_bytes=total_bytes,
-            total_files=report.output_count + report.stdout_count + report.stderr_count,
-            output_files=report.output_count,
-            output_bytes=total_bytes,
-            stdout_bytes=report.stdout_total_bytes,
-            stderr_bytes=report.stderr_total_bytes,
+            total_bytes=output_summary.total_bytes,
+            total_files=output_summary.output_count
+            + output_summary.stdout_count
+            + output_summary.stderr_count,
+            output_files=output_summary.output_count,
+            output_bytes=output_summary.total_bytes,
+            router_output_count=output_summary.router_output_count,
+            stdout_bytes=output_summary.stdout_total_bytes,
+            stderr_bytes=output_summary.stderr_total_bytes,
         )
-        #
+
         kwargs = {
             "data": {"task_result": task_result_data},
             # Use httpx default timeout of 5s for all timeout types.
@@ -129,27 +82,134 @@ class TaskReporter:
                 5.0,
                 read=5.0 * 60,
             ),
+            "files": output_files if len(output_files) > 0 else FORCE_MULTIPART,
         }
-        if fn_outputs and len(fn_outputs) > 0:
-            kwargs["files"] = fn_outputs
-        else:
-            kwargs["files"] = FORCE_MULTIPART
-
-        response = self._client.post(
-            url=f"{self._base_url}/internal/ingest_files",
-            **kwargs,
+        # Run in a separate thread to not block the main event loop.
+        response = await asyncio.to_thread(
+            self._client.post, url=f"{self._base_url}/internal/ingest_files", **kwargs
         )
 
         try:
             response.raise_for_status()
         except Exception as e:
             # Caller catches and logs the exception.
-            # Log response details here for easier debugging.
-            logger.error(
-                "failed to report task outcome",
-                task_id=completed_task.task.id,
-                retries=completed_task.reporting_retries,
-                status_code=response.status_code,
-                response_text=response.text,
+            raise Exception(
+                "failed to report task outcome. "
+                f"Response code: {response.status_code}. "
+                f"Response text: '{response.text}'."
+            ) from e
+
+    def _process_task_output(
+        self, task: Task, output: Optional[FunctionWorkerOutput]
+    ) -> Tuple[TaskResult, List[Any], TaskOutputSummary]:
+        task_result = TaskResult(
+            outcome="failure",
+            namespace=task.namespace,
+            compute_graph=task.compute_graph,
+            compute_fn=task.compute_fn,
+            invocation_id=task.invocation_id,
+            executor_id=self._executor_id,
+            task_id=task.id,
+        )
+        output_files: List[Any] = []
+        summary: TaskOutputSummary = TaskOutputSummary()
+        if output is None:
+            return task_result, output_files, summary
+
+        task_result.outcome = "success" if output.success else "failure"
+        task_result.reducer = output.reducer
+
+        _process_function_output(
+            function_output=output.function_output,
+            output_files=output_files,
+            summary=summary,
+        )
+        _process_router_output(
+            router_output=output.router_output, task_result=task_result, summary=summary
+        )
+        _process_stdout(
+            stdout=output.stdout, output_files=output_files, summary=summary
+        )
+        _process_stderr(
+            stderr=output.stderr, output_files=output_files, summary=summary
+        )
+
+        summary.total_bytes = (
+            summary.output_total_bytes
+            + summary.stdout_total_bytes
+            + summary.stderr_total_bytes
+        )
+
+        return task_result, output_files, summary
+
+
+def _process_function_output(
+    function_output: Optional[FunctionOutput],
+    output_files: List[Any],
+    summary: TaskOutputSummary,
+) -> None:
+    if function_output is None:
+        return
+
+    for output in function_output.outputs or []:
+        payload = output.bytes if output.HasField("bytes") else output.string
+        output_files.append(
+            (
+                "node_outputs",
+                (nanoid.generate(), payload, output.content_type),
             )
-            raise e
+        )
+        summary.output_count += 1
+        summary.output_total_bytes += len(payload)
+
+
+def _process_router_output(
+    router_output: Optional[RouterOutput],
+    task_result: TaskResult,
+    summary: TaskOutputSummary,
+) -> None:
+    if router_output is None:
+        return
+
+    task_result.router_output = RouterOutput(edges=router_output.edges)
+    summary.router_output_count += 1
+
+
+def _process_stdout(
+    stdout: Optional[str], output_files: List[Any], summary: TaskOutputSummary
+) -> None:
+    if stdout is None:
+        return
+
+    output_files.append(
+        (
+            "stdout",
+            (
+                nanoid.generate(),
+                stdout.encode(),
+                UTF_8_CONTENT_TYPE,
+            ),
+        )
+    )
+    summary.stdout_count += 1
+    summary.stdout_total_bytes += len(stdout)
+
+
+def _process_stderr(
+    stderr: Optional[str], output_files: List[Any], summary: TaskOutputSummary
+) -> None:
+    if stderr is None:
+        return
+
+    output_files.append(
+        (
+            "stderr",
+            (
+                nanoid.generate(),
+                stderr.encode(),
+                UTF_8_CONTENT_TYPE,
+            ),
+        )
+    )
+    summary.stderr_count += 1
+    summary.stderr_total_bytes += len(stderr)

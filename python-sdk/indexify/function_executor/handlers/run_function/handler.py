@@ -42,6 +42,8 @@ class Handler:
         )
         self._input_loader = FunctionInputsLoader(request)
         self._response_helper = ResponseHelper(task_id=request.task_id)
+        # TODO: use files for stdout, stderr capturing. This puts a natural and thus reasonable
+        # rate limit on the rate of writes and allows to not consume expensive memory for function logs.
         self._func_stdout: io.StringIO = io.StringIO()
         self._func_stderr: io.StringIO = io.StringIO()
 

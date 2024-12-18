@@ -31,13 +31,11 @@ class FunctionWorkerInput:
     def __init__(
         self,
         task: Task,
-        graph: Optional[SerializedObject] = None,
-        function_input: Optional[DownloadedInputs] = None,
+        graph: SerializedObject,
+        function_input: DownloadedInputs,
     ):
         self.task = task
-        # Must not be None when running the task.
         self.graph = graph
-        # Must not be None when running the task.
         self.function_input = function_input
 
 
@@ -180,7 +178,7 @@ class FunctionWorker:
             channel: grpc.aio.Channel = await function_executor.channel()
             run_task_response: RunTaskResponse = await FunctionExecutorStub(
                 channel
-            ).RunTask(run_task_request)
+            ).run_task(run_task_request)
             return _to_output(run_task_response)
         finally:
             # If this Function Executor was destroyed then it's not

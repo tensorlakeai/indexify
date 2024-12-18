@@ -41,8 +41,10 @@ class TestGraphReduce(unittest.TestCase):
         result = graph.output(invocation_id, store_result.name)
         self.assertEqual(result[0], 22)
 
-    @parameterized.expand([(True)])
-    def test_failure_in_parent(self, is_remote: bool):
+    # @parameterized.expand([(True)])
+    def test_failure_in_parent(self):
+        is_remote = True
+
         class AccumulatedSate(BaseModel):
             sum: int = 0
 

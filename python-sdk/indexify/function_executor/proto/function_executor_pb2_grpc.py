@@ -40,14 +40,14 @@ class FunctionExecutorStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.Initialize = channel.unary_unary(
-            "/function_executor_service.FunctionExecutor/Initialize",
+        self.initialize = channel.unary_unary(
+            "/function_executor_service.FunctionExecutor/initialize",
             request_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeRequest.SerializeToString,
             response_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeResponse.FromString,
             _registered_method=True,
         )
-        self.RunTask = channel.unary_unary(
-            "/function_executor_service.FunctionExecutor/RunTask",
+        self.run_task = channel.unary_unary(
+            "/function_executor_service.FunctionExecutor/run_task",
             request_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskRequest.SerializeToString,
             response_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskResponse.FromString,
             _registered_method=True,
@@ -57,8 +57,8 @@ class FunctionExecutorStub(object):
 class FunctionExecutorServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def Initialize(self, request, context):
-        """Initialize initializes the Function Executor to run tasks
+    def initialize(self, request, context):
+        """Initializes the Function Executor to run tasks
         for a particular function. This method is called only
         once per Function Executor as it can only run a single function.
         It should be called before calling RunTask for the function.
@@ -67,8 +67,8 @@ class FunctionExecutorServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def RunTask(self, request, context):
-        """RunTask executes the task defined in the request.
+    def run_task(self, request, context):
+        """Executes the task defined in the request.
         Multiple tasks can be running in parallel.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -78,13 +78,13 @@ class FunctionExecutorServicer(object):
 
 def add_FunctionExecutorServicer_to_server(servicer, server):
     rpc_method_handlers = {
-        "Initialize": grpc.unary_unary_rpc_method_handler(
-            servicer.Initialize,
+        "initialize": grpc.unary_unary_rpc_method_handler(
+            servicer.initialize,
             request_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeRequest.FromString,
             response_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeResponse.SerializeToString,
         ),
-        "RunTask": grpc.unary_unary_rpc_method_handler(
-            servicer.RunTask,
+        "run_task": grpc.unary_unary_rpc_method_handler(
+            servicer.run_task,
             request_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskRequest.FromString,
             response_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskResponse.SerializeToString,
         ),
@@ -103,7 +103,7 @@ class FunctionExecutor(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def Initialize(
+    def initialize(
         request,
         target,
         options=(),
@@ -118,7 +118,7 @@ class FunctionExecutor(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/function_executor_service.FunctionExecutor/Initialize",
+            "/function_executor_service.FunctionExecutor/initialize",
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeRequest.SerializeToString,
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeResponse.FromString,
             options,
@@ -133,7 +133,7 @@ class FunctionExecutor(object):
         )
 
     @staticmethod
-    def RunTask(
+    def run_task(
         request,
         target,
         options=(),
@@ -148,7 +148,7 @@ class FunctionExecutor(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/function_executor_service.FunctionExecutor/RunTask",
+            "/function_executor_service.FunctionExecutor/run_task",
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskRequest.SerializeToString,
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskResponse.FromString,
             options,

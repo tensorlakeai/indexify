@@ -71,9 +71,9 @@ jobs:
         with:
           python-version: "3.9"
       - name: Install Poetry
-        run: python3 -m pip install poetry --user
-      - name: Build Packages
-        run: python3 -m poetry build
+        run: pipx install poetry
+      - name: Build python-sdk
+        run: make build
       - name: Publish Indexify Client to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -97,8 +97,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
-          sleep 15
-          pip install indexify -U
-          indexify-cli build-default-image 
-          docker push tensorlake/indexify-executor-default:3.10
-          docker push tensorlake/indexify-executor-default:3.11
+          # wait for the indexify-cli to be available
+          sleep 60
+      - uses: ./.github/workflows/publish_executor_containers.yaml
+        with:
+          indexify_version: ${{ needs.extract-version.outputs.version }}

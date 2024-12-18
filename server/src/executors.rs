@@ -95,7 +95,7 @@ mod tests {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
             image_name: "test".to_string(),
-            image_version: 1,
+            image_hash: "image_hash".to_string(),
             addr: "".to_string(),
             labels: Default::default(),
         };
@@ -119,7 +119,7 @@ mod tests {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
             image_name: "test".to_string(),
-            image_version: 0,
+            image_hash: "image_hash".to_string(),
             addr: "".to_string(),
             labels: Default::default(),
         };

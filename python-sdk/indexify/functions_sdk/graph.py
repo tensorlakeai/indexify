@@ -37,7 +37,6 @@ from .indexify_functions import (
     IndexifyRouter,
     RouterCallResult,
 )
-from .local_cache import CacheAwareFunctionWrapper
 from .object_serializer import get_serializer
 
 RouterFn = Annotated[
@@ -86,7 +85,6 @@ class Graph:
 
         # Storage for local execution
         self._results: Dict[str, Dict[str, List[IndexifyData]]] = {}
-        self._cache = CacheAwareFunctionWrapper("./indexify_local_runner_cache")
         self._accumulator_values: Dict[str, IndexifyData] = {}
         self._local_graph_ctx: Optional[GraphInvocationContext] = None
 

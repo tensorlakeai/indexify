@@ -23,7 +23,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.executor.agent import ExtractorAgent
+from indexify.executor.executor import Executor
 from indexify.function_executor.function_executor_service import (
     FunctionExecutorService,
 )
@@ -217,10 +217,10 @@ def executor(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
     name_alias: Optional[str] = typer.Option(
-        None, help="Name alias for the executor if it's spun up with the base image"
+        None, help="Image name override for the executor"
     ),
-    image_version: Optional[int] = typer.Option(
-        "1", help="Requested Image Version for this executor"
+    image_hash: Optional[str] = typer.Option(
+        None, help="Image hash override for the executor"
     ),
 ):
     if not dev:
@@ -236,7 +236,7 @@ def executor(
         executor_version=executor_version,
         executor_cache=executor_cache,
         name_alias=name_alias,
-        image_version=image_version,
+        image_hash=image_hash,
         dev_mode=dev,
     )
 
@@ -247,17 +247,17 @@ def executor(
         shutil.rmtree(executor_cache)
     Path(executor_cache).mkdir(parents=True, exist_ok=True)
 
-    agent = ExtractorAgent(
+    executor = Executor(
         id,
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
         name_alias=name_alias,
-        image_version=image_version,
+        image_hash=image_hash,
         development_mode=dev,
     )
     try:
-        asyncio.get_event_loop().run_until_complete(agent.run())
+        asyncio.get_event_loop().run_until_complete(executor.run())
     except asyncio.CancelledError:
         logger.info("graceful shutdown")
 

@@ -20,10 +20,9 @@ class FunctionInputsLoader:
         self._request = request
 
     def load(self) -> FunctionInputs:
-        # The first function in Graph gets its input from graph invocation payload.
         return FunctionInputs(
             input=self._function_input(),
-            init_value=self._accomulator_input(),
+            init_value=self._accumulator_input(),
         )
 
     def _function_input(self) -> IndexifyData:
@@ -31,7 +30,7 @@ class FunctionInputsLoader:
             self._request.graph_invocation_id, self._request.function_input
         )
 
-    def _accomulator_input(self) -> Optional[IndexifyData]:
+    def _accumulator_input(self) -> Optional[IndexifyData]:
         return (
             _to_indexify_data(
                 self._request.graph_invocation_id, self._request.function_init_value

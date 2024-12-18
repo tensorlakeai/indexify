@@ -615,10 +615,10 @@ mod tests {
         );
 
         let graph = {
-            let fn_gen = test_compute_fn("fn_gen", None);
-            let fn_map = test_compute_fn("fn_map", None);
+            let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
+            let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
             let fn_reduce = reducer_fn("fn_reduce");
-            let fn_convert = test_compute_fn("fn_convert", None);
+            let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
@@ -864,10 +864,10 @@ mod tests {
         );
 
         let graph = {
-            let fn_gen = test_compute_fn("fn_gen", None);
-            let fn_map = test_compute_fn("fn_map", None);
+            let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
+            let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
             let fn_reduce = reducer_fn("fn_reduce");
-            let fn_convert = test_compute_fn("fn_convert", None);
+            let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
@@ -1178,10 +1178,10 @@ mod tests {
         );
 
         let graph = {
-            let fn_gen = test_compute_fn("fn_gen", None);
-            let fn_map = test_compute_fn("fn_map", None);
+            let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
+            let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
             let fn_reduce = reducer_fn("fn_reduce");
-            let fn_convert = test_compute_fn("fn_convert", None);
+            let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
@@ -1459,10 +1459,10 @@ mod tests {
         );
 
         let graph = {
-            let fn_gen = test_compute_fn("fn_gen", None);
-            let fn_map = test_compute_fn("fn_map", None);
+            let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
+            let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
             let fn_reduce = reducer_fn("fn_reduce");
-            let fn_convert = test_compute_fn("fn_convert", None);
+            let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
@@ -1840,10 +1840,10 @@ mod tests {
         );
 
         let graph = {
-            let fn_gen = test_compute_fn("fn_gen", None);
-            let fn_map = test_compute_fn("fn_map", None);
+            let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
+            let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
             let fn_reduce = reducer_fn("fn_reduce");
-            let fn_convert = test_compute_fn("fn_convert", None);
+            let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
             ComputeGraph {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),

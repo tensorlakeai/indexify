@@ -2,11 +2,13 @@ name: Publish Example Executor Containers
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
-  actions: write
-  packages: write
+    inputs:
+      indexify_version:
+        type: string
+        description: |
+          Indexify version to use to build the executor containers.
+          Note: Should ideally match the tag used for this workflow.
+        required: true
 
 jobs:
   build-and-push-docker-images:
@@ -14,9 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -27,15 +31,27 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
-          pip install indexify -U
+          curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
+          uv pip install --system 'indexify==${{ inputs.indexify_version }}' -U
           indexify-cli build-default-image --python-version 3.10
+          docker tag tensorlake/indexify-executor-default:3.10 tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
           docker push tensorlake/indexify-executor-default:3.10
+          docker push tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
+
           indexify-cli build-default-image --python-version 3.11
+          docker tag tensorlake/indexify-executor-default:3.11 tensorlake/indexify-executor-default:3.11-${{ inputs.indexify_version }}
           docker push tensorlake/indexify-executor-default:3.11
+          docker push tensorlake/indexify-executor-default:3.11-${{ inputs.indexify_version }}
+
           indexify-cli build-default-image --python-version 3.12
+          docker tag tensorlake/indexify-executor-default:3.12 tensorlake/indexify-executor-default:3.12-${{ inputs.indexify_version }}
           docker push tensorlake/indexify-executor-default:3.12
+          docker push tensorlake/indexify-executor-default:3.12-${{ inputs.indexify_version }}
+
           indexify-cli build-default-image --python-version 3.13
+          docker tag tensorlake/indexify-executor-default:3.13 tensorlake/indexify-executor-default:3.13-${{ inputs.indexify_version }}
           docker push tensorlake/indexify-executor-default:3.13
+          docker push tensorlake/indexify-executor-default:3.13-${{ inputs.indexify_version }}
 
           indexify-cli build-image examples/pdf_document_extraction/images.py
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
