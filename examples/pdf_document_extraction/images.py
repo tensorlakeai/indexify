@@ -1,14 +1,16 @@
 from indexify import Image
 
 http_client_image = (
-    Image(python="3.11")
+    Image()
     .name("tensorlake/pdf-blueprint-download")
+    .base_image(f"python:3.11-slim-bookworm")
     .run("pip install httpx")
 )
 
 chroma_image = (
-    Image(python="3.11")
+    Image()
     .name("tensorlake/blueprints-chromadb")
+    .base_image(f"python:3.11-slim-bookworm")
     .run("pip install chromadb")
     .run("pip install pillow")
 )
@@ -24,8 +26,9 @@ st_image = (
 )
 
 lance_image = (
-    Image(python="3.11")
+    Image()
     .name("tensorlake/pdf-blueprint-lancdb")
+    .base_image(f"python:3.11-slim-bookworm")
     .run("pip install lancedb")
 )
 
