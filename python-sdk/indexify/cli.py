@@ -13,6 +13,7 @@ import threading
 import time
 from importlib.metadata import version
 from typing import Annotated, List, Optional
+import tempfile
 
 import nanoid
 import structlog
@@ -28,9 +29,8 @@ from indexify.function_executor.function_executor_service import (
 )
 from indexify.function_executor.server import Server as FunctionExecutorServer
 from indexify.functions_sdk.image import (
-    LOCAL_PYTHON_VERSION,
     GetDefaultPythonImage,
-    Image,
+    Image, Build
 )
 from indexify.http_client import IndexifyClient
 
@@ -290,45 +290,61 @@ def function_executor(
         ),
     ).run()
 
-
-
 IMAGE_SERVICE="http://localhost:8000"
 
 def _create_platform_image(image: Image):
-    # TODO: Wire this up to use the proxy with API keys
-    response = httpx.post(f"{IMAGE_SERVICE}/images", data=image.to_builder_image().model_dump_json())
-    if response.status_code != 200:
-        response.raise_for_status()
+    fd, context_file = tempfile.mkstemp()
+    image.build_context(context_file)
+    client = httpx
 
-    image_id = response.json()['id']
 
-    # Get the latest build for this image
-    latest_build_response = httpx.get(f"{IMAGE_SERVICE}/images/{image_id}/latest_completed_build")
-    if latest_build_response.status_code == 404: # No completed builds, exist. Starting one now.
-        logger.info(f"No existing builds found for {image._image_name}")
-        create_build_response = httpx.put(f"{IMAGE_SERVICE}/images/{image_id}/build")
+    image_hash = image.hash()
 
-        if create_build_response.status_code not in (201, 200):
-            response.raise_for_status()
+    # Check if the image is built before pushing a new one
+    builds_response = client.get(f"{IMAGE_SERVICE}/builds", params={"namespace":"default", "image_name":image._image_name, "image_hash":image_hash})
+    builds_response.raise_for_status()
+    matching_builds = [Build.model_validate(b) for b in builds_response.json()]
+    if not matching_builds:
+        files = {
+            "context":open(context_file, "rb")
+        }
 
-        latest_build = create_build_response.json()
-        build_id = latest_build['id']
+        data = {
+            "namespace": "default",
+            "name":image._image_name,
+            "hash":image_hash
+        }
 
-        # Block and poll while build completes
-        logger.info("Waiting for build to complete")
-        while latest_build['status'] != 'completed':
-            latest_build_response = httpx.get(f"{IMAGE_SERVICE}/build/{build_id}")
-            if latest_build_response.status_code != 200:
-                latest_build_response.raise_for_status()
-            latest_build = latest_build_response.json()
-            time.sleep(1)
+        res = client.post(f"{IMAGE_SERVICE}/builds", data=data, files=files)
+        res.raise_for_status()
 
-        logger.info(f"New build is hosted in {latest_build["uri"]}")
-    elif latest_build_response.status_code == 200:
-        latest_build = latest_build_response.json()
-        logger.info(f"Image is already built and hosted on {latest_build['uri']}")
+        build = Build.model_validate(res.json())
     else:
-        response.raise_for_status()
+        build = matching_builds[0]
+
+    match build.status:
+        case "completed":
+            print(f"image {build.image_name}:{build.image_hash} is already built")
+        case "ready" | "building":
+            print(f"waiting for {build.image_name} image to build")
+            while build.status != 'completed':
+                res = client.get(f"{IMAGE_SERVICE}/builds/{build.id}")
+                build = Build.model_validate(res.json())
+                time.sleep(5)
+
+        case _:
+            raise ValueError(f"Unexpected build status {build.status}")
+
+    match build.result:
+        case "success":
+            build_duration = build.push_completed_at - build.started_at
+            print(f"Building completed in {build_duration}; image is stored in {build.uri}")
+
+        case "failed":
+            print(f"Building failed, please see logs for details")
+
+        case _:
+            raise ValueError(f"Unexpected build result {build.status}")
 
 def _create_image(image: Image, python_sdk_path):
     console.print(
@@ -336,7 +352,6 @@ def _create_image(image: Image, python_sdk_path):
         Text(f"`{image._image_name}`", style="cyan bold"),
     )
     _build_image(image=image, python_sdk_path=python_sdk_path)
-
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
     built_image, output = image.build(python_sdk_path=python_sdk_path)
