@@ -1,5 +1,5 @@
-from examples.pdf_document_extraction.elastic_writer import ElasticSearchWriter
-from examples.pdf_document_extraction.embedding import chunk_text_docling, ImageEmbeddingDoclingExtractor
+from elastic_writer import ElasticSearchWriter
+from embedding import chunk_text_docling, ImageEmbeddingDoclingExtractor
 from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
