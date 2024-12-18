@@ -8,13 +8,9 @@ from .process_function_executor import ProcessFunctionExecutor
 class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
     def __init__(
         self,
-        indexify_server_address: str,
         development_mode: bool,
-        config_path: Optional[str],
     ):
-        self._indexify_server_address: str = indexify_server_address
         self._development_mode: bool = development_mode
-        self._config_path: Optional[str] = config_path
         # Registred ports range end at 49151. We start from 50000 to hopefully avoid conflicts.
         self._free_ports = set(range(50000, 51000))
 
@@ -30,13 +26,9 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
                 "function-executor",
                 "--function-executor-server-address",
                 _server_address(port),
-                "--indexify-server-address",
-                self._indexify_server_address,
             ]
             if self._development_mode:
                 args.append("--dev")
-            if self._config_path is not None:
-                args.extend(["--config-path", self._config_path])
             # Run the process with our stdout, stderr. We want to see process logs and exceptions in our process output.
             # This is useful for dubugging. Customer function stdout and stderr is captured and returned in the response
             # so we won't see it in our process outputs. This is the right behavior as customer function stdout and stderr

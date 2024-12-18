@@ -42,16 +42,16 @@ class Executor:
             self._logger.info("running the extractor with TLS enabled")
             protocol = "https"
 
-        self._function_worker = FunctionWorker(
-            function_executor_factory=ProcessFunctionExecutorFactory(
-                indexify_server_address=server_addr,
-                development_mode=development_mode,
-                config_path=config_path,
-            )
-        )
         self._server_addr = server_addr
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
+        self._function_worker = FunctionWorker(
+            function_executor_factory=ProcessFunctionExecutorFactory(
+                development_mode=development_mode,
+            ),
+            base_url=self._base_url,
+            config_path=config_path,
+        )
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=config_path
         )

@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 import grpc
 
+from indexify.common_util import get_httpx_client
 from indexify.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     InitializeResponse,
@@ -13,6 +14,7 @@ from indexify.function_executor.proto.function_executor_pb2_grpc import (
 
 from .function_executor import FunctionExecutor
 from .function_executor_factory import FunctionExecutorFactory
+from .invocation_state_client import InvocationStateClient
 
 
 class FunctionExecutorMap:
@@ -21,10 +23,17 @@ class FunctionExecutorMap:
     The map is safe to use by multiple couroutines running in event loop on the same thread
     but it's not thread safe (can't be used from different threads concurrently)."""
 
-    def __init__(self, factory: FunctionExecutorFactory):
+    def __init__(
+        self,
+        factory: FunctionExecutorFactory,
+        base_url: str,
+        config_path: Optional[str],
+    ):
         self._factory = factory
+        self._base_url = base_url
+        self._config_path = config_path
         # Map of initialized Function executors ready to run tasks.
-        # function ID -> FunctionExecutor
+        # Function ID -> FunctionExecutor.
         self._executors: Dict[str, FunctionExecutor] = {}
         # We have to do all operations under this lock because we need to ensure
         # that we don't create more Function Executors than required. This is important
@@ -52,6 +61,7 @@ class FunctionExecutorMap:
                 return self._executors[id]
 
             executor: Optional[FunctionExecutor] = None
+            invocation_state_client: Optional[InvocationStateClient] = None
             try:
                 executor = await self._factory.create(logger, state=initial_state)
                 channel: grpc.aio.Channel = await executor.channel()
@@ -61,7 +71,22 @@ class FunctionExecutorMap:
                 )
                 if not initialize_response.success:
                     raise Exception("initialize RPC failed at function executor")
+                invocation_state_client = InvocationStateClient(
+                    stub=stub,
+                    base_url=self._base_url,
+                    http_client=get_httpx_client(
+                        config_path=self._config_path, make_async=True
+                    ),
+                    graph=initialize_request.graph_name,
+                    namespace=initialize_request.namespace,
+                    logger=logger,
+                )
+                await invocation_state_client.start()
+                # This is dirty but requires refactoring to implement properly.
+                initial_state.invocation_state_client = invocation_state_client
             except Exception:
+                if invocation_state_client is not None:
+                    await invocation_state_client.destroy()
                 if executor is not None:
                     await self._factory.destroy(executor=executor, logger=logger)
                 # Function Executor creation or initialization failed.
@@ -82,10 +107,14 @@ class FunctionExecutorMap:
                 # Function Executor was already deleted or replaced and the caller is not aware of this.
                 return
             del self._executors[id]
+            if function_executor.state().invocation_state_client is not None:
+                await function_executor.state().invocation_state_client.destroy()
             await self._factory.destroy(executor=function_executor, logger=logger)
 
     async def clear(self, logger):
         async with self._executors_lock:
             while self._executors:
                 id, function_executor = self._executors.popitem()
+                if function_executor.state().invocation_state_client is not None:
+                    await function_executor.state().invocation_state_client.destroy()
                 await self._factory.destroy(function_executor, logger)

@@ -23,6 +23,7 @@ from .function_executor.function_executor_factory import (
     FunctionExecutorFactory,
 )
 from .function_executor.function_executor_map import FunctionExecutorMap
+from .function_executor.invocation_state_client import InvocationStateClient
 
 
 class FunctionWorkerInput:
@@ -63,15 +64,28 @@ class FunctionExecutorState:
         function_id_with_version: str,
         function_id_without_version: str,
         ongoing_tasks_count: int,
+        invocation_state_client: Optional[InvocationStateClient] = None,
     ):
         self.function_id_with_version: str = function_id_with_version
         self.function_id_without_version: str = function_id_without_version
         self.ongoing_tasks_count: int = ongoing_tasks_count
+        self.invocation_state_client: Optional[InvocationStateClient] = (
+            invocation_state_client
+        )
 
 
 class FunctionWorker:
-    def __init__(self, function_executor_factory: FunctionExecutorFactory):
-        self._function_executors = FunctionExecutorMap(function_executor_factory)
+    def __init__(
+        self,
+        function_executor_factory: FunctionExecutorFactory,
+        base_url: str,
+        config_path: Optional[str],
+    ):
+        self._function_executors = FunctionExecutorMap(
+            factory=function_executor_factory,
+            base_url=base_url,
+            config_path=config_path,
+        )
 
     async def run(self, input: FunctionWorkerInput) -> FunctionWorkerOutput:
         logger = _logger(input.task)
@@ -176,6 +190,9 @@ class FunctionWorker:
                     input.function_input.init_value
                 )
             channel: grpc.aio.Channel = await function_executor.channel()
+            function_executor.state().invocation_state_client.add_task_to_invocation_id_entry(
+                task_id=input.task.id, invocation_id=input.task.invocation_id
+            )
             run_task_response: RunTaskResponse = await FunctionExecutorStub(
                 channel
             ).run_task(run_task_request)
@@ -184,6 +201,9 @@ class FunctionWorker:
             # If this Function Executor was destroyed then it's not
             # visible in the map but we still have a reference to it.
             function_executor.state().ongoing_tasks_count -= 1
+            function_executor.state().invocation_state_client.remove_task_to_invocation_id_entry(
+                input.task.id
+            )
 
     async def shutdown(self) -> None:
         await self._function_executors.clear(
