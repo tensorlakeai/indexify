@@ -8,6 +8,7 @@ import type { IndividualComputeGraphLoaderData } from './types'
 import ComputeGraphTable from '../../components/tables/ComputeGraphTable'
 import CopyText from '../../components/CopyText'
 import InvocationsTable from '../../components/tables/InvocationsTable'
+import CopyTextPopover from '../../components/CopyTextPopover'
 
 const IndividualComputeGraphPage = () => {
   const { invocationsList, computeGraph, namespace } =
@@ -32,13 +33,18 @@ const IndividualComputeGraphPage = () => {
         aria-label="breadcrumb"
         separator={<NavigateNextIcon fontSize="small" />}
       >
-        <Typography color="text.primary">{namespace}</Typography>
+        <CopyTextPopover text={namespace}>
+          <Typography color="text.primary">{namespace}</Typography>
+        </CopyTextPopover>
         <Link to={`/${namespace}/compute-graphs`}>
-          <Typography color="text.primary">Compute Graphs</Typography>
+          <CopyTextPopover text="Compute Graphs">
+            <Typography color="text.primary">Compute Graphs</Typography>
+          </CopyTextPopover>
         </Link>
-        <Typography color="text.primary">{computeGraph.name}</Typography>
+        <CopyTextPopover text={computeGraph.name}>
+          <Typography color="text.primary">{computeGraph.name}</Typography>
+        </CopyTextPopover>
       </Breadcrumbs>
-
       <Box>
         <Box sx={{ mb: 3 }}>
           <div className="content-table-header">

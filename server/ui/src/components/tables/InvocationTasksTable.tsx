@@ -23,6 +23,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import CopyText from '../CopyText';
 
 interface Task {
   id: string;
@@ -214,7 +215,12 @@ export function InvocationTasksTable({ indexifyServiceURL, invocationId, namespa
                 <TableBody>
                   {tasks.map((task) => (
                     <TableRow key={task.id}>
-                      <TableCell>{task.id}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {task.id}
+                          <CopyText text={task.id} />
+                        </Box>
+                      </TableCell>
                       <TableCell>
                         <Chip
                           label={task.outcome}
