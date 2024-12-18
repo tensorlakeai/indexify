@@ -15,10 +15,12 @@ build: ## Build rust application
 
 build-release: ## Build rust release
 	cargo install cross
+	# cargo install cross --git https://github.com/cross-rs/cross
 	cross build --target x86_64-unknown-linux-gnu --release
 
 build-release-aarch64:
 	cargo install cross
+	# cargo install cross --git https://github.com/cross-rs/cross
 	cross build --target aarch64-unknown-linux-gnu --release
 
 clean: ## Clean rust build artifacts
