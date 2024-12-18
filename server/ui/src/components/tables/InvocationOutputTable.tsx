@@ -23,6 +23,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { formatTimestamp } from '../../utils/helpers';
+import CopyText from '../CopyText';
 
 interface Output {
   compute_fn: string;
@@ -151,7 +152,9 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
             id={`panel${index}-header`}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-              <Typography>Compute Function - {computeFn} ({outputs.length} outputs)</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography>Compute Function - {computeFn} ({outputs.length} outputs) <CopyText text={computeFn} /></Typography>
+              </Box>
               <Box 
                 sx={{ display: 'flex', alignItems: 'center' }}
                 onClick={(e) => e.stopPropagation()}
@@ -185,7 +188,12 @@ function InvocationOutputTable({ indexifyServiceURL, invocationId, namespace, co
                 <TableBody>
                   {outputs.map((output, idx) => (
                     <TableRow key={idx}>
-                      <TableCell>{output.id}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {output.id}
+                          <CopyText text={output.id} />
+                        </Box>
+                      </TableCell>
                       <TableCell>{formatTimestamp(output.created_at)}</TableCell>
                       <TableCell>
                         <Button

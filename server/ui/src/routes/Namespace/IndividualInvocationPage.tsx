@@ -10,6 +10,7 @@ import { Link, useLoaderData } from 'react-router-dom';
 import CopyText from '../../components/CopyText';
 import InvocationOutputTable from '../../components/tables/InvocationOutputTable';
 import InvocationTasksTable from '../../components/tables/InvocationTasksTable';
+import CopyTextPopover from '../../components/CopyTextPopover';
 
 const IndividualInvocationPage = () => {
   const {
@@ -31,14 +32,22 @@ const IndividualInvocationPage = () => {
         aria-label="breadcrumb"
         separator={<NavigateNextIcon fontSize="small" />}
       >
-        <Typography color="text.primary">{namespace}</Typography>
+        <CopyTextPopover text={namespace}>
+          <Typography color="text.primary">{namespace}</Typography>
+        </CopyTextPopover>
         <Link color="inherit" to={`/${namespace}/compute-graphs`}>
-          <Typography color="text.primary">Compute Graphs</Typography>
+          <CopyTextPopover text="Compute Graphs">
+            <Typography color="text.primary">Compute Graphs</Typography>
+          </CopyTextPopover>
         </Link>
         <Link color="inherit" to={`/${namespace}/compute-graphs/${computeGraph}`}>
-          <Typography color="text.primary">{computeGraph}</Typography>
+          <CopyTextPopover text={computeGraph}>
+            <Typography color="text.primary">{computeGraph}</Typography>
+          </CopyTextPopover>
         </Link>
-        <Typography color="text.primary">{invocationId}</Typography>
+        <CopyTextPopover text={invocationId}>
+          <Typography color="text.primary">{invocationId}</Typography>
+        </CopyTextPopover>
       </Breadcrumbs>
       <Box sx={{ p: 0 }}>
         <Box sx={{ mb: 3 }}>
