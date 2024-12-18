@@ -44,9 +44,7 @@ class Executor:
 
         self._function_worker = FunctionWorker(
             function_executor_factory=ProcessFunctionExecutorFactory(
-                indexify_server_address=server_addr,
                 development_mode=development_mode,
-                config_path=config_path,
             )
         )
         self._server_addr = server_addr

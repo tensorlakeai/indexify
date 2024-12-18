@@ -123,3 +123,79 @@ class RunTaskResponse(_message.Message):
         is_reducer: bool = ...,
         success: bool = ...,
     ) -> None: ...
+
+class SetInvocationStateRequest(_message.Message):
+    __slots__ = ("task_id", "state_key", "state_value")
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_KEY_FIELD_NUMBER: _ClassVar[int]
+    STATE_VALUE_FIELD_NUMBER: _ClassVar[int]
+    task_id: str
+    state_key: str
+    state_value: str
+    def __init__(
+        self,
+        task_id: _Optional[str] = ...,
+        state_key: _Optional[str] = ...,
+        state_value: _Optional[str] = ...,
+    ) -> None: ...
+
+class SetInvocationStateResponse(_message.Message):
+    __slots__ = ("success",)
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    def __init__(self, success: bool = ...) -> None: ...
+
+class GetInvocationStateRequest(_message.Message):
+    __slots__ = ("task_id", "state_key")
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_KEY_FIELD_NUMBER: _ClassVar[int]
+    task_id: str
+    state_key: str
+    def __init__(
+        self, task_id: _Optional[str] = ..., state_key: _Optional[str] = ...
+    ) -> None: ...
+
+class GetInvocationStateResponse(_message.Message):
+    __slots__ = ("success", "state_key", "state_value")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    STATE_KEY_FIELD_NUMBER: _ClassVar[int]
+    STATE_VALUE_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    state_key: str
+    state_value: str
+    def __init__(
+        self,
+        success: bool = ...,
+        state_key: _Optional[str] = ...,
+        state_value: _Optional[str] = ...,
+    ) -> None: ...
+
+class InvocationStateRequest(_message.Message):
+    __slots__ = ("request_id", "set", "get")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    SET_FIELD_NUMBER: _ClassVar[int]
+    GET_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    set: SetInvocationStateRequest
+    get: GetInvocationStateRequest
+    def __init__(
+        self,
+        request_id: _Optional[str] = ...,
+        set: _Optional[_Union[SetInvocationStateRequest, _Mapping]] = ...,
+        get: _Optional[_Union[GetInvocationStateRequest, _Mapping]] = ...,
+    ) -> None: ...
+
+class InvocationStateResponse(_message.Message):
+    __slots__ = ("request_id", "set", "get")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    SET_FIELD_NUMBER: _ClassVar[int]
+    GET_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    set: SetInvocationStateResponse
+    get: GetInvocationStateResponse
+    def __init__(
+        self,
+        request_id: _Optional[str] = ...,
+        set: _Optional[_Union[SetInvocationStateResponse, _Mapping]] = ...,
+        get: _Optional[_Union[GetInvocationStateResponse, _Mapping]] = ...,
+    ) -> None: ...

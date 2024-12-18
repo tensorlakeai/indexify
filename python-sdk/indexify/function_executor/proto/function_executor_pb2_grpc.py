@@ -46,6 +46,12 @@ class FunctionExecutorStub(object):
             response_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeResponse.FromString,
             _registered_method=True,
         )
+        self.initialize_invocation_state_server = channel.stream_stream(
+            "/function_executor_service.FunctionExecutor/initialize_invocation_state_server",
+            request_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InvocationStateResponse.SerializeToString,
+            response_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InvocationStateRequest.FromString,
+            _registered_method=True,
+        )
         self.run_task = channel.unary_unary(
             "/function_executor_service.FunctionExecutor/run_task",
             request_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.RunTaskRequest.SerializeToString,
@@ -67,6 +73,15 @@ class FunctionExecutorServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def initialize_invocation_state_server(self, request_iterator, context):
+        """Initializes a server that sends requests to the client to perform actions on
+        a task's graph invocation state. This method is called only once per Function Executor
+        It should be called before calling RunTask for the function.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def run_task(self, request, context):
         """Executes the task defined in the request.
         Multiple tasks can be running in parallel.
@@ -82,6 +97,11 @@ def add_FunctionExecutorServicer_to_server(servicer, server):
             servicer.initialize,
             request_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeRequest.FromString,
             response_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeResponse.SerializeToString,
+        ),
+        "initialize_invocation_state_server": grpc.stream_stream_rpc_method_handler(
+            servicer.initialize_invocation_state_server,
+            request_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InvocationStateResponse.FromString,
+            response_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InvocationStateRequest.SerializeToString,
         ),
         "run_task": grpc.unary_unary_rpc_method_handler(
             servicer.run_task,
@@ -121,6 +141,36 @@ class FunctionExecutor(object):
             "/function_executor_service.FunctionExecutor/initialize",
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeRequest.SerializeToString,
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InitializeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def initialize_invocation_state_server(
+        request_iterator,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            "/function_executor_service.FunctionExecutor/initialize_invocation_state_server",
+            indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InvocationStateResponse.SerializeToString,
+            indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InvocationStateRequest.FromString,
             options,
             channel_credentials,
             insecure,
