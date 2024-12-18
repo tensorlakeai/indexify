@@ -13,3 +13,9 @@ class ImageWithEmbedding(BaseModel):
     embedding: List[float]
     image_bytes: bytes
     page_number: int
+
+
+# Docling Example Objects
+class PDFParserDoclingOutput(BaseModel):
+    text: str
+    images: List[str]

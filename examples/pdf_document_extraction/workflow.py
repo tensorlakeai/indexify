@@ -1,3 +1,5 @@
+from examples.pdf_document_extraction.elastic_writer import ElasticSearchWriter
+from examples.pdf_document_extraction.embedding import chunk_text_docling, ImageEmbeddingDoclingExtractor
 from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
@@ -64,21 +66,51 @@ def create_graph_1() -> Graph:
     g.add_edge(ImageEmbeddingExtractor, ChromaDBWriter)
     return g
 
-if __name__ == "__main__":
-    graph: Graph = create_graph_1()
-    # Uncomment this to run the graph locally
-    #invocation_id = graph.run(block_until_done=True, url="https://arxiv.org/pdf/2302.12854")
-    import common_objects
-    import images
 
-    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects, images])
+# This graph extracts text and image embeddings from the PDF using docling
+# and writes them to Elastic Search
+def create_graph_2() -> Graph:
+    from embedding import ImageEmbeddingExtractor, TextEmbeddingExtractor, chunk_text
+    from chromadb_writer import ChromaDBWriter
+    from pdf_parser import PDFParser
+    from pdf_parser_docling import PDFParserDocling
+
+    g = Graph(
+        "Extract_pages_tables_images_pdf_docling",
+        start_node=PDFParserDocling,
+    )
+
+    # Send the parse output to the text chunker and the image embedder.
+    g.add_edge(PDFParserDocling, chunk_text_docling)
+    g.add_edge(PDFParserDocling, ImageEmbeddingDoclingExtractor)
+
+    ## Compute the text embedding vectors
+    g.add_edge(chunk_text_docling, TextEmbeddingExtractor)
+
+    ## Write text and image embeddings to vectordb
+    g.add_edge(ImageEmbeddingDoclingExtractor, ElasticSearchWriter)
+    g.add_edge(TextEmbeddingExtractor, ElasticSearchWriter)
+    return g
+
+if __name__ == "__main__":
+    graph: Graph = create_graph_2()
 
     file_url = "https://arxiv.org/pdf/1706.03762"
     import httpx
     resp = httpx.get(url=file_url, follow_redirects=True)
     resp.raise_for_status()
+
     file = File(data=resp.content, mime_type="application/pdf")
-    
+
+    # uncomment to run locally
+    # invocation_id = graph.run(block_until_done=True, file=file)
+    # exit(0)
+
+    import common_objects
+    import images
+
+    remote_graph = RemoteGraph.deploy(graph, additional_modules=[common_objects, images])
+
     invocation_id = remote_graph.run(
         block_until_done=True, file=file,
     )
