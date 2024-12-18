@@ -23,7 +23,7 @@ from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 
 
-class ExtractorAgent:
+class Executor:
     def __init__(
         self,
         executor_id: str,
