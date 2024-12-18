@@ -90,8 +90,8 @@ class TestFunctionWrapper(unittest.TestCase):
         @indexify_function()
         def extractor_c(url: str) -> str:
             ctx = get_ctx()  # type: ignore
-            ctx.set_state_key("foo", "bar")
-            foo_val = ctx.get_state_key("foo")
+            ctx.invocation_state.set("foo", "bar")
+            foo_val = ctx.invocation_state.get("foo")
             return ctx.invocation_id
 
         extractor_wrapper = IndexifyFunctionWrapper(extractor_c, TEST_GRAPH_CTX)

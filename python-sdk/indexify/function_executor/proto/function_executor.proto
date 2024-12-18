@@ -58,12 +58,53 @@ message RunTaskResponse {
     optional bool success = 7;
 }
 
+message SetInvocationStateRequest {
+    optional string task_id = 1;
+    optional string state_key = 2;
+    optional bytes state_value = 3;
+}
+
+message SetInvocationStateResponse {
+    optional bool success = 1;
+}
+
+message GetInvocationStateRequest {
+    optional string task_id = 1;
+    optional string state_key = 2;
+}
+
+message GetInvocationStateResponse {
+    optional bool success = 1;
+    optional string state_key = 2;
+    optional bytes state_value = 3;
+}
+
+message InvocationStateRequest {
+    optional string request_id = 1;
+    oneof request {
+        SetInvocationStateRequest set = 2;
+        GetInvocationStateRequest get = 3;
+    }
+}
+
+message InvocationStateResponse {
+    optional string request_id = 1;
+    oneof response {
+        SetInvocationStateResponse set = 2;
+        GetInvocationStateResponse get = 3;
+    }
+}
+
 service FunctionExecutor {
     // Initializes the Function Executor to run tasks
     // for a particular function. This method is called only
     // once per Function Executor as it can only run a single function.
     // It should be called before calling RunTask for the function.
     rpc initialize(InitializeRequest) returns (InitializeResponse);
+    // Initializes a server that sends requests to the client to perform actions on
+    // a task's graph invocation state. This method is called only once per Function Executor
+    // It should be called before calling RunTask for the function.
+    rpc initialize_invocation_state_server(stream InvocationStateResponse) returns (stream InvocationStateRequest);
     // Executes the task defined in the request.
     // Multiple tasks can be running in parallel.
     rpc run_task(RunTaskRequest) returns (RunTaskResponse);
