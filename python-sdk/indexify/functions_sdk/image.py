@@ -1,24 +1,22 @@
+import datetime
 import hashlib
 import importlib
-import sys
-import os
-import tarfile 
-from typing import List, Optional
-import pathlib
 import logging
+import os
+import pathlib
+import sys
+import tarfile
 from io import BytesIO
-
-from pydantic import BaseModel
+from typing import List, Optional
 
 import docker
-
-import datetime
 import docker.api.build
+from pydantic import BaseModel
 
 docker.api.build.process_dockerfile = lambda dockerfile, path: (
-        "Dockerfile",
-        dockerfile,
-        )
+    "Dockerfile",
+    dockerfile,
+)
 
 
 # Pydantic object for API
@@ -28,17 +26,20 @@ class ImageInformation(BaseModel):
     image_url: Optional[str] = ""
     sdk_version: str
 
-HASH_BUFF_SIZE=1024**2
+
+HASH_BUFF_SIZE = 1024**2
+
 
 class BuildOp(BaseModel):
-    op_type:str
-    args:List[str]
-    
+    op_type: str
+    args: List[str]
+
     def hash(self, hash):
         match self.op_type:
             case "RUN":
                 hash.update("RUN".encode())
-                for a in self.args: hash.update(a.encode())
+                for a in self.args:
+                    hash.update(a.encode())
 
             case "COPY":
                 hash.update("COPY".encode())
@@ -50,10 +51,10 @@ class BuildOp(BaseModel):
                             while data:
                                 hash.update(data)
                                 data = fp.read(HASH_BUFF_SIZE)
-            
+
             case _:
                 raise ValueError(f"Unsupported build op type {self.op_type}")
-    
+
     def render(self):
         match self.op_type:
             case "RUN":
@@ -69,10 +70,10 @@ class Build(BaseModel):
     Model for talking with the build service.
     """
 
-    id: int | None=None
+    id: int | None = None
     namespace: str
     image_name: str
-    image_hash:  str    
+    image_hash: str
     status: str | None
     result: str | None
 
@@ -80,7 +81,7 @@ class Build(BaseModel):
     started_at: datetime.datetime | None = None
     build_completed_at: datetime.datetime | None = None
     push_completed_at: datetime.datetime | None = None
-    uri:str | None = None
+    uri: str | None = None
 
 
 class Image:
@@ -89,7 +90,7 @@ class Image:
         self._tag = "latest"
         self._base_image = BASE_IMAGE_NAME
         self._python_version = LOCAL_PYTHON_VERSION
-        self._build_ops = [] # List of ImageOperation
+        self._build_ops = []  # List of ImageOperation
         self._sdk_version = importlib.metadata.version("indexify")
 
     def name(self, image_name):
@@ -108,18 +109,18 @@ class Image:
         self._build_ops.append(BuildOp(op_type="RUN", args=[run_str]))
         return self
 
-    def copy(self, source:str, dest:str):
+    def copy(self, source: str, dest: str):
         self._build_ops.append(BuildOp(op_type="COPY", args=[source, dest]))
         return self
-            
+
     def to_image_information(self):
         return ImageInformation(
             image_name=self._image_name,
             sdk_version=self._sdk_version,
-            image_hash=self.hash()
+            image_hash=self.hash(),
         )
-    
-    def build_context(self, filename:str):
+
+    def build_context(self, filename: str):
         with tarfile.open(filename, "w:gz") as tf:
             for op in self._build_ops:
                 if op.op_type == "COPY":
@@ -128,12 +129,12 @@ class Image:
                     tf.add(src, src)
 
             dockerfile = self._generate_dockerfile()
-            tarinfo = tarfile.TarInfo('Dockerfile')
+            tarinfo = tarfile.TarInfo("Dockerfile")
             tarinfo.size = len(dockerfile)
 
             tf.addfile(tarinfo, BytesIO(dockerfile.encode()))
-        
-    def _generate_dockerfile(self, python_sdk_path:Optional[str]=None):
+
+    def _generate_dockerfile(self, python_sdk_path: Optional[str] = None):
         docker_contents = [
             f"FROM {self._base_image}",
             "RUN mkdir -p ~/.indexify",
@@ -141,7 +142,7 @@ class Image:
             f"RUN echo {self._image_name} > ~/.indexify/image_name",
             f"RUN echo {self.hash()} > ~/.indexify/image_hash",
             "WORKDIR /app",
-        ]        
+        ]
 
         for build_op in self._build_ops:
             docker_contents.append(build_op.render())
@@ -161,7 +162,7 @@ class Image:
         docker_file = "\n".join(docker_contents)
         return docker_file
 
-    def build(self, python_sdk_path:Optional[str]=None, docker_client=None):
+    def build(self, python_sdk_path: Optional[str] = None, docker_client=None):
         if docker_client is None:
             docker_client = docker.from_env()
             docker_client.ping()
@@ -188,8 +189,10 @@ class Image:
 
         return hash.hexdigest()
 
+
 LOCAL_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 BASE_IMAGE_NAME = f"python:{LOCAL_PYTHON_VERSION}-slim-bookworm"
+
 
 def GetDefaultPythonImage(python_version: str):
     return (
@@ -198,5 +201,6 @@ def GetDefaultPythonImage(python_version: str):
         .base_image(f"python:{python_version}-slim-bookworm")
         .tag(python_version)
     )
+
 
 DEFAULT_IMAGE = GetDefaultPythonImage(LOCAL_PYTHON_VERSION)

@@ -2,19 +2,19 @@ from .logging import configure_logging_early, configure_production_logging
 
 configure_logging_early()
 
-import httpx
 import asyncio
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from importlib.metadata import version
 from typing import Annotated, List, Optional
-import tempfile
 
+import httpx
 import nanoid
 import structlog
 import typer
@@ -28,10 +28,7 @@ from indexify.function_executor.function_executor_service import (
     FunctionExecutorService,
 )
 from indexify.function_executor.server import Server as FunctionExecutorServer
-from indexify.functions_sdk.image import (
-    GetDefaultPythonImage,
-    Image, Build
-)
+from indexify.functions_sdk.image import Build, GetDefaultPythonImage, Image
 from indexify.http_client import IndexifyClient
 
 logger = structlog.get_logger(module=__name__)
@@ -163,8 +160,11 @@ def build_image(
 
 @app.command(help="Build platform images for function names")
 def build_platform_image(
-    workflow_file_path: Optional[str] = typer.Option(help="Path to the executor cache directory"),
-    image_names: Optional[List[str]] = None):
+    workflow_file_path: Annotated[str, typer.Argument()],
+    image_names: Optional[List[str]] = None,
+    build_service= "https://api.tensorlake.ai/images"
+):
+    
     globals_dict = {}
 
     # Add the folder in the workflow file path to the current Python path
@@ -181,10 +181,7 @@ def build_platform_image(
     for _, obj in globals_dict.items():
         if type(obj) and isinstance(obj, Image):
             if image_names is None or obj._image_name in image_names:
-                _create_platform_image(obj)
-
-
-
+                _create_platform_image(obj, build_service)
 
 
 @app.command(help="Build default image for indexify")
@@ -290,32 +287,30 @@ def function_executor(
         ),
     ).run()
 
-IMAGE_SERVICE="http://localhost:8000"
-
-def _create_platform_image(image: Image):
+def _create_platform_image(image: Image, service_endpoint:str):
     fd, context_file = tempfile.mkstemp()
     image.build_context(context_file)
     client = httpx
 
-
     image_hash = image.hash()
 
     # Check if the image is built before pushing a new one
-    builds_response = client.get(f"{IMAGE_SERVICE}/builds", params={"namespace":"default", "image_name":image._image_name, "image_hash":image_hash})
+    builds_response = client.get(
+        f"{service_endpoint}/builds",
+        params={
+            "namespace": "default",
+            "image_name": image._image_name,
+            "image_hash": image_hash,
+        },
+    )
     builds_response.raise_for_status()
     matching_builds = [Build.model_validate(b) for b in builds_response.json()]
     if not matching_builds:
-        files = {
-            "context":open(context_file, "rb")
-        }
+        files = {"context": open(context_file, "rb")}
 
-        data = {
-            "namespace": "default",
-            "name":image._image_name,
-            "hash":image_hash
-        }
+        data = {"namespace": "default", "name": image._image_name, "hash": image_hash}
 
-        res = client.post(f"{IMAGE_SERVICE}/builds", data=data, files=files)
+        res = client.post(f"{service_endpoint}/builds", data=data, files=files)
         res.raise_for_status()
 
         build = Build.model_validate(res.json())
@@ -327,8 +322,8 @@ def _create_platform_image(image: Image):
             print(f"image {build.image_name}:{build.image_hash} is already built")
         case "ready" | "building":
             print(f"waiting for {build.image_name} image to build")
-            while build.status != 'completed':
-                res = client.get(f"{IMAGE_SERVICE}/builds/{build.id}")
+            while build.status != "completed":
+                res = client.get(f"{service_endpoint}/builds/{build.id}")
                 build = Build.model_validate(res.json())
                 time.sleep(5)
 
@@ -338,7 +333,9 @@ def _create_platform_image(image: Image):
     match build.result:
         case "success":
             build_duration = build.push_completed_at - build.started_at
-            print(f"Building completed in {build_duration}; image is stored in {build.uri}")
+            print(
+                f"Building completed in {build_duration}; image is stored in {build.uri}"
+            )
 
         case "failed":
             print(f"Building failed, please see logs for details")
@@ -346,12 +343,14 @@ def _create_platform_image(image: Image):
         case _:
             raise ValueError(f"Unexpected build result {build.status}")
 
+
 def _create_image(image: Image, python_sdk_path):
     console.print(
         Text("Creating container for ", style="cyan"),
         Text(f"`{image._image_name}`", style="cyan bold"),
     )
     _build_image(image=image, python_sdk_path=python_sdk_path)
+
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
     built_image, output = image.build(python_sdk_path=python_sdk_path)
