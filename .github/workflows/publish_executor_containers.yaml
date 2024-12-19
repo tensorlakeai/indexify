@@ -1,6 +1,14 @@
-name: Publish Example Executor Containers
+name: Publish Executor Containers
 
 on:
+  workflow_call:
+    inputs:
+      indexify_version:
+        type: string
+        description: |
+          Indexify version to use to build the executor containers.
+          Note: Should ideally match the tag used for this workflow.
+        required: true
   workflow_dispatch:
     inputs:
       indexify_version:
