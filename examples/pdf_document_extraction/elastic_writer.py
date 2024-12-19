@@ -3,7 +3,7 @@ from typing import Union
 import base64
 import uuid
 
-from examples.pdf_document_extraction.common_objects import ImageWithEmbedding, TextChunk
+from common_objects import ImageWithEmbedding, TextChunk
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 
 

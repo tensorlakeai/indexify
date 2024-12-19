@@ -5,3 +5,4 @@ docling-core
 sentence-transformers
 chromadb
 elasticsearch
+py-inkwell[api]
