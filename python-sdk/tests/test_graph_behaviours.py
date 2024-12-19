@@ -240,6 +240,26 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output, [MyObject(x="ab")])
 
     @parameterized.expand([(False), (True)])
+    def test_simple_function_cls(self, is_remote):
+        class MyObject(BaseModel):
+            x: int
+
+        class SimpleFunctionCtxCls(IndexifyFunction):
+            name = "SimpleFunctionCtxCls"
+
+            def __init__(self):
+                super().__init__()
+
+            def run(self, obj: MyObject) -> MyObject:
+                return MyObject(x=obj.x + 1)
+
+        graph = Graph(name="test_simple_function_cls", start_node=SimpleFunctionCtxCls)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, obj=MyObject(x=1))
+        output = graph.output(invocation_id, "SimpleFunctionCtxCls")
+        self.assertEqual(output, [MyObject(x=2)])
+
+    @parameterized.expand([(False), (True)])
     def test_simple_function_with_json_encoding(self, is_remote):
         graph = Graph(
             name="test_simple_function_with_json_encoding",

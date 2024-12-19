@@ -98,20 +98,6 @@ class TestFunctionWrapper(unittest.TestCase):
         result, _ = extractor_wrapper.run_fn({"url": "foo"})
         self.assertEqual(result[0], "123")
 
-    # FIXME: Partial extractor is not working
-    # def test_partial_extractor(self):
-    #    @extractor()
-    #    def extractor_c(url: str, some_other_param: str) -> str:
-    #        """
-    #        Random description of extractor_c
-    #        """
-    #        return f"hello {some_other_param}"
-
-    #    print(type(extractor_c))
-    #    partial_extractor = extractor_c.partial(some_other_param="world")
-    #    result = partial_extractor.extract(BaseData.from_data(url="foo"))
-    #    self.assertEqual(result[0].payload, "hello world")
-
 
 if __name__ == "__main__":
     unittest.main()
