@@ -61,7 +61,7 @@ export function ComputeGraphsCard({
               <Link to={`/${namespace}/compute-graphs/${graph.name}`}>
                 <TruncatedText text={graph.name} maxLength={20} />
               </Link>
-              <Box display="flex" flexDirection="row">
+              <Box display="flex" flexDirection="row" alignItems="center">
                 <CopyText text={graph.name} />
                 <IconButton
                   onClick={() => handleDeleteGraph(graph.name)}

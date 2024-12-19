@@ -12,6 +12,11 @@ on:
         description: Is this a pre-release version?
         required: false
         default: false
+      ref:
+        type: string
+        description: The ref to checkout before running the workflow
+        required: false
+        default: main
 
 permissions:
   contents: write
@@ -48,6 +53,8 @@ jobs:
       - extract-version
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - run: mkdir -p /tmp/release
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -132,6 +139,7 @@ jobs:
           (cd .repo && reprepro includedeb buster /tmp/release/*.deb)
           (cd .repo && reprepro includedeb focal /tmp/release/*.deb)
           (cd .repo && reprepro includedeb jammy /tmp/release/*.deb)
+          # (cd .repo && reprepro includedeb noble /tmp/release/*.deb)
           ls .repo/
       - uses: ryand56/r2-upload-action@latest
         with:
