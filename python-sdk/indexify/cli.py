@@ -162,9 +162,9 @@ def build_image(
 def build_platform_image(
     workflow_file_path: Annotated[str, typer.Argument()],
     image_names: Optional[List[str]] = None,
-    build_service= "https://api.tensorlake.ai/images"
+    build_service="https://api.tensorlake.ai/images/v1",
 ):
-    
+
     globals_dict = {}
 
     # Add the folder in the workflow file path to the current Python path
@@ -287,10 +287,16 @@ def function_executor(
         ),
     ).run()
 
-def _create_platform_image(image: Image, service_endpoint:str):
+
+def _create_platform_image(image: Image, service_endpoint: str):
     fd, context_file = tempfile.mkstemp()
     image.build_context(context_file)
     client = httpx
+
+    headers = {}
+    api_key = os.getenv("TENSORLAKE_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     image_hash = image.hash()
 
@@ -298,19 +304,21 @@ def _create_platform_image(image: Image, service_endpoint:str):
     builds_response = client.get(
         f"{service_endpoint}/builds",
         params={
-            "namespace": "default",
             "image_name": image._image_name,
             "image_hash": image_hash,
         },
+        headers=headers,
     )
     builds_response.raise_for_status()
     matching_builds = [Build.model_validate(b) for b in builds_response.json()]
     if not matching_builds:
         files = {"context": open(context_file, "rb")}
 
-        data = {"namespace": "default", "name": image._image_name, "hash": image_hash}
+        data = {"name": image._image_name, "hash": image_hash}
 
-        res = client.post(f"{service_endpoint}/builds", data=data, files=files)
+        res = client.post(
+            f"{service_endpoint}/builds", data=data, files=files, headers=headers
+        )
         res.raise_for_status()
 
         build = Build.model_validate(res.json())
@@ -323,7 +331,9 @@ def _create_platform_image(image: Image, service_endpoint:str):
         case "ready" | "building":
             print(f"waiting for {build.image_name} image to build")
             while build.status != "completed":
-                res = client.get(f"{service_endpoint}/builds/{build.id}")
+                res = client.get(
+                    f"{service_endpoint}/builds/{build.id}", headers=headers
+                )
                 build = Build.model_validate(res.json())
                 time.sleep(5)
 

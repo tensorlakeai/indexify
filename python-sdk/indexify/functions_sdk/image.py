@@ -13,11 +13,6 @@ import docker
 import docker.api.build
 from pydantic import BaseModel
 
-docker.api.build.process_dockerfile = lambda dockerfile, path: (
-    "Dockerfile",
-    dockerfile,
-)
-
 
 # Pydantic object for API
 class ImageInformation(BaseModel):
@@ -169,6 +164,11 @@ class Image:
 
         docker_file = self._generate_dockerfile(python_sdk_path=python_sdk_path)
         image_name = f"{self._image_name}:{self._tag}"
+
+        docker.api.build.process_dockerfile = lambda dockerfile, path: (
+            "Dockerfile",
+            dockerfile,
+        )
 
         return docker_client.images.build(
             path=".",
