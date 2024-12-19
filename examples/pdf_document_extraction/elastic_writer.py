@@ -14,8 +14,10 @@ class ElasticSearchWriter(IndexifyFunction):
         super().__init__()
         # Connect to Elasticsearch
         self._client = Elasticsearch(
-            hosts=["http://elasticsearch:9200"],
-            basic_auth=("elastic", "your_password")
+            hosts=["http://localhost:9200"],
+            verify_certs=False,
+            ssl_show_warn=False
+            #basic_auth=("elastic", "your_password")
         )
 
         # Create indices if they don't exist
@@ -28,9 +30,14 @@ class ElasticSearchWriter(IndexifyFunction):
                 "properties": {
                     "embedding": {
                         "type": "dense_vector",
-                        "dims": 1536,  # Update with your embedding dimensions
+                        "dims": 768,
                         "index": True,
-                        "similarity": "cosine"
+                        "similarity": "cosine",
+                        "index_options": {
+                            "type": "hnsw",
+                            "m": 16,
+                            "ef_construction": 100
+                        }
                     },
                     "page_number": {"type": "integer"},
                     "chunk": {"type": "text"}
@@ -44,9 +51,14 @@ class ElasticSearchWriter(IndexifyFunction):
                 "properties": {
                     "embedding": {
                         "type": "dense_vector",
-                        "dims": 1536,  # Update with your embedding dimensions
+                        "dims": 512,
                         "index": True,
-                        "similarity": "cosine"
+                        "similarity": "cosine",
+                        "index_options": {
+                            "type": "hnsw",
+                            "m": 16,
+                            "ef_construction": 100
+                        }
                     },
                     "page_number": {"type": "integer"},
                     "image_data": {"type": "binary"}

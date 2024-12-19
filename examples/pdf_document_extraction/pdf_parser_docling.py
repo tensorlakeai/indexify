@@ -2,8 +2,6 @@ from common_objects import PDFParserDoclingOutput
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 
-from docling_core.types.doc import PictureItem
-
 from images import inkwell_image_gpu
 
 
@@ -18,11 +16,15 @@ class PDFParserDocling(IndexifyFunction):
 
     def run(self, file: File) -> PDFParserDoclingOutput:
         from docling.datamodel.pipeline_options import PdfPipelineOptions
+        IMAGE_RESOLUTION_SCALE = 2.0
         pipeline_options = PdfPipelineOptions()
-        pipeline_options.generate_picture_images = True
+        pipeline_options.images_scale = IMAGE_RESOLUTION_SCALE
+        pipeline_options.generate_page_images = True
 
         from docling.document_converter import DocumentConverter, PdfFormatOption
         from docling.datamodel.base_models import InputFormat
+
+        file = file['file']
 
         import tempfile
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
@@ -41,14 +43,15 @@ class PDFParserDocling(IndexifyFunction):
 
             images = []
             for element, _level in result.document.iterate_items():
+                from docling_core.types.doc import ImageRefMode, PictureItem, TableItem
                 if isinstance(element, PictureItem):
-                    # element.get_image(conv_res.document).save(fp, "PNG")
                     pil_image = element.get_image(result.document)
+                    print('----')
+                    print(type(pil_image))
+                    print('----')
 
-                img.export_to_markdown()
-                pil_image = img.get_image(result.document)
-                # Using docling APIs to avoid confusion.
-                b64 = img._image_to_base64(pil_image)
-                images.append(b64)
+                    # Using docling APIs to avoid confusion.
+                    b64 = element._image_to_base64(pil_image)
+                    images.append(b64)
 
             return PDFParserDoclingOutput(texts=texts, images=images)
