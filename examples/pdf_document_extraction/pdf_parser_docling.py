@@ -51,4 +51,4 @@ class PDFParserDocling(IndexifyFunction):
                 b64 = img._image_to_base64(pil_image)
                 images.append(b64)
 
-            return PDFParserDoclingOutput(text=texts, images=images)
+            return PDFParserDoclingOutput(texts=texts, images=images)

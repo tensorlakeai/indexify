@@ -17,5 +17,5 @@ class ImageWithEmbedding(BaseModel):
 
 # Docling Example Objects
 class PDFParserDoclingOutput(BaseModel):
-    text: List[str]
+    texts: List[str]
     images: List[str]
