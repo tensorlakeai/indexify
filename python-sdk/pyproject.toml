@@ -15,7 +15,7 @@ indexify-cli = "indexify.cli:app"
 python = "^3.9"
 httpx = { version = "0.27.2", extras = ["http2"] }
 pyyaml = "^6"
-pydantic = "2.10.2"
+pydantic = "^2.10.2"
 cloudpickle = "^3.1.0"
 rich = "^13.9.2"
 nanoid = "^2.0.0"
