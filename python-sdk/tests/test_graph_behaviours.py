@@ -9,6 +9,7 @@ from typing_extensions import TypedDict
 from indexify import (
     Graph,
     IndexifyFunction,
+    IndexifyRouter,
     Pipeline,
     RemoteGraph,
     RemotePipeline,
@@ -656,6 +657,50 @@ class TestGraphBehaviors(unittest.TestCase):
 
         output_str = graph.output(invocation_id, "make_it_string_from_int")
         self.assertEqual(output_str, ["7"])
+
+    @parameterized.expand([(False), (True)])
+    def test_router_graph_behavior_cls(self, is_remote):
+        class MyObject(BaseModel):
+            x: int
+
+        class SimpleFunctionCtxCls1(IndexifyFunction):
+            name = "SimpleFunctionCtxCls1"
+
+            def __init__(self):
+                super().__init__()
+
+            def run(self, obj: MyObject) -> MyObject:
+                return MyObject(x=obj.x + 1)
+
+        class SimpleFunctionCtxCls2(IndexifyFunction):
+            name = "SimpleFunctionCtxCls2"
+
+            def __init__(self):
+                super().__init__()
+
+            def run(self, obj: MyObject) -> MyObject:
+                return MyObject(x=obj.x + 2)
+
+        class SimpleRouterCtxCls(IndexifyRouter):
+            name = "SimpleRouterCtxCls"
+
+            def __init__(self):
+                super().__init__()
+
+            def run(
+                self, obj: MyObject
+            ) -> Union[SimpleFunctionCtxCls1, SimpleFunctionCtxCls2]:
+                if obj.x % 2 == 0:
+                    return SimpleFunctionCtxCls1
+                else:
+                    return SimpleFunctionCtxCls2
+
+        graph = Graph(name="test_simple_function_cls", start_node=SimpleRouterCtxCls)
+        graph.route(SimpleRouterCtxCls, [SimpleFunctionCtxCls1, SimpleFunctionCtxCls2])
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, obj=MyObject(x=1))
+        output = graph.output(invocation_id, "SimpleFunctionCtxCls2")
+        self.assertEqual(output, [MyObject(x=3)])
 
     @parameterized.expand([(False), (True)])
     def test_invoke_file(self, is_remote):
