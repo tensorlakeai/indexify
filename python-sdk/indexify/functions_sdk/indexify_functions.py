@@ -1,7 +1,6 @@
 import inspect
 import traceback
 from inspect import Parameter
-from typing_extensions import get_type_hints
 from typing import (
     Any,
     Dict,
@@ -15,6 +14,7 @@ from typing import (
 )
 
 from pydantic import BaseModel, Field, PrivateAttr
+from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE, Image
