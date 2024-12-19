@@ -3,6 +3,7 @@ from .functions_sdk.graph import Graph
 from .functions_sdk.image import Image
 from .functions_sdk.indexify_functions import (
     IndexifyFunction,
+    IndexifyRouter,
     get_ctx,
     indexify_function,
     indexify_router,
@@ -23,6 +24,7 @@ __all__ = [
     "indexify_function",
     "get_ctx",
     "IndexifyFunction",
+    "IndexifyRouter",
     "indexify_router",
     "DEFAULT_SERVICE_URL",
     "IndexifyClient",

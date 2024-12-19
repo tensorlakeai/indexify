@@ -1,8 +1,8 @@
 import inspect
 import traceback
+from inspect import Parameter
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
     Optional,
@@ -14,6 +14,7 @@ from typing import (
 )
 
 from pydantic import BaseModel, Field, PrivateAttr
+from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE, Image
@@ -89,10 +90,22 @@ class IndexifyFunction:
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
 
-    def partial(self, **kwargs) -> Callable:
-        from functools import partial
+    def _call_run(self, *args, **kwargs) -> Union[List[Any], Any]:
+        # Process dictionary argument mapping it to args or to kwargs.
+        if self.accumulate and len(args) == 2 and isinstance(args[1], dict):
+            sig = inspect.signature(self.run)
+            new_args = [args[0]]  # Keep the accumulate argument
+            dict_arg = args[1]
+            new_args_from_dict, new_kwargs = _process_dict_arg(dict_arg, sig)
+            new_args.extend(new_args_from_dict)
+            return self.run(*new_args, **new_kwargs)
+        elif len(args) == 1 and isinstance(args[0], dict):
+            sig = inspect.signature(self.run)
+            dict_arg = args[0]
+            new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+            return self.run(*new_args, **new_kwargs)
 
-        return partial(self.run, **kwargs)
+        return self.run(*args, **kwargs)
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
@@ -111,10 +124,16 @@ class IndexifyRouter:
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
 
+    # Create run method that preserves signature
+    def _call_run(self, *args, **kwargs):
+        # Process dictionary argument mapping it to args or to kwargs.
+        if len(args) == 1 and isinstance(args[0], dict):
+            sig = inspect.signature(self.run)
+            dict_arg = args[0]
+            new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+            return self.run(*new_args, **new_kwargs)
 
-from inspect import Parameter, signature
-
-from typing_extensions import get_type_hints
+        return self.run(*args, **kwargs)
 
 
 def _process_dict_arg(dict_arg: dict, sig: inspect.Signature) -> Tuple[list, dict]:
@@ -147,25 +166,6 @@ def indexify_router(
     output_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
-        # Get function signature using inspect.signature
-        fn_sig = signature(fn)
-        fn_hints = get_type_hints(fn)
-
-        # Create run method that preserves signature
-        def run(self, *args, **kwargs):
-            # Process dictionary argument mapping it to args or to kwargs.
-            if len(args) == 1 and isinstance(args[0], dict):
-                sig = inspect.signature(fn)
-                dict_arg = args[0]
-                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
-                return fn(*new_args, **new_kwargs)
-
-            return fn(*args, **kwargs)
-
-        # Apply original signature and annotations to run method
-        run.__signature__ = fn_sig
-        run.__annotations__ = fn_hints
-
         attrs = {
             "name": name if name else fn.__name__,
             "description": (
@@ -177,7 +177,7 @@ def indexify_router(
             "placement_constraints": placement_constraints,
             "input_encoder": input_encoder,
             "output_encoder": output_encoder,
-            "run": run,
+            "run": staticmethod(fn),
         }
 
         return type("IndexifyRouter", (IndexifyRouter,), attrs)
@@ -195,32 +195,6 @@ def indexify_function(
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
-        # Get function signature using inspect.signature
-        fn_sig = signature(fn)
-        fn_hints = get_type_hints(fn)
-
-        # Create run method that preserves signature
-        def run(self, *args, **kwargs):
-            # Process dictionary argument mapping it to args or to kwargs.
-            if self.accumulate and len(args) == 2 and isinstance(args[1], dict):
-                sig = inspect.signature(fn)
-                new_args = [args[0]]  # Keep the accumulate argument
-                dict_arg = args[1]
-                new_args_from_dict, new_kwargs = _process_dict_arg(dict_arg, sig)
-                new_args.extend(new_args_from_dict)
-                return fn(*new_args, **new_kwargs)
-            elif len(args) == 1 and isinstance(args[0], dict):
-                sig = inspect.signature(fn)
-                dict_arg = args[0]
-                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
-                return fn(*new_args, **new_kwargs)
-
-            return fn(*args, **kwargs)
-
-        # Apply original signature and annotations to run method
-        run.__signature__ = fn_sig
-        run.__annotations__ = fn_hints
-
         attrs = {
             "name": name if name else fn.__name__,
             "description": (
@@ -233,7 +207,7 @@ def indexify_function(
             "accumulate": accumulate,
             "input_encoder": input_encoder,
             "output_encoder": output_encoder,
-            "run": run,
+            "run": staticmethod(fn),
         }
 
         return type("IndexifyFunction", (IndexifyFunction,), attrs)
@@ -303,7 +277,7 @@ class IndexifyFunctionWrapper:
                 args += input
             else:
                 args.append(input)
-            extracted_data = self.indexify_function.run(*args, **kwargs)
+            extracted_data = self.indexify_function._call_run(*args, **kwargs)
         except Exception as e:
             return [], traceback.format_exc()
         if not isinstance(extracted_data, list) and extracted_data is not None:
@@ -330,7 +304,7 @@ class IndexifyFunctionWrapper:
             args.append(input)
 
         try:
-            extracted_data = self.indexify_function.run(*args, **kwargs)
+            extracted_data = self.indexify_function._call_run(*args, **kwargs)
         except Exception as e:
             return [], traceback.format_exc()
         if extracted_data is None:
