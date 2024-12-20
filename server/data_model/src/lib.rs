@@ -105,23 +105,29 @@ pub struct ImageInformation {
 impl ImageInformation {
     pub fn new(
         image_name: String,
+        image_hash: String,
         tag: String,
         base_image: String,
         run_strs: Vec<String>,
         sdk_version: Option<String>,
     ) -> Self {
-        let mut image_hasher = Sha256::new();
-        image_hasher.update(image_name.clone());
-        image_hasher.update(base_image.clone());
-        image_hasher.update(run_strs.clone().join(""));
-        image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
+        let mut compat_image_hash: String = "".to_string();
+        if image_hash == "" {
+            // Preserve backwards compatibility with old hash calculation
+            let mut image_hasher = Sha256::new();
+            image_hasher.update(image_name.clone());
+            image_hasher.update(base_image.clone());
+            image_hasher.update(run_strs.clone().join(""));
+            image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
+            compat_image_hash = format!("{:x}", image_hasher.finalize())
+        }
 
         ImageInformation {
             image_name,
             tag,
             base_image,
             run_strs,
-            image_hash: format!("{:x}", image_hasher.finalize()),
+            image_hash: compat_image_hash,
             version: ImageVersion::default(),
             image_uri: None,
             sdk_version,
@@ -385,12 +391,12 @@ impl ComputeGraph {
 
         let mut graph_version: Option<ComputeGraphVersion> = None;
 
-        if self.code.sha256_hash != update.code.sha256_hash ||
-            self.runtime_information != update.runtime_information ||
-            self.edges != update.edges ||
-            self.start_fn != update.start_fn ||
-            self.nodes.len() != update.nodes.len() ||
-            self.nodes.iter().any(|(k, v)| {
+        if self.code.sha256_hash != update.code.sha256_hash
+            || self.runtime_information != update.runtime_information
+            || self.edges != update.edges
+            || self.start_fn != update.start_fn
+            || self.nodes.len() != update.nodes.len()
+            || self.nodes.iter().any(|(k, v)| {
                 update
                     .nodes
                     .get(k)
@@ -1040,17 +1046,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        test_objects::tests::test_compute_fn,
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        ComputeGraphVersion,
-        DynamicEdgeRouter,
-        ExecutorMetadata,
-        GraphVersion,
-        ImageInformation,
-        Node,
-        RuntimeInformation,
+        test_objects::tests::test_compute_fn, ComputeFn, ComputeGraph, ComputeGraphCode,
+        ComputeGraphVersion, DynamicEdgeRouter, ExecutorMetadata, GraphVersion, ImageInformation,
+        Node, RuntimeInformation,
     };
 
     #[test]
