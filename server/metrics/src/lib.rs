@@ -94,12 +94,13 @@ where
 
 use opentelemetry_sdk::metrics::{new_view, Aggregation, Instrument, SdkMeterProvider, Stream};
 
-pub fn init_provider() -> prometheus::Registry {
+pub fn init_provider() -> (prometheus::Registry, SdkMeterProvider) {
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
-        .build();
-    let mut provider =
+        .build()
+        .unwrap();
+    let provider =
         SdkMeterProvider::builder().with_resource(opentelemetry_sdk::Resource::new(vec![
             opentelemetry::KeyValue::new("service.name", "indexify-server"),
             opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
@@ -112,21 +113,23 @@ pub fn init_provider() -> prometheus::Registry {
 
     let mut histogram_kind = Instrument::new();
     histogram_kind.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
-    provider = provider.with_view(
-        new_view(
-            histogram_kind,
-            Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
-                boundaries: low_latency_boundaries.to_vec(),
-                record_min_max: true,
-            }),
+
+    let provider = provider
+        .with_view(
+            new_view(
+                histogram_kind,
+                Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
+                    boundaries: low_latency_boundaries.to_vec(),
+                    record_min_max: true,
+                }),
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
-    if let Ok(exporter) = exporter {
-        provider = provider.with_reader(exporter);
-    };
-    opentelemetry::global::set_meter_provider(provider.build());
-    registry
+        .with_reader(exporter)
+        .build();
+
+    opentelemetry::global::set_meter_provider(provider.clone());
+    (registry, provider)
 }
 
 pub mod api_io_stats {

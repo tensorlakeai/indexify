@@ -139,9 +139,14 @@ def _indexify_client(
 
 
 def _is_router(func_wrapper: IndexifyFunctionWrapper) -> bool:
-    return (
-        str(type(func_wrapper.indexify_function))
-        == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"
+    """Determines if the function is a router.
+
+    A function is a router if it is an instance of IndexifyRouter or if it is an IndexifyRouter class.
+    """
+    return str(
+        type(func_wrapper.indexify_function)
+    ) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>" or isinstance(
+        func_wrapper.indexify_function, IndexifyRouter
     )
 
 
