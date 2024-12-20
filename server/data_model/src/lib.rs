@@ -127,7 +127,7 @@ impl ImageInformation {
             base_image,
             run_strs,
             image_hash: compat_image_hash,
-            version:   ::default(),
+            version: ::default(),
             image_uri: None,
             sdk_version,
         }
