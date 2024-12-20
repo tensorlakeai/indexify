@@ -138,7 +138,6 @@ class Image:
         docker_contents = [
             f"FROM {self._base_image}",
             "RUN mkdir -p ~/.indexify",
-            "RUN touch ~/.indexify/image_name",
             f"RUN echo {self._image_name} > ~/.indexify/image_name",
             f"RUN echo {self.hash()} > ~/.indexify/image_hash",
             "WORKDIR /app",
