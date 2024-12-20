@@ -87,3 +87,4 @@ jobs:
     uses: ./.github/workflows/publish_executor_containers.yaml
     with:
       indexify_version: ${{ needs.extract-version.outputs.version }}
+    secrets: inherit
