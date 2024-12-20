@@ -331,11 +331,11 @@ def _create_platform_image(image: Image, service_endpoint: str):
         case "ready" | "building":
             print(f"waiting for {build.image_name} image to build")
             while build.status != "completed":
+                time.sleep(5)
                 res = client.get(
                     f"{service_endpoint}/builds/{build.id}", headers=headers
                 )
                 build = Build.model_validate(res.json())
-                time.sleep(5)
 
         case _:
             raise ValueError(f"Unexpected build status {build.status}")
