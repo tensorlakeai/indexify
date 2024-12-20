@@ -97,7 +97,6 @@ pub struct ImageInformation {
     pub base_image: String,
     pub run_strs: Vec<String>,
     pub image_hash: String,
-    pub version: ImageVersion, // this gets updated when the hash changes
     pub image_uri: Option<String>,
     pub sdk_version: Option<String>,
 }
@@ -128,7 +127,7 @@ impl ImageInformation {
             base_image,
             run_strs,
             image_hash: compat_image_hash,
-            version: ImageVersion::default(),
+            version:   ::default(),
             image_uri: None,
             sdk_version,
         }
@@ -194,24 +193,10 @@ impl Node {
         }
     }
 
-    pub fn image_version(&self) -> &u32 {
+    pub fn image_uri(&self) -> Option<String> {
         match self {
-            Node::Router(router) => &router.image_information.version.0,
-            Node::Compute(compute) => &compute.image_information.version.0,
-        }
-    }
-
-    pub fn set_image_version(&mut self, image_version: ImageVersion) {
-        match self {
-            Node::Router(ref mut router) => router.image_information.version = image_version,
-            Node::Compute(ref mut compute) => compute.image_information.version = image_version,
-        }
-    }
-
-    pub fn image_version_next(self) -> ImageVersion {
-        match self {
-            Node::Router(router) => router.image_information.version.next(),
-            Node::Compute(compute) => compute.image_information.version.next(),
+            Node::Router(router) => router.image_information.image_uri.clone(),
+            Node::Compute(compute) => compute.image_information.image_uri.clone(),
         }
     }
 
@@ -275,6 +260,7 @@ impl Node {
             .input_node_output_key(input_key.to_string())
             .reducer_output_id(reducer_output_id)
             .graph_version(graph_version)
+            .image_uri(self.image_uri())
             .build()?;
         Ok(task)
     }
@@ -409,17 +395,7 @@ impl ComputeGraph {
             self.edges = update.edges;
             self.start_fn = update.start_fn;
             self.runtime_information = update.runtime_information;
-
-            // if the image has changed, increment the version.
-            let mut updated_nodes = update.nodes.clone();
-            for (node_name, updated_node) in updated_nodes.iter_mut() {
-                if let Some(existing_node) = self.nodes.get(node_name) {
-                    if existing_node.image_hash() != updated_node.image_hash() {
-                        updated_node.set_image_version(existing_node.clone().image_version_next());
-                    }
-                }
-            }
-            self.nodes = updated_nodes;
+            self.nodes = update.nodes.clone();
 
             graph_version = Some(self.into_version());
         }
@@ -770,6 +746,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub image_uri: Option<String>,
 }
 
 impl Task {
@@ -873,7 +850,6 @@ impl TaskBuilder {
             .ok_or(anyhow!("ingestion data object id is not present"))?;
         let graph_version = self
             .graph_version
-            .clone()
             .ok_or(anyhow!("graph version is not present"))?;
         let reducer_output_id = self.reducer_output_id.clone().flatten();
         let id = uuid::Uuid::new_v4().to_string();
@@ -889,6 +865,7 @@ impl TaskBuilder {
             diagnostics: None,
             reducer_output_id,
             graph_version,
+            image_uri: self.image_uri.clone().flatten(),
         };
         Ok(task)
     }
@@ -1371,15 +1348,6 @@ mod tests {
                 assert_eq!(graph.version, GraphVersion(2), "update version");
                 assert_eq!(graph.nodes.len(), 2, "update nodes");
 
-                let fn_a_image_version = *graph
-                    .nodes
-                    .iter()
-                    .find(|(k, _)| *k == "fn_a")
-                    .unwrap()
-                    .1
-                    .image_version();
-                assert_eq!(fn_a_image_version, 1, "update node fn_a image version");
-
                 let version = version.expect("version should be created");
                 assert_eq!(version.version, GraphVersion(2), "update version");
                 assert_eq!(version.nodes.len(), 2, "version nodes");
@@ -1410,15 +1378,6 @@ mod tests {
                     "update node"
                 );
 
-                let fn_a_image_version = *graph
-                    .nodes
-                    .iter()
-                    .find(|(k, _)| *k == "fn_a")
-                    .unwrap()
-                    .1
-                    .image_version();
-                assert_eq!(fn_a_image_version, 2, "update node fn_a image version");
-
                 assert_eq!(graph.created_at, 5, "created_at should not change");
 
                 let version = version.expect("version should be created");
@@ -1429,14 +1388,6 @@ mod tests {
                     "some_hash_fn_a_updated",
                     "version node"
                 );
-                let fn_a_image_version = *version
-                    .nodes
-                    .iter()
-                    .find(|(k, _)| *k == "fn_a")
-                    .unwrap()
-                    .1
-                    .image_version();
-                assert_eq!(fn_a_image_version, 2, "version node fn_a image version");
             },
         );
     }
