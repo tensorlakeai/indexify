@@ -413,7 +413,6 @@ pub(crate) fn delete_input_data_object(
     Ok(())
 }
 
-// TODO: Do this in a transaction.
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
@@ -735,7 +734,16 @@ pub fn allocate_tasks(
     executor_id: &ExecutorId,
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
-    // TODO: check if executor is registered
+    if txn
+        .get_for_update_cf(
+            &IndexifyObjectsColumns::Executors.cf_db(&db),
+            executor_id.executor_key(),
+            false,
+        )?
+        .is_none()
+    {
+        return Err(anyhow!("executor not found: {}", executor_id));
+    }
     txn.put_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         task.make_allocation_key(executor_id),

@@ -67,6 +67,10 @@ impl ExecutorId {
     pub fn get(&self) -> &str {
         &self.0
     }
+
+    pub fn executor_key(&self) -> String {
+        self.0.to_string()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -911,7 +915,7 @@ pub struct ExecutorMetadata {
 
 impl ExecutorMetadata {
     pub fn key(&self) -> String {
-        format!("{}", self.id)
+        self.id.executor_key()
     }
 }
 
