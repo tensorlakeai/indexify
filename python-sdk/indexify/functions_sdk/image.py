@@ -13,19 +13,22 @@ import docker
 import docker.api.build
 from pydantic import BaseModel
 
+
 # Pydantic object for API
 class ImageInformation(BaseModel):
     image_name: str
     image_hash: str
     image_url: Optional[str] = ""
     sdk_version: str
-    
+
     # These are deprecated and here for backwards compatibility
-    run_strs: List[str] | None=[]
-    tag:str | None=""
-    base_image:str | None=""
-    
+    run_strs: List[str] | None = []
+    tag: str | None = ""
+    base_image: str | None = ""
+
+
 HASH_BUFF_SIZE = 1024**2
+
 
 class BuildOp(BaseModel):
     op_type: str
@@ -79,6 +82,7 @@ class Build(BaseModel):
     build_completed_at: datetime.datetime | None = None
     push_completed_at: datetime.datetime | None = None
     uri: str | None = None
+
 
 class Image:
     def __init__(self):
