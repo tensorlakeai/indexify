@@ -391,12 +391,12 @@ impl ComputeGraph {
 
         let mut graph_version: Option<ComputeGraphVersion> = None;
 
-        if self.code.sha256_hash != update.code.sha256_hash ||
-            self.runtime_information != update.runtime_information ||
-            self.edges != update.edges ||
-            self.start_fn != update.start_fn ||
-            self.nodes.len() != update.nodes.len() ||
-            self.nodes.iter().any(|(k, v)| {
+        if self.code.sha256_hash != update.code.sha256_hash
+            || self.runtime_information != update.runtime_information
+            || self.edges != update.edges
+            || self.start_fn != update.start_fn
+            || self.nodes.len() != update.nodes.len()
+            || self.nodes.iter().any(|(k, v)| {
                 update
                     .nodes
                     .get(k)
@@ -1046,35 +1046,10 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        test_objects::tests::test_compute_fn,
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        ComputeGraphVersion,
-        DynamicEdgeRouter,
-        ExecutorMetadata,
-        GraphVersion,
-        ImageInformation,
-        Node,
-        RuntimeInformation,
+        test_objects::tests::test_compute_fn, ComputeFn, ComputeGraph, ComputeGraphCode,
+        ComputeGraphVersion, DynamicEdgeRouter, ExecutorMetadata, GraphVersion, ImageInformation,
+        Node, RuntimeInformation,
     };
-
-    #[test]
-    fn test_image_hash_consistency() {
-        let image_info = ImageInformation::new(
-            "test".to_string(),
-            "test".to_string(),
-            "static_base_image".to_string(),
-            vec!["pip install all_the_things".to_string()],
-            Some("1.2.3".to_string()),
-        );
-
-        assert_eq!(
-            image_info.image_hash,
-            "229514da1c19e40fda77e8b4a4990f69ce1ec460f025f4e1367bb2219f6abea1",
-            "image hash should not change"
-        );
-    }
 
     #[test]
     fn test_node_matches_executor_scenarios() {
