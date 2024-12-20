@@ -29,17 +29,23 @@ pub struct Service {
     pub indexify_state: Arc<IndexifyState>,
     metrics_registry: Arc<Registry>,
     sched_metrics: Arc<SchedulerMetrics>,
+    // This is a handle to the metrics provider, which we should not drop until the end of the
+    // program.
+    #[allow(dead_code)]
+    metrics_provider: opentelemetry_sdk::metrics::SdkMeterProvider,
 }
 
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
-        let metrics_registry = Arc::new(init_provider());
+        let (metrics_registry, metrics_provider) = init_provider();
+        let metrics_registry = Arc::new(metrics_registry);
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
         let sched_metrics = Arc::new(SchedulerMetrics::new(indexify_state.metrics.clone()));
         Ok(Self {
             config,
             indexify_state,
             metrics_registry,
+            metrics_provider,
             sched_metrics,
         })
     }
