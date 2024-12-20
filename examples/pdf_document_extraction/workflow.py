@@ -116,3 +116,8 @@ if __name__ == "__main__":
     #    block_until_done=True, file=file,
     #)
     #print(f"Invocation ID: {invocation_id}")
+
+    #invocation_id = remote_graph.run(
+    #    block_until_done=True, file=file,
+    #)
+    #print(f"Invocation ID: {invocation_id}")
