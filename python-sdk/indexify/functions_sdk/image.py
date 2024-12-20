@@ -53,7 +53,7 @@ class BuildOp(BaseModel):
     def render(self):
         match self.op_type:
             case "RUN":
-                return f"RUN {"".join(self.args)}"
+                return f"RUN {''.join(self.args)}"
             case "COPY":
                 return f"COPY {self.args[0]} {self.args[1]}"
             case _:
