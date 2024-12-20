@@ -391,12 +391,12 @@ impl ComputeGraph {
 
         let mut graph_version: Option<ComputeGraphVersion> = None;
 
-        if self.code.sha256_hash != update.code.sha256_hash
-            || self.runtime_information != update.runtime_information
-            || self.edges != update.edges
-            || self.start_fn != update.start_fn
-            || self.nodes.len() != update.nodes.len()
-            || self.nodes.iter().any(|(k, v)| {
+        if self.code.sha256_hash != update.code.sha256_hash ||
+            self.runtime_information != update.runtime_information ||
+            self.edges != update.edges ||
+            self.start_fn != update.start_fn ||
+            self.nodes.len() != update.nodes.len() ||
+            self.nodes.iter().any(|(k, v)| {
                 update
                     .nodes
                     .get(k)
@@ -1046,9 +1046,17 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        test_objects::tests::test_compute_fn, ComputeFn, ComputeGraph, ComputeGraphCode,
-        ComputeGraphVersion, DynamicEdgeRouter, ExecutorMetadata, GraphVersion, ImageInformation,
-        Node, RuntimeInformation,
+        test_objects::tests::test_compute_fn,
+        ComputeFn,
+        ComputeGraph,
+        ComputeGraphCode,
+        ComputeGraphVersion,
+        DynamicEdgeRouter,
+        ExecutorMetadata,
+        GraphVersion,
+        ImageInformation,
+        Node,
+        RuntimeInformation,
     };
 
     #[test]
