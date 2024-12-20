@@ -111,7 +111,7 @@ impl ImageInformation {
         sdk_version: Option<String>,
     ) -> Self {
         let mut compat_image_hash: String = image_hash;
-        if image_hash == "" {
+        if compat_image_hash == "" {
             // Preserve backwards compatibility with old hash calculation
             let mut image_hasher = Sha256::new();
             image_hasher.update(image_name.clone());
@@ -127,7 +127,6 @@ impl ImageInformation {
             base_image,
             run_strs,
             image_hash: compat_image_hash,
-            version: ::default(),
             image_uri: None,
             sdk_version,
         }
