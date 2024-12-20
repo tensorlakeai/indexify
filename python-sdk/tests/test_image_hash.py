@@ -1,6 +1,6 @@
-import unittest
 import os
 import shutil
+import unittest
 
 from indexify.functions_sdk.image import BASE_IMAGE_NAME, Image
 
@@ -12,7 +12,7 @@ class TestImage(unittest.TestCase):
         os.mkdir("copy_test_dir")
         with open("copy_test_dir/test_file", "w") as fp:
             fp.write("Test data\n")
-    
+
     def tearDown(self):
         shutil.rmtree("copy_test_dir")
 
@@ -54,6 +54,7 @@ class TestImage(unittest.TestCase):
             "1.2.3"  # This needs to be static for the hash to be predictable
         )
         return i
+
 
 if __name__ == "__main__":
     unittest.main()
