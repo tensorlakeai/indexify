@@ -188,24 +188,10 @@ impl Node {
         }
     }
 
-    pub fn image_version(&self) -> &u32 {
+    pub fn image_uri(&self) -> Option<String> {
         match self {
-            Node::Router(router) => &router.image_information.version.0,
-            Node::Compute(compute) => &compute.image_information.version.0,
-        }
-    }
-
-    pub fn set_image_version(&mut self, image_version: ImageVersion) {
-        match self {
-            Node::Router(ref mut router) => router.image_information.version = image_version,
-            Node::Compute(ref mut compute) => compute.image_information.version = image_version,
-        }
-    }
-
-    pub fn image_version_next(self) -> ImageVersion {
-        match self {
-            Node::Router(router) => router.image_information.version.next(),
-            Node::Compute(compute) => compute.image_information.version.next(),
+            Node::Router(router) => router.image_information.image_uri.clone(),
+            Node::Compute(compute) => compute.image_information.image_uri.clone(),
         }
     }
 
@@ -269,6 +255,7 @@ impl Node {
             .input_node_output_key(input_key.to_string())
             .reducer_output_id(reducer_output_id)
             .graph_version(graph_version)
+            .image_uri(self.image_uri())
             .build()?;
         Ok(task)
     }
@@ -764,6 +751,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub image_uri: Option<String>,
 }
 
 impl Task {
@@ -883,6 +871,7 @@ impl TaskBuilder {
             diagnostics: None,
             reducer_output_id,
             graph_version,
+            image_uri: self.image_uri.clone().flatten(),
         };
         Ok(task)
     }
