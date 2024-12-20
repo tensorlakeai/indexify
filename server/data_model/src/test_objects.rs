@@ -205,7 +205,6 @@ pub mod tests {
                     "run 3".to_string(),
                 ],
                 image_hash: "".to_string(),
-                version: Default::default(),
                 image_uri: Some("1234567890.dkr.ecr.us-east-1.amazonaws.com/test".to_string()),
                 sdk_version: Some("1.2.3".to_string()),
             },

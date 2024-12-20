@@ -756,10 +756,6 @@ mod tests {
         assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
 
         let nodes = &compute_graphs[0].nodes;
-        assert_eq!(*nodes["fn_a"].image_version(), 1);
-        assert_eq!(*nodes["fn_b"].image_version(), 1);
-        assert_eq!(*nodes["fn_c"].image_version(), 1);
-
         assert_eq!(nodes["fn_a"].image_hash(), "Old Hash");
         assert_eq!(nodes["fn_b"].image_hash(), "Old Hash");
         assert_eq!(nodes["fn_c"].image_hash(), "Old Hash");
@@ -781,10 +777,6 @@ mod tests {
             assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
-
-            assert_eq!(*nodes["fn_a"].image_version(), i);
-            assert_eq!(*nodes["fn_b"].image_version(), i);
-            assert_eq!(*nodes["fn_c"].image_version(), i);
         }
 
         Ok(())
