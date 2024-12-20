@@ -88,9 +88,11 @@ pub struct NamespaceList {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct ImageInformation {
     pub image_name: String,
-    pub tag: String,
-    pub base_image: String,
-    pub run_strs: Vec<String>,
+    #[serde(default)]
+    pub image_hash: String,
+    pub tag: String,           // Deprecated
+    pub base_image: String,    // Deprecated
+    pub run_strs: Vec<String>, // Deprecated
     pub image_uri: Option<String>,
     pub sdk_version: Option<String>,
 }
@@ -110,6 +112,7 @@ impl From<ImageInformation> for data_model::ImageInformation {
     fn from(value: ImageInformation) -> Self {
         data_model::ImageInformation::new(
             value.image_name,
+            value.image_hash,
             value.tag,
             value.base_image,
             value.run_strs,
@@ -122,6 +125,7 @@ impl From<data_model::ImageInformation> for ImageInformation {
     fn from(value: data_model::ImageInformation) -> ImageInformation {
         ImageInformation {
             image_name: value.image_name,
+            image_hash: value.image_hash,
             tag: value.tag,
             base_image: value.base_image,
             run_strs: value.run_strs,

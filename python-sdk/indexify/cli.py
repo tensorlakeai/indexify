@@ -2,18 +2,19 @@ from .logging import configure_logging_early, configure_production_logging
 
 configure_logging_early()
 
-
 import asyncio
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from importlib.metadata import version
 from typing import Annotated, List, Optional
 
+import httpx
 import nanoid
 import structlog
 import typer
@@ -27,11 +28,7 @@ from indexify.function_executor.function_executor_service import (
     FunctionExecutorService,
 )
 from indexify.function_executor.server import Server as FunctionExecutorServer
-from indexify.functions_sdk.image import (
-    LOCAL_PYTHON_VERSION,
-    GetDefaultPythonImage,
-    Image,
-)
+from indexify.functions_sdk.image import Build, GetDefaultPythonImage, Image
 from indexify.http_client import IndexifyClient
 
 logger = structlog.get_logger(module=__name__)
@@ -161,6 +158,32 @@ def build_image(
                 _create_image(obj, python_sdk_path)
 
 
+@app.command(help="Build platform images for function names")
+def build_platform_image(
+    workflow_file_path: Annotated[str, typer.Argument()],
+    image_names: Optional[List[str]] = None,
+    build_service="https://api.tensorlake.ai/images/v1",
+):
+
+    globals_dict = {}
+
+    # Add the folder in the workflow file path to the current Python path
+    folder_path = os.path.dirname(workflow_file_path)
+    if folder_path not in sys.path:
+        sys.path.append(folder_path)
+
+    try:
+        exec(open(workflow_file_path).read(), globals_dict)
+    except FileNotFoundError as e:
+        raise Exception(
+            f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
+        )
+    for _, obj in globals_dict.items():
+        if type(obj) and isinstance(obj, Image):
+            if image_names is None or obj._image_name in image_names:
+                _create_platform_image(obj, build_service)
+
+
 @app.command(help="Build default image for indexify")
 def build_default_image(
     python_version: Optional[str] = typer.Option(
@@ -230,7 +253,6 @@ def executor(
         image_hash=image_hash,
         development_mode=dev,
     )
-
     try:
         asyncio.get_event_loop().run_until_complete(executor.run())
     except asyncio.CancelledError:
@@ -266,6 +288,72 @@ def function_executor(
     ).run()
 
 
+def _create_platform_image(image: Image, service_endpoint: str):
+    fd, context_file = tempfile.mkstemp()
+    image.build_context(context_file)
+    client = httpx
+
+    headers = {}
+    api_key = os.getenv("TENSORLAKE_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    image_hash = image.hash()
+
+    # Check if the image is built before pushing a new one
+    builds_response = client.get(
+        f"{service_endpoint}/builds",
+        params={
+            "image_name": image._image_name,
+            "image_hash": image_hash,
+        },
+        headers=headers,
+    )
+    builds_response.raise_for_status()
+    matching_builds = [Build.model_validate(b) for b in builds_response.json()]
+    if not matching_builds:
+        files = {"context": open(context_file, "rb")}
+
+        data = {"name": image._image_name, "hash": image_hash}
+
+        res = client.post(
+            f"{service_endpoint}/builds", data=data, files=files, headers=headers
+        )
+        res.raise_for_status()
+
+        build = Build.model_validate(res.json())
+    else:
+        build = matching_builds[0]
+
+    match build.status:
+        case "completed":
+            print(f"image {build.image_name}:{build.image_hash} is already built")
+        case "ready" | "building":
+            print(f"waiting for {build.image_name} image to build")
+            while build.status != "completed":
+                time.sleep(5)
+                res = client.get(
+                    f"{service_endpoint}/builds/{build.id}", headers=headers
+                )
+                build = Build.model_validate(res.json())
+
+        case _:
+            raise ValueError(f"Unexpected build status {build.status}")
+
+    match build.result:
+        case "success":
+            build_duration = build.push_completed_at - build.started_at
+            print(
+                f"Building completed in {build_duration}; image is stored in {build.uri}"
+            )
+
+        case "failed":
+            print(f"Building failed, please see logs for details")
+
+        case _:
+            raise ValueError(f"Unexpected build result {build.status}")
+
+
 def _create_image(image: Image, python_sdk_path):
     console.print(
         Text("Creating container for ", style="cyan"),
@@ -275,63 +363,7 @@ def _create_image(image: Image, python_sdk_path):
 
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
-
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-    except Exception as e:
-        console.print(
-            Text("Unable to connect with docker: ", style="red bold"),
-            Text(f"{e}", style="red"),
-        )
-        exit(-1)
-
-    docker_contents = [
-        f"FROM {image._base_image}",
-        "RUN mkdir -p ~/.indexify",
-        "RUN touch ~/.indexify/image_name",
-        f"RUN echo {image._image_name} > ~/.indexify/image_name",
-        f"RUN echo {image.hash()} > ~/.indexify/image_hash",
-        "WORKDIR /app",
-    ]
-
-    docker_contents.extend(["RUN " + i for i in image._run_strs])
-
-    if python_sdk_path is not None:
-        logging.info(
-            f"Building image {image._image_name} with local version of the SDK"
-        )
-        if not os.path.exists(python_sdk_path):
-            print(f"error: {python_sdk_path} does not exist")
-            os.exit(1)
-        docker_contents.append(f"COPY {python_sdk_path} /app/python-sdk")
-        docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
-    else:
-        docker_contents.append(f"RUN pip install indexify=={image._sdk_version}")
-
-    docker_file = "\n".join(docker_contents)
-
-    import docker.api.build
-
-    docker.api.build.process_dockerfile = lambda dockerfile, path: (
-        "Dockerfile",
-        dockerfile,
-    )
-
-    console.print("Creating image using Dockerfile contents:", style="cyan bold")
-    print(f"{docker_file}")
-
-    client = docker.from_env()
-    image_name = f"{image._image_name}:{image._tag}"
-    (_image, generator) = client.images.build(
-        path=".",
-        dockerfile=docker_file,
-        tag=image_name,
-        rm=True,
-    )
-    for result in generator:
-        print(result)
-
-    print(f"built image: {image_name}")
+    built_image, output = image.build(python_sdk_path=python_sdk_path)
+    for line in output:
+        print(line)
+    print(f"built image: {built_image.tags[0]}")
