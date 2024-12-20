@@ -111,7 +111,7 @@ impl ImageInformation {
         run_strs: Vec<String>,
         sdk_version: Option<String>,
     ) -> Self {
-        let mut compat_image_hash: String = "".to_string();
+        let mut compat_image_hash: String = image_hash;
         if image_hash == "" {
             // Preserve backwards compatibility with old hash calculation
             let mut image_hasher = Sha256::new();
