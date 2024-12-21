@@ -116,6 +116,12 @@ pub struct TaskPlacement {
     pub executor: ExecutorId,
 }
 
+#[derive(Debug)]
+pub struct TaskPlacementDiagnostic {
+    pub task: Task,
+    pub message: String,
+}
+
 #[derive(Default, Debug)]
 pub struct ReductionTasks {
     pub new_reduction_tasks: Vec<ReduceTask>,
@@ -126,7 +132,7 @@ pub struct SchedulerUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
     pub allocations: Vec<TaskPlacement>,
     pub reduction_tasks: ReductionTasks,
-    pub diagnostic_msgs: Vec<String>,
+    pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 
 pub struct DeleteInvocationRequest {

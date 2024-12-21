@@ -463,12 +463,13 @@ impl IndexifyState {
                         error!("failed to send invocation state change: {:?}", err);
                     }
                 }
-                for diagnostic_msg in &sched_update.diagnostic_msgs {
+                for diagnostic in &sched_update.placement_diagnostics {
                     if let Err(err) =
                         self.task_event_tx
                             .send(InvocationStateChangeEvent::DiagnosticMessage(
                                 invocation_events::DiagnosticMessage {
-                                    message: diagnostic_msg.clone(),
+                                    invocation_id: diagnostic.task.invocation_id.clone(),
+                                    message: diagnostic.message.clone(),
                                 },
                             ))
                     {
@@ -824,7 +825,7 @@ mod tests {
                         executor: executor_id.clone(),
                     }],
                     reduction_tasks: ReductionTasks::default(),
-                    diagnostic_msgs: vec![],
+                    placement_diagnostics: vec![],
                 }),
                 state_changes_processed: vec![],
             })
@@ -874,7 +875,7 @@ mod tests {
                 executor: executor_id.clone(),
             }],
             reduction_tasks: ReductionTasks::default(),
-            diagnostic_msgs: vec![],
+            placement_diagnostics: vec![],
         };
 
         indexify_state
