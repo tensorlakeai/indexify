@@ -13,35 +13,27 @@ from typing import (
     get_origin,
 )
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel
 from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE, Image
+from .invocation_state.invocation_state import InvocationState
 from .object_serializer import get_serializer
 
 
-class GraphInvocationContext(BaseModel):
-    invocation_id: str
-    graph_name: str
-    graph_version: str
-    indexify_client: Optional[Any] = Field(default=None)  # avoids circular import
-    _local_state: Dict[str, Any] = PrivateAttr(default_factory=dict)
-
-    def set_state_key(self, key: str, value: Any) -> None:
-        if self.indexify_client is None:
-            self._local_state[key] = value
-            return
-        self.indexify_client.set_state_key(
-            self.graph_name, self.invocation_id, key, value
-        )
-
-    def get_state_key(self, key: str) -> Any:
-        if self.indexify_client is None:
-            return self._local_state.get(key)
-        return self.indexify_client.get_state_key(
-            self.graph_name, self.invocation_id, key
-        )
+class GraphInvocationContext:
+    def __init__(
+        self,
+        invocation_id: str,
+        graph_name: str,
+        graph_version: str,
+        invocation_state: InvocationState,
+    ):
+        self.invocation_id = invocation_id
+        self.graph_name = graph_name
+        self.graph_version = graph_version
+        self.invocation_state = invocation_state
 
 
 def is_pydantic_model_from_annotation(type_annotation):

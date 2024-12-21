@@ -9,7 +9,6 @@ from indexify import Graph, indexify_function
 from indexify.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     InitializeResponse,
-    RunTaskRequest,
     RunTaskResponse,
     SerializedObject,
 )
@@ -18,7 +17,11 @@ from indexify.function_executor.proto.function_executor_pb2_grpc import (
 )
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.object_serializer import CloudPickleSerializer
-from tests.function_executor.utils import FunctionExecutorServerTestCase
+from tests.function_executor.utils import (
+    FunctionExecutorServerTestCase,
+    deserialized_function_output,
+    run_task,
+)
 
 # Current max input and output sizes that we support.
 MAX_FUNCTION_PAYLOAD_SIZE_BYTES = math.floor(1.9 * 1024 * 1024 * 1024)  # 1.9 GB
@@ -72,7 +75,6 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
         )
         max_input_data = random_bytes(MAX_FUNCTION_PAYLOAD_SIZE_BYTES)
         max_input = File(data=max_input_data, sha_256=hash(max_input_data))
-        serialized_max_input = CloudPickleSerializer.serialize(max_input)
 
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
@@ -92,26 +94,13 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.run_task(
-                RunTaskRequest(
-                    graph_invocation_id="123",
-                    task_id="test-task",
-                    function_input=SerializedObject(
-                        bytes=serialized_max_input,
-                        content_type=CloudPickleSerializer.content_type,
-                    ),
-                )
-            )
-
+            run_task_response: RunTaskResponse = run_task(stub, max_input)
             self.assertTrue(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)
 
-            fn_outputs = []
-            for output in run_task_response.function_output.outputs:
-                self.assertEqual(
-                    output.content_type, CloudPickleSerializer.content_type
-                )
-                fn_outputs.append(CloudPickleSerializer.deserialize(output.bytes))
+            fn_outputs = deserialized_function_output(
+                self, run_task_response.function_output
+            )
             self.assertEqual(len(fn_outputs), 1)
             self.assertEqual("success", fn_outputs[0])
 
@@ -140,26 +129,14 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.run_task(
-                RunTaskRequest(
-                    graph_invocation_id="123",
-                    task_id="test-task",
-                    function_input=SerializedObject(
-                        bytes=CloudPickleSerializer.serialize(1),
-                        content_type=CloudPickleSerializer.content_type,
-                    ),
-                )
-            )
+            run_task_response: RunTaskResponse = run_task(stub, 1)
 
             self.assertTrue(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)
 
-            fn_outputs = []
-            for output in run_task_response.function_output.outputs:
-                self.assertEqual(
-                    output.content_type, CloudPickleSerializer.content_type
-                )
-                fn_outputs.append(CloudPickleSerializer.deserialize(output.bytes))
+            fn_outputs = deserialized_function_output(
+                self, run_task_response.function_output
+            )
             self.assertEqual(len(fn_outputs), 1)
             output_file: File = fn_outputs[0]
             self.assertEqual(MAX_FUNCTION_PAYLOAD_SIZE_BYTES, len(output_file.data))

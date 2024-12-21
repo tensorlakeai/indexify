@@ -37,6 +37,7 @@ from .indexify_functions import (
     IndexifyRouter,
     RouterCallResult,
 )
+from .invocation_state.local_invocation_state import LocalInvocationState
 from .object_serializer import get_serializer
 
 RouterFn = Annotated[
@@ -236,13 +237,12 @@ class Graph:
                 payload=serializer.serialize(v), encoder=node.input_encoder
             )
         self._results[input.id] = outputs
-        ctx = GraphInvocationContext(
+        self._local_graph_ctx = GraphInvocationContext(
             invocation_id=input.id,
             graph_name=self.name,
             graph_version="1",
-            indexify_client=None,
+            invocation_state=LocalInvocationState(),
         )
-        self._local_graph_ctx = ctx
         self._run(input, outputs)
         return input.id
 

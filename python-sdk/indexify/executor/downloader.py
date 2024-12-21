@@ -142,7 +142,7 @@ class Downloader:
         self, url: str, resource_description: str, logger: Any
     ) -> SerializedObject:
         logger.info(f"fetching {resource_description}", url=url)
-        response = await self._client.get(url)
+        response: httpx.Response = await self._client.get(url)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -153,13 +153,17 @@ class Downloader:
             )
             raise
 
-        # We're hardcoding the content type currently used by Python SDK. It might change in the future.
-        # There's no other way for now to determine if the response is a bytes or string.
-        if response.headers["content-type"] == "application/octet-stream":
-            return SerializedObject(
-                bytes=response.content, content_type=response.headers["content-type"]
-            )
-        else:
-            return SerializedObject(
-                string=response.text, content_type=response.headers["content-type"]
-            )
+        return serialized_object_from_http_response(response)
+
+
+def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
+    # We're hardcoding the content type currently used by Python SDK. It might change in the future.
+    # There's no other way for now to determine if the response is a bytes or string.
+    if response.headers["content-type"] == "application/octet-stream":
+        return SerializedObject(
+            bytes=response.content, content_type=response.headers["content-type"]
+        )
+    else:
+        return SerializedObject(
+            string=response.text, content_type=response.headers["content-type"]
+        )

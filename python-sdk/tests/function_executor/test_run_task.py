@@ -8,7 +8,6 @@ from indexify import Graph
 from indexify.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     InitializeResponse,
-    RunTaskRequest,
     RunTaskResponse,
     SerializedObject,
 )
@@ -18,7 +17,11 @@ from indexify.function_executor.proto.function_executor_pb2_grpc import (
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.indexify_functions import indexify_function
 from indexify.functions_sdk.object_serializer import CloudPickleSerializer
-from tests.function_executor.utils import FunctionExecutorServerTestCase
+from tests.function_executor.utils import (
+    FunctionExecutorServerTestCase,
+    deserialized_function_output,
+    run_task,
+)
 
 
 @indexify_function()
@@ -71,8 +74,8 @@ def create_graph_exception():
     return graph
 
 
-class TestRPCServer(FunctionExecutorServerTestCase):
-    def test_run_task_success(self):
+class TestRunTask(FunctionExecutorServerTestCase):
+    def test_function_success(self):
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
             initialize_response: InitializeResponse = stub.initialize(
@@ -93,34 +96,22 @@ class TestRPCServer(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.run_task(
-                RunTaskRequest(
-                    graph_invocation_id="123",
-                    task_id="test-task",
-                    function_input=SerializedObject(
-                        bytes=CloudPickleSerializer.serialize(
-                            File(data=bytes(b"hello"), mime_type="text/plain")
-                        ),
-                        content_type=CloudPickleSerializer.content_type,
-                    ),
-                )
+            run_task_response: RunTaskResponse = run_task(
+                stub, File(data=bytes(b"hello"), mime_type="text/plain")
             )
 
             self.assertTrue(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)
 
-            fn_outputs = []
-            for output in run_task_response.function_output.outputs:
-                self.assertEqual(
-                    output.content_type, CloudPickleSerializer.content_type
-                )
-                fn_outputs.append(CloudPickleSerializer.deserialize(output.bytes))
+            fn_outputs = deserialized_function_output(
+                self, run_task_response.function_output
+            )
             self.assertEqual(len(fn_outputs), 2)
             expected = FileChunk(data=b"hello", start=5, end=5)
 
             self.assertEqual(expected, fn_outputs[1])
 
-    def test_run_task_extractor_raises_error(self):
+    def test_function_raises_error(self):
         with self._rpc_channel() as channel:
             stub: FunctionExecutorStub = FunctionExecutorStub(channel)
             initialize_response: InitializeResponse = stub.initialize(
@@ -141,16 +132,7 @@ class TestRPCServer(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = stub.run_task(
-                RunTaskRequest(
-                    graph_invocation_id="123",
-                    task_id="test-task",
-                    function_input=SerializedObject(
-                        bytes=CloudPickleSerializer.serialize(10),
-                        content_type=CloudPickleSerializer.content_type,
-                    ),
-                )
-            )
+            run_task_response: RunTaskResponse = run_task(stub, 10)
 
             self.assertFalse(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)

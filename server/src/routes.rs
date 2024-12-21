@@ -26,7 +26,7 @@ use metrics::api_io_stats;
 use nanoid::nanoid;
 use prometheus::Encoder;
 use state_store::{
-    kv::{WriteContextData, KVS},
+    kv::{ReadContextData, WriteContextData, KVS},
     requests::{
         CreateOrUpdateComputeGraphRequest,
         DeleteComputeGraphRequest,
@@ -42,10 +42,7 @@ use tracing::{error, info};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::{
-    executors::{self, EXECUTOR_TIMEOUT},
-    http_objects::{CtxStateGetRequest, CtxStateGetResponse, CtxStatePutRequest},
-};
+use crate::executors::{self, EXECUTOR_TIMEOUT};
 
 mod download;
 mod internal_ingest;
@@ -195,11 +192,11 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
+            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx/:name",
             post(set_ctx_state_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx",
+            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx/:name",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .layer(OtelInResponseLayer::default())
@@ -888,18 +885,47 @@ async fn get_versioned_code(
 }
 
 async fn set_ctx_state_key(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, compute_graph, invocation_id, key)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
-    Json(payload): Json<CtxStatePutRequest>,
+    mut values: Multipart,
 ) -> Result<(), IndexifyAPIError> {
-    let request = WriteContextData {
+    let mut request: WriteContextData = WriteContextData {
         namespace,
         compute_graph,
         invocation_id,
-        key: payload.key,
-        value: serde_json::to_vec(&payload.value)
-            .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?,
+        key,
+        value: vec![],
     };
+
+    while let Some(field) = values.next_field().await.unwrap() {
+        if let Some(name) = field.name() {
+            if name == "value" {
+                let content_type: &str = field.content_type().ok_or_else(|| {
+                    IndexifyAPIError::bad_request("content-type of the value is required")
+                })?;
+                if content_type != "application/octet-stream" {
+                    // Server doesn't support flexible client controlled content-type yet because
+                    // we don't yet store content-type in the kv store.
+                    return Err(IndexifyAPIError::bad_request(
+                        "only 'application/octet-stream' content-type is currently supported",
+                    ));
+                }
+                request.value = field
+                    .bytes()
+                    .await
+                    .map_err(|e| {
+                        IndexifyAPIError::internal_error(anyhow!("failed reading the value: {}", e))
+                    })?
+                    .to_vec();
+            } else {
+                return Err(IndexifyAPIError::bad_request(&format!(
+                    "unexpected field: {}",
+                    name
+                )));
+            }
+        }
+    }
+
     state
         .kvs
         .put_ctx_state(request)
@@ -909,17 +935,33 @@ async fn set_ctx_state_key(
 }
 
 async fn get_ctx_state_key(
-    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    Path((namespace, compute_graph, invocation_id, key)): Path<(String, String, String, String)>,
     State(state): State<RouteState>,
-    Json(request): Json<CtxStateGetRequest>,
-) -> Result<Json<CtxStateGetResponse>, IndexifyAPIError> {
+) -> Result<Response<Body>, IndexifyAPIError> {
     let value = state
         .kvs
-        .get_ctx_state_key(&namespace, &compute_graph, &invocation_id, &request.key)
+        .get_ctx_state_key(ReadContextData {
+            namespace,
+            compute_graph,
+            invocation_id,
+            key,
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    let value = value.map(|v| serde_json::from_slice(&v).unwrap());
-    Ok(Json(CtxStateGetResponse { value }))
+    match value {
+        Some(value) => Response::builder()
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", value.len().to_string())
+            .body(Body::from(value))
+            .map_err(|e| {
+                tracing::error!("failed streaming get ctx response: {:?}", e);
+                IndexifyAPIError::internal_error_str("failed streaming the response")
+            }),
+        None => Ok(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .unwrap()),
+    }
 }
 
 #[axum::debug_handler]

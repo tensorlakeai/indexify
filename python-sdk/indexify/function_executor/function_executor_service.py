@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Iterator, Optional, Union
 
 import grpc
 import structlog
@@ -14,9 +14,14 @@ from .handlers.run_function.request_validator import (
     RequestValidator as RunTaskRequestValidator,
 )
 from .initialize_request_validator import InitializeRequestValidator
+from .invocation_state.invocation_state_proxy_server import (
+    InvocationStateProxyServer,
+)
+from .invocation_state.proxied_invocation_state import ProxiedInvocationState
 from .proto.function_executor_pb2 import (
     InitializeRequest,
     InitializeResponse,
+    InvocationStateResponse,
     RunTaskRequest,
     RunTaskResponse,
 )
@@ -24,15 +29,14 @@ from .proto.function_executor_pb2_grpc import FunctionExecutorServicer
 
 
 class FunctionExecutorService(FunctionExecutorServicer):
-    def __init__(self, indexify_server_address: str, config_path: Optional[str]):
-        self._indexify_server_address = indexify_server_address
-        self._config_path = config_path
+    def __init__(self):
         self._logger = structlog.get_logger(module=__name__)
         self._namespace: Optional[str] = None
         self._graph_name: Optional[str] = None
         self._graph_version: Optional[int] = None
         self._function_name: Optional[str] = None
         self._function: Optional[Union[IndexifyFunction, IndexifyRouter]] = None
+        self._invocation_state_proxy_server: Optional[InvocationStateProxyServer] = None
 
     def initialize(
         self, request: InitializeRequest, context: grpc.ServicerContext
@@ -65,6 +69,17 @@ class FunctionExecutorService(FunctionExecutorServicer):
 
         return InitializeResponse(success=True)
 
+    def initialize_invocation_state_server(
+        self,
+        client_responses: Iterator[InvocationStateResponse],
+        context: grpc.ServicerContext,
+    ):
+        self._invocation_state_proxy_server = InvocationStateProxyServer(
+            client_responses, self._logger
+        )
+        self._logger.info("initialized invocation proxy server")
+        yield from self._invocation_state_proxy_server.run()
+
     def run_task(
         self, request: RunTaskRequest, context: grpc.ServicerContext
     ) -> RunTaskResponse:
@@ -75,12 +90,12 @@ class FunctionExecutorService(FunctionExecutorServicer):
         RunTaskRequestValidator(request=request).check()
         return RunTaskHandler(
             request=request,
-            namespace=self._namespace,
             graph_name=self._graph_name,
             graph_version=self._graph_version,
             function_name=self._function_name,
             function=self._function,
+            invocation_state=ProxiedInvocationState(
+                request.task_id, self._invocation_state_proxy_server
+            ),
             logger=self._logger,
-            indexify_server_addr=self._indexify_server_address,
-            config_path=self._config_path,
         ).run()
