@@ -8,13 +8,11 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from importlib.metadata import version
 from typing import Annotated, List, Optional
 
-import httpx
 import nanoid
 import structlog
 import typer
@@ -24,12 +22,14 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.executor.executor import Executor
+from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
+    SubprocessFunctionExecutorServerFactory,
+)
 from indexify.function_executor.function_executor_service import (
     FunctionExecutorService,
 )
 from indexify.function_executor.server import Server as FunctionExecutorServer
 from indexify.functions_sdk.image import Build, GetDefaultPythonImage, Image
-from indexify.http_client import IndexifyClient
 
 logger = structlog.get_logger(module=__name__)
 
@@ -250,7 +250,9 @@ def executor(
         code_path=executor_cache,
         name_alias=name_alias,
         image_hash=image_hash,
-        development_mode=dev,
+        function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
+            development_mode=dev
+        ),
     )
     try:
         asyncio.get_event_loop().run_until_complete(executor.run())

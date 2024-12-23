@@ -13,7 +13,7 @@ from test_constants import (
 from indexify.executor.executor import Executor
 
 
-class TestExtractorAgent(unittest.TestCase):
+class TestExecutor(unittest.TestCase):
     @patch(
         "builtins.open",
         new_callable=mock_open,
@@ -32,6 +32,7 @@ class TestExtractorAgent(unittest.TestCase):
         executor = Executor(
             executor_id="unit-test",
             code_path=Path("test"),
+            function_executor_server_factory=None,
             server_addr=service_url,
             config_path=config_path,
         )
@@ -62,6 +63,7 @@ class TestExtractorAgent(unittest.TestCase):
         executor = Executor(
             executor_id="unit-test",
             code_path=Path("test"),
+            function_executor_server_factory=None,
             server_addr="localhost:8900",
         )
 
