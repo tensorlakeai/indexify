@@ -1,11 +1,16 @@
 import asyncio
 from typing import Any, Optional
 
-from .function_executor_factory import FunctionExecutorFactory
-from .process_function_executor import ProcessFunctionExecutor
+from .function_executor_server_factory import (
+    FunctionExecutorServerConfiguration,
+    FunctionExecutorServerFactory,
+)
+from .subprocess_function_executor_server import (
+    SubprocessFunctionExecutorServer,
+)
 
 
-class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
+class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     def __init__(
         self,
         development_mode: bool,
@@ -15,8 +20,13 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
         self._free_ports = set(range(50000, 51000))
 
     async def create(
-        self, logger: Any, state: Optional[Any] = None
-    ) -> ProcessFunctionExecutor:
+        self, config: FunctionExecutorServerConfiguration, logger: Any
+    ) -> SubprocessFunctionExecutorServer:
+        if config.image_uri is not None:
+            raise ValueError(
+                "SubprocessFunctionExecutorServerFactory doesn't support container images"
+            )
+
         logger = logger.bind(module=__name__)
         port: Optional[int] = None
 
@@ -37,12 +47,10 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
                 "indexify-cli",
                 *args,
             )
-            return ProcessFunctionExecutor(
+            return SubprocessFunctionExecutorServer(
                 process=proc,
                 port=port,
                 address=_server_address(port),
-                logger=logger,
-                state=state,
             )
         except Exception as e:
             if port is not None:
@@ -53,9 +61,11 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
             )
             raise
 
-    async def destroy(self, executor: ProcessFunctionExecutor, logger: Any) -> None:
-        proc: asyncio.subprocess.Process = executor._proc
-        port: int = executor._port
+    async def destroy(
+        self, server: SubprocessFunctionExecutorServer, logger: Any
+    ) -> None:
+        proc: asyncio.subprocess.Process = server._proc
+        port: int = server._port
         logger = logger.bind(
             module=__name__,
             pid=proc.pid,
@@ -76,8 +86,6 @@ class ProcessFunctionExecutorFactory(FunctionExecutorFactory):
             )
         finally:
             self._release_port(port)
-            if executor._channel is not None:
-                await executor._channel.close()
 
     def _allocate_port(self) -> int:
         # No asyncio.Lock is required here because this operation never awaits
