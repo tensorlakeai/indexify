@@ -535,6 +535,10 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(len(output), 1)
         self.assertEqual(output[0], 6)
 
+        output1 = graph.output(invocation_id, my_func.name)
+        self.assertEqual(len(output1), 1)
+        self.assertEqual(output1[0], {"x": 1, "y": 2, "z": 3})
+
     @parameterized.expand([(False), (True)])
     def test_return_dict_args_as_kwargs_in_list(self, is_remote):
         @indexify_function()
