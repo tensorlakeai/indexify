@@ -567,7 +567,10 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_dict_args_as_dict_in_list(self, is_remote):
         @indexify_function()
         def my_func(text: str) -> List[dict]:
-            return [{"data": {"index":index, "char":char}} for index, char in enumerate(text)]
+            return [
+                {"data": {"index": index, "char": char}}
+                for index, char in enumerate(text)
+            ]
 
         @indexify_function()
         def my_func_2(data: dict) -> str:
