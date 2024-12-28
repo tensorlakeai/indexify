@@ -422,7 +422,7 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_dict_as_args(self, is_remote):
         @indexify_function()
         def my_func(x: int) -> dict:
-            return dict(x=1, y=2, z=3)
+            return {"input": dict(x=1, y=2, z=3)}
 
         @indexify_function()
         def my_func_2(input: dict) -> int:
@@ -444,7 +444,7 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_multiple_dict_as_args(self, is_remote):
         @indexify_function()
         def my_func(x: int) -> dict:
-            return dict(x=1, y=2, z=3), dict(x=1, y=2, z=3)
+            return {"input1": dict(x=1, y=2, z=3), "input2": dict(x=1, y=2, z=3)}
 
         @indexify_function()
         def my_func_2(input1: dict, input2: dict) -> int:
@@ -516,8 +516,8 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.expand([(False), (True)])
     def test_return_dict_args_json(self, is_remote):
         @indexify_function(input_encoder="json", output_encoder="json")
-        def my_func(x: int) -> tuple:
-            return dict(x=1, y=2, z=3)
+        def my_func(x: int) -> dict:
+            return {"input": dict(x=1, y=2, z=3)}
 
         @indexify_function(input_encoder="json", output_encoder="json")
         def my_func_2(input: dict) -> int:
@@ -537,7 +537,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
         output1 = graph.output(invocation_id, my_func.name)
         self.assertEqual(len(output1), 1)
-        self.assertEqual(output1[0], {"x": 1, "y": 2, "z": 3})
+        self.assertEqual(output1[0], {"input": {"x": 1, "y": 2, "z": 3}})
 
     @parameterized.expand([(False), (True)])
     def test_return_dict_args_as_kwargs_in_list(self, is_remote):
@@ -567,7 +567,7 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_dict_args_as_dict_in_list(self, is_remote):
         @indexify_function()
         def my_func(text: str) -> List[dict]:
-            return [dict(index=index, char=char) for index, char in enumerate(text)]
+            return [{"data": {"index":index, "char":char}} for index, char in enumerate(text)]
 
         @indexify_function()
         def my_func_2(data: dict) -> str:
@@ -807,7 +807,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
         @indexify_function(input_encoder="json", output_encoder="json")
         def my_func1(x: int) -> dict:
-            return P1(a=x).model_dump()
+            return {"input": P1(a=x).model_dump()}
 
         @indexify_function(input_encoder="json", output_encoder="json")
         def my_func_2(input: dict) -> int:

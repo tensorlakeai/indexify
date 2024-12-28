@@ -267,6 +267,8 @@ class IndexifyFunctionWrapper:
             # with json encoding which won't deserialize in tuple.
             if isinstance(input, tuple) or isinstance(input, list):
                 args += input
+            elif isinstance(input, dict):
+                kwargs.update(input)
             else:
                 args.append(input)
             extracted_data = self.indexify_function._call_run(*args, **kwargs)
@@ -292,6 +294,8 @@ class IndexifyFunctionWrapper:
         # with json encoding which won't deserialize in tuple.
         if isinstance(input, tuple) or isinstance(input, list):
             args += input
+        elif isinstance(input, dict):
+            kwargs.update(input)
         else:
             args.append(input)
 
