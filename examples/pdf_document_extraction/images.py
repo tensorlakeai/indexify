@@ -42,5 +42,4 @@ inkwell_image_gpu = (
     .run("apt install -y tesseract-ocr")
     .run("apt install -y libtesseract-dev")
     .run('pip install "py-inkwell[inference]"')
-    .run("pip install docling")
 )

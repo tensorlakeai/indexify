@@ -57,6 +57,19 @@ services:
       server:
     volumes:
       - data:/tmp/indexify-blob-storage
+  default-executor:
+    image: tensorlake/indexify-executor-default
+    command:
+      [
+        "indexify-cli",
+        "executor",
+        "--server-addr",
+        "indexify:8900"
+      ]
+    networks:
+      server:
+    volumes:
+      - data:/tmp/indexify-blob-storage
   pdf-parser-executor:
     # Use this for GPU support
     image: tensorlake/pdf-blueprint-pdf-parser-gpu:latest

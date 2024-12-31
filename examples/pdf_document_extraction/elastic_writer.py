@@ -6,9 +6,12 @@ import uuid
 from common_objects import ImageWithEmbedding, TextChunk
 from indexify.functions_sdk.indexify_functions import IndexifyFunction
 
+from images import st_image
+
 
 class ElasticSearchWriter(IndexifyFunction):
     name = "elastic_Search_writer"
+    image = st_image
 
     def __init__(self):
         super().__init__()

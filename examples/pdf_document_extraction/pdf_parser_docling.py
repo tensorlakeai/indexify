@@ -24,8 +24,6 @@ class PDFParserDocling(IndexifyFunction):
         from docling.document_converter import DocumentConverter, PdfFormatOption
         from docling.datamodel.base_models import InputFormat
 
-        file = file['file']
-
         import tempfile
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf") as f:
             f.write(file.data)

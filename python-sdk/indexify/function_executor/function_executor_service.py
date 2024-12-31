@@ -52,7 +52,13 @@ class FunctionExecutorService(FunctionExecutorServicer):
         # share the model's file descriptor between all tasks or download function configuration
         # only once.
         graph_serializer = get_serializer(request.graph.content_type)
-        graph = graph_serializer.deserialize(request.graph.bytes)
+
+        try:
+            graph = graph_serializer.deserialize(request.graph.bytes)
+        except Exception as e:
+            self._logger.error("Unable to deserialize graph")
+            return InitializeResponse(success=False)
+
         self._function = graph_serializer.deserialize(graph[request.function_name])
 
         self._logger = self._logger.bind(
