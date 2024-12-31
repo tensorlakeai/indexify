@@ -33,8 +33,8 @@ class TaskRunner:
             return await self._run(task_input, logger)
         except Exception as e:
             logger.error(
-                "failed running the task",
-                exc_info=e,
+                f"failed running the task: {e.details()}",
+                # exc_info=e.debug_error_string(),
             )
             return TaskOutput.internal_error(task_input.task)
 

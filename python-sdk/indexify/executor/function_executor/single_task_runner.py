@@ -80,8 +80,8 @@ class SingleTaskRunner:
             return function_executor
         except Exception as e:
             self._logger.error(
-                "failed to initialize function executor",
-                exc_info=e,
+                f"failed to initialize function executor: {e.details()}",
+                # exc_info=e.details(),
             )
             await function_executor.destroy()
             raise
