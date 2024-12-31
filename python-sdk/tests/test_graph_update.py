@@ -116,7 +116,7 @@ class TestGraphUpdate(unittest.TestCase):
         def second_graph_reused_function_names():
             @indexify_function()
             def start_node(x: int) -> dict:
-                return {"data" :dict(num=x)}
+                return {"data": dict(num=x)}
 
             @indexify_function()
             def middle_node(data: dict) -> dict:
