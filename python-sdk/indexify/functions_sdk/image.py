@@ -7,7 +7,7 @@ import pathlib
 import sys
 import tarfile
 from io import BytesIO
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import docker
 import docker.api.build
@@ -32,12 +32,13 @@ HASH_BUFF_SIZE = 1024**2
 
 class BuildOp(BaseModel):
     op_type: str
+    options: Dict[str, str] = {}
     args: List[str]
 
     def hash(self, hash):
         match self.op_type:
-            case "RUN":
-                hash.update("RUN".encode())
+            case "RUN" | "ADD":
+                hash.update(self.op_type.encode())
                 for a in self.args:
                     hash.update(a.encode())
 
@@ -57,8 +58,10 @@ class BuildOp(BaseModel):
 
     def render(self):
         match self.op_type:
-            case "RUN":
-                return f"RUN {''.join(self.args)}"
+            case "RUN" | "ADD":
+                options = [f"--{k}={v}" for k, v in self.options.items()]
+                return f"{self.op_type} {' '.join(options)} {' '.join(self.args)}"
+
             case "COPY":
                 return f"COPY {self.args[0]} {self.args[1]}"
             case _:
@@ -76,6 +79,7 @@ class Build(BaseModel):
     image_hash: str
     status: str | None
     result: str | None
+    error_message: str | None = None  # Only provided when result is "failed"
 
     created_at: datetime.datetime | None
     started_at: datetime.datetime | None = None
@@ -105,12 +109,20 @@ class Image:
         self._base_image = base_image
         return self
 
-    def run(self, run_str):
-        self._build_ops.append(BuildOp(op_type="RUN", args=[run_str]))
+    def add(self, source: str, dest: str, **kwargs):
+        self._build_ops.append(
+            BuildOp(op_type="ADD", args=[source, dest], options=kwargs)
+        )
         return self
 
-    def copy(self, source: str, dest: str):
-        self._build_ops.append(BuildOp(op_type="COPY", args=[source, dest]))
+    def run(self, run_str, **kwargs):
+        self._build_ops.append(BuildOp(op_type="RUN", args=[run_str], options=kwargs))
+        return self
+
+    def copy(self, source: str, dest: str, **kwargs):
+        self._build_ops.append(
+            BuildOp(op_type="COPY", args=[source, dest], options=kwargs)
+        )
         return self
 
     def to_image_information(self):

@@ -1,12 +1,12 @@
 import sys
 import unittest
 
+from extractors import extractor_a, extractor_c
+
 from indexify import RemoteGraph
 from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
-
-from extractors import extractor_a, extractor_c
 
 
 def create_broken_graph():
