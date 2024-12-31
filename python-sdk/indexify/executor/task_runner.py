@@ -32,6 +32,8 @@ class TaskRunner:
         try:
             return await self._run(task_input, logger)
         except Exception as e:
+            print(f"-----===== {type(e)}")
+            print(f"-----===== {e.keys()}")
             logger.error(
                 "failed running the task",
                 exc_info=e,
