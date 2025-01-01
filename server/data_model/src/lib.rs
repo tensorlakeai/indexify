@@ -216,15 +216,16 @@ impl Node {
 
         // Empty executor image hash means that the executor can accept any image
         // version. This is needed for backwards compatibility.
-        if !executor.image_hash.is_empty() && executor.image_hash != self.image_hash() {
-            diagnostic_msgs.push(format!(
-                "executor {}, image hash: {} does not match function image hash {}. Make sure the executor is running the latest image.",
-                executor.id,
-                executor.image_hash,
-                self.image_hash()
-            ));
-            return false;
-        }
+        // FIXME - This is a temporary hack to allow us to unblock some internal migrations
+        //if !executor.image_hash.is_empty() && executor.image_hash != self.image_hash() {
+        //    diagnostic_msgs.push(format!(
+        //        "executor {}, image hash: {} does not match function image hash {}. Make sure the executor is running the latest image.",
+        //        executor.id,
+        //        executor.image_hash,
+        //        self.image_hash()
+        //    ));
+        //    return false;
+        //}
 
         true
     }
