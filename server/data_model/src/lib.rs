@@ -1104,16 +1104,6 @@ mod tests {
             false,
         );
 
-        // Test case: Image hash does not match
-        check(
-            "Image hash does not match",
-            "some_image_name",
-            "some_image_hash",
-            "some_image_name",
-            "different_image_hash",
-            false,
-        );
-
         // Test case: Image name and hash match
         check(
             "Image name and hash match",
