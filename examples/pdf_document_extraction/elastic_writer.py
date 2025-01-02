@@ -1,3 +1,4 @@
+from elastic_transport import ApiError
 from elasticsearch import Elasticsearch
 from typing import Union
 import base64
@@ -10,17 +11,20 @@ from images import st_image
 
 
 class ElasticSearchWriter(IndexifyFunction):
-    name = "elastic_Search_writer"
+    name = "elastic_search_writer"
     image = st_image
 
     def __init__(self):
         super().__init__()
         # Connect to Elasticsearch
         self._client = Elasticsearch(
-            hosts=["http://localhost:9200"],
+            hosts=["http://elasticsearch:9200"],  # <User Change>: default is service name in the docker compose file.
             verify_certs=False,
-            ssl_show_warn=False
-            #basic_auth=("elastic", "your_password")
+            ssl_show_warn=False,
+            #basic_auth=("elastic", "your_password"),
+            retry_on_timeout=True,
+            max_retries=3,
+            request_timeout=5,
         )
 
         # Create indices if they don't exist
@@ -45,7 +49,11 @@ class ElasticSearchWriter(IndexifyFunction):
                     "page_number": {"type": "integer"},
                     "chunk": {"type": "text"}
                 }
-            }
+            },
+            "settings": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0,
+            },
         }
 
         # Image index mapping
@@ -66,14 +74,28 @@ class ElasticSearchWriter(IndexifyFunction):
                     "page_number": {"type": "integer"},
                     "image_data": {"type": "binary"}
                 }
-            }
+            },
+            "settings": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0,
+            },
         }
 
-        if not self._client.indices.exists(index="text_embeddings"):
+        try:
             self._client.indices.create(index="text_embeddings", body=text_mapping)
+        except ApiError as e:
+            if e.status_code == 400 and "resource_already_exists_exception" in str(e):
+                print("Text index already exists. Continuing.")
+            else:
+                raise e
 
-        if not self._client.indices.exists(index="image_embeddings"):
+        try:
             self._client.indices.create(index="image_embeddings", body=image_mapping)
+        except ApiError as e:
+            if e.status_code == 400 and "resource_already_exists_exception" in str(e):
+                print("Image index already exists. Continuing.")
+            else:
+                raise e
 
     def run(self, input: Union[ImageWithEmbedding, TextChunk]) -> bool:
         try:
