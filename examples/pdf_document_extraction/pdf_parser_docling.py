@@ -44,9 +44,6 @@ class PDFParserDocling(IndexifyFunction):
                 from docling_core.types.doc import ImageRefMode, PictureItem, TableItem
                 if isinstance(element, PictureItem):
                     pil_image = element.get_image(result.document)
-                    print('----')
-                    print(type(pil_image))
-                    print('----')
 
                     # Using docling APIs to avoid confusion.
                     b64 = element._image_to_base64(pil_image)
