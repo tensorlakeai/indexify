@@ -1,6 +1,7 @@
 # PDF Document Extraction and Indexing
 
 The example builds a pipeline that extracts text, tables and figures from a PDF Document. It embeds the text, table and images from the document and writes them into ChromaDB.
+This example also provides an alternate approach, that is OSS friendly, using Docling for document parsing and ElasticSearch as the vector store.
 
 The pipeline is hosted on a server endpoint in one of the containers. The endpoint can be called from any Python application.
 
@@ -12,6 +13,8 @@ docker compose up
 
 ## Deploy the Graph
 The [Graph](workflow.py) has all the code which performs PDF Parsing, embedding and writing the VectorDB. We will deploy the Graph on the server to create an Endpoint for our workflow. 
+Make sure to deploy the right graph before running the example.
+
 ```bash
 pip install indexify
 ```
@@ -34,7 +37,7 @@ invocation_id = graph.run(block_until_done=True, url="")
 ```
 
 ## Outputs 
-You can read the output of every function of the Graph.
+You can read the output of every function of the Graph. For example,
 
 ```python
 chunks = graph.output(invocation_id, "chunk_text")
@@ -43,9 +46,14 @@ chunks = graph.output(invocation_id, "chunk_text")
 The ChromaDB tables are populated automatically by the [ChromaDBWriter](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/chromadb_writer.py) class.
 The name of the databases used in the example are `text_embeddings` and `image_embeddings`. The database running inside the container at port `8000` is forwarded to the host for convenience. 
 
+For ElasticSearch, the service in this example is set-up using `docker-compose.yaml`. `elastic_writer.py` relies on docker networking to connect to it
+and index the generated vectors.
+
 ## Vector Search
 
 Once the documents are processed, you can query ChromaDB for vector search. Here is some [same code for that](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/retreive.py)
+
+For ElasticSearch `es_retrieve.py` has some sample python code to query the indexes.
 
 ## Customization
 

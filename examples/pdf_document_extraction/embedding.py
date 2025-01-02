@@ -2,7 +2,7 @@ from typing import Any, List
 
 from indexify.functions_sdk.indexify_functions import IndexifyFunction, indexify_function
 from sentence_transformers import SentenceTransformer
-from common_objects import ImageWithEmbedding, TextChunk
+from common_objects import ImageWithEmbedding, TextChunk, PDFParserDoclingOutput
 from inkwell.api.document import Document
 from inkwell.api.page import PageFragmentType
 import base64
@@ -37,6 +37,24 @@ def chunk_text(document: Document) -> List[TextChunk]:
         for text in texts:
             chunk = TextChunk(chunk=text, page_number=page.page_number)
             chunks.append(chunk)
+    return chunks
+
+
+@indexify_function(image=st_image)
+def chunk_text_docling(document: PDFParserDoclingOutput) -> List[TextChunk]:
+    """
+    Extract chunks from documents
+    """
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    chunks = []
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    for i, text in enumerate(document.texts):
+        splits = text_splitter.split_text(text)
+        for split in splits:
+            chunks.append(TextChunk(chunk=split, page_number=i+1))
+
     return chunks
 
 
@@ -85,3 +103,33 @@ class ImageEmbeddingExtractor(IndexifyFunction):
                         )
                     )
         return embedding
+
+
+class ImageEmbeddingDoclingExtractor(IndexifyFunction):
+    name = "image-embedding-docling"
+    description = "Extractor class that captures an embedding model"
+    image=st_image
+
+    def __init__(self):
+        super().__init__()
+        self.model = SentenceTransformer("clip-ViT-B-32")
+
+    def run(self, document: PDFParserDoclingOutput) -> List[ImageWithEmbedding]:
+        import io
+        from PIL import Image as PILImage
+
+        embeddings = []
+        for i, image_str in enumerate(document.images):
+            img_bytes = io.BytesIO(base64.b64decode(image_str))
+            img_bytes.seek(0)
+            img_emb = self.model.encode(PILImage.open(img_bytes))
+            img_bytes.seek(0)
+            embeddings.append(
+                ImageWithEmbedding(
+                    embedding=img_emb,
+                    image_bytes=img_bytes.getvalue(),
+                    page_number=i+1,
+                )
+            )
+
+        return embeddings
