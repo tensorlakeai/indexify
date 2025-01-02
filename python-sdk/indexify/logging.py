@@ -26,7 +26,7 @@ def configure_logging_early():
 
 def configure_production_logging():
     processors = [
-        structlog.processors.dict_tracebacks,
+        structlog.processors.format_exc_info,
         structlog.processors.JSONRenderer(),
     ]
     structlog.configure(processors=processors)

@@ -12,7 +12,7 @@ from indexify.function_executor.proto.function_executor_pb2_grpc import (
 )
 
 from ..api_objects import Task
-from .function_executor import FunctionExecutor
+from .function_executor import CustomerError, FunctionExecutor
 from .function_executor_state import FunctionExecutorState
 from .server.function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
@@ -50,7 +50,14 @@ class SingleTaskRunner:
         self._state.check_locked()
 
         if self._state.function_executor is None:
-            self._state.function_executor = await self._create_function_executor()
+            try:
+                await self._create_function_executor()
+            except CustomerError as e:
+                return TaskOutput(
+                    task=self._task_input.task,
+                    stderr=str(e),
+                    success=False,
+                )
 
         return await self._run()
 
@@ -58,31 +65,28 @@ class SingleTaskRunner:
         function_executor: FunctionExecutor = FunctionExecutor(
             server_factory=self._factory, logger=self._logger
         )
+        config: FunctionExecutorServerConfiguration = (
+            FunctionExecutorServerConfiguration(
+                image_uri=self._task_input.task.image_uri,
+            )
+        )
+        initialize_request: InitializeRequest = InitializeRequest(
+            namespace=self._task_input.task.namespace,
+            graph_name=self._task_input.task.compute_graph,
+            graph_version=self._task_input.task.graph_version,
+            function_name=self._task_input.task.compute_fn,
+            graph=self._task_input.graph,
+        )
+
         try:
-            config: FunctionExecutorServerConfiguration = (
-                FunctionExecutorServerConfiguration(
-                    image_uri=self._task_input.task.image_uri,
-                )
-            )
-            initialize_request: InitializeRequest = InitializeRequest(
-                namespace=self._task_input.task.namespace,
-                graph_name=self._task_input.task.compute_graph,
-                graph_version=self._task_input.task.graph_version,
-                function_name=self._task_input.task.compute_fn,
-                graph=self._task_input.graph,
-            )
             await function_executor.initialize(
                 config=config,
                 initialize_request=initialize_request,
                 base_url=self._base_url,
                 config_path=self._config_path,
             )
-            return function_executor
-        except Exception as e:
-            self._logger.error(
-                f"failed to initialize function executor: {e.details()}",
-                # exc_info=e.details(),
-            )
+            self._state.function_executor = function_executor
+        except Exception:
             await function_executor.destroy()
             raise
 

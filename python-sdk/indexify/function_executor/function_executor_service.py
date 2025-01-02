@@ -55,24 +55,22 @@ class FunctionExecutorService(FunctionExecutorServicer):
         # implementing smart caching in customer code. E.g. load a model into GPU only once and
         # share the model's file descriptor between all tasks or download function configuration
         # only once.
-        graph_serializer = get_serializer(request.graph.content_type)
-
-        try:
-            graph = graph_serializer.deserialize(request.graph.bytes)
-        except Exception as e:
-            self._logger.error(f"Caught exception {e}")
-            return InitializeResponse(success=False)
-
-        self._function = graph_serializer.deserialize(graph[request.function_name])
-
         self._logger = self._logger.bind(
             namespace=request.namespace,
             graph_name=request.graph_name,
             graph_version=str(request.graph_version),
             function_name=request.function_name,
         )
-        self._logger.info("initialized function executor service")
+        graph_serializer = get_serializer(request.graph.content_type)
+        try:
+            # Process user controlled input in a try-except block to not treat errors here as our
+            # internal platform errors.
+            graph = graph_serializer.deserialize(request.graph.bytes)
+            self._function = graph_serializer.deserialize(graph[request.function_name])
+        except Exception as e:
+            return InitializeResponse(success=False, customer_error=str(e))
 
+        self._logger.info("initialized function executor service")
         return InitializeResponse(success=True)
 
     def initialize_invocation_state_server(

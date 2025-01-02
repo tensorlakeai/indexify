@@ -23,6 +23,10 @@ from .server.function_executor_server_factory import (
 )
 
 
+class CustomerError(RuntimeError):
+    pass
+
+
 class FunctionExecutor:
     """Executor side class supporting a running FunctionExecutorServer.
 
@@ -50,7 +54,10 @@ class FunctionExecutor:
         base_url: str,
         config_path: Optional[str],
     ):
-        """Creates and initializes a FunctionExecutorServer and all resources associated with it."""
+        """Creates and initializes a FunctionExecutorServer and all resources associated with it.
+
+        Raises CustomerError if the server failed to initialize due to an error in customer owned code or data.
+        Raises an Exception if an internal error occured."""
         try:
             self._server = await self._server_factory.create(
                 config=config, logger=self._logger
@@ -129,5 +136,9 @@ async def _initialize_server(
     stub: FunctionExecutorStub, initialize_request: InitializeRequest
 ):
     initialize_response: InitializeResponse = await stub.initialize(initialize_request)
-    if not initialize_response.success:
+    if initialize_response.success:
+        return
+    if initialize_response.HasField("customer_error"):
+        raise CustomerError(initialize_response.customer_error)
+    else:
         raise Exception("initialize RPC failed at function executor server")

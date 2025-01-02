@@ -47,10 +47,14 @@ class InitializeRequest(_message.Message):
     ) -> None: ...
 
 class InitializeResponse(_message.Message):
-    __slots__ = ("success",)
+    __slots__ = ("success", "customer_error")
     SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    CUSTOMER_ERROR_FIELD_NUMBER: _ClassVar[int]
     success: bool
-    def __init__(self, success: bool = ...) -> None: ...
+    customer_error: str
+    def __init__(
+        self, success: bool = ..., customer_error: _Optional[str] = ...
+    ) -> None: ...
 
 class SetInvocationStateRequest(_message.Message):
     __slots__ = ("key", "value")
