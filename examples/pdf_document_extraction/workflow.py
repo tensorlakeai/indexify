@@ -5,7 +5,6 @@ from indexify.functions_sdk.data_objects import File
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 from images import http_client_image
-import httpx
 
 @indexify_function(image=http_client_image)
 def download_pdf(url: str) -> File:
@@ -67,12 +66,11 @@ def create_graph_1() -> Graph:
     return g
 
 
+# This graph is the alternate approach.
 # This graph extracts text and image embeddings from the PDF using docling
-# and writes them to Elastic Search
+# and writes them to ElasticSearch.
 def create_graph_2() -> Graph:
-    from embedding import ImageEmbeddingExtractor, TextEmbeddingExtractor, chunk_text
-    from chromadb_writer import ChromaDBWriter
-    from pdf_parser import PDFParser
+    from embedding import TextEmbeddingExtractor
     from pdf_parser_docling import PDFParserDocling
 
     g = Graph(
@@ -94,7 +92,7 @@ def create_graph_2() -> Graph:
 
 
 if __name__ == "__main__":
-    graph: Graph = create_graph_2()
+    graph: Graph = create_graph_2()  # change this as required.
 
     file_url = "https://arxiv.org/pdf/1706.03762"
     import httpx
@@ -109,7 +107,7 @@ if __name__ == "__main__":
 
     import common_objects
     import images
-    import elasticsearch
+    import elasticsearch  # this additional module is needed if you're using the second graph
 
     remote_graph = RemoteGraph.deploy(
         graph,
