@@ -1,4 +1,6 @@
 import asyncio
+import os
+import signal
 from typing import Any, Optional
 
 from .function_executor_server_factory import (
@@ -46,6 +48,8 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
             proc: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
                 "indexify-cli",
                 *args,
+                # TODO: pass `process_group=0` instead of the depricated `preexec_fn` once we only support Python 3.11+.
+                preexec_fn=_new_process_group,
             )
             return SubprocessFunctionExecutorServer(
                 process=proc,
@@ -77,6 +81,10 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
                 # The process already exited and was waited() sucessfully.
                 return
 
+            if os.name == "posix":
+                # On POSIX systems, we can kill the whole process group so processes forked by customer code are also killed.
+                # This should be done before proc.kill because PG processes get their own PG when their PG leader dies.
+                os.killpg(proc.pid, signal.SIGKILL)
             proc.kill()
             await proc.wait()
         except Exception as e:
@@ -100,3 +108,8 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
 
 def _server_address(port: int) -> str:
     return f"localhost:{port}"
+
+
+def _new_process_group() -> None:
+    """Creates a new process group with ID equal to the current process PID. POSIX only."""
+    os.setpgid(0, 0)
