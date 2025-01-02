@@ -23,7 +23,7 @@ st_image = (
     .run("pip install langchain")
     .run("pip install pillow")
     .run("pip install py-inkwell")
-    # opentelemetry-api
+    .run("pip install opentelemetry-api")
 )
 
 lance_image = (
@@ -43,5 +43,6 @@ inkwell_image_gpu = (
     .run("apt install -y tesseract-ocr")
     .run("apt install -y libtesseract-dev")
     .run('pip install "py-inkwell[inference]"')
-    # install docling
+    .run('pip install docling')
+    .run("pip install elastic-transport")
 )

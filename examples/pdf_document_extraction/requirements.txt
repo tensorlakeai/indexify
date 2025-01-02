@@ -1,4 +1,4 @@
-indexify==0.2.43
+indexify
 pydantic
 docling==2.14.0
 docling-core
@@ -7,3 +7,4 @@ chromadb
 elasticsearch
 py-inkwell[api]
 langchain-text-splitters
+elastic-transport
