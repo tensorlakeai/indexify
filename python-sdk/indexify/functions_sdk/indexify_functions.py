@@ -1,8 +1,8 @@
 import inspect
 import traceback
+from inspect import Parameter
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
     Optional,
@@ -13,34 +13,27 @@ from typing import (
     get_origin,
 )
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel
+from typing_extensions import get_type_hints
 
 from .data_objects import IndexifyData
 from .image import DEFAULT_IMAGE, Image
+from .invocation_state.invocation_state import InvocationState
 from .object_serializer import get_serializer
 
 
-class GraphInvocationContext(BaseModel):
-    invocation_id: str
-    graph_name: str
-    graph_version: str
-    indexify_client: Optional[Any] = Field(default=None)  # avoids circular import
-    _local_state: Dict[str, Any] = PrivateAttr(default_factory=dict)
-
-    def set_state_key(self, key: str, value: Any) -> None:
-        if self.indexify_client is None:
-            self._local_state[key] = value
-            return
-        self.indexify_client.set_state_key(
-            self.graph_name, self.invocation_id, key, value
-        )
-
-    def get_state_key(self, key: str) -> Any:
-        if self.indexify_client is None:
-            return self._local_state.get(key)
-        return self.indexify_client.get_state_key(
-            self.graph_name, self.invocation_id, key
-        )
+class GraphInvocationContext:
+    def __init__(
+        self,
+        invocation_id: str,
+        graph_name: str,
+        graph_version: str,
+        invocation_state: InvocationState,
+    ):
+        self.invocation_id = invocation_id
+        self.graph_name = graph_name
+        self.graph_version = graph_version
+        self.invocation_state = invocation_state
 
 
 def is_pydantic_model_from_annotation(type_annotation):
@@ -89,10 +82,22 @@ class IndexifyFunction:
     def run(self, *args, **kwargs) -> Union[List[Any], Any]:
         pass
 
-    def partial(self, **kwargs) -> Callable:
-        from functools import partial
+    def _call_run(self, *args, **kwargs) -> Union[List[Any], Any]:
+        # Process dictionary argument mapping it to args or to kwargs.
+        if self.accumulate and len(args) == 2 and isinstance(args[1], dict):
+            sig = inspect.signature(self.run)
+            new_args = [args[0]]  # Keep the accumulate argument
+            dict_arg = args[1]
+            new_args_from_dict, new_kwargs = _process_dict_arg(dict_arg, sig)
+            new_args.extend(new_args_from_dict)
+            return self.run(*new_args, **new_kwargs)
+        elif len(args) == 1 and isinstance(args[0], dict):
+            sig = inspect.signature(self.run)
+            dict_arg = args[0]
+            new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+            return self.run(*new_args, **new_kwargs)
 
-        return partial(self.run, **kwargs)
+        return self.run(*args, **kwargs)
 
     @classmethod
     def deserialize_output(cls, output: IndexifyData) -> Any:
@@ -111,10 +116,16 @@ class IndexifyRouter:
     def run(self, *args, **kwargs) -> Optional[List[IndexifyFunction]]:
         pass
 
+    # Create run method that preserves signature
+    def _call_run(self, *args, **kwargs):
+        # Process dictionary argument mapping it to args or to kwargs.
+        if len(args) == 1 and isinstance(args[0], dict):
+            sig = inspect.signature(self.run)
+            dict_arg = args[0]
+            new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
+            return self.run(*new_args, **new_kwargs)
 
-from inspect import Parameter, signature
-
-from typing_extensions import get_type_hints
+        return self.run(*args, **kwargs)
 
 
 def _process_dict_arg(dict_arg: dict, sig: inspect.Signature) -> Tuple[list, dict]:
@@ -147,25 +158,6 @@ def indexify_router(
     output_encoder: Optional[str] = "cloudpickle",
 ):
     def construct(fn):
-        # Get function signature using inspect.signature
-        fn_sig = signature(fn)
-        fn_hints = get_type_hints(fn)
-
-        # Create run method that preserves signature
-        def run(self, *args, **kwargs):
-            # Process dictionary argument mapping it to args or to kwargs.
-            if len(args) == 1 and isinstance(args[0], dict):
-                sig = inspect.signature(fn)
-                dict_arg = args[0]
-                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
-                return fn(*new_args, **new_kwargs)
-
-            return fn(*args, **kwargs)
-
-        # Apply original signature and annotations to run method
-        run.__signature__ = fn_sig
-        run.__annotations__ = fn_hints
-
         attrs = {
             "name": name if name else fn.__name__,
             "description": (
@@ -177,7 +169,7 @@ def indexify_router(
             "placement_constraints": placement_constraints,
             "input_encoder": input_encoder,
             "output_encoder": output_encoder,
-            "run": run,
+            "run": staticmethod(fn),
         }
 
         return type("IndexifyRouter", (IndexifyRouter,), attrs)
@@ -195,32 +187,6 @@ def indexify_function(
     placement_constraints: List[PlacementConstraints] = [],
 ):
     def construct(fn):
-        # Get function signature using inspect.signature
-        fn_sig = signature(fn)
-        fn_hints = get_type_hints(fn)
-
-        # Create run method that preserves signature
-        def run(self, *args, **kwargs):
-            # Process dictionary argument mapping it to args or to kwargs.
-            if self.accumulate and len(args) == 2 and isinstance(args[1], dict):
-                sig = inspect.signature(fn)
-                new_args = [args[0]]  # Keep the accumulate argument
-                dict_arg = args[1]
-                new_args_from_dict, new_kwargs = _process_dict_arg(dict_arg, sig)
-                new_args.extend(new_args_from_dict)
-                return fn(*new_args, **new_kwargs)
-            elif len(args) == 1 and isinstance(args[0], dict):
-                sig = inspect.signature(fn)
-                dict_arg = args[0]
-                new_args, new_kwargs = _process_dict_arg(dict_arg, sig)
-                return fn(*new_args, **new_kwargs)
-
-            return fn(*args, **kwargs)
-
-        # Apply original signature and annotations to run method
-        run.__signature__ = fn_sig
-        run.__annotations__ = fn_hints
-
         attrs = {
             "name": name if name else fn.__name__,
             "description": (
@@ -233,7 +199,7 @@ def indexify_function(
             "accumulate": accumulate,
             "input_encoder": input_encoder,
             "output_encoder": output_encoder,
-            "run": run,
+            "run": staticmethod(fn),
         }
 
         return type("IndexifyFunction", (IndexifyFunction,), attrs)
@@ -301,9 +267,11 @@ class IndexifyFunctionWrapper:
             # with json encoding which won't deserialize in tuple.
             if isinstance(input, tuple) or isinstance(input, list):
                 args += input
+            elif isinstance(input, dict):
+                kwargs.update(input)
             else:
                 args.append(input)
-            extracted_data = self.indexify_function.run(*args, **kwargs)
+            extracted_data = self.indexify_function._call_run(*args, **kwargs)
         except Exception as e:
             return [], traceback.format_exc()
         if not isinstance(extracted_data, list) and extracted_data is not None:
@@ -326,11 +294,13 @@ class IndexifyFunctionWrapper:
         # with json encoding which won't deserialize in tuple.
         if isinstance(input, tuple) or isinstance(input, list):
             args += input
+        elif isinstance(input, dict):
+            kwargs.update(input)
         else:
             args.append(input)
 
         try:
-            extracted_data = self.indexify_function.run(*args, **kwargs)
+            extracted_data = self.indexify_function._call_run(*args, **kwargs)
         except Exception as e:
             return [], traceback.format_exc()
         if extracted_data is None:

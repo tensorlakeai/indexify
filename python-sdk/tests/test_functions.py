@@ -10,9 +10,15 @@ from indexify.functions_sdk.indexify_functions import (
     indexify_function,
     indexify_router,
 )
+from indexify.functions_sdk.invocation_state.local_invocation_state import (
+    LocalInvocationState,
+)
 
 TEST_GRAPH_CTX = GraphInvocationContext(
-    invocation_id="123", graph_name="test", graph_version="1"
+    invocation_id="123",
+    graph_name="test",
+    graph_version="1",
+    invocation_state=LocalInvocationState(),
 )
 
 
@@ -90,27 +96,13 @@ class TestFunctionWrapper(unittest.TestCase):
         @indexify_function()
         def extractor_c(url: str) -> str:
             ctx = get_ctx()  # type: ignore
-            ctx.set_state_key("foo", "bar")
-            foo_val = ctx.get_state_key("foo")
+            ctx.invocation_state.set("foo", "bar")
+            foo_val = ctx.invocation_state.get("foo")
             return ctx.invocation_id
 
         extractor_wrapper = IndexifyFunctionWrapper(extractor_c, TEST_GRAPH_CTX)
         result, _ = extractor_wrapper.run_fn({"url": "foo"})
         self.assertEqual(result[0], "123")
-
-    # FIXME: Partial extractor is not working
-    # def test_partial_extractor(self):
-    #    @extractor()
-    #    def extractor_c(url: str, some_other_param: str) -> str:
-    #        """
-    #        Random description of extractor_c
-    #        """
-    #        return f"hello {some_other_param}"
-
-    #    print(type(extractor_c))
-    #    partial_extractor = extractor_c.partial(some_other_param="world")
-    #    result = partial_extractor.extract(BaseData.from_data(url="foo"))
-    #    self.assertEqual(result[0].payload, "hello world")
 
 
 if __name__ == "__main__":

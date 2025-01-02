@@ -12,6 +12,8 @@ class Task(BaseModel):
     input_key: str
     reducer_output_id: Optional[str] = None
     graph_version: int
+    image_uri: Optional[str] = None
+    "image_uri defines the URI of the image of this task. Optional since some executors do not require it."
 
 
 class ExecutorMetadata(BaseModel):

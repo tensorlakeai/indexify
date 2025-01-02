@@ -10,7 +10,7 @@ from indexify.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
 )
 
-from .function_worker import FunctionWorkerOutput
+from .task_runner import TaskOutput
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -48,17 +48,10 @@ class TaskReporter:
         # results in not reusing established TCP connections to server.
         self._client = get_httpx_client(config_path, make_async=False)
 
-    async def report(
-        self, task: Task, output: Optional[FunctionWorkerOutput], logger: Any
-    ):
-        """Reports result of the supplied task.
-
-        If FunctionWorkerOutput is None this means that the task didn't finish and failed with internal error.
-        """
+    async def report(self, output: TaskOutput, logger: Any):
+        """Reports result of the supplied task."""
         logger = logger.bind(module=__name__)
-        task_result, output_files, output_summary = self._process_task_output(
-            task, output
-        )
+        task_result, output_files, output_summary = self._process_task_output(output)
         task_result_data = task_result.model_dump_json(exclude_none=True)
 
         logger.info(
@@ -100,16 +93,16 @@ class TaskReporter:
             ) from e
 
     def _process_task_output(
-        self, task: Task, output: Optional[FunctionWorkerOutput]
+        self, output: TaskOutput
     ) -> Tuple[TaskResult, List[Any], TaskOutputSummary]:
         task_result = TaskResult(
             outcome="failure",
-            namespace=task.namespace,
-            compute_graph=task.compute_graph,
-            compute_fn=task.compute_fn,
-            invocation_id=task.invocation_id,
+            namespace=output.task.namespace,
+            compute_graph=output.task.compute_graph,
+            compute_fn=output.task.compute_fn,
+            invocation_id=output.task.invocation_id,
             executor_id=self._executor_id,
-            task_id=task.id,
+            task_id=output.task.id,
         )
         output_files: List[Any] = []
         summary: TaskOutputSummary = TaskOutputSummary()

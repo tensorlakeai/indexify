@@ -1,6 +1,6 @@
 [package]
 name = "indexify-server"
-version = "0.2.13"
+version = "0.2.16"
 edition = "2021"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache-2.0"
@@ -20,16 +20,16 @@ members = [
 ]
 
 [workspace.dependencies]
-serde = { version = "1.0.215", features = ["derive"] }
-anyhow = "1.0.94"
-serde_json = "1.0.133"
+serde = { version = "1.0.217", features = ["derive"] }
+anyhow = "1.0.95"
+serde_json = "1.0.134"
 # https://github.com/rust-rocksdb/rust-rocksdb/issues/881
 rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "87b6b2df89c1fafcfb53129f8c3304d636a94f2e", features=["multi-threaded-cf"]}
 data_model = { path = "data_model" }
 indexify_utils = { path = "utils" }
 indexify_ui = {path = "indexify_ui"}
 metrics = {path = "metrics"}
-hyper = "1.5.1"
+hyper = "1.5.2"
 state_store = { path = "state_store" }
 strum = { version = "0.26.3", features = ["derive"] }
 tracing = "0.1.41"
@@ -41,17 +41,17 @@ figment = {version="0.10.19",features=["yaml"]}
 axum = {version = "0.7.9", features = ["multipart", "macros", "tokio"]}
 axum-server = "0.7.1"
 tempfile = "3.14.0"
-utoipa = { version = "5.2.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
-object_store = {version= "0.11.1", features = ["aws"]}
+utoipa = { version = "5.3.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8.1.0", features = ["axum"] }
+object_store = {version= "0.11.2", features = ["aws"]}
 futures = "0.3.31"
 bytes = "1.9.0"
 pin-project-lite = "0.2.15"
 async-trait = "0.1.83"
-tokio-stream = "0.1.16"
+tokio-stream = "0.1.17"
 slatedb = {git = "https://github.com/diptanu/slatedb"}
 rust-embed = {version="8.5.0", features=["mime-guess"]}
-reqwest = { version = "0.12.9", default-features = false, features = [
+reqwest = { version = "0.12.11", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
@@ -84,7 +84,7 @@ serde={workspace = true}
 serde_json={workspace = true}
 anyhow = {workspace=true}
 figment = {workspace=true}
-clap = { version = "4.5.22", features = ["derive"] }
+clap = { version = "4.5.23", features = ["derive"] }
 tracing ={workspace=true}
 axum ={workspace=true}
 tokio = {workspace=true}

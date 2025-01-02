@@ -10,17 +10,13 @@ from indexify.function_executor.proto.function_executor_pb2 import (
 )
 
 from .api_objects import Task
-from .downloader import DownloadedInputs, Downloader
-from .function_executor.process_function_executor_factory import (
-    ProcessFunctionExecutorFactory,
-)
-from .function_worker import (
-    FunctionWorker,
-    FunctionWorkerInput,
-    FunctionWorkerOutput,
+from .downloader import Downloader
+from .function_executor.server.function_executor_server_factory import (
+    FunctionExecutorServerFactory,
 )
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
+from .task_runner import TaskInput, TaskOutput, TaskRunner
 
 
 class Executor:
@@ -28,8 +24,8 @@ class Executor:
         self,
         executor_id: str,
         code_path: Path,
+        function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: str = "localhost:8900",
-        development_mode: bool = False,
         config_path: Optional[str] = None,
         name_alias: Optional[str] = None,
         image_hash: Optional[str] = None,
@@ -42,16 +38,14 @@ class Executor:
             self._logger.info("running the extractor with TLS enabled")
             protocol = "https"
 
-        self._function_worker = FunctionWorker(
-            function_executor_factory=ProcessFunctionExecutorFactory(
-                indexify_server_address=server_addr,
-                development_mode=development_mode,
-                config_path=config_path,
-            )
-        )
         self._server_addr = server_addr
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
+        self._task_runnner = TaskRunner(
+            function_executor_server_factory=function_executor_server_factory,
+            base_url=self._base_url,
+            config_path=config_path,
+        )
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=config_path
         )
@@ -92,39 +86,39 @@ class Executor:
 
         Doesn't raise any Exceptions. All errors are reported to the server."""
         logger = self._task_logger(task)
-        output: Optional[FunctionWorkerOutput] = None
+        output: Optional[TaskOutput] = None
 
         try:
             graph: SerializedObject = await self._downloader.download_graph(task)
-            input: DownloadedInputs = await self._downloader.download_inputs(task)
-            output = await self._function_worker.run(
-                input=FunctionWorkerInput(
+            input: SerializedObject = await self._downloader.download_input(task)
+            init_value: Optional[SerializedObject] = (
+                await self._downloader.download_init_value(task)
+            )
+            logger.info("task_execution_started")
+            output: TaskOutput = await self._task_runnner.run(
+                TaskInput(
                     task=task,
                     graph=graph,
-                    function_input=input,
-                )
+                    input=input,
+                    init_value=init_value,
+                ),
+                logger=logger,
             )
             logger.info("task_execution_finished", success=output.success)
         except Exception as e:
-            logger.error("failed running the task", exc_info=e)
+            output = TaskOutput.internal_error(task)
+            logger.error("task_execution_failed", exc_info=e)
 
-        await self._report_task_outcome(task=task, output=output, logger=logger)
+        await self._report_task_outcome(output=output, logger=logger)
 
-    async def _report_task_outcome(
-        self, task: Task, output: Optional[FunctionWorkerOutput], logger: Any
-    ) -> None:
-        """Reports the task with the given output to the server.
-
-        None output means that the task execution didn't finish due to an internal error.
-        Doesn't raise any exceptions."""
+    async def _report_task_outcome(self, output: TaskOutput, logger: Any) -> None:
+        """Reports the task with the given output to the server."""
         reporting_retries: int = 0
 
         while True:
             logger = logger.bind(retries=reporting_retries)
             try:
-                await self._task_reporter.report(
-                    task=task, output=output, logger=logger
-                )
+                await self._task_reporter.report(output=output, logger=logger)
                 break
             except Exception as e:
                 logger.error(
@@ -137,7 +131,7 @@ class Executor:
     async def _shutdown(self, loop):
         self._logger.info("shutting_down")
         self._should_run = False
-        await self._function_worker.shutdown()
+        await self._task_runnner.shutdown()
         for task in asyncio.all_tasks(loop):
             task.cancel()
 

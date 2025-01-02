@@ -40,7 +40,10 @@ impl InvocationStateChangeEvent {
             InvocationStateChangeEvent::TaskCompleted(TaskCompleted { invocation_id, .. }) => {
                 invocation_id.clone()
             }
-            InvocationStateChangeEvent::DiagnosticMessage(_) => "".to_string(),
+            InvocationStateChangeEvent::DiagnosticMessage(DiagnosticMessage {
+                invocation_id,
+                ..
+            }) => invocation_id.clone(),
         }
     }
 }
@@ -64,6 +67,7 @@ pub struct TaskCreated {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DiagnosticMessage {
+    pub invocation_id: String,
     pub message: String,
 }
 

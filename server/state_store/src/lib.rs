@@ -463,12 +463,13 @@ impl IndexifyState {
                         error!("failed to send invocation state change: {:?}", err);
                     }
                 }
-                for diagnostic_msg in &sched_update.diagnostic_msgs {
+                for diagnostic in &sched_update.placement_diagnostics {
                     if let Err(err) =
                         self.task_event_tx
                             .send(InvocationStateChangeEvent::DiagnosticMessage(
                                 invocation_events::DiagnosticMessage {
-                                    message: diagnostic_msg.clone(),
+                                    invocation_id: diagnostic.task.invocation_id.clone(),
+                                    message: diagnostic.message.clone(),
                                 },
                             ))
                     {
@@ -756,10 +757,6 @@ mod tests {
         assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
 
         let nodes = &compute_graphs[0].nodes;
-        assert_eq!(*nodes["fn_a"].image_version(), 1);
-        assert_eq!(*nodes["fn_b"].image_version(), 1);
-        assert_eq!(*nodes["fn_c"].image_version(), 1);
-
         assert_eq!(nodes["fn_a"].image_hash(), "Old Hash");
         assert_eq!(nodes["fn_b"].image_hash(), "Old Hash");
         assert_eq!(nodes["fn_c"].image_hash(), "Old Hash");
@@ -781,10 +778,6 @@ mod tests {
             assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
-
-            assert_eq!(*nodes["fn_a"].image_version(), i);
-            assert_eq!(*nodes["fn_b"].image_version(), i);
-            assert_eq!(*nodes["fn_c"].image_version(), i);
         }
 
         Ok(())
@@ -832,7 +825,7 @@ mod tests {
                         executor: executor_id.clone(),
                     }],
                     reduction_tasks: ReductionTasks::default(),
-                    diagnostic_msgs: vec![],
+                    placement_diagnostics: vec![],
                 }),
                 state_changes_processed: vec![],
             })
@@ -882,7 +875,7 @@ mod tests {
                 executor: executor_id.clone(),
             }],
             reduction_tasks: ReductionTasks::default(),
-            diagnostic_msgs: vec![],
+            placement_diagnostics: vec![],
         };
 
         indexify_state

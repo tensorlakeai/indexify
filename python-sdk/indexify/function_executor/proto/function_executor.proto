@@ -33,6 +33,49 @@ message InitializeResponse {
     optional bool success = 1;
 }
 
+message SetInvocationStateRequest {
+    optional string key = 1;
+    optional SerializedObject value = 2;
+}
+
+message SetInvocationStateResponse {}
+
+message GetInvocationStateRequest {
+    optional string key = 1;
+}
+
+message GetInvocationStateResponse {
+    optional string key = 1;
+    optional SerializedObject value = 2;
+}
+
+// InvocationStateRequest is sent by RPC Server to the client
+// to perform actions on a task's graph invocation state.
+message InvocationStateRequest {
+    // The ID of the request sent by the client.
+    // Must be unique per Function Executor.
+    optional string request_id = 1;
+    // The ID of the task initiated the request.
+    optional string task_id = 2;
+    oneof request {
+        SetInvocationStateRequest set = 3;
+        GetInvocationStateRequest get = 4;
+    }
+}
+
+// InvocationStateResponse is sent by RPC client to the Server.
+// A response contains the result of the action performed on the
+// task's graph invocation state.
+message InvocationStateResponse {
+    // The id of the request this response is for.
+    optional string request_id = 1;
+    optional bool success = 2;
+    oneof response {
+        SetInvocationStateResponse set = 3;
+        GetInvocationStateResponse get = 4;
+    }
+}
+
 message FunctionOutput {
     repeated SerializedObject outputs = 1;
 }
@@ -64,6 +107,10 @@ service FunctionExecutor {
     // once per Function Executor as it can only run a single function.
     // It should be called before calling RunTask for the function.
     rpc initialize(InitializeRequest) returns (InitializeResponse);
+    // Initializes a server that sends requests to the client to perform actions on
+    // a task's graph invocation state. This method is called only once per Function Executor
+    // It should be called before calling RunTask for the function.
+    rpc initialize_invocation_state_server(stream InvocationStateResponse) returns (stream InvocationStateRequest);
     // Executes the task defined in the request.
     // Multiple tasks can be running in parallel.
     rpc run_task(RunTaskRequest) returns (RunTaskResponse);

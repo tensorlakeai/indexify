@@ -2,7 +2,6 @@ from .logging import configure_logging_early, configure_production_logging
 
 configure_logging_early()
 
-
 import asyncio
 import os
 import shutil
@@ -23,16 +22,14 @@ from rich.text import Text
 from rich.theme import Theme
 
 from indexify.executor.executor import Executor
+from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
+    SubprocessFunctionExecutorServerFactory,
+)
 from indexify.function_executor.function_executor_service import (
     FunctionExecutorService,
 )
 from indexify.function_executor.server import Server as FunctionExecutorServer
-from indexify.functions_sdk.image import (
-    LOCAL_PYTHON_VERSION,
-    GetDefaultPythonImage,
-    Image,
-)
-from indexify.http_client import IndexifyClient
+from indexify.functions_sdk.image import Build, GetDefaultPythonImage, Image
 
 logger = structlog.get_logger(module=__name__)
 
@@ -48,9 +45,6 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
-config_path_option: Optional[str] = typer.Option(
-    None, help="Path to the TLS configuration file"
-)
 
 
 @app.command(
@@ -161,6 +155,32 @@ def build_image(
                 _create_image(obj, python_sdk_path)
 
 
+@app.command(help="Build platform images for function names")
+def build_platform_image(
+    workflow_file_path: Annotated[str, typer.Argument()],
+    image_names: Optional[List[str]] = None,
+    build_service="https://api.tensorlake.ai/images/v1",
+):
+
+    globals_dict = {}
+
+    # Add the folder in the workflow file path to the current Python path
+    folder_path = os.path.dirname(workflow_file_path)
+    if folder_path not in sys.path:
+        sys.path.append(folder_path)
+
+    try:
+        exec(open(workflow_file_path).read(), globals_dict)
+    except FileNotFoundError as e:
+        raise Exception(
+            f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
+        )
+    for _, obj in globals_dict.items():
+        if type(obj) and isinstance(obj, Image):
+            if image_names is None or obj._image_name in image_names:
+                _create_platform_image(obj, build_service)
+
+
 @app.command(help="Build default image for indexify")
 def build_default_image(
     python_version: Optional[str] = typer.Option(
@@ -186,7 +206,9 @@ def executor(
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
-    config_path: Optional[str] = config_path_option,
+    config_path: Optional[str] = typer.Option(
+        None, help="Path to the TLS configuration file"
+    ),
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
@@ -228,9 +250,10 @@ def executor(
         code_path=executor_cache,
         name_alias=name_alias,
         image_hash=image_hash,
-        development_mode=dev,
+        function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
+            development_mode=dev
+        ),
     )
-
     try:
         asyncio.get_event_loop().run_until_complete(executor.run())
     except asyncio.CancelledError:
@@ -242,11 +265,9 @@ def function_executor(
     function_executor_server_address: str = typer.Option(
         help="Function Executor server address"
     ),
-    indexify_server_address: str = typer.Option(help="Indexify server address"),
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
-    config_path: Optional[str] = config_path_option,
 ):
     if not dev:
         configure_production_logging()
@@ -254,15 +275,11 @@ def function_executor(
     logger.info(
         "starting function executor server",
         function_executor_server_address=function_executor_server_address,
-        indexify_server_address=indexify_server_address,
-        config_path=config_path,
     )
 
     FunctionExecutorServer(
         server_address=function_executor_server_address,
-        service=FunctionExecutorService(
-            indexify_server_address=indexify_server_address, config_path=config_path
-        ),
+        service=FunctionExecutorService(),
     ).run()
 
 
@@ -275,63 +292,7 @@ def _create_image(image: Image, python_sdk_path):
 
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
-
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-    except Exception as e:
-        console.print(
-            Text("Unable to connect with docker: ", style="red bold"),
-            Text(f"{e}", style="red"),
-        )
-        exit(-1)
-
-    docker_contents = [
-        f"FROM {image._base_image}",
-        "RUN mkdir -p ~/.indexify",
-        "RUN touch ~/.indexify/image_name",
-        f"RUN echo {image._image_name} > ~/.indexify/image_name",
-        f"RUN echo {image.hash()} > ~/.indexify/image_hash",
-        "WORKDIR /app",
-    ]
-
-    docker_contents.extend(["RUN " + i for i in image._run_strs])
-
-    if python_sdk_path is not None:
-        logging.info(
-            f"Building image {image._image_name} with local version of the SDK"
-        )
-        if not os.path.exists(python_sdk_path):
-            print(f"error: {python_sdk_path} does not exist")
-            os.exit(1)
-        docker_contents.append(f"COPY {python_sdk_path} /app/python-sdk")
-        docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
-    else:
-        docker_contents.append(f"RUN pip install indexify=={image._sdk_version}")
-
-    docker_file = "\n".join(docker_contents)
-
-    import docker.api.build
-
-    docker.api.build.process_dockerfile = lambda dockerfile, path: (
-        "Dockerfile",
-        dockerfile,
-    )
-
-    console.print("Creating image using Dockerfile contents:", style="cyan bold")
-    print(f"{docker_file}")
-
-    client = docker.from_env()
-    image_name = f"{image._image_name}:{image._tag}"
-    (_image, generator) = client.images.build(
-        path=".",
-        dockerfile=docker_file,
-        tag=image_name,
-        rm=True,
-    )
-    for result in generator:
-        print(result)
-
-    print(f"built image: {image_name}")
+    built_image, output = image.build(python_sdk_path=python_sdk_path)
+    for line in output:
+        print(line)
+    print(f"built image: {built_image.tags[0]}")

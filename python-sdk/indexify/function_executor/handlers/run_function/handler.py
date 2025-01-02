@@ -16,6 +16,9 @@ from indexify.functions_sdk.indexify_functions import (
     IndexifyRouter,
     RouterCallResult,
 )
+from indexify.functions_sdk.invocation_state.invocation_state import (
+    InvocationState,
+)
 from indexify.http_client import IndexifyClient
 
 from .function_inputs_loader import FunctionInputs, FunctionInputsLoader
@@ -26,14 +29,12 @@ class Handler:
     def __init__(
         self,
         request: RunTaskRequest,
-        namespace: str,
         graph_name: str,
         graph_version: int,
         function_name: str,
         function: Union[IndexifyFunction, IndexifyRouter],
+        invocation_state: InvocationState,
         logger: Any,
-        indexify_server_addr: str,
-        config_path: Optional[str],
     ):
         self._function_name: str = function_name
         self._logger = logger.bind(
@@ -53,12 +54,7 @@ class Handler:
                 invocation_id=request.graph_invocation_id,
                 graph_name=graph_name,
                 graph_version=str(graph_version),
-                indexify_client=_indexify_client(
-                    logger=self._logger,
-                    namespace=namespace,
-                    indexify_server_addr=indexify_server_addr,
-                    config_path=config_path,
-                ),
+                invocation_state=invocation_state,
             ),
         )
 
@@ -139,9 +135,14 @@ def _indexify_client(
 
 
 def _is_router(func_wrapper: IndexifyFunctionWrapper) -> bool:
-    return (
-        str(type(func_wrapper.indexify_function))
-        == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>"
+    """Determines if the function is a router.
+
+    A function is a router if it is an instance of IndexifyRouter or if it is an IndexifyRouter class.
+    """
+    return str(
+        type(func_wrapper.indexify_function)
+    ) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>" or isinstance(
+        func_wrapper.indexify_function, IndexifyRouter
     )
 
 

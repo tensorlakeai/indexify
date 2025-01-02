@@ -79,26 +79,12 @@ jobs:
         with:
           packages-dir: python-sdk/dist/
 
-  build-and-push-docker-images:
-    name: Build and Push Docker Executor 
-    runs-on: ubuntu-latest
+  publish-containers:
+    name: Publish Containers
     needs:
       - extract-version
       - publish-indexify-to-pypi
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - run: |
-          # wait for the indexify-cli to be available
-          sleep 60
-      - uses: ./.github/workflows/publish_executor_containers.yaml
-        with:
-          indexify_version: ${{ needs.extract-version.outputs.version }}
+    uses: ./.github/workflows/publish_executor_containers.yaml
+    with:
+      indexify_version: ${{ needs.extract-version.outputs.version }}
+    secrets: inherit

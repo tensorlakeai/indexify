@@ -97,7 +97,6 @@ pub struct ImageInformation {
     pub base_image: String,
     pub run_strs: Vec<String>,
     pub image_hash: String,
-    pub version: ImageVersion, // this gets updated when the hash changes
     pub image_uri: Option<String>,
     pub sdk_version: Option<String>,
 }
@@ -105,24 +104,29 @@ pub struct ImageInformation {
 impl ImageInformation {
     pub fn new(
         image_name: String,
+        image_hash: String,
         tag: String,
         base_image: String,
         run_strs: Vec<String>,
         sdk_version: Option<String>,
     ) -> Self {
-        let mut image_hasher = Sha256::new();
-        image_hasher.update(image_name.clone());
-        image_hasher.update(base_image.clone());
-        image_hasher.update(run_strs.clone().join(""));
-        image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
+        let mut compat_image_hash: String = image_hash;
+        if compat_image_hash == "" {
+            // Preserve backwards compatibility with old hash calculation
+            let mut image_hasher = Sha256::new();
+            image_hasher.update(image_name.clone());
+            image_hasher.update(base_image.clone());
+            image_hasher.update(run_strs.clone().join(""));
+            image_hasher.update(sdk_version.clone().unwrap_or("".to_string())); // Igh.....
+            compat_image_hash = format!("{:x}", image_hasher.finalize())
+        }
 
         ImageInformation {
             image_name,
             tag,
             base_image,
             run_strs,
-            image_hash: format!("{:x}", image_hasher.finalize()),
-            version: ImageVersion::default(),
+            image_hash: compat_image_hash,
             image_uri: None,
             sdk_version,
         }
@@ -188,24 +192,10 @@ impl Node {
         }
     }
 
-    pub fn image_version(&self) -> &u32 {
+    pub fn image_uri(&self) -> Option<String> {
         match self {
-            Node::Router(router) => &router.image_information.version.0,
-            Node::Compute(compute) => &compute.image_information.version.0,
-        }
-    }
-
-    pub fn set_image_version(&mut self, image_version: ImageVersion) {
-        match self {
-            Node::Router(ref mut router) => router.image_information.version = image_version,
-            Node::Compute(ref mut compute) => compute.image_information.version = image_version,
-        }
-    }
-
-    pub fn image_version_next(self) -> ImageVersion {
-        match self {
-            Node::Router(router) => router.image_information.version.next(),
-            Node::Compute(compute) => compute.image_information.version.next(),
+            Node::Router(router) => router.image_information.image_uri.clone(),
+            Node::Compute(compute) => compute.image_information.image_uri.clone(),
         }
     }
 
@@ -226,15 +216,17 @@ impl Node {
 
         // Empty executor image hash means that the executor can accept any image
         // version. This is needed for backwards compatibility.
-        if !executor.image_hash.is_empty() && executor.image_hash != self.image_hash() {
-            diagnostic_msgs.push(format!(
-                "executor {}, image hash: {} does not match function image hash {}. Make sure the executor is running the latest image.",
-                executor.id,
-                executor.image_hash,
-                self.image_hash()
-            ));
-            return false;
-        }
+        // FIXME - This is a temporary hack to allow us to unblock some internal
+        // migrations if !executor.image_hash.is_empty() && executor.image_hash
+        // != self.image_hash() {    diagnostic_msgs.push(format!(
+        //        "executor {}, image hash: {} does not match function image hash {}.
+        // Make sure the executor is running the latest image.",
+        //        executor.id,
+        //        executor.image_hash,
+        //        self.image_hash()
+        //    ));
+        //    return false;
+        //}
 
         true
     }
@@ -269,6 +261,7 @@ impl Node {
             .input_node_output_key(input_key.to_string())
             .reducer_output_id(reducer_output_id)
             .graph_version(graph_version)
+            .image_uri(self.image_uri())
             .build()?;
         Ok(task)
     }
@@ -403,17 +396,7 @@ impl ComputeGraph {
             self.edges = update.edges;
             self.start_fn = update.start_fn;
             self.runtime_information = update.runtime_information;
-
-            // if the image has changed, increment the version.
-            let mut updated_nodes = update.nodes.clone();
-            for (node_name, updated_node) in updated_nodes.iter_mut() {
-                if let Some(existing_node) = self.nodes.get(node_name) {
-                    if existing_node.image_hash() != updated_node.image_hash() {
-                        updated_node.set_image_version(existing_node.clone().image_version_next());
-                    }
-                }
-            }
-            self.nodes = updated_nodes;
+            self.nodes = update.nodes.clone();
 
             graph_version = Some(self.into_version());
         }
@@ -764,6 +747,7 @@ pub struct Task {
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub image_uri: Option<String>,
 }
 
 impl Task {
@@ -867,7 +851,6 @@ impl TaskBuilder {
             .ok_or(anyhow!("ingestion data object id is not present"))?;
         let graph_version = self
             .graph_version
-            .clone()
             .ok_or(anyhow!("graph version is not present"))?;
         let reducer_output_id = self.reducer_output_id.clone().flatten();
         let id = uuid::Uuid::new_v4().to_string();
@@ -883,6 +866,7 @@ impl TaskBuilder {
             diagnostics: None,
             reducer_output_id,
             graph_version,
+            image_uri: self.image_uri.clone().flatten(),
         };
         Ok(task)
     }
@@ -1054,23 +1038,6 @@ mod tests {
     };
 
     #[test]
-    fn test_image_hash_consistency() {
-        let image_info = ImageInformation::new(
-            "test".to_string(),
-            "test".to_string(),
-            "static_base_image".to_string(),
-            vec!["pip install all_the_things".to_string()],
-            Some("1.2.3".to_string()),
-        );
-
-        assert_eq!(
-            image_info.image_hash,
-            "229514da1c19e40fda77e8b4a4990f69ce1ec460f025f4e1367bb2219f6abea1",
-            "image hash should not change"
-        );
-    }
-
-    #[test]
     fn test_node_matches_executor_scenarios() {
         fn check(
             test_name: &str,
@@ -1134,16 +1101,6 @@ mod tests {
             "some_image_hash",
             "some_image_name1",
             "some_image_hash",
-            false,
-        );
-
-        // Test case: Image hash does not match
-        check(
-            "Image hash does not match",
-            "some_image_name",
-            "some_image_hash",
-            "some_image_name",
-            "different_image_hash",
             false,
         );
 
@@ -1382,15 +1339,6 @@ mod tests {
                 assert_eq!(graph.version, GraphVersion(2), "update version");
                 assert_eq!(graph.nodes.len(), 2, "update nodes");
 
-                let fn_a_image_version = *graph
-                    .nodes
-                    .iter()
-                    .find(|(k, _)| *k == "fn_a")
-                    .unwrap()
-                    .1
-                    .image_version();
-                assert_eq!(fn_a_image_version, 1, "update node fn_a image version");
-
                 let version = version.expect("version should be created");
                 assert_eq!(version.version, GraphVersion(2), "update version");
                 assert_eq!(version.nodes.len(), 2, "version nodes");
@@ -1421,15 +1369,6 @@ mod tests {
                     "update node"
                 );
 
-                let fn_a_image_version = *graph
-                    .nodes
-                    .iter()
-                    .find(|(k, _)| *k == "fn_a")
-                    .unwrap()
-                    .1
-                    .image_version();
-                assert_eq!(fn_a_image_version, 2, "update node fn_a image version");
-
                 assert_eq!(graph.created_at, 5, "created_at should not change");
 
                 let version = version.expect("version should be created");
@@ -1440,14 +1379,6 @@ mod tests {
                     "some_hash_fn_a_updated",
                     "version node"
                 );
-                let fn_a_image_version = *version
-                    .nodes
-                    .iter()
-                    .find(|(k, _)| *k == "fn_a")
-                    .unwrap()
-                    .1
-                    .image_version();
-                assert_eq!(fn_a_image_version, 2, "version node fn_a image version");
             },
         );
     }

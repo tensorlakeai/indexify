@@ -3,7 +3,10 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
 use rand::seq::SliceRandom;
-use state_store::{requests::TaskPlacement, IndexifyState};
+use state_store::{
+    requests::{TaskPlacement, TaskPlacementDiagnostic},
+    IndexifyState,
+};
 use tracing::{error, info, span};
 
 pub mod task_creator;
@@ -38,7 +41,7 @@ pub struct FilteredExecutors {
 
 pub struct TaskPlacementResult {
     pub task_placements: Vec<TaskPlacement>,
-    pub diagnostic_msgs: Vec<String>,
+    pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 
 struct ScheduleTaskResult {
@@ -62,7 +65,7 @@ impl TaskScheduler {
 
     fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
         let mut task_placements = Vec::new();
-        let mut diagnostic_msgs = Vec::new();
+        let mut placement_diagnostics = Vec::new();
         for task in tasks {
             let span = span!(
                 tracing::Level::INFO,
@@ -75,13 +78,18 @@ impl TaskScheduler {
             let _enter = span.enter();
 
             info!("scheduling task {:?}", task.id);
-            match self.schedule_task(task) {
+            match self.schedule_task(task.clone()) {
                 Ok(ScheduleTaskResult {
                     task_placements: schedule_task_placements,
                     diagnostic_msgs: schedule_diagnostic_msgs,
                 }) => {
                     task_placements.extend(schedule_task_placements);
-                    diagnostic_msgs.extend(schedule_diagnostic_msgs);
+                    placement_diagnostics.extend(schedule_diagnostic_msgs.iter().map(|msg| {
+                        TaskPlacementDiagnostic {
+                            task: task.clone(),
+                            message: msg.clone(),
+                        }
+                    }));
                 }
                 Err(err) => {
                     error!("failed to schedule task, skipping: {:?}", err);
@@ -90,7 +98,7 @@ impl TaskScheduler {
         }
         Ok(TaskPlacementResult {
             task_placements,
-            diagnostic_msgs,
+            placement_diagnostics,
         })
     }
 

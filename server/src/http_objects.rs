@@ -88,9 +88,11 @@ pub struct NamespaceList {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct ImageInformation {
     pub image_name: String,
-    pub tag: String,
-    pub base_image: String,
-    pub run_strs: Vec<String>,
+    #[serde(default)]
+    pub image_hash: String,
+    pub tag: String,           // Deprecated
+    pub base_image: String,    // Deprecated
+    pub run_strs: Vec<String>, // Deprecated
     pub image_uri: Option<String>,
     pub sdk_version: Option<String>,
 }
@@ -110,6 +112,7 @@ impl From<ImageInformation> for data_model::ImageInformation {
     fn from(value: ImageInformation) -> Self {
         data_model::ImageInformation::new(
             value.image_name,
+            value.image_hash,
             value.tag,
             value.base_image,
             value.run_strs,
@@ -122,6 +125,7 @@ impl From<data_model::ImageInformation> for ImageInformation {
     fn from(value: data_model::ImageInformation) -> ImageInformation {
         ImageInformation {
             image_name: value.image_name,
+            image_hash: value.image_hash,
             tag: value.tag,
             base_image: value.base_image,
             run_strs: value.run_strs,
@@ -548,28 +552,6 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvocationQueryParams {
     pub block_until_finish: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CtxStatePutRequest {
-    pub key: String,
-
-    // Could have encoded this as string but
-    // making sure we get valid json from user
-    // code
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CtxStateGetRequest {
-    /// The key to retrieve, and if none, return all keys
-    pub key: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CtxStateGetResponse {
-    // Values indexed by key names
-    pub value: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

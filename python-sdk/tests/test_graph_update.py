@@ -98,11 +98,11 @@ class TestGraphUpdate(unittest.TestCase):
         def second_graph_new_name():
             @indexify_function()
             def start_node2(x: int) -> dict:
-                return dict(num=x)
+                return {"data": dict(num=x)}
 
             @indexify_function()
             def middle_node2(data: dict) -> dict:
-                return dict(num=data["num"] + 1)
+                return {"data": dict(num=data["num"] + 1)}
 
             @indexify_function()
             def end_node2(data: dict) -> int:
@@ -116,11 +116,11 @@ class TestGraphUpdate(unittest.TestCase):
         def second_graph_reused_function_names():
             @indexify_function()
             def start_node(x: int) -> dict:
-                return dict(num=x)
+                return {"data": dict(num=x)}
 
             @indexify_function()
             def middle_node(data: dict) -> dict:
-                return dict(num=data["num"] + 1)
+                return {"data": dict(num=data["num"] + 1)}
 
             @indexify_function()
             def end_node(data: dict) -> int:

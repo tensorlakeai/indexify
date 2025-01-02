@@ -9,6 +9,7 @@ from typing_extensions import TypedDict
 from indexify import (
     Graph,
     IndexifyFunction,
+    IndexifyRouter,
     Pipeline,
     RemoteGraph,
     RemotePipeline,
@@ -65,7 +66,7 @@ class ComplexObject(BaseModel):
 @indexify_function()
 def simple_function_ctx(x: MyObject) -> ComplexObject:
     ctx = get_ctx()
-    ctx.set_state_key("my_key", 10)
+    ctx.invocation_state.set("my_key", 10)
     return ComplexObject(
         invocation_id=ctx.invocation_id,
         graph_name=ctx.graph_name,
@@ -76,7 +77,7 @@ def simple_function_ctx(x: MyObject) -> ComplexObject:
 @indexify_function()
 def simple_function_ctx_b(x: ComplexObject) -> int:
     ctx = get_ctx()
-    val = ctx.get_state_key("my_key")
+    val = ctx.invocation_state.get("my_key")
     return val + 1
 
 
@@ -89,9 +90,9 @@ class SimpleFunctionCtxC(IndexifyFunction):
     def run(self, x: ComplexObject) -> int:
         ctx = get_ctx()
         print(f"ctx: {ctx}")
-        val = ctx.get_state_key("my_key")
+        val = ctx.invocation_state.get("my_key")
         assert val == 10
-        not_present = ctx.get_state_key("not_present")
+        not_present = ctx.invocation_state.get("not_present")
         assert not_present is None
         return val + 1
 
@@ -213,6 +214,59 @@ def create_router_graph():
     return graph
 
 
+class SimpleFunctionCtxClsObject(BaseModel):
+    x: int
+
+
+class SimpleFunctionCtxCls(IndexifyFunction):
+    name = "SimpleFunctionCtxCls"
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self, obj: SimpleFunctionCtxClsObject) -> SimpleFunctionCtxClsObject:
+        return SimpleFunctionCtxClsObject(x=obj.x + 1)
+
+
+class SimpleRouterCtxClsObject(BaseModel):
+    x: int
+
+
+class SimpleFunctionCtxCls1(IndexifyFunction):
+    name = "SimpleFunctionCtxCls1"
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self, obj: SimpleRouterCtxClsObject) -> SimpleRouterCtxClsObject:
+        return SimpleRouterCtxClsObject(x=obj.x + 1)
+
+
+class SimpleFunctionCtxCls2(IndexifyFunction):
+    name = "SimpleFunctionCtxCls2"
+
+    def __init__(self):
+        super().__init__()
+
+    def run(self, obj: SimpleRouterCtxClsObject) -> SimpleRouterCtxClsObject:
+        return SimpleRouterCtxClsObject(x=obj.x + 2)
+
+
+class SimpleRouterCtxCls(IndexifyRouter):
+    name = "SimpleRouterCtxCls"
+
+    def __init__(self):
+        super().__init__()
+
+    def run(
+        self, obj: SimpleRouterCtxClsObject
+    ) -> Union[SimpleFunctionCtxCls1, SimpleFunctionCtxCls2]:
+        if obj.x % 2 == 0:
+            return SimpleFunctionCtxCls1
+        else:
+            return SimpleFunctionCtxCls2
+
+
 def create_simple_pipeline():
     p = Pipeline("simple_pipeline", "A simple pipeline")
     p.add_step(generate_seq)
@@ -238,6 +292,16 @@ class TestGraphBehaviors(unittest.TestCase):
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function")
         self.assertEqual(output, [MyObject(x="ab")])
+
+    @parameterized.expand([(False), (True)])
+    def test_simple_function_cls(self, is_remote):
+        graph = Graph(name="test_simple_function_cls", start_node=SimpleFunctionCtxCls)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(
+            block_until_done=True, obj=SimpleFunctionCtxClsObject(x=1)
+        )
+        output = graph.output(invocation_id, "SimpleFunctionCtxCls")
+        self.assertEqual(output, [SimpleFunctionCtxClsObject(x=2)])
 
     @parameterized.expand([(False), (True)])
     def test_simple_function_with_json_encoding(self, is_remote):
@@ -358,7 +422,7 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_dict_as_args(self, is_remote):
         @indexify_function()
         def my_func(x: int) -> dict:
-            return dict(x=1, y=2, z=3)
+            return {"input": dict(x=1, y=2, z=3)}
 
         @indexify_function()
         def my_func_2(input: dict) -> int:
@@ -380,7 +444,7 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_multiple_dict_as_args(self, is_remote):
         @indexify_function()
         def my_func(x: int) -> dict:
-            return dict(x=1, y=2, z=3), dict(x=1, y=2, z=3)
+            return {"input1": dict(x=1, y=2, z=3), "input2": dict(x=1, y=2, z=3)}
 
         @indexify_function()
         def my_func_2(input1: dict, input2: dict) -> int:
@@ -452,8 +516,8 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.expand([(False), (True)])
     def test_return_dict_args_json(self, is_remote):
         @indexify_function(input_encoder="json", output_encoder="json")
-        def my_func(x: int) -> tuple:
-            return dict(x=1, y=2, z=3)
+        def my_func(x: int) -> dict:
+            return {"input": dict(x=1, y=2, z=3)}
 
         @indexify_function(input_encoder="json", output_encoder="json")
         def my_func_2(input: dict) -> int:
@@ -470,6 +534,10 @@ class TestGraphBehaviors(unittest.TestCase):
         output = graph.output(invocation_id, my_func_2.name)
         self.assertEqual(len(output), 1)
         self.assertEqual(output[0], 6)
+
+        output1 = graph.output(invocation_id, my_func.name)
+        self.assertEqual(len(output1), 1)
+        self.assertEqual(output1[0], {"input": {"x": 1, "y": 2, "z": 3}})
 
     @parameterized.expand([(False), (True)])
     def test_return_dict_args_as_kwargs_in_list(self, is_remote):
@@ -499,7 +567,10 @@ class TestGraphBehaviors(unittest.TestCase):
     def test_return_dict_args_as_dict_in_list(self, is_remote):
         @indexify_function()
         def my_func(text: str) -> List[dict]:
-            return [dict(index=index, char=char) for index, char in enumerate(text)]
+            return [
+                {"data": {"index": index, "char": char}}
+                for index, char in enumerate(text)
+            ]
 
         @indexify_function()
         def my_func_2(data: dict) -> str:
@@ -638,6 +709,17 @@ class TestGraphBehaviors(unittest.TestCase):
         self.assertEqual(output_str, ["7"])
 
     @parameterized.expand([(False), (True)])
+    def test_router_graph_behavior_cls(self, is_remote):
+        graph = Graph(name="test_simple_function_cls", start_node=SimpleRouterCtxCls)
+        graph.route(SimpleRouterCtxCls, [SimpleFunctionCtxCls1, SimpleFunctionCtxCls2])
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(
+            block_until_done=True, obj=SimpleRouterCtxClsObject(x=1)
+        )
+        output = graph.output(invocation_id, "SimpleFunctionCtxCls2")
+        self.assertEqual(output, [SimpleRouterCtxClsObject(x=3)])
+
+    @parameterized.expand([(False), (True)])
     def test_invoke_file(self, is_remote):
         graph = Graph(
             name="test_handle_file", description="test", start_node=handle_file
@@ -728,7 +810,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
         @indexify_function(input_encoder="json", output_encoder="json")
         def my_func1(x: int) -> dict:
-            return P1(a=x).model_dump()
+            return {"input": P1(a=x).model_dump()}
 
         @indexify_function(input_encoder="json", output_encoder="json")
         def my_func_2(input: dict) -> int:

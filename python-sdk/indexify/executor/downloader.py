@@ -13,12 +13,6 @@ from ..common_util import get_httpx_client
 from .api_objects import Task
 
 
-class DownloadedInputs:
-    def __init__(self, input: SerializedObject, init_value: Optional[SerializedObject]):
-        self.input = input
-        self.init_value = init_value
-
-
 class Downloader:
     def __init__(
         self, code_path: str, base_url: str, config_path: Optional[str] = None
@@ -78,22 +72,22 @@ class Downloader:
         # are atomic operations at filesystem level.
         os.replace(tmp_path, path)
 
-    async def download_inputs(self, task: Task) -> DownloadedInputs:
+    async def download_input(self, task: Task) -> SerializedObject:
         logger = self._task_logger(task)
 
-        input: SerializedObject
         first_function_in_graph = task.invocation_id == task.input_key.split("|")[-1]
         if first_function_in_graph:
             # The first function in Graph gets its input from graph invocation payload.
-            input = await self._fetch_graph_invocation_payload(task, logger)
+            return await self._fetch_graph_invocation_payload(task, logger)
         else:
-            input = await self._fetch_function_input(task, logger)
+            return await self._fetch_function_input(task, logger)
 
-        init_value: Optional[SerializedObject] = None
-        if task.reducer_output_id is not None:
-            init_value = await self._fetch_function_init_value(task, logger)
+    async def download_init_value(self, task: Task) -> Optional[SerializedObject]:
+        if task.reducer_output_id is None:
+            return None
 
-        return DownloadedInputs(input=input, init_value=init_value)
+        logger = self._task_logger(task)
+        return await self._fetch_function_init_value(task, logger)
 
     def _task_logger(self, task: Task) -> Any:
         return structlog.get_logger(
@@ -142,7 +136,7 @@ class Downloader:
         self, url: str, resource_description: str, logger: Any
     ) -> SerializedObject:
         logger.info(f"fetching {resource_description}", url=url)
-        response = await self._client.get(url)
+        response: httpx.Response = await self._client.get(url)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -153,13 +147,17 @@ class Downloader:
             )
             raise
 
-        # We're hardcoding the content type currently used by Python SDK. It might change in the future.
-        # There's no other way for now to determine if the response is a bytes or string.
-        if response.headers["content-type"] == "application/octet-stream":
-            return SerializedObject(
-                bytes=response.content, content_type=response.headers["content-type"]
-            )
-        else:
-            return SerializedObject(
-                string=response.text, content_type=response.headers["content-type"]
-            )
+        return serialized_object_from_http_response(response)
+
+
+def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
+    # We're hardcoding the content type currently used by Python SDK. It might change in the future.
+    # There's no other way for now to determine if the response is a bytes or string.
+    if response.headers["content-type"] == "application/octet-stream":
+        return SerializedObject(
+            bytes=response.content, content_type=response.headers["content-type"]
+        )
+    else:
+        return SerializedObject(
+            string=response.text, content_type=response.headers["content-type"]
+        )
