@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "tests"
+version = "0.1.0"
+description = "Integration tests for Python utils"
+authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
+license = "Apache 2.0"
+readme = "README.md"
+homepage = "https://github.com/tensorlakeai/indexify"
+repository = "https://github.com/tensorlakeai/indexify"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+indexify-python-utils = { path = "..", develop = true }
+
+[build-system]
+requires = ["poetry==2.0.0"]
+build-backend = "poetry.core.masonry.api"

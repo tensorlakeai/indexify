@@ -27,17 +27,17 @@ Consider providing screenshots, logs, code or other visual aids to help the revi
 
 ## Contribution Checklist
 
-- [ ] If the python-sdk was changed, please run `make fmt` in `python-sdk/`.
+- [ ] If a Python package was changed, please run `make fmt` in the package directory.
 - [ ] If the server was changed, please run `make fmt` in `server/`.
 - [ ] Make sure all PR Checks are passing.
 <!--
-You can run the tests manually:
-
 Notes:
 
-- Tests can be run manually: start the server and executor, `cd python-sdk`,
-  run `make test`.
-- To test if changes to the server are backward compatible with the latest
-  release, label the PR with `ci_compat_test`. This might report failures
-  unrelated to your change if previous incompatible changes were pushed without
-  being released yet -->
+Tests of a Python package can be run manually. Start a Server and an Executor then
+run `make test` in the Python package directory.
+
+To test if changes to the server are backward compatible with the latest
+release, label the PR with `ci_compat_test`. This might report failures
+unrelated to your change if previous incompatible changes were pushed without
+being released yet
+-->

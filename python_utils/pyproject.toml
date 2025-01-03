@@ -1,27 +1,21 @@
 [tool.poetry]
-name = "indexify-python-sdk"
-# Increment indexify package version if incrementing version here.
-version = "0.2.48"
-description = "Python SDK library for Indexify"
+name = "indexify-python-utils"
+version = "0.1.0"
+description = "Common utilities for Python packages"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache 2.0"
 readme = "README.md"
 homepage = "https://github.com/tensorlakeai/indexify"
 repository = "https://github.com/tensorlakeai/indexify"
 packages = [
-    { include = "indexify", from="src", format = ["sdist", "wheel"] },
+    { include = "python_utils", from="src", format = ["sdist", "wheel"] },
 ]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+pyyaml = "^6"
+structlog = "^24.4.0"
 httpx = { version = "0.27.2", extras = ["http2"] }
-pydantic = "2.10.4"
-cloudpickle = "^3.1.0"
-rich = "^13.9.2"
-nanoid = "^2.0.0"
-docker = "^7.1.0"
-httpx-sse = "^0.4.0"
-indexify-python-utils = { path = "../python_utils", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
