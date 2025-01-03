@@ -1,12 +1,5 @@
 #!/bin/bash
 
-if [[ -z "$INDEXIFY_URL" ]]; then
-    echo "Please set INDEXIFY_URL environment variable to specify"\
-    "Indexify Server you are testing." \
-    "Example: 'export INDEXIFY_URL=http://localhost:8900'" 1>&2
-    exit 1
-fi
-
 # cd to the script's directory.
 cd "$(dirname "$0")"
 rm -rf dist
@@ -26,4 +19,3 @@ else
 fi
 
 exit $TESTS_EXIT_CODE
-

@@ -1,0 +1,9 @@
+{
+    "python.analysis.extraPaths": [
+        "./python-sdk/src",
+        "./function_executor/src",
+        "./executor/src",
+        "./indexify/src",
+        "./python_utils/src"
+    ]
+}
