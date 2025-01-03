@@ -19,12 +19,14 @@ use tracing_subscriber::{
 
 mod config;
 mod executors;
-mod gc;
+mod gc_test;
 mod http_objects;
+mod integration_test;
 mod routes;
-mod scheduler;
 mod service;
-mod system_tasks;
+mod system_task_test;
+#[cfg(test)]
+mod testing;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

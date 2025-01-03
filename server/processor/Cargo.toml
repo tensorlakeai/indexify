@@ -1,5 +1,5 @@
 [package]
-name = "task_scheduler"
+name = "processor"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,4 +11,10 @@ serde_json.workspace = true
 data_model.workspace = true
 state_store.workspace = true
 tracing.workspace = true
-
+metrics.workspace = true
+tokio.workspace = true
+dashmap.workspace = true
+blob_store.workspace = true
+opentelemetry.workspace = true
+async-trait.workspace = true
+itertools.workspace = true

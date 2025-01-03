@@ -13,12 +13,7 @@ use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
-    requests::{
-        InvokeComputeGraphRequest,
-        ReplayComputeGraphRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-    },
+    requests::{InvokeComputeGraphRequest, ReplayComputeGraphRequest, RequestPayload},
 };
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
@@ -128,11 +123,8 @@ pub async fn invoke_with_file(
         invocation_payload,
     });
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(request)
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
@@ -205,11 +197,8 @@ pub async fn invoke_with_object(
         invocation_payload,
     });
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(request)
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
@@ -266,11 +255,8 @@ pub async fn replay_compute_graph(
         compute_graph_name: compute_graph.clone(),
     });
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(request)
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))

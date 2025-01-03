@@ -6,6 +6,7 @@ use std::{
     fmt::{self, Display},
     hash::{DefaultHasher, Hash, Hasher},
     time::{SystemTime, UNIX_EPOCH},
+    vec,
 };
 
 use anyhow::{anyhow, Result};
@@ -898,14 +899,14 @@ impl ExecutorMetadata {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct InvokeComputeGraphEvent {
     pub invocation_id: String,
     pub namespace: String,
     pub compute_graph: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct TaskFinishedEvent {
     pub namespace: String,
     pub compute_graph: String,
@@ -958,12 +959,8 @@ impl StateChangeId {
     }
 
     /// Return key to store in k/v db
-    pub fn to_key(&self) -> [u8; 8] {
+    fn to_key(self) -> [u8; 8] {
         self.0.to_be_bytes()
-    }
-
-    pub fn from_key(key: [u8; 8]) -> Self {
-        Self(u64::from_be_bytes(key))
     }
 }
 
@@ -979,6 +976,41 @@ impl Display for StateChangeId {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProcessorId(ProcessorType);
+impl ProcessorId {
+    pub fn new(processor_type: ProcessorType) -> Self {
+        Self(processor_type)
+    }
+
+    pub fn key_prefix(&self) -> String {
+        self.0.key_prefix().to_string()
+    }
+}
+
+impl Display for ProcessorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.as_ref())
+    }
+}
+
+#[derive(Debug, AsRefStr, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProcessorType {
+    Namespace,
+    TaskAllocator,
+    // SystemTask,       // TODO: move replay logic in namespace processor
+    // GarbageCollector, // TODO: move GC as a system task
+}
+
+impl ProcessorType {
+    pub fn key_prefix(&self) -> &'static str {
+        match self {
+            ProcessorType::Namespace => "ns",
+            ProcessorType::TaskAllocator => "ta",
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,
@@ -986,6 +1018,14 @@ pub struct StateChange {
     pub change_type: ChangeType,
     pub created_at: u64,
     pub processed_at: Option<u64>,
+}
+impl StateChange {
+    pub fn key(&self, processor_id: &ProcessorId) -> Vec<u8> {
+        let mut key = processor_id.key_prefix().as_bytes().to_vec();
+        key.extend("|".as_bytes());
+        key.extend_from_slice(&self.id.to_key());
+        key
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

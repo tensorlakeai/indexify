@@ -24,6 +24,7 @@ use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use metrics::api_io_stats;
 use nanoid::nanoid;
+use processor::dispatcher::Dispatcher;
 use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},
@@ -135,7 +136,8 @@ struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
-    pub indexify_state: Arc<IndexifyState>,
+    pub indexify_state: Arc<IndexifyState<Dispatcher>>,
+    pub dispatcher: Arc<Dispatcher>,
     pub blob_storage: Arc<blob_store::BlobStorage>,
     pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
@@ -327,12 +329,12 @@ async fn namespace_middleware(
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
                     }),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await
                 .map_err(IndexifyAPIError::internal_error)?;
 
-            info!("created {} namespace", namespace);
+            info!("namespace created: {:?}", namespace);
         }
     }
 
@@ -355,13 +357,10 @@ async fn create_namespace(
     Json(namespace): Json<CreateNamespace>,
 ) -> Result<(), IndexifyAPIError> {
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: RequestPayload::CreateNameSpace(NamespaceRequest {
-                name: namespace.name.clone(),
-            }),
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(RequestPayload::CreateNameSpace(NamespaceRequest {
+            name: namespace.name.clone(),
+        }))
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -461,11 +460,8 @@ async fn create_or_update_compute_graph(
         compute_graph,
     });
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(request)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -493,11 +489,8 @@ async fn delete_compute_graph(
         name: compute_graph,
     });
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(request)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
@@ -815,12 +808,10 @@ async fn delete_invocation(
         compute_graph,
         invocation_id,
     });
+
     state
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: request,
-            state_changes_processed: vec![],
-        })
+        .dispatcher
+        .dispatch_requests(request)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
