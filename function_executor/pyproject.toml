@@ -1,26 +1,28 @@
 [tool.poetry]
-name = "indexify-python-sdk"
+name = "indexify-function-executor"
 # Increment indexify package version if incrementing version here.
-version = "0.2.48"
-description = "Python SDK library for Indexify"
+version = "0.1.0"
+description = "Function Executor for Indexify"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache 2.0"
 readme = "README.md"
 homepage = "https://github.com/tensorlakeai/indexify"
 repository = "https://github.com/tensorlakeai/indexify"
 packages = [
-    { include = "indexify", from="src", format = ["sdist", "wheel"] },
+    { include = "function_executor", from="src", format = ["sdist", "wheel"] },
 ]
+
+[tool.poetry.scripts]
+function-executor = "function_executor.main:main"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-httpx = { version = "0.27.2", extras = ["http2"] }
 pydantic = "2.10.4"
 cloudpickle = "^3.1.0"
-rich = "^13.9.2"
-nanoid = "^2.0.0"
-docker = "^7.1.0"
-httpx-sse = "^0.4.0"
+structlog = "^24.4.0"
+grpcio = "1.68.1"
+grpcio-tools = "1.68.1"
+indexify-python-sdk = { path = "../python-sdk", develop = true }
 indexify-python-utils = { path = "../python_utils", develop = true }
 
 [tool.poetry.group.dev.dependencies]

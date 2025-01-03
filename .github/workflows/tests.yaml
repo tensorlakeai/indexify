@@ -10,11 +10,16 @@ on:
       - 'main'
     paths:
       - 'server/**'
+      - 'executor/**'
+      - 'function_executor/**'
+      - 'indexify/**'
+      - 'python_utils/**'
       - 'python-sdk/**'
       - '.github/workflows/tests.yaml'
 
 env:
   CARGO_TERM_COLOR: always
+  INDEXIFY_URL: http://localhost:8900
 
 jobs:
   lint_server:
@@ -44,7 +49,6 @@ jobs:
         with:
           cache-directories: |
             server/target
-
       - name: Build indexify-server
         run: |
           cd server
@@ -63,30 +67,32 @@ jobs:
           name: indexify-server
           path: server/target/debug/indexify-server
 
-  lint_python_sdk:
-    name: Lint Indexify Python SDK
+  lint_python_packages:
+    name: Lint Python packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Install poetry
-        run: pipx install poetry
+        run: pipx install --force 'poetry==2.0.0'
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.11
           cache: 'poetry'
-      - name: Build python-sdk
-        run: |
-          cd python-sdk
-          make build
-      - name: Lint python-sdk
-        run: |
-          cd python-sdk
-          make check
+      - name: Build and lint executor
+        run: cd executor && make build && make check
+      - name: Build and lint function_executor
+        run: cd function_executor && make build && make check
+      - name: Build and lint indexify
+        run: cd indexify && make build && make check
+      - name: Build and lint python_utils
+        run: cd python_utils && make build && make check
+      - name: Build and lint python-sdk
+        run: cd python-sdk && make build && make check
 
   acceptance_tests:
     name: Run Acceptance Tests
-    needs: [build_server, lint_python_sdk]
+    needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -94,21 +100,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: indexify-server
-      - name: Install poetry
-        run: pipx install poetry
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: 'poetry'
-      - name: Build python-sdk
-        run: |
-          cd python-sdk
-          make build
-      - name: Lint python-sdk
-        run: |
-          cd python-sdk
-          make check
       - name: Start Background Indexify Server
         uses: JarvusInnovations/background-action@v1
         with:
@@ -125,11 +116,21 @@ jobs:
           log-output: true
           # always logging the output to debug test failures.
           log-output-if: true
+
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'poetry'
+      - name: Build indexify
+        run: cd indexify && make build
       - name: Start Background Indexify Executor
         uses: JarvusInnovations/background-action@v1
         with:
           run: |
-            cd python-sdk
+            cd indexify
             poetry run indexify-cli executor &
             echo $! > /tmp/indexify-executor.pid &
 
@@ -160,11 +161,16 @@ jobs:
                 sleep 5
             fi
           done
-      - name: Run All Tests
-        run: |
-          cd python-sdk
-          export INDEXIFY_URL=http://localhost:8900
-          make test
+      - name: Run executor tests
+        run: cd executor && make test
+      - name: Run function_executor tests
+        run: cd function_executor && make test
+      - name: Run indexify tests
+        run: cd indexify && make test
+      - name: Run python_utils tests
+        run: cd python_utils && make test
+      - name: Run python-sdk tests
+        run: cd python-sdk && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
@@ -189,7 +195,7 @@ jobs:
   last_release_acceptance_tests:
     name: 'Last Release Acceptance Tests (trigger with label: ci_compat_test)'
     if: contains(github.event.pull_request.labels.*.name, 'ci_compat_test')
-    needs: [build_server, lint_python_sdk]
+    needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -202,17 +208,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: indexify-server
-      - name: Install poetry
-        run: pipx install poetry
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.11
-          cache: 'poetry'
-      - name: Build python-sdk
-        run: |
-          cd python-sdk
-          make build
       - name: Start Background Indexify Server
         uses: JarvusInnovations/background-action@v1
         with:
@@ -229,11 +224,20 @@ jobs:
           log-output: true
           # always logging the output to debug test failures.
           log-output-if: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'poetry'
+      - name: Build indexify
+        run: cd indexify && make build
       - name: Start Background Indexify Executor
         uses: JarvusInnovations/background-action@v1
         with:
           run: |
-            cd python-sdk
+            cd indexify
             poetry run indexify-cli executor &
             echo $! > /tmp/indexify-executor.pid &
 
@@ -264,11 +268,16 @@ jobs:
                 sleep 5
             fi
           done
-      - name: Run All Tests
-        run: |
-          cd python-sdk
-          export INDEXIFY_URL=http://localhost:8900
-          make test
+      - name: Run executor tests
+        run: cd executor && make test
+      - name: Run function_executor tests
+        run: cd function_executor && make test
+      - name: Run indexify tests
+        run: cd indexify && make test
+      - name: Run python_utils tests
+        run: cd python_utils && make test
+      - name: Run python-sdk tests
+        run: cd python-sdk && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
