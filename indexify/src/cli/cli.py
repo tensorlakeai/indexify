@@ -16,16 +16,16 @@ from typing import Annotated, List, Optional, Tuple
 import nanoid
 import structlog
 import typer
+from executor.api_objects import FunctionURI
 from executor.executor import Executor
 from executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
 )
 from rich.console import Console
-from rich.panel import Panel
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.functions_sdk.image import Build, GetDefaultPythonImage, Image
+from indexify.functions_sdk.image import GetDefaultPythonImage, Image
 
 logger = structlog.get_logger(module=__name__)
 
@@ -67,8 +67,10 @@ def server_dev_mode():
     print("starting indexify server and executor in dev mode...")
     print("press Ctrl+C to stop the server and executor.")
     print(f"server binary path: {indexify_server_path}")
-    commands = [indexify_server_path, "indexify-cli executor"]
-
+    commands: List[List[str]] = [
+        [indexify_server_path, "--dev"],
+        ["indexify-cli", "executor", "--dev"],
+    ]
     processes = []
     stop_event = threading.Event()
 
@@ -99,7 +101,7 @@ def server_dev_mode():
 
     for cmd in commands:
         process = subprocess.Popen(
-            cmd.split(),
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
@@ -151,32 +153,6 @@ def build_image(
                 _create_image(obj, python_sdk_path)
 
 
-@app.command(help="Build platform images for function names")
-def build_platform_image(
-    workflow_file_path: Annotated[str, typer.Argument()],
-    image_names: Optional[List[str]] = None,
-    build_service="https://api.tensorlake.ai/images/v1",
-):
-
-    globals_dict = {}
-
-    # Add the folder in the workflow file path to the current Python path
-    folder_path = os.path.dirname(workflow_file_path)
-    if folder_path not in sys.path:
-        sys.path.append(folder_path)
-
-    try:
-        exec(open(workflow_file_path).read(), globals_dict)
-    except FileNotFoundError as e:
-        raise Exception(
-            f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
-        )
-    for _, obj in globals_dict.items():
-        if type(obj) and isinstance(obj, Image):
-            if image_names is None or obj._image_name in image_names:
-                _create_platform_image(obj, build_service)
-
-
 @app.command(help="Build default image for indexify")
 def build_default_image(
     python_version: Optional[str] = typer.Option(
@@ -204,6 +180,15 @@ def executor(
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
+    function_uris: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--function",
+            "-f",
+            help="Function that the executor will run "
+            "specified as <namespace>:<workflow>:<function>:<version>",
+        ),
+    ] = None,
     config_path: Optional[str] = typer.Option(
         None, help="Path to the TLS configuration file"
     ),
@@ -214,15 +199,13 @@ def executor(
     ports: Tuple[int, int] = typer.Option(
         (50000, 51000), help="Range of localhost TCP ports to be used by the executor"
     ),
-    name_alias: Optional[str] = typer.Option(
-        None, help="Image name override for the executor"
-    ),
-    image_hash: Optional[str] = typer.Option(
-        None, help="Image hash override for the executor"
-    ),
 ):
     if not dev:
         configure_production_logging()
+        if function_uris is None:
+            raise typer.BadParameter(
+                "At least one function must be specified when not running in development mode"
+            )
 
     id = nanoid.generate()
     logger.info(
@@ -233,8 +216,7 @@ def executor(
         executor_version=version("indexify-executor"),
         executor_cache=executor_cache,
         ports=ports,
-        name_alias=name_alias,
-        image_hash=image_hash,
+        functions=function_uris,
         dev_mode=dev,
     )
 
@@ -258,13 +240,34 @@ def executor(
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,
-        name_alias=name_alias,
-        image_hash=image_hash,
+        function_allowlist=_parse_function_uris(function_uris),
         function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
             development_mode=dev,
             server_ports=range(ports[0], ports[1]),
         ),
     ).run()
+
+
+def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[FunctionURI]]:
+    if uri_strs is None:
+        return None
+
+    uris: List[FunctionURI] = []
+    for uri_str in uri_strs:
+        tokens = uri_str.split(":")
+        if len(tokens) != 4:
+            raise typer.BadParameter(
+                "Function should be specified as <namespace>:<workflow>:<function>:<version>"
+            )
+        uris.append(
+            FunctionURI(
+                namespace=tokens[0],
+                compute_graph=tokens[1],
+                compute_fn=tokens[2],
+                version=int(tokens[3]),
+            )
+        )
+    return uris
 
 
 def _create_image(image: Image, python_sdk_path):

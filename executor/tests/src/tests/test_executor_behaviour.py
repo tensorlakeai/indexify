@@ -31,6 +31,7 @@ class TestExecutor(unittest.TestCase):
         executor = Executor(
             executor_id="unit-test",
             code_path=Path("test"),
+            function_allowlist=None,
             function_executor_server_factory=None,
             server_addr=service_url,
             config_path=config_path,
@@ -62,6 +63,7 @@ class TestExecutor(unittest.TestCase):
         executor = Executor(
             executor_id="unit-test",
             code_path=Path("test"),
+            function_allowlist=None,
             function_executor_server_factory=None,
             server_addr="localhost:8900",
         )

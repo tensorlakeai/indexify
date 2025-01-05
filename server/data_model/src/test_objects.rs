@@ -289,10 +289,9 @@ pub mod tests {
         ExecutorMetadata {
             id: mock_executor_id(),
             executor_version: "1.0.0".to_string(),
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+            function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
-            image_hash: "image_hash".to_string(),
         }
     }
 }

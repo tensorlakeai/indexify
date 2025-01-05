@@ -131,7 +131,7 @@ jobs:
         with:
           run: |
             cd indexify
-            poetry run indexify-cli executor &
+            poetry run indexify-cli executor --dev &
             echo $! > /tmp/indexify-executor.pid &
 
           wait-on: |

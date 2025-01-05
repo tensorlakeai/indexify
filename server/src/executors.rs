@@ -94,8 +94,7 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
-            image_name: "test".to_string(),
-            image_hash: "image_hash".to_string(),
+            function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
         };
@@ -118,8 +117,7 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
-            image_name: "test".to_string(),
-            image_hash: "image_hash".to_string(),
+            function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
         };

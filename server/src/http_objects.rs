@@ -527,24 +527,43 @@ pub struct InvocationId {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FunctionURI {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub version: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
     pub addr: String,
-    pub image_name: String,
-    #[serde(default)]
-    pub image_hash: String,
+    pub function_allowlist: Option<Vec<FunctionURI>>,
     pub labels: HashMap<String, serde_json::Value>,
 }
 
 impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
     fn from(executor: data_model::ExecutorMetadata) -> Self {
+        let function_allowlist = match executor.function_allowlist {
+            Some(allowlist) => Some(
+                allowlist
+                    .iter()
+                    .map(|fn_uri| FunctionURI {
+                        namespace: fn_uri.namespace.clone(),
+                        compute_graph: fn_uri.compute_graph_name.clone(),
+                        compute_fn: fn_uri.compute_fn_name.clone(),
+                        version: fn_uri.version.0,
+                    })
+                    .collect(),
+            ),
+            None => None,
+        };
         Self {
             id: executor.id.to_string(),
             executor_version: executor.executor_version,
             addr: executor.addr,
-            image_name: executor.image_name,
-            image_hash: executor.image_hash,
+            function_allowlist,
             labels: executor.labels,
         }
     }

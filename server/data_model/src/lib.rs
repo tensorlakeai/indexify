@@ -200,38 +200,6 @@ impl Node {
         }
     }
 
-    pub fn matches_executor(
-        &self,
-        executor: &ExecutorMetadata,
-        diagnostic_msgs: &mut Vec<String>,
-    ) -> bool {
-        if executor.image_name != self.image_name() {
-            diagnostic_msgs.push(format!(
-                "executor {}, image name: {} does not match function image name {}. Make sure the executor is running the latest image.",
-                executor.id,
-                executor.image_name,
-                self.image_name()
-            ));
-            return false;
-        }
-
-        // Empty executor image hash means that the executor can accept any image
-        // version. This is needed for backwards compatibility.
-        // FIXME - This is a temporary hack to allow us to unblock some internal
-        // migrations if !executor.image_hash.is_empty() && executor.image_hash
-        // != self.image_hash() {    diagnostic_msgs.push(format!(
-        //        "executor {}, image hash: {} does not match function image hash {}.
-        // Make sure the executor is running the latest image.",
-        //        executor.id,
-        //        executor.image_hash,
-        //        self.image_hash()
-        //    ));
-        //    return false;
-        //}
-
-        true
-    }
-
     pub fn reducer(&self) -> bool {
         match self {
             Node::Router(_) => false,
@@ -906,14 +874,20 @@ fn default_executor_ver() -> String {
     "0.2.17".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FunctionURI {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub version: GraphVersion,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
-    pub image_name: String,
-    #[serde(default)]
-    pub image_hash: String,
+    pub function_allowlist: Option<Vec<FunctionURI>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
 }
@@ -1026,105 +1000,14 @@ mod tests {
 
     use crate::{
         test_objects::tests::test_compute_fn,
-        ComputeFn,
         ComputeGraph,
         ComputeGraphCode,
         ComputeGraphVersion,
         DynamicEdgeRouter,
-        ExecutorMetadata,
         GraphVersion,
-        ImageInformation,
         Node,
         RuntimeInformation,
     };
-
-    #[test]
-    fn test_node_matches_executor_scenarios() {
-        fn check(
-            test_name: &str,
-            image_name: &str,
-            image_hash: &str,
-            executor_image_name: &str,
-            executor_image_hash: &str,
-            expected: bool,
-        ) {
-            let executor_metadata = ExecutorMetadata {
-                image_name: executor_image_name.to_string(),
-                image_hash: executor_image_hash.to_string(),
-                ..Default::default()
-            };
-            let mut diagnostic_msgs = vec![];
-
-            let compute_fn = ComputeFn {
-                name: "fn1".to_string(),
-                image_information: ImageInformation {
-                    image_name: image_name.to_string(),
-                    image_hash: image_hash.to_string(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            let router = DynamicEdgeRouter {
-                name: "router1".to_string(),
-                image_information: ImageInformation {
-                    image_name: image_name.to_string(),
-                    image_hash: image_hash.to_string(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            print!("{:?}", executor_metadata);
-
-            assert_eq!(
-                Node::Compute(compute_fn)
-                    .matches_executor(&executor_metadata, &mut diagnostic_msgs),
-                expected,
-                "Failed for test: {}, {}",
-                test_name,
-                diagnostic_msgs.join(", ")
-            );
-
-            assert_eq!(
-                Node::Router(router).matches_executor(&executor_metadata, &mut diagnostic_msgs),
-                expected,
-                "Failed for test: {}, {}",
-                test_name,
-                diagnostic_msgs.join(", ")
-            );
-        }
-
-        // Test case: Image name does not match
-        check(
-            "Image name does not match",
-            "some_image_name",
-            "some_image_hash",
-            "some_image_name1",
-            "some_image_hash",
-            false,
-        );
-
-        // Test case: Image name and hash match
-        check(
-            "Image name and hash match",
-            "some_image_name",
-            "some_image_hash",
-            "some_image_name",
-            "some_image_hash",
-            true,
-        );
-
-        // Test case: Executor Image hash is empty so it should match any image hash
-        check(
-            "Executor Image hash is empty",
-            "some_image_name",
-            "some_image_hash",
-            "some_image_name",
-            "", // empty hash
-            true,
-        );
-    }
 
     #[test]
     fn test_compute_graph_update() {
