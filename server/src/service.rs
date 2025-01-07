@@ -5,24 +5,15 @@ use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::{init_provider, scheduler_stats::Metrics as SchedulerMetrics};
 use prometheus::Registry;
-use state_store::{
-    kv::KVS,
-    requests::{NamespaceRequest, RequestPayload::CreateNameSpace, StateMachineUpdateRequest},
-    IndexifyState,
-};
+use state_store::{kv::KVS, IndexifyState};
 use tokio::{self, signal, sync::watch};
 use tracing::info;
 
 use super::{routes::RouteState, scheduler::Scheduler};
 use crate::{
-    config::ServerConfig,
-    executors::ExecutorManager,
-    gc::Gc,
-    routes::create_routes,
+    config::ServerConfig, executors::ExecutorManager, gc::Gc, routes::create_routes,
     system_tasks::SystemTasksExecutor,
 };
-
-const DEFAULT_NAMESPACE: &str = "default";
 
 pub struct Service {
     pub config: ServerConfig,
@@ -104,7 +95,7 @@ impl Service {
         });
 
         // State initialization
-        initialize_indexify_state(self.indexify_state.clone()).await?;
+        //initialize_indexify_state(self.indexify_state.clone()).await?;
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
@@ -115,30 +106,6 @@ impl Service {
 
         Ok(())
     }
-}
-
-async fn initialize_indexify_state(indexify_state: Arc<IndexifyState>) -> Result<()> {
-    // Create default namespace if it doesn't exist.
-    if indexify_state
-        .reader()
-        .get_namespace(DEFAULT_NAMESPACE)?
-        .is_some()
-    {
-        return Ok(());
-    }
-
-    indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: CreateNameSpace(NamespaceRequest {
-                name: String::from(DEFAULT_NAMESPACE),
-            }),
-            state_changes_processed: vec![],
-        })
-        .await?;
-
-    info!("created {} namespace", DEFAULT_NAMESPACE);
-
-    Ok(())
 }
 
 async fn shutdown_signal(handle: Handle, shutdown_tx: watch::Sender<()>) {
