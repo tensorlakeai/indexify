@@ -33,6 +33,7 @@ use state_store::{
         DeleteInvocationRequest,
         NamespaceRequest,
         RequestPayload,
+        RequestPayload::CreateNameSpace,
         StateMachineUpdateRequest,
     },
     IndexifyState,
@@ -309,7 +310,7 @@ async fn namespace_middleware(
     params: RawPathParams,
     request: Request,
     next: Next,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, IndexifyAPIError> {
     // get the namespace path variable from the path
     let namespace_param = params.iter().find(|(key, _)| *key == "namespace");
 
@@ -321,9 +322,18 @@ async fn namespace_middleware(
             .map_err(IndexifyAPIError::internal_error)?;
 
         if ns.is_none() {
-            return Err(IndexifyAPIError::not_found(
-                format!("Namespace not found: {}", namespace).as_str(),
-            ));
+            route_state
+                .indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: CreateNameSpace(NamespaceRequest {
+                        name: namespace.to_string(),
+                    }),
+                    state_changes_processed: vec![],
+                })
+                .await
+                .map_err(IndexifyAPIError::internal_error)?;
+
+            info!("created {} namespace", namespace);
         }
     }
 
