@@ -11,10 +11,7 @@ use tracing::info;
 
 use super::{routes::RouteState, scheduler::Scheduler};
 use crate::{
-    config::ServerConfig,
-    executors::ExecutorManager,
-    gc::Gc,
-    routes::create_routes,
+    config::ServerConfig, executors::ExecutorManager, gc::Gc, routes::create_routes,
     system_tasks::SystemTasksExecutor,
 };
 
@@ -96,9 +93,6 @@ impl Service {
             shutdown_signal(handle_sh, shutdown_tx).await;
             info!("received graceful shutdown signal. Telling tasks to shutdown");
         });
-
-        // State initialization
-        //initialize_indexify_state(self.indexify_state.clone()).await?;
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
