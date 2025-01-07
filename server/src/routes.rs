@@ -33,7 +33,6 @@ use state_store::{
         DeleteInvocationRequest,
         NamespaceRequest,
         RequestPayload,
-        RequestPayload::CreateNameSpace,
         StateMachineUpdateRequest,
     },
     IndexifyState,
