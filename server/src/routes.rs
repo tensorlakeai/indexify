@@ -325,7 +325,7 @@ async fn namespace_middleware(
             route_state
                 .indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: CreateNameSpace(NamespaceRequest {
+                    payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
                     }),
                     state_changes_processed: vec![],
