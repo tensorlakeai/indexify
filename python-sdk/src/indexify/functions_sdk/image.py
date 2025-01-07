@@ -96,7 +96,7 @@ class Image:
         self._python_version = LOCAL_PYTHON_VERSION
         self._build_ops = []  # List of ImageOperation
         self._sdk_version = importlib.metadata.version("indexify-python-sdk")
-        self.uri = "" # For internal use
+        self.uri = ""  # For internal use
 
     def name(self, image_name):
         self._image_name = image_name
@@ -131,7 +131,7 @@ class Image:
             image_name=self._image_name,
             sdk_version=self._sdk_version,
             image_hash=self.hash(),
-            image_url=self.uri
+            image_url=self.uri,
         )
 
     def build_context(self, filename: str):
