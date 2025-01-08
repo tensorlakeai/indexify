@@ -140,7 +140,9 @@ class TestSetInvocationState(FunctionExecutorServerTestCase):
             client_thread = invocation_state_client_stub(
                 self, stub, expected_requests, responses
             )
-            run_task_response: RunTaskResponse = run_task(stub, 42)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="set_invocation_state", input=42
+            )
             self.assertTrue(run_task_response.success)
             fn_outputs = deserialized_function_output(
                 self, run_task_response.function_output
@@ -186,7 +188,9 @@ class TestSetInvocationState(FunctionExecutorServerTestCase):
             client_thread = invocation_state_client_stub(
                 self, stub, expected_requests, responses
             )
-            run_task_response: RunTaskResponse = run_task(stub, 42)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="set_invocation_state", input=42
+            )
             self.assertFalse(run_task_response.success)
             self.assertTrue(
                 'RuntimeError("failed to set the invocation state for key")'
@@ -275,7 +279,9 @@ class TestGetInvocationState(FunctionExecutorServerTestCase):
             client_thread = invocation_state_client_stub(
                 self, stub, expected_requests, responses
             )
-            run_task_response: RunTaskResponse = run_task(stub, 33)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="get_invocation_state", input=33
+            )
             self.assertTrue(run_task_response.success)
             fn_outputs = deserialized_function_output(
                 self, run_task_response.function_output
@@ -327,7 +333,9 @@ class TestGetInvocationState(FunctionExecutorServerTestCase):
             client_thread = invocation_state_client_stub(
                 self, stub, expected_requests, responses
             )
-            run_task_response: RunTaskResponse = run_task(stub, 33)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="get_invocation_state", input=33
+            )
             self.assertTrue(run_task_response.success)
             fn_outputs = deserialized_function_output(
                 self, run_task_response.function_output
@@ -365,7 +373,9 @@ class TestGetInvocationState(FunctionExecutorServerTestCase):
             client_thread = invocation_state_client_stub(
                 self, stub, expected_requests, responses
             )
-            run_task_response: RunTaskResponse = run_task(stub, 14)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="get_invocation_state", input=14
+            )
             self.assertFalse(run_task_response.success)
             self.assertTrue(
                 'RuntimeError("failed to get the invocation state for key")'

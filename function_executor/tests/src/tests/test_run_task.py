@@ -94,7 +94,9 @@ class TestRunTask(FunctionExecutorServerTestCase):
             self.assertTrue(initialize_response.success)
 
             run_task_response: RunTaskResponse = run_task(
-                stub, File(data=bytes(b"hello"), mime_type="text/plain")
+                stub,
+                function_name="extractor_b",
+                input=File(data=bytes(b"hello"), mime_type="text/plain"),
             )
 
             self.assertTrue(run_task_response.success)
@@ -129,7 +131,9 @@ class TestRunTask(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = run_task(stub, 10)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="extractor_exception", input=10
+            )
 
             self.assertFalse(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)

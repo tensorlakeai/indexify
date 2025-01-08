@@ -89,6 +89,10 @@ class SingleTaskRunner:
 
     async def _run(self) -> TaskOutput:
         request: RunTaskRequest = RunTaskRequest(
+            namespace=self._task_input.task.namespace,
+            graph_name=self._task_input.task.compute_graph,
+            graph_version=self._task_input.task.graph_version,
+            function_name=self._task_input.task.compute_fn,
             graph_invocation_id=self._task_input.task.invocation_id,
             task_id=self._task_input.task.id,
             function_input=self._task_input.input,

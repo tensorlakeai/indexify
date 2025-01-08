@@ -142,21 +142,37 @@ class RouterOutput(_message.Message):
 
 class RunTaskRequest(_message.Message):
     __slots__ = (
+        "namespace",
+        "graph_name",
+        "graph_version",
+        "function_name",
         "graph_invocation_id",
         "task_id",
         "function_input",
         "function_init_value",
     )
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     TASK_ID_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_INPUT_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_INIT_VALUE_FIELD_NUMBER: _ClassVar[int]
+    namespace: str
+    graph_name: str
+    graph_version: int
+    function_name: str
     graph_invocation_id: str
     task_id: str
     function_input: SerializedObject
     function_init_value: SerializedObject
     def __init__(
         self,
+        namespace: _Optional[str] = ...,
+        graph_name: _Optional[str] = ...,
+        graph_version: _Optional[int] = ...,
+        function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
         task_id: _Optional[str] = ...,
         function_input: _Optional[_Union[SerializedObject, _Mapping]] = ...,

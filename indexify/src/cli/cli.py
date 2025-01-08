@@ -11,7 +11,7 @@ import threading
 import time
 from importlib.metadata import version
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, Tuple
 
 import nanoid
 import structlog
@@ -210,6 +210,10 @@ def executor(
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
+    # Registred ports range ends at 49151.
+    ports: Tuple[int, int] = typer.Option(
+        (50000, 51000), help="Range of localhost TCP ports to be used by the executor"
+    ),
     name_alias: Optional[str] = typer.Option(
         None, help="Image name override for the executor"
     ),
@@ -222,12 +226,13 @@ def executor(
 
     id = nanoid.generate()
     logger.info(
-        "executor started",
+        "starting executor",
         server_addr=server_addr,
         config_path=config_path,
         executor_id=id,
         executor_version=version("indexify-executor"),
         executor_cache=executor_cache,
+        ports=ports,
         name_alias=name_alias,
         image_hash=image_hash,
         dev_mode=dev,
@@ -238,6 +243,16 @@ def executor(
         shutil.rmtree(executor_cache)
     Path(executor_cache).mkdir(parents=True, exist_ok=True)
 
+    start_port: int = ports[0]
+    end_port: int = ports[1]
+    if start_port >= end_port:
+        console.print(
+            Text(
+                f"start port {start_port} should be less than {end_port}", style="red"
+            ),
+        )
+        exit(1)
+
     Executor(
         id,
         server_addr=server_addr,
@@ -246,7 +261,8 @@ def executor(
         name_alias=name_alias,
         image_hash=image_hash,
         function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
-            development_mode=dev
+            development_mode=dev,
+            server_ports=range(ports[0], ports[1]),
         ),
     ).run()
 
