@@ -24,7 +24,7 @@ st_image = (
     .run("pip install pillow")
     .run("pip install py-inkwell")
     .run("pip install opentelemetry-api")
-    .run("pip install elastic_transport")
+    .run("pip install elastic-transport")
 )
 
 lance_image = (
