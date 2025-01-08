@@ -1,7 +1,7 @@
 import asyncio
 import os
 import signal
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from .function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
@@ -14,10 +14,10 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     def __init__(
         self,
         development_mode: bool,
+        server_ports: range,
     ):
         self._development_mode: bool = development_mode
-        # Registred ports range end at 49151. We start from 50000 to hopefully avoid conflicts.
-        self._free_ports = set(range(50000, 51000))
+        self._free_ports: List[int] = list(reversed(server_ports))
 
     async def create(
         self, config: FunctionExecutorServerConfiguration, logger: Any
@@ -100,7 +100,9 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     def _release_port(self, port: int) -> None:
         # No asyncio.Lock is required here because this operation never awaits
         # and it is always called from the same thread where the event loop is running.
-        self._free_ports.add(port)
+        #
+        # Prefer port reuse to repro as many possible issues deterministically as possible.
+        self._free_ports.append(port)
 
 
 def _server_address(port: int) -> str:

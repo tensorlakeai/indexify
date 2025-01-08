@@ -86,6 +86,25 @@ class Service(FunctionExecutorServicer):
         # If our code raises an exception the grpc framework converts it into GRPC_STATUS_UNKNOWN
         # error with the exception message. Differentiating errors is not needed for now.
         RunTaskRequestValidator(request=request).check()
+
+        # Fail with internal error as this happened due to wrong task routing to this Server.
+        if request.namespace != self._namespace:
+            raise ValueError(
+                f"This Function Executor is not initialized for this namespace {request.namespace}"
+            )
+        if request.graph_name != self._graph_name:
+            raise ValueError(
+                f"This Function Executor is not initialized for this graph {request.graph_name}"
+            )
+        if request.graph_version != self._graph_version:
+            raise ValueError(
+                f"This Function Executor is not initialized for this graph version {request.graph_version}"
+            )
+        if request.function_name != self._function_name:
+            raise ValueError(
+                f"This Function Executor is not initialized for this function {request.function_name}"
+            )
+
         return RunTaskHandler(
             request=request,
             graph_name=self._graph_name,

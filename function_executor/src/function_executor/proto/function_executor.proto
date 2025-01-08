@@ -86,10 +86,14 @@ message RouterOutput {
 }
 
 message RunTaskRequest {
-    optional string graph_invocation_id = 4;
+    optional string namespace = 1;
+    optional string graph_name = 2;
+    optional int32 graph_version = 3;
+    optional string function_name = 4;
+    optional string graph_invocation_id = 5;
     optional string task_id = 6;
-    optional SerializedObject function_input = 9;
-    optional SerializedObject function_init_value = 10;
+    optional SerializedObject function_input = 7;
+    optional SerializedObject function_init_value = 8;
 }
 
 message RunTaskResponse {

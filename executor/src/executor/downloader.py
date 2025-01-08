@@ -67,6 +67,7 @@ class Downloader:
         # Atomically rename the fully written file at tmp path.
         # This allows us to not use any locking because file link/unlink
         # are atomic operations at filesystem level.
+        # This also allows to share the same cache between multiple Executors.
         os.replace(tmp_path, path)
 
     async def download_input(self, task: Task) -> SerializedObject:

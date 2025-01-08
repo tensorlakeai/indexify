@@ -92,7 +92,9 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = run_task(stub, max_input)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="validate_max_input", input=max_input
+            )
             self.assertTrue(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)
 
@@ -127,7 +129,9 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             )
             self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = run_task(stub, 1)
+            run_task_response: RunTaskResponse = run_task(
+                stub, function_name="generate_max_output", input=1
+            )
 
             self.assertTrue(run_task_response.success)
             self.assertFalse(run_task_response.is_reducer)

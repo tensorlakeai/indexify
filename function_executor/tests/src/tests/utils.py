@@ -16,7 +16,9 @@ from function_executor.proto.function_executor_pb2_grpc import FunctionExecutorS
 
 
 class FunctionExecutorServerTestCase(unittest.TestCase):
-    FUNCTION_EXECUTOR_SERVER_ADDRESS = "localhost:50000"
+    # Default Executor range is 50000:51000.
+    # Use a value outside of this range to not conflict with other tests.
+    FUNCTION_EXECUTOR_SERVER_ADDRESS = "localhost:60000"
     _functionExecutorServerProc: subprocess.Popen = None
 
     @classmethod
@@ -58,9 +60,15 @@ class FunctionExecutorServerTestCase(unittest.TestCase):
             )
 
 
-def run_task(stub: FunctionExecutorStub, input: Any) -> RunTaskResponse:
+def run_task(
+    stub: FunctionExecutorStub, function_name: str, input: Any
+) -> RunTaskResponse:
     return stub.run_task(
         RunTaskRequest(
+            namespace="test",
+            graph_name="test",
+            graph_version=1,
+            function_name=function_name,
             graph_invocation_id="123",
             task_id="test-task",
             function_input=SerializedObject(

@@ -13,7 +13,6 @@ from indexify.functions_sdk.indexify_functions import (
     RouterCallResult,
 )
 from indexify.functions_sdk.invocation_state.invocation_state import InvocationState
-from indexify.http_client import IndexifyClient
 
 from function_executor.proto.function_executor_pb2 import (
     RunTaskRequest,
@@ -113,24 +112,6 @@ class Handler:
         print("", flush=True)
         sys.stdout.flush()
         sys.stderr.flush()
-
-
-def _indexify_client(
-    logger: Any,
-    namespace: str,
-    indexify_server_addr: str,
-    config_path: Optional[str],
-) -> IndexifyClient:
-    # This client is required to implement key/value store functionality for customer functions.
-    protocol: str = "http"
-    if config_path:
-        logger.info("TLS is enabled")
-        protocol = "https"
-    return IndexifyClient(
-        service_url=f"{protocol}://{indexify_server_addr}",
-        namespace=namespace,
-        config_path=config_path,
-    )
 
 
 def _is_router(func_wrapper: IndexifyFunctionWrapper) -> bool:

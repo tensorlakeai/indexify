@@ -15,7 +15,11 @@ class RequestValidator:
         Raises: ValueError: If the request is invalid.
         """
         (
-            self._message_validator.required_field("graph_invocation_id")
+            self._message_validator.required_field("namespace")
+            .required_field("graph_name")
+            .required_field("graph_version")
+            .required_field("function_name")
+            .required_field("graph_invocation_id")
             .required_field("task_id")
             .required_serialized_object("function_input")
             .optional_serialized_object("function_init_value")

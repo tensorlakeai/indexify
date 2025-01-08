@@ -7,19 +7,25 @@ to run customer functions. Executor should never link with Indexify Python-SDK. 
 about programming languages and runtime environments used by Indexify Functions. Function Executor is
 responsible for this.
 
-## Deployment
-
-An Executor can run in a Virtual Machine, container or a in bare metal host. Each vm/container/bare metal
-host in an Indexify cluster deployment runs a single Executor daemon process.
-Open Source users manage the Executors fleet themself e.g. using Kubernetes, any other cluster
-orchestrator or even manually.
-
-An Executor can be configured to only run particular functions. This allows to route certain Indexify
-functions to only particular subsets of Executors to e.g. implement a load balancing strategy.
-
 This package doesn't provide an executable entry point that runs an Executor. This is intentional
 as Executor has many configurable subcomponents. `indexify` package provides a cli with `executor`
 command that runs Executor with functionality available in Open Source offering.
+
+## Deployment
+
+### Production setup
+
+A single Executor runs in a Virtual Machine, container or a in bare metal host. An Indexify cluster
+is scaled by adding more Executor hosts. Open Source users manage and scale the hosts themself e.g.
+using Kubernetes, any other orchestrator or even manually. E.g. the users provision secrets,
+persistent volumes to each host using the orchestrator or manually. Each Executor runs a single function.
+The function name and other qualifiers are defined in Executor arguments.
+
+### Development setup
+
+To make Indexify development and testing easier an Executor in development mode can run any function.
+Running multiple Executors on the same host is supported too. In this case each Executor requires a
+unique port range passed to it in its arguments.
 
 ## Threat model
 
