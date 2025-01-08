@@ -113,6 +113,7 @@ impl From<ImageInformation> for data_model::ImageInformation {
         data_model::ImageInformation::new(
             value.image_name,
             value.image_hash,
+            value.image_uri,
             value.tag,
             value.base_image,
             value.run_strs,

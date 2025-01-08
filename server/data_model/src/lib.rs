@@ -105,6 +105,7 @@ impl ImageInformation {
     pub fn new(
         image_name: String,
         image_hash: String,
+        image_uri: Option<String>,
         tag: String,
         base_image: String,
         run_strs: Vec<String>,
@@ -127,7 +128,7 @@ impl ImageInformation {
             base_image,
             run_strs,
             image_hash: compat_image_hash,
-            image_uri: None,
+            image_uri,
             sdk_version,
         }
     }
