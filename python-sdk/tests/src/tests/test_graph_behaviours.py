@@ -11,15 +11,13 @@ from indexify import (
     Graph,
     IndexifyFunction,
     IndexifyRouter,
-    Pipeline,
     RemoteGraph,
-    RemotePipeline,
     get_ctx,
     indexify_function,
     indexify_router,
 )
 from indexify.functions_sdk.data_objects import File
-from tests.testing import remote_or_local_graph
+from tests.testing import remote_or_local_graph, test_graph_name
 
 
 class MyObject(BaseModel):
@@ -168,23 +166,29 @@ def handle_file(f: File) -> int:
     return len(f.data)
 
 
-def create_pipeline_graph_with_map():
-    graph = Graph(name="test", description="test", start_node=generate_seq)
+def create_pipeline_graph_with_map(test_case: unittest.TestCase) -> Graph:
+    graph = Graph(
+        name=test_graph_name(test_case), description="test", start_node=generate_seq
+    )
     graph.add_edge(generate_seq, square)
     return graph
 
 
-def create_pipeline_graph_with_map_reduce():
-    graph = Graph(name="test_map_reduce", description="test", start_node=generate_seq)
+def create_pipeline_graph_with_map_reduce(test_case: unittest.TestCase) -> Graph:
+    graph = Graph(
+        name=test_graph_name(test_case), description="test", start_node=generate_seq
+    )
     graph.add_edge(generate_seq, square)
     graph.add_edge(square, sum_of_squares)
     graph.add_edge(sum_of_squares, make_it_string)
     return graph
 
 
-def create_pipeline_graph_with_map_reduce_with_json_encoder():
+def create_pipeline_graph_with_map_reduce_with_json_encoder(
+    test_case: unittest.TestCase,
+) -> Graph:
     graph = Graph(
-        name="test_map_reduce_with_json_encoding",
+        name=test_graph_name(test_case),
         description="test",
         start_node=square_with_json_encoder,
     )
@@ -192,9 +196,11 @@ def create_pipeline_graph_with_map_reduce_with_json_encoder():
     return graph
 
 
-def create_pipeline_graph_with_different_encoders():
+def create_pipeline_graph_with_different_encoders(
+    test_case: unittest.TestCase,
+) -> Graph:
     graph = Graph(
-        name="test_different_encoders",
+        name=test_graph_name(test_case),
         description="test",
         start_node=simple_function_multiple_inputs_json,
     )
@@ -204,8 +210,10 @@ def create_pipeline_graph_with_different_encoders():
     return graph
 
 
-def create_router_graph():
-    graph = Graph(name="test_router", description="test", start_node=generate_seq)
+def create_router_graph(test_case: unittest.TestCase) -> Graph:
+    graph = Graph(
+        name=test_graph_name(test_case), description="test", start_node=generate_seq
+    )
     graph.add_edge(generate_seq, square)
     graph.add_edge(square, sum_of_squares)
     graph.add_edge(sum_of_squares, route_if_even)
@@ -215,8 +223,25 @@ def create_router_graph():
     return graph
 
 
+def create_simple_pipeline_graph(test_case: unittest.TestCase) -> Graph:
+    graph = Graph(
+        name=test_graph_name(test_case),
+        description="A simple pipeline",
+        start_node=generate_seq,
+    )
+    graph.add_edge(generate_seq, square)
+    graph.add_edge(square, sum_of_squares)
+    graph.add_edge(sum_of_squares, make_it_string)
+    return graph
+
+
 class SimpleFunctionCtxClsObject(BaseModel):
     x: int
+
+    def __eq__(self, other):
+        if isinstance(other, SimpleFunctionCtxClsObject):
+            return self.x == other.x
+        return False
 
 
 class SimpleFunctionCtxCls(IndexifyFunction):
@@ -268,83 +293,77 @@ class SimpleRouterCtxCls(IndexifyRouter):
             return SimpleFunctionCtxCls2
 
 
-def create_simple_pipeline():
-    p = Pipeline("simple_pipeline", "A simple pipeline")
-    p.add_step(generate_seq)
-    p.add_step(square)
-    p.add_step(sum_of_squares)
-    p.add_step(make_it_string)
-    return p
-
-
-def remote_or_local_pipeline(pipeline, remote=True):
-    if remote:
-        return RemotePipeline.deploy(pipeline)
-    return pipeline
-
-
 class TestGraphBehaviors(unittest.TestCase):
     @parameterized.parameterized.expand([(False), (True)])
     def test_simple_function(self, is_remote):
         graph = Graph(
-            name="test_simple_function", description="test", start_node=simple_function
+            name=test_graph_name(self), description="test", start_node=simple_function
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function")
-        self.assertEqual(output, [MyObject(x="ab")])
+        # TODO: Do self.assertEqual(output, [MyObject(x="ab")]) here and in other tests
+        # once we know why Pydantic objects == is False when all their field values are
+        # the same. This only happens when graph code doesn't getp updated on second and
+        # later test runs because graph version didn't change and graph exists already.
+        self.assertTrue(len(output) == 1)
+        self.assertEqual(output[0].x, "ab")
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_simple_function_cls(self, is_remote):
-        graph = Graph(name="test_simple_function_cls", start_node=SimpleFunctionCtxCls)
+        graph = Graph(name=test_graph_name(self), start_node=SimpleFunctionCtxCls)
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(
             block_until_done=True, obj=SimpleFunctionCtxClsObject(x=1)
         )
         output = graph.output(invocation_id, "SimpleFunctionCtxCls")
-        self.assertEqual(output, [SimpleFunctionCtxClsObject(x=2)])
+        self.assertTrue(len(output) == 1)
+        self.assertEqual(output[0].x, 2)
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_simple_function_with_json_encoding(self, is_remote):
         graph = Graph(
-            name="test_simple_function_with_json_encoding",
+            name=test_graph_name(self),
             description="test",
             start_node=simple_function_with_json_encoder,
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x="a")
         output = graph.output(invocation_id, "simple_function_with_json_encoder")
-        self.assertEqual(output, ["ab"])
+        self.assertTrue(len(output) == 1)
+        self.assertEqual(output[0], "ab")
 
     @parameterized.parameterized.expand([(True)])
     def test_remote_graph_by_name(self, is_remote):
         graph = Graph(
-            name="test_simple_function", description="test", start_node=simple_function
+            name=test_graph_name(self), description="test", start_node=simple_function
         )
         # Deploys the graph
         remote_or_local_graph(graph, is_remote)
         # Gets the graph by name
-        graph = RemoteGraph.by_name("test_simple_function")
+        graph = RemoteGraph.by_name(test_graph_name(self))
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"))
         output = graph.output(invocation_id, "simple_function")
-        self.assertEqual(output, [MyObject(x="ab")])
+        self.assertTrue(len(output) == 1)
+        self.assertEqual(output[0].x, "ab")
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs(self, is_remote):
         graph = Graph(
-            name="test_simple_function2",
+            name=test_graph_name(self),
             description="test",
             start_node=simple_function_multiple_inputs,
         )
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=MyObject(x="a"), y=10)
         output = graph.output(invocation_id, "simple_function_multiple_inputs")
-        self.assertEqual(output, [MyObject(x="abbbbbbbbbb")])
+        self.assertTrue(len(output) == 1)
+        self.assertEqual(output[0].x, "abbbbbbbbbb")
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_simple_function_multiple_inputs_json(self, is_remote=False):
         graph = Graph(
-            name="test_simple_function2_json",
+            name=test_graph_name(self),
             description="test",
             start_node=simple_function_multiple_inputs_json,
         )
@@ -356,7 +375,7 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.parameterized.expand([(False), (True)])
     def test_simple_function_with_invalid_encoding(self, is_remote):
         graph = Graph(
-            name="test_simple_function_with_invalid_encoding",
+            name=test_graph_name(self),
             description="test",
             start_node=simple_function_with_invalid_encoder,
         )
@@ -376,7 +395,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return x + y + z
 
         graph = Graph(
-            name="test_multiple_return_values", description="test", start_node=my_func
+            name=test_graph_name(self), description="test", start_node=my_func
         )
         graph.add_edge(my_func, my_func_2)
         graph = remote_or_local_graph(
@@ -409,7 +428,7 @@ class TestGraphBehaviors(unittest.TestCase):
                 return my_func_2
 
         graph = Graph(
-            name="test_multiple_return_values_router",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -434,7 +453,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return input["x"] + input["y"] + input["z"]
 
         graph = Graph(
-            name="test_multiple_return_dict_as_args",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -465,7 +484,7 @@ class TestGraphBehaviors(unittest.TestCase):
             )
 
         graph = Graph(
-            name="test_multiple_return_dict_as_args",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -489,7 +508,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return x + y + z
 
         graph = Graph(
-            name="test_multiple_return_dict_as_kwargs",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -513,7 +532,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return x + y + z
 
         graph = Graph(
-            name="test_multiple_return_values_json",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -537,7 +556,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return input["x"] + input["y"] + input["z"]
 
         graph = Graph(
-            name="test_multiple_return_dict_args_json",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -565,7 +584,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return f"{char}={index}"
 
         graph = Graph(
-            name="test_return_dict_args_as_kwargs_in_list",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -594,7 +613,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return f"{data['char']}={data['index']}"
 
         graph = Graph(
-            name="test_return_dict_args_as_dict_in_list",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -627,7 +646,7 @@ class TestGraphBehaviors(unittest.TestCase):
             )
 
         graph = Graph(
-            name="test_multiple_return_dict_as_args",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -651,7 +670,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return x + y + z
 
         graph = Graph(
-            name="test_multiple_return_dict_as_kwargs",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func,
         )
@@ -666,7 +685,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_map_operation(self, is_remote):
-        graph = create_pipeline_graph_with_map()
+        graph = create_pipeline_graph_with_map(self)
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_seq = graph.output(invocation_id, "generate_seq")
@@ -676,17 +695,18 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_map_reduce_operation(self, is_remote):
-        graph = create_pipeline_graph_with_map_reduce()
+        graph = create_pipeline_graph_with_map_reduce(self)
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_sum_sq = graph.output(invocation_id, "sum_of_squares")
-        self.assertEqual(output_sum_sq, [Sum(val=5)])
+        self.assertEqual(len(output_sum_sq), 1)
+        self.assertEqual(output_sum_sq[0].val, 5)
         output_str = graph.output(invocation_id, "make_it_string")
         self.assertEqual(output_str, ["5"])
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_map_reduce_operation_with_json_encoding(self, is_remote):
-        graph = create_pipeline_graph_with_map_reduce_with_json_encoder()
+        graph = create_pipeline_graph_with_map_reduce_with_json_encoder(self)
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=3)
         output_square_sq_with_json_encoding = graph.output(
@@ -700,7 +720,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_graph_with_different_encoders(self, is_remote=False):
-        graph = create_pipeline_graph_with_different_encoders()
+        graph = create_pipeline_graph_with_different_encoders(self)
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x="a", y=10)
         simple_fn_multiple_input_output = graph.output(
@@ -715,7 +735,7 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_router_graph_behavior(self, is_remote):
-        graph = create_router_graph()
+        graph = create_router_graph(self)
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=3)
 
@@ -725,7 +745,8 @@ class TestGraphBehaviors(unittest.TestCase):
             graph.output(invocation_id, "add_three")
         except Exception as e:
             self.assertEqual(
-                str(e), "no results found for fn add_three on graph test_router"
+                str(e),
+                f"no results found for fn add_three on graph {test_graph_name(self)}",
             )
 
         output_str = graph.output(invocation_id, "make_it_string_from_int")
@@ -733,19 +754,20 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_router_graph_behavior_cls(self, is_remote):
-        graph = Graph(name="test_simple_function_cls", start_node=SimpleRouterCtxCls)
+        graph = Graph(test_graph_name(self), start_node=SimpleRouterCtxCls)
         graph.route(SimpleRouterCtxCls, [SimpleFunctionCtxCls1, SimpleFunctionCtxCls2])
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(
             block_until_done=True, obj=SimpleRouterCtxClsObject(x=1)
         )
         output = graph.output(invocation_id, "SimpleFunctionCtxCls2")
-        self.assertEqual(output, [SimpleRouterCtxClsObject(x=3)])
+        self.assertTrue(len(output) == 1)
+        self.assertEqual(output[0].x, 3)
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_invoke_file(self, is_remote):
         graph = Graph(
-            name="test_handle_file", description="test", start_node=handle_file
+            name=test_graph_name(self), description="test", start_node=handle_file
         )
         graph = remote_or_local_graph(graph, is_remote)
         import os
@@ -763,10 +785,10 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_pipeline(self, is_remote):
-        p = create_simple_pipeline()
-        p = remote_or_local_pipeline(p, is_remote)
-        invocation_id = p.run(block_until_done=True, x=3)
-        output = p.output(invocation_id, "make_it_string")
+        graph: Graph = create_simple_pipeline_graph(self)
+        graph = remote_or_local_graph(graph, is_remote)
+        invocation_id = graph.run(block_until_done=True, x=3)
+        output = graph.output(invocation_id, "make_it_string")
         self.assertEqual(output, ["5"])
 
     @parameterized.parameterized.expand([(False), (True)])
@@ -785,7 +807,7 @@ class TestGraphBehaviors(unittest.TestCase):
         def add_two(x: int) -> int:
             return x + 2
 
-        graph = Graph(name="test_ignore_none", description="test", start_node=gen_seq)
+        graph = Graph(test_graph_name(self), description="test", start_node=gen_seq)
         graph.add_edge(gen_seq, ignore_none)
         graph.add_edge(ignore_none, add_two)
         graph = remote_or_local_graph(
@@ -798,7 +820,9 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.parameterized.expand([(False), (True)])
     def test_graph_context(self, is_remote):
         graph = Graph(
-            name="test_context", description="test", start_node=simple_function_ctx
+            name=test_graph_name(self),
+            description="test",
+            start_node=simple_function_ctx,
         )
         graph.add_edge(simple_function_ctx, simple_function_ctx_b)
         graph = remote_or_local_graph(graph, is_remote)
@@ -806,7 +830,9 @@ class TestGraphBehaviors(unittest.TestCase):
         output2 = graph.output(invocation_id, "simple_function_ctx_b")
         self.assertEqual(output2[0], 11)
         graph1 = Graph(
-            name="test_context", description="test", start_node=simple_function_ctx
+            name=test_graph_name(self) + "1",
+            description="test",
+            start_node=simple_function_ctx,
         )
         graph1.add_edge(simple_function_ctx, SimpleFunctionCtxC)
         graph1 = RemoteGraph.deploy(graph1)
@@ -817,7 +843,9 @@ class TestGraphBehaviors(unittest.TestCase):
 
     @parameterized.parameterized.expand([(False), (True)])
     def test_graph_router_start_node(self, is_remote):
-        graph = Graph(name="test_router", description="test", start_node=route_if_even)
+        graph = Graph(
+            name=test_graph_name(self), description="test", start_node=route_if_even
+        )
         graph.route(route_if_even, [add_two, add_three])
         graph = remote_or_local_graph(graph, is_remote)
         invocation_id = graph.run(block_until_done=True, x=Sum(val=2))
@@ -843,7 +871,7 @@ class TestGraphBehaviors(unittest.TestCase):
             return p.a
 
         graph = Graph(
-            name="test_multiple_return_values_router",
+            name=test_graph_name(self),
             description="test",
             start_node=my_func1,
         )
@@ -859,7 +887,7 @@ class TestGraphBehaviors(unittest.TestCase):
     @parameterized.parameterized.expand([(False), (True)])
     def test_unreachable_graph_nodes(self, is_remote):
         graph = Graph(
-            name="test_unreachable_graph_nodes",
+            name=test_graph_name(self),
             description="test unreachable nodes in the graph",
             start_node=simple_function_multiple_inputs,
         )

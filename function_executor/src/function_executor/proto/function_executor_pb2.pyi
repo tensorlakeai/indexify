@@ -34,14 +34,14 @@ class InitializeRequest(_message.Message):
     GRAPH_FIELD_NUMBER: _ClassVar[int]
     namespace: str
     graph_name: str
-    graph_version: int
+    graph_version: str
     function_name: str
     graph: SerializedObject
     def __init__(
         self,
         namespace: _Optional[str] = ...,
         graph_name: _Optional[str] = ...,
-        graph_version: _Optional[int] = ...,
+        graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph: _Optional[_Union[SerializedObject, _Mapping]] = ...,
     ) -> None: ...
@@ -161,7 +161,7 @@ class RunTaskRequest(_message.Message):
     FUNCTION_INIT_VALUE_FIELD_NUMBER: _ClassVar[int]
     namespace: str
     graph_name: str
-    graph_version: int
+    graph_version: str
     function_name: str
     graph_invocation_id: str
     task_id: str
@@ -171,7 +171,7 @@ class RunTaskRequest(_message.Message):
         self,
         namespace: _Optional[str] = ...,
         graph_name: _Optional[str] = ...,
-        graph_version: _Optional[int] = ...,
+        graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         graph_invocation_id: _Optional[str] = ...,
         task_id: _Optional[str] = ...,

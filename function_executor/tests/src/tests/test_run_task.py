@@ -79,7 +79,7 @@ class TestRunTask(FunctionExecutorServerTestCase):
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
-                    graph_version=1,
+                    graph_version="1",
                     function_name="extractor_b",
                     graph=SerializedObject(
                         bytes=CloudPickleSerializer.serialize(
@@ -117,7 +117,7 @@ class TestRunTask(FunctionExecutorServerTestCase):
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
-                    graph_version=1,
+                    graph_version="1",
                     function_name="extractor_exception",
                     graph=SerializedObject(
                         bytes=CloudPickleSerializer.serialize(

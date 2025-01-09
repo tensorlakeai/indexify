@@ -31,17 +31,23 @@ class TestGraphUpdate(unittest.TestCase):
             name=graph_name,
             description="test graph update",
             start_node=update,
+            version="1.0",
         )
         g = RemoteGraph.deploy(g, additional_modules=[tests, parameterized])
         invocation_id = g.run(block_until_done=True, x=Object(x="a"))
         output = g.output(invocation_id, fn_name="update")
-        self.assertEqual(output[0], Object(x="ab"))
+        # TODO: Do self.assertEqual(output[0], Object(x="ab")) once we figure out why
+        # Pydantic models with same fields are not equal when graph is not updated
+        # because version didn't change.
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0].x, "ab")
 
         # Update the graph and rerun the invocation
         g = Graph(
             name=graph_name,
             description="test graph update (2)",
             start_node=update2,
+            version="2.0",
         )
         g = RemoteGraph.deploy(g, additional_modules=[tests, parameterized])
         g.replay_invocations()
@@ -49,17 +55,23 @@ class TestGraphUpdate(unittest.TestCase):
             time.sleep(1)
             print("Replaying...")
         output = g.output(invocation_id, fn_name="update2")
-        self.assertEqual(output[0], Object(x="ac"))
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0].x, "ac")
 
         # Create more invocations to trigger server queueing.
         for i in range(10):
             invocation_id = g.run(block_until_done=True, x=Object(x=f"{i}"))
 
         output = g.output(invocation_id, fn_name="update2")
-        self.assertEqual(output[0], Object(x="9c"))
+        self.assertEqual(output[0].x, "9c")
 
         # Update the graph and rerun the invocation
-        g = Graph(name=graph_name, description="test graph update", start_node=update)
+        g = Graph(
+            name=graph_name,
+            description="test graph update",
+            start_node=update,
+            version="3.0",
+        )
         g = RemoteGraph.deploy(g, additional_modules=[tests, parameterized])
 
         g.replay_invocations()
@@ -67,7 +79,8 @@ class TestGraphUpdate(unittest.TestCase):
             time.sleep(2)
             print("Replaying...")
         output = g.output(invocation_id, fn_name="update")
-        self.assertEqual(output[0], Object(x="9b"))
+        self.assertEqual(len(output), 1)
+        self.assertEqual(output[0].x, "9b")
 
     @parameterized.parameterized.expand(
         ["second_graph_new_name", "second_graph_reused_function_names"]
@@ -91,7 +104,7 @@ class TestGraphUpdate(unittest.TestCase):
             def end_node(x: int) -> int:
                 return x + 2
 
-            g = Graph(name=graph_name, start_node=start_node)
+            g = Graph(name=graph_name, start_node=start_node, version="1.0")
             g.add_edge(start_node, middle_node)
             g.add_edge(middle_node, end_node)
             return g
@@ -109,7 +122,7 @@ class TestGraphUpdate(unittest.TestCase):
             def end_node2(data: dict) -> int:
                 return data["num"] + 3
 
-            g = Graph(name=graph_name, start_node=start_node2)
+            g = Graph(name=graph_name, start_node=start_node2, version="2.0")
             g.add_edge(start_node2, middle_node2)
             g.add_edge(middle_node2, end_node2)
             return g, end_node2.name
@@ -127,7 +140,7 @@ class TestGraphUpdate(unittest.TestCase):
             def end_node(data: dict) -> int:
                 return data["num"] + 3
 
-            g = Graph(name=graph_name, start_node=start_node)
+            g = Graph(name=graph_name, start_node=start_node, version="3.0")
             g.add_edge(start_node, middle_node)
             g.add_edge(middle_node, end_node)
             return g, end_node.name

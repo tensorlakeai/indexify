@@ -742,7 +742,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_version_bump_on_graph_update() -> Result<()> {
+    async fn test_version_bump_and_graph_update() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
 
@@ -764,7 +764,8 @@ mod tests {
         for i in 2..4 {
             // Update the graph
             let new_hash = format!("this is a new hash {}", i);
-            let compute_graph = mock_graph_a(new_hash.clone());
+            let mut compute_graph = mock_graph_a(new_hash.clone());
+            compute_graph.version = GraphVersion(i.to_string());
 
             _write_to_test_state_store(&indexify_state, compute_graph).await?;
 
@@ -774,6 +775,7 @@ mod tests {
             // Verify the name is the same. Verify the version is different.
             assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
             // println!("compute graph {:?}", compute_graphs[0]);
+            assert_eq!(compute_graphs[0].version, GraphVersion(i.to_string()));
             let nodes = &compute_graphs[0].nodes;
             assert_eq!(nodes["fn_a"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
@@ -799,7 +801,7 @@ mod tests {
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
-            .graph_version(GraphVersion(1))
+            .graph_version(GraphVersion::from("1").clone())
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
             .build(cg.clone())?;
@@ -853,7 +855,7 @@ mod tests {
         let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph_name(task.compute_graph_name.clone())
-            .graph_version(GraphVersion(1))
+            .graph_version(GraphVersion::from("1").clone())
             .invocation_id(task.invocation_id.clone())
             .fn_task_analytics(HashMap::new())
             .build(cg.clone())?;

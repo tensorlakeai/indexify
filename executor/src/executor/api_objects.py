@@ -11,7 +11,7 @@ class Task(BaseModel):
     invocation_id: str
     input_key: str
     reducer_output_id: Optional[str] = None
-    graph_version: int
+    graph_version: str
     image_uri: Optional[str] = None
     "image_uri defines the URI of the image of this task. Optional since some executors do not require it."
 
@@ -20,7 +20,7 @@ class FunctionURI(BaseModel):
     namespace: str
     compute_graph: str
     compute_fn: str
-    version: int
+    version: str
 
 
 class ExecutorMetadata(BaseModel):

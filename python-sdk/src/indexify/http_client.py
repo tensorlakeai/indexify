@@ -164,7 +164,7 @@ class IndexifyClient:
         self.close()
 
     def register_compute_graph(self, graph: Graph, additional_modules):
-        graph_metadata = graph.definition()
+        graph_metadata: ComputeGraphMetadata = graph.definition()
         serialized_code = cloudpickle.dumps(graph.serialize(additional_modules))
         response = self._post(
             f"namespaces/{self.namespace}/compute_graphs",

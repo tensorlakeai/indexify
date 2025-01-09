@@ -653,7 +653,7 @@ async fn executor_tasks(
                     namespace: f.namespace.clone(),
                     compute_graph_name: f.compute_graph.clone(),
                     compute_fn_name: f.compute_fn.clone(),
-                    version: data_model::GraphVersion(f.version.clone()),
+                    version: f.version.clone().into(),
                 })
                 .collect(),
         ),
@@ -845,7 +845,7 @@ async fn get_versioned_code(
         let compute_graph_version = state
             .indexify_state
             .reader()
-            .get_compute_graph_version(&namespace, &compute_graph, version.into())
+            .get_compute_graph_version(&namespace, &compute_graph, &version.into())
             .map_err(IndexifyAPIError::internal_error)?;
 
         let compute_graph_version = compute_graph_version.ok_or(IndexifyAPIError::not_found(

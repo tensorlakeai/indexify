@@ -28,7 +28,7 @@ class Handler:
         self,
         request: RunTaskRequest,
         graph_name: str,
-        graph_version: int,
+        graph_version: str,
         function_name: str,
         function: Union[IndexifyFunction, IndexifyRouter],
         invocation_state: InvocationState,
@@ -51,7 +51,7 @@ class Handler:
             context=GraphInvocationContext(
                 invocation_id=request.graph_invocation_id,
                 graph_name=graph_name,
-                graph_version=str(graph_version),
+                graph_version=graph_version,
                 invocation_state=invocation_state,
             ),
         )

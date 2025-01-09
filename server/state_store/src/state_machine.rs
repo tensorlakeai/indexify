@@ -227,10 +227,6 @@ pub fn replay_invocations(
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
-    if graph.version > req.graph_version {
-        // Graph was updated after replay task was created
-        return Ok(Vec::new());
-    }
     let system_task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
 
     let state_changes_res = req
@@ -251,9 +247,9 @@ pub fn replay_invocations(
                 )?
                 .ok_or(anyhow::anyhow!("Graph context not found"))?;
             let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
-            if graph_ctx.graph_version >= req.graph_version {
+            if graph_ctx.graph_version == req.graph_version {
                 info!(
-                "skipping replay of invocation: {}, already latest version of invocation context",
+                "skipping replay of invocation: {}, it has the same version in invocation context",
                 invocation_id
             );
                 return Ok(None);
@@ -284,7 +280,7 @@ pub fn replay_invocations(
             let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
                 .namespace(req.namespace.to_string())
                 .compute_graph_name(req.compute_graph_name.to_string())
-                .graph_version(graph.version)
+                .graph_version(graph.version.clone())
                 .invocation_id(invocation_id.clone())
                 .fn_task_analytics(HashMap::new())
                 .is_system_task(true)
@@ -374,7 +370,7 @@ pub fn create_graph_input(
     let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
         .namespace(req.namespace.to_string())
         .compute_graph_name(req.compute_graph_name.to_string())
-        .graph_version(cg.version)
+        .graph_version(cg.version.clone())
         .invocation_id(req.invocation_payload.id.clone())
         .fn_task_analytics(HashMap::new())
         .build(cg)?;
@@ -428,19 +424,15 @@ pub(crate) fn create_or_update_compute_graph(
     let graph_version: Option<ComputeGraphVersion>;
 
     if let Some(existing_compute_graph) = existing_compute_graph {
-        let mut existing_compute_graph: ComputeGraph =
-            JsonEncoder::decode(&existing_compute_graph)?;
-        let (updated_compute_graph, new_graph_version) =
-            existing_compute_graph.update(compute_graph).clone();
-        compute_graph = updated_compute_graph.clone();
-
-        graph_version = new_graph_version;
+        let mut updated_compute_graph: ComputeGraph = JsonEncoder::decode(&existing_compute_graph)?;
+        graph_version = updated_compute_graph.update(compute_graph);
+        compute_graph = updated_compute_graph;
     } else {
         let initial_graph_version = ComputeGraphVersion {
             namespace: compute_graph.namespace.clone(),
             compute_graph_name: compute_graph.name.clone(),
             created_at: compute_graph.created_at,
-            version: compute_graph.version,
+            version: compute_graph.version.clone(),
             code: compute_graph.code.clone(),
             start_fn: compute_graph.start_fn.clone(),
             nodes: compute_graph.nodes.clone(),

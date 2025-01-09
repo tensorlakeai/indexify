@@ -264,7 +264,7 @@ def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[Functio
                 namespace=tokens[0],
                 compute_graph=tokens[1],
                 compute_fn=tokens[2],
-                version=int(tokens[3]),
+                version=tokens[3],
             )
         )
     return uris

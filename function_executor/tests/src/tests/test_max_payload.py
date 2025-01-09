@@ -80,7 +80,7 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
-                    graph_version=1,
+                    graph_version="1",
                     function_name="validate_max_input",
                     graph=SerializedObject(
                         bytes=CloudPickleSerializer.serialize(
@@ -117,7 +117,7 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
                 InitializeRequest(
                     namespace="test",
                     graph_name="test",
-                    graph_version=1,
+                    graph_version="1",
                     function_name="generate_max_output",
                     graph=SerializedObject(
                         bytes=CloudPickleSerializer.serialize(

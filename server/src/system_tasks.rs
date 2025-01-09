@@ -96,7 +96,7 @@ impl SystemTasksExecutor {
                     state_store::requests::ReplayInvocationsRequest {
                         namespace: task.namespace.clone(),
                         compute_graph_name: task.compute_graph_name.clone(),
-                        graph_version: task.graph_version,
+                        graph_version: task.graph_version.clone(),
                         invocation_ids: invocations.iter().map(|i| i.id.clone()).collect(),
                         restart_key: restart_key.clone(),
                     },
@@ -167,6 +167,7 @@ mod tests {
         },
         DataPayload,
         ExecutorId,
+        GraphVersion,
         InvocationPayload,
         InvocationPayloadBuilder,
         NodeOutput,
@@ -397,9 +398,9 @@ mod tests {
         let system_tasks = state.reader().get_system_tasks(None).unwrap().0;
         assert_eq!(system_tasks.len(), 0);
 
-        // Update graph so version is incremented
+        // Update graph version
         let mut graph = graph;
-        graph.code.sha256_hash = generate_random_hash();
+        graph.version = GraphVersion::from("2");
 
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
@@ -417,7 +418,7 @@ mod tests {
             .reader()
             .list_compute_graphs(&graph.namespace, None, None)?;
         assert_eq!(graphs.len(), 1);
-        assert_eq!(graphs[0].version, graph.version.next());
+        assert_eq!(graphs[0].version, GraphVersion::from("2"));
 
         let graph = graphs[0].clone();
 
@@ -664,9 +665,9 @@ mod tests {
             }
         }
 
-        // Update graph so version is incremented
+        // Update graph version
         let mut graph = graph;
-        graph.code.sha256_hash = generate_random_hash();
+        graph.version = GraphVersion::from("2");
 
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
@@ -684,7 +685,7 @@ mod tests {
             .reader()
             .list_compute_graphs(&graph.namespace, None, None)?;
         assert_eq!(graphs.len(), 1);
-        assert_eq!(graphs[0].version, graph.version.next());
+        assert_eq!(graphs[0].version, GraphVersion::from("2"));
 
         let graph = graphs[0].clone();
 

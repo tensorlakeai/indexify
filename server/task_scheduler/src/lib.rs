@@ -111,7 +111,7 @@ impl TaskScheduler {
             .get_compute_graph_version(
                 &task.namespace,
                 &task.compute_graph_name,
-                task.graph_version,
+                &task.graph_version,
             )?
             .ok_or(anyhow!("compute graph not found"))?;
         let compute_fn = compute_graph_version

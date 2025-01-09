@@ -749,6 +749,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "strum",
+ "tracing",
  "uuid",
 ]
 
