@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, Node, ReduceTask, RuntimeInformation, Task};
+use data_model::{ComputeGraphVersion, ExecutorId, Node, ReduceTask, Task};
 use rand::seq::SliceRandom;
 use state_store::{
     requests::{TaskPlacement, TaskPlacementDiagnostic},
@@ -111,15 +111,14 @@ impl TaskScheduler {
             .get_compute_graph_version(
                 &task.namespace,
                 &task.compute_graph_name,
-                task.graph_version,
+                &task.graph_version,
             )?
             .ok_or(anyhow!("compute graph not found"))?;
         let compute_fn = compute_graph_version
             .nodes
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("compute fn not found"))?;
-        let filtered_executors =
-            self.filter_executors(&compute_fn, &compute_graph_version.runtime_information)?;
+        let filtered_executors = self.filter_executors(&compute_graph_version, &compute_fn)?;
         if !filtered_executors.diagnostic_msgs.is_empty() {
             diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
         }
@@ -139,8 +138,8 @@ impl TaskScheduler {
 
     fn filter_executors(
         &self,
+        compute_graph: &ComputeGraphVersion,
         node: &Node,
-        graph_runtime: &RuntimeInformation,
     ) -> Result<FilteredExecutors> {
         let executors = self.indexify_state.reader().get_all_executors()?;
         let mut filtered_executors = Vec::new();
@@ -148,29 +147,18 @@ impl TaskScheduler {
         let mut diagnostic_msgs = vec![];
 
         for executor in &executors {
-            if let Some(minor_version) = executor.labels.get("python_minor_version") {
-                if let Ok(executor_python_minor_version) =
-                    serde_json::from_value::<u8>(minor_version.clone())
-                {
-                    if executor_python_minor_version != graph_runtime.minor_version {
-                        info!(
-                            "skipping executor {} because python version does not match",
-                            executor.id
-                        );
-                        diagnostic_msgs.push(format!(
-                            "executor {} python version: 3.{} does not match function python version: 3.{}",
-                            executor.id, executor_python_minor_version, graph_runtime.minor_version
-                        ));
-                        continue;
+            match executor.function_allowlist {
+                Some(ref allowlist) => {
+                    for func_uri in allowlist {
+                        if func_matches(func_uri, compute_graph, node) {
+                            filtered_executors.push(executor.id.clone());
+                            break;
+                        }
                     }
-                } else {
-                    error!("failed to parse python_minor_version label");
-                    continue;
                 }
-            }
-
-            if node.matches_executor(executor, &mut diagnostic_msgs) {
-                filtered_executors.push(executor.id.clone());
+                None => {
+                    filtered_executors.push(executor.id.clone());
+                }
             }
         }
         if !filtered_executors.is_empty() {
@@ -181,4 +169,17 @@ impl TaskScheduler {
             diagnostic_msgs,
         })
     }
+}
+
+fn func_matches(
+    func_uri: &data_model::FunctionURI,
+    compute_graph: &ComputeGraphVersion,
+    node: &Node,
+) -> bool {
+    func_uri.compute_fn_name.eq(node.name()) &&
+        func_uri
+            .compute_graph_name
+            .eq(&compute_graph.compute_graph_name) &&
+        func_uri.version == compute_graph.version &&
+        func_uri.namespace.eq(&compute_graph.namespace)
 }

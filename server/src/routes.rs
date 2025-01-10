@@ -645,15 +645,28 @@ async fn executor_tasks(
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
+    let function_allowlist = match payload.function_allowlist {
+        Some(function_uris) => Some(
+            function_uris
+                .iter()
+                .map(|f| data_model::FunctionURI {
+                    namespace: f.namespace.clone(),
+                    compute_graph_name: f.compute_graph.clone(),
+                    compute_fn_name: f.compute_fn.clone(),
+                    version: f.version.clone().into(),
+                })
+                .collect(),
+        ),
+        None => None,
+    };
     let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
             id: executor_id.clone(),
             executor_version: payload.executor_version.clone(),
-            image_name: payload.image_name.clone(),
             addr: payload.addr.clone(),
+            function_allowlist,
             labels: payload.labels.clone(),
-            image_hash: payload.image_hash,
         })
         .await;
     if let Err(e) = err {
@@ -832,7 +845,7 @@ async fn get_versioned_code(
         let compute_graph_version = state
             .indexify_state
             .reader()
-            .get_compute_graph_version(&namespace, &compute_graph, version.into())
+            .get_compute_graph_version(&namespace, &compute_graph, &version.into())
             .map_err(IndexifyAPIError::internal_error)?;
 
         let compute_graph_version = compute_graph_version.ok_or(IndexifyAPIError::not_found(

@@ -67,7 +67,7 @@ def run_task(
         RunTaskRequest(
             namespace="test",
             graph_name="test",
-            graph_version=1,
+            graph_version="1",
             function_name=function_name,
             graph_invocation_id="123",
             task_id="test-task",

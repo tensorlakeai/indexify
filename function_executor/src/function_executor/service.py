@@ -27,7 +27,7 @@ class Service(FunctionExecutorServicer):
         self._logger = structlog.get_logger(module=__name__)
         self._namespace: Optional[str] = None
         self._graph_name: Optional[str] = None
-        self._graph_version: Optional[int] = None
+        self._graph_version: Optional[str] = None
         self._function_name: Optional[str] = None
         self._function: Optional[Union[IndexifyFunction, IndexifyRouter]] = None
         self._invocation_state_proxy_server: Optional[InvocationStateProxyServer] = None
@@ -52,7 +52,7 @@ class Service(FunctionExecutorServicer):
         self._logger = self._logger.bind(
             namespace=request.namespace,
             graph_name=request.graph_name,
-            graph_version=str(request.graph_version),
+            graph_version=request.graph_version,
             function_name=request.function_name,
         )
         graph_serializer = get_serializer(request.graph.content_type)

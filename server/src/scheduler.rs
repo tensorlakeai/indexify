@@ -146,7 +146,7 @@ impl Scheduler {
                     .get_compute_graph_version(
                         &task.namespace,
                         &task.compute_graph_name,
-                        task.graph_version,
+                        &task.graph_version,
                     )
                     .map_err(|e| {
                         error!("error getting compute graph version: {:?}", e);
@@ -640,7 +640,7 @@ mod tests {
                     size: 23,
                     sha256_hash: "hash123".to_string(),
                 },
-                version: GraphVersion(1),
+                version: GraphVersion::from("1"),
                 created_at: 5,
                 start_fn: Node::Compute(fn_gen),
                 runtime_information: RuntimeInformation {
@@ -889,7 +889,7 @@ mod tests {
                     size: 23,
                     sha256_hash: "hash123".to_string(),
                 },
-                version: GraphVersion(1),
+                version: GraphVersion::from("1"),
                 created_at: 5,
                 start_fn: Node::Compute(fn_gen),
                 runtime_information: RuntimeInformation {
@@ -1203,7 +1203,7 @@ mod tests {
                     size: 23,
                     sha256_hash: "hash123".to_string(),
                 },
-                version: GraphVersion(1),
+                version: GraphVersion::from("1"),
                 created_at: 5,
                 start_fn: Node::Compute(fn_gen),
                 runtime_information: RuntimeInformation {
@@ -1484,7 +1484,7 @@ mod tests {
                     size: 23,
                     sha256_hash: "hash123".to_string(),
                 },
-                version: GraphVersion(1),
+                version: GraphVersion::from("1"),
                 created_at: 5,
                 start_fn: Node::Compute(fn_gen),
                 runtime_information: RuntimeInformation {
@@ -1865,7 +1865,7 @@ mod tests {
                     size: 23,
                     sha256_hash: "hash123".to_string(),
                 },
-                version: GraphVersion(1),
+                version: GraphVersion::from("1"),
                 created_at: 5,
                 start_fn: Node::Compute(fn_gen),
                 runtime_information: RuntimeInformation {

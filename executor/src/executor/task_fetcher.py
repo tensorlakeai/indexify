@@ -1,12 +1,12 @@
 import json
 from importlib.metadata import version
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, List, Optional
 
 import structlog
 from httpx_sse import aconnect_sse
 from python_utils.http_client import get_httpx_client
 
-from .api_objects import ExecutorMetadata, Task
+from .api_objects import ExecutorMetadata, FunctionURI, Task
 from .runtime_probes import ProbeInfo, RuntimeProbes
 
 
@@ -18,8 +18,7 @@ class TaskFetcher:
         protocol: str,
         indexify_server_addr: str,
         executor_id: str,
-        name_alias: Optional[str] = None,
-        image_hash: Optional[int] = None,
+        function_allowlist: Optional[List[FunctionURI]],
         config_path: Optional[str] = None,
     ):
         self._protocol: str = protocol
@@ -32,8 +31,7 @@ class TaskFetcher:
             id=executor_id,
             executor_version=version("indexify-executor"),
             addr="",
-            image_name=probe_info.image_name if name_alias is None else name_alias,
-            image_hash=(probe_info.image_hash if image_hash is None else image_hash),
+            function_allowlist=function_allowlist,
             labels=probe_info.labels,
         )
 

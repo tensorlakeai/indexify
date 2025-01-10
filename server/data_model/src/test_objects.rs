@@ -164,7 +164,7 @@ pub mod tests {
                 ("fn_c".to_string(), Node::Compute(fn_c)),
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
             ]),
-            version: crate::GraphVersion(1),
+            version: crate::GraphVersion::from("1"),
             edges: HashMap::from([(
                 "fn_a".to_string(),
                 vec!["fn_b".to_string(), "fn_c".to_string()],
@@ -224,7 +224,7 @@ pub mod tests {
                 ("router_x".to_string(), Node::Router(router_x)),
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
             ]),
-            version: crate::GraphVersion(1),
+            version: crate::GraphVersion::from("1"),
             edges: HashMap::from([("fn_a".to_string(), vec!["router_x".to_string()])]),
             description: "description graph_B".to_string(),
             code: ComputeGraphCode {
@@ -269,7 +269,7 @@ pub mod tests {
                 size: 23,
                 sha256_hash: "hash123".to_string(),
             },
-            version: crate::GraphVersion(1),
+            version: crate::GraphVersion::from("1"),
             created_at: 5,
             start_fn: Compute(fn_a),
             runtime_information: RuntimeInformation {
@@ -289,10 +289,9 @@ pub mod tests {
         ExecutorMetadata {
             id: mock_executor_id(),
             executor_version: "1.0.0".to_string(),
-            image_name: TEST_EXECUTOR_IMAGE_NAME.to_string(),
+            function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
-            image_hash: "image_hash".to_string(),
         }
     }
 }

@@ -24,7 +24,8 @@ class Downloader:
             self.code_path,
             "graph_cache",
             task.namespace,
-            f"{task.compute_graph}.{task.graph_version}",
+            task.compute_graph,
+            task.graph_version,
         )
         # Filesystem operations are synchronous.
         # Run in a separate thread to not block the main event loop.

@@ -53,7 +53,7 @@ pub async fn handle_invoke_compute_graph(
         .get_compute_graph_version(
             &event.namespace,
             &event.compute_graph,
-            invocation_ctx.graph_version,
+            &invocation_ctx.graph_version,
         )
         .map_err(|e| {
             anyhow!(
@@ -89,7 +89,7 @@ pub async fn handle_invoke_compute_graph(
         &event.invocation_id,
         &event.invocation_id,
         None,
-        compute_graph_version.version,
+        &compute_graph_version.version,
     )?;
     trace!(
         task_key = task.key(),
@@ -181,7 +181,7 @@ pub async fn handle_task_finished(
                     &task.invocation_id,
                     &task.input_node_output_key,
                     None,
-                    invocation_ctx.graph_version,
+                    &invocation_ctx.graph_version,
                 )?;
                 new_tasks.push(new_task);
             }
@@ -242,7 +242,7 @@ pub async fn handle_task_finished(
                         &task.invocation_id,
                         &reduction_task.task_output_key,
                         Some(output.id.clone()),
-                        invocation_ctx.graph_version,
+                        &invocation_ctx.graph_version,
                     )?;
                     trace!(
                         task_keys = ?new_tasks.iter().map(|t| t.key()).collect::<Vec<String>>(),
@@ -433,7 +433,7 @@ pub async fn handle_task_finished(
                         &task.invocation_id,
                         &output.key(&task.invocation_id),
                         Some(prev_reducer_output.id.clone()),
-                        invocation_ctx.graph_version,
+                        &invocation_ctx.graph_version,
                     )?;
                     trace!(
                         task_key = new_task.key(),
@@ -452,7 +452,7 @@ pub async fn handle_task_finished(
                 &task.invocation_id,
                 &output.key(&task.invocation_id),
                 None,
-                invocation_ctx.graph_version,
+                &invocation_ctx.graph_version,
             )?;
             trace!(
                 task_key = new_task.key(),

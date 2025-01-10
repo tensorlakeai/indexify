@@ -95,7 +95,7 @@ class TestSetInvocationState(FunctionExecutorServerTestCase):
             InitializeRequest(
                 namespace="test",
                 graph_name="test",
-                graph_version=1,
+                graph_version="1",
                 function_name="set_invocation_state",
                 graph=SerializedObject(
                     bytes=CloudPickleSerializer.serialize(
@@ -228,7 +228,7 @@ class TestGetInvocationState(FunctionExecutorServerTestCase):
             InitializeRequest(
                 namespace="test",
                 graph_name="test",
-                graph_version=1,
+                graph_version="1",
                 function_name="get_invocation_state",
                 graph=SerializedObject(
                     bytes=CloudPickleSerializer.serialize(

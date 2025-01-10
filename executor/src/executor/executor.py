@@ -1,12 +1,12 @@
 import asyncio
 import signal
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import structlog
 from function_executor.proto.function_executor_pb2 import SerializedObject
 
-from .api_objects import Task
+from .api_objects import FunctionURI, Task
 from .downloader import Downloader
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
@@ -21,11 +21,10 @@ class Executor:
         self,
         executor_id: str,
         code_path: Path,
+        function_allowlist: Optional[List[FunctionURI]],
         function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
-        name_alias: Optional[str] = None,
-        image_hash: Optional[str] = None,
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._should_run = True
@@ -38,7 +37,7 @@ class Executor:
         self._server_addr = server_addr
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
-        self._task_runnner = TaskRunner(
+        self._task_runner = TaskRunner(
             function_executor_server_factory=function_executor_server_factory,
             base_url=self._base_url,
             config_path=config_path,
@@ -50,8 +49,7 @@ class Executor:
             protocol=protocol,
             indexify_server_addr=self._server_addr,
             executor_id=executor_id,
-            name_alias=name_alias,
-            image_hash=image_hash,
+            function_allowlist=function_allowlist,
             config_path=config_path,
         )
         self._task_reporter = TaskReporter(
@@ -98,7 +96,7 @@ class Executor:
                 await self._downloader.download_init_value(task)
             )
             logger.info("task_execution_started")
-            output: TaskOutput = await self._task_runnner.run(
+            output: TaskOutput = await self._task_runner.run(
                 TaskInput(
                     task=task,
                     graph=graph,
@@ -134,7 +132,7 @@ class Executor:
     async def _shutdown(self, loop):
         self._logger.info("shutting_down")
         self._should_run = False
-        await self._task_runnner.shutdown()
+        await self._task_runner.shutdown()
         for task in asyncio.all_tasks(loop):
             task.cancel()
 

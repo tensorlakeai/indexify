@@ -543,7 +543,7 @@ impl StateReader {
         &self,
         namespace: &str,
         name: &str,
-        version: GraphVersion,
+        version: &GraphVersion,
     ) -> Result<Option<ComputeGraphVersion>> {
         let kvs = &[KeyValue::new("op", "get_compute_graph_version")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
