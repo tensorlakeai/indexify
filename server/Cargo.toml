@@ -24,9 +24,7 @@ serde = { version = "1.0.217", features = ["derive"] }
 anyhow = "1.0.95"
 serde_json = "1.0.135"
 # https://github.com/rust-rocksdb/rust-rocksdb/issues/881
-rocksdb = { git = "https://github.com/rust-rocksdb/rust-rocksdb", rev = "87b6b2df89c1fafcfb53129f8c3304d636a94f2e", features = [
-    "multi-threaded-cf",
-] }
+rocksdb = {version="0.23.0"}
 data_model = { path = "data_model" }
 blob_store = { path = "blob_store" }
 indexify_utils = { path = "utils" }
@@ -83,7 +81,6 @@ opentelemetry-otlp = { version = "0.27", features = [
 ] }
 opentelemetry-prometheus = { version = "0.27.0" }
 prometheus = { version = "0.13.4" }
-axum-otel-metrics = { version = "0.9.1" }
 tracing-opentelemetry = "0.28.0"
 dashmap = "6.1.0"
 tower-otel-http-metrics = "0.10.0"

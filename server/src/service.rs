@@ -1,9 +1,12 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
+use axum::http;
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::{init_provider, processors_metrics};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use processor::{
     dispatcher::Dispatcher,
     gc::Gc,
@@ -12,7 +15,6 @@ use processor::{
     system_tasks::SystemTasksExecutor,
     task_allocator::TaskAllocationProcessor,
 };
-use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
     self,
@@ -121,6 +123,7 @@ impl Service {
             .build()
             .unwrap();
 
+        let metrics_registry = Arc::new(registry);
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
             dispatcher: self.dispatcher.clone(),

@@ -11,6 +11,7 @@ use axum::{
     Json,
     Router,
 };
+use axum_otel_metrics::{HttpMetrics, HttpMetricsLayerBuilder};
 use axum_tracing_opentelemetry::{
     self,
     middleware::{OtelAxumLayer, OtelInResponseLayer},
@@ -23,6 +24,8 @@ use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use metrics::api_io_stats;
 use nanoid::nanoid;
+use opentelemetry_prometheus::PrometheusExporter;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use processor::dispatcher::Dispatcher;
 use prometheus::Encoder;
 use state_store::{
@@ -202,8 +205,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
         // No tracing starting here.
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
-        .layer(cors)
         .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
+        .layer(cors)
         .layer(DefaultBodyLimit::disable())
 }
 
