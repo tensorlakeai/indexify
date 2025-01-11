@@ -1,12 +1,9 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
-use axum::http;
-use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::{init_provider, processors_metrics};
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 use processor::{
     dispatcher::Dispatcher,
     gc::Gc,
