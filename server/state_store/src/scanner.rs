@@ -12,6 +12,7 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
+    ProcessorId,
     ReduceTask,
     StateChange,
     SystemTask,
@@ -422,20 +423,61 @@ impl StateReader {
     }
 
     #[instrument(skip(self))]
-    pub fn get_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
+    pub fn get_unprocessed_state_changes_all_processors(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
+        let key_prefix = "";
+        let key_prefix = key_prefix.as_bytes();
+
         let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
-        let iter = self.db.iterator_cf(&cf, IteratorMode::Start);
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
         let mut state_changes = Vec::new();
         let mut count = 0;
-        for kv in iter {
-            if let Ok((_, serialized_sc)) = kv {
-                let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
-                state_changes.push(state_change);
-                count += 1;
+        for kv in iter.flatten() {
+            let (_key, serialized_sc) = kv;
+
+            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
+            state_changes.push(state_change);
+            count += 1;
+
+            if count >= 10 {
+                break;
             }
+        }
+        Ok(state_changes)
+    }
+
+    #[instrument(skip(self))]
+    pub fn get_unprocessed_state_changes(
+        &self,
+        processor_id: ProcessorId,
+    ) -> Result<Vec<StateChange>> {
+        let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = processor_id.key_prefix();
+        let key_prefix = key_prefix.as_bytes();
+
+        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
+        let iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
+        let mut state_changes = Vec::new();
+        let mut count = 0;
+        for kv in iter.flatten() {
+            let (key, serialized_sc) = kv;
+
+            if !key.starts_with(key_prefix) {
+                break;
+            }
+
+            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
+            state_changes.push(state_change);
+            count += 1;
+
             if count >= 10 {
                 break;
             }
@@ -861,26 +903,17 @@ impl StateReader {
 }
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use data_model::Namespace;
-    use tempfile::TempDir;
 
-    use super::{
-        super::{
-            requests::{NamespaceRequest, RequestPayload},
-            IndexifyState,
-        },
-        *,
+    use super::*;
+    use crate::{
+        requests::{NamespaceRequest, RequestPayload, StateMachineUpdateRequest},
+        test_state_store::TestStateStore,
     };
-    use crate::requests::StateMachineUpdateRequest;
 
     #[tokio::test]
-    async fn test_get_rows_from_cf_with_limits() {
-        let temp_dir = TempDir::new().unwrap();
-        let indexify_state = IndexifyState::new(PathBuf::from(temp_dir.path().join("state")))
-            .await
-            .unwrap();
+    async fn test_get_rows_from_cf_with_limits() -> Result<()> {
+        let indexify_state = TestStateStore::new().await?.indexify_state;
         for i in 0..4 {
             let name = format!("test_{}", i);
             indexify_state
@@ -888,7 +921,7 @@ mod tests {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: name.clone(),
                     }),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await
                 .unwrap();
@@ -919,5 +952,7 @@ mod tests {
         let cursor = result.1;
         assert_eq!(result.0.len(), 2);
         assert_eq!(cursor, None);
+
+        Ok(())
     }
 }

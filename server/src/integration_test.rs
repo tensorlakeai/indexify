@@ -1,206 +1,8 @@
-use std::{sync::Arc, vec};
-
-use anyhow::{anyhow, Result};
-use data_model::{ChangeType, StateChangeId};
-use metrics::{scheduler_stats, Timer};
-use state_store::{
-    requests::{
-        CreateTasksRequest,
-        ReductionTasks,
-        RequestPayload,
-        SchedulerUpdateRequest,
-        StateMachineUpdateRequest,
-    },
-    IndexifyState,
-};
-use task_scheduler::{
-    task_creator::{handle_invoke_compute_graph, handle_task_finished},
-    TaskScheduler,
-};
-use tokio::{self, sync::watch::Receiver};
-use tracing::{error, info, instrument, span};
-
-pub struct Scheduler {
-    indexify_state: Arc<IndexifyState>,
-    task_allocator: Arc<TaskScheduler>,
-    metrics: Arc<scheduler_stats::Metrics>,
-}
-
-impl Scheduler {
-    pub fn new(indexify_state: Arc<IndexifyState>, metrics: Arc<scheduler_stats::Metrics>) -> Self {
-        let task_allocator = Arc::new(TaskScheduler::new(indexify_state.clone()));
-        Self {
-            indexify_state,
-            task_allocator,
-            metrics,
-        }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn run_scheduler(&self) -> Result<()> {
-        let _timer = Timer::start(&self.metrics.scheduler_invocations);
-        let state_changes = self
-            .indexify_state
-            .reader()
-            .get_unprocessed_state_changes()?;
-
-        for state_change in &state_changes {
-            let mut create_task_requests = vec![];
-            let mut processed_state_change_ids = vec![];
-            let mut new_reduction_tasks = vec![];
-            let mut processed_reduction_tasks = vec![];
-            let mut placement_diagnostics = vec![];
-            let requires_task_allocation = state_change.change_type == ChangeType::TaskCreated ||
-                state_change.change_type == ChangeType::ExecutorAdded ||
-                state_change.change_type == ChangeType::ExecutorRemoved;
-            let span = span!(
-                tracing::Level::INFO,
-                "process_state_change",
-                state_change_id = state_change.id.to_string(),
-                change_type = state_change.change_type.as_ref(),
-            );
-            let _enter = span.enter();
-            match self.process_state_change(state_change).await {
-                Ok(result) => {
-                    processed_state_change_ids.push(state_change.id);
-
-                    if let Some(result) = result {
-                        let request = CreateTasksRequest {
-                            namespace: result.namespace.clone(),
-                            invocation_id: result.invocation_id.clone(),
-                            compute_graph: result.compute_graph.clone(),
-                            tasks: result.tasks,
-                        };
-                        create_task_requests.push(request);
-                        new_reduction_tasks.extend(result.new_reduction_tasks);
-                        processed_reduction_tasks.extend(result.processed_reduction_tasks);
-                    }
-                }
-                Err(err) => {
-                    error!("error processing state change: {:?}", err);
-                    continue;
-                }
-            }
-
-            let mut new_allocations = vec![];
-            if requires_task_allocation {
-                let task_placement_result = self.task_allocator.schedule_unplaced_tasks()?;
-                new_allocations.extend(task_placement_result.task_placements);
-                placement_diagnostics.extend(task_placement_result.placement_diagnostics);
-            }
-
-            let scheduler_update_request = StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
-                    task_requests: create_task_requests,
-                    allocations: new_allocations,
-                    reduction_tasks: ReductionTasks {
-                        new_reduction_tasks,
-                        processed_reduction_tasks,
-                    },
-                    placement_diagnostics,
-                }),
-                state_changes_processed: processed_state_change_ids,
-            };
-            if let Err(err) = self.indexify_state.write(scheduler_update_request).await {
-                error!("error writing scheduler update request: {:?}", err);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn process_state_change(
-        &self,
-        state_change: &data_model::StateChange,
-    ) -> Result<Option<task_scheduler::TaskCreationResult>> {
-        let result = match &state_change.change_type {
-            ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
-                handle_invoke_compute_graph(
-                    self.indexify_state.clone(),
-                    invoke_compute_graph_event.clone(),
-                )
-                .await?,
-            ),
-            ChangeType::TaskFinished(task_finished_event) => {
-                let task = self
-                    .indexify_state
-                    .reader()
-                    .get_task_from_finished_event(task_finished_event)
-                    .map_err(|e| {
-                        error!("error getting task from finished event: {:?}", e);
-                        e
-                    })?;
-                if task.is_none() {
-                    error!(
-                        "task not found for task finished event: {}",
-                        task_finished_event.task_id
-                    );
-                    return Ok(None);
-                }
-                let task =
-                    task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
-
-                let compute_graph_version = self
-                    .indexify_state
-                    .reader()
-                    .get_compute_graph_version(
-                        &task.namespace,
-                        &task.compute_graph_name,
-                        &task.graph_version,
-                    )
-                    .map_err(|e| {
-                        error!("error getting compute graph version: {:?}", e);
-                        e
-                    })?;
-                if compute_graph_version.is_none() {
-                    error!(
-                        "compute graph version not found: {:?} {:?}",
-                        task.namespace, task.compute_graph_name
-                    );
-                    return Ok(None);
-                }
-                let compute_graph_version = compute_graph_version.ok_or(anyhow!(
-                    "compute graph version not found: {:?} {:?}",
-                    task.namespace,
-                    task.compute_graph_name
-                ))?;
-                Some(
-                    handle_task_finished(self.indexify_state.clone(), task, compute_graph_version)
-                        .await?,
-                )
-            }
-            _ => None,
-        };
-        Ok(result)
-    }
-
-    pub async fn start(
-        &self,
-        mut shutdown_rx: Receiver<()>,
-        mut state_watcher_rx: Receiver<StateChangeId>,
-    ) -> Result<()> {
-        loop {
-            tokio::select! {
-                _ = state_watcher_rx.changed() => {
-                       let _state_change = *state_watcher_rx.borrow_and_update();
-                       if let Err(err) = self.run_scheduler().await {
-                              error!("error processing and distributing work: {:?}", err);
-                       }
-                },
-                _ = shutdown_rx.changed() => {
-                    info!("scheduler shutting down");
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, time::Duration};
+    use std::{collections::HashMap, vec};
 
+    use anyhow::Result;
     use data_model::{
         test_objects::tests::{
             mock_executor,
@@ -219,6 +21,8 @@ mod tests {
         GraphVersion,
         InvocationPayloadBuilder,
         Node,
+        ProcessorId,
+        ProcessorType,
         RuntimeInformation,
         StateChange,
         Task,
@@ -228,30 +32,28 @@ mod tests {
     use state_store::{
         requests::{
             CreateOrUpdateComputeGraphRequest,
+            DeregisterExecutorRequest,
             FinalizeTaskRequest,
             InvokeComputeGraphRequest,
+            RegisterExecutorRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
         },
         serializer::{JsonEncode, JsonEncoder},
         state_machine::IndexifyObjectsColumns,
-        test_state_store::tests::TestStateStore,
+        test_state_store,
     };
-    use tracing_subscriber::{layer::SubscriberExt, Layer};
 
-    use super::*;
-    use crate::executors::{self, ExecutorManager};
+    use crate::{service::Service, testing};
 
     #[tokio::test]
     async fn test_invoke_compute_graph_event_creates_tasks() -> Result<()> {
-        let state_store = TestStateStore::new().await?;
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let invocation_id = state_store.with_simple_graph().await;
-        scheduler.run_scheduler().await?;
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+
+        test_srv.process_ns().await?;
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
@@ -260,7 +62,7 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes()
+            .get_unprocessed_state_changes_all_processors()
             .unwrap();
         // Processes the invoke cg event and creates a task created event
         assert_eq!(unprocessed_state_changes.len(), 1);
@@ -269,16 +71,12 @@ mod tests {
 
     #[tokio::test]
     async fn create_tasks_when_after_fn_finishes() -> Result<()> {
-        let state_store = TestStateStore::new().await?;
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let invocation_id = state_store.with_simple_graph().await;
-        scheduler.run_scheduler().await?;
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+
+        test_srv.process_all().await?;
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
@@ -287,11 +85,12 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         let task = &tasks[0];
         // Finish the task and check if new tasks are created
-        state_store
-            .finalize_task(task, 1, TaskOutcome::Success, false)
+        test_state_store::finalize_task(&indexify_state, task, 1, TaskOutcome::Success, false)
             .await
             .unwrap();
-        scheduler.run_scheduler().await?;
+
+        test_srv.process_ns().await?;
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
@@ -300,26 +99,27 @@ mod tests {
         assert_eq!(tasks.len(), 3);
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes()
+            .get_unprocessed_state_changes_all_processors()
             .unwrap();
 
-        // has task crated state change in it.
-        assert_eq!(unprocessed_state_changes.len(), 1);
+        // has task created state change in it.
+        assert_eq!(
+            unprocessed_state_changes.len(),
+            1,
+            "unprocessed_state_changes: {:?}",
+            unprocessed_state_changes
+        );
         Ok(())
     }
 
     #[tokio::test]
     async fn handle_failed_tasks() -> Result<()> {
-        let state_store = TestStateStore::new().await?;
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let invocation_id = state_store.with_simple_graph().await;
-        scheduler.run_scheduler().await?;
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+
+        test_srv.process_all().await?;
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
@@ -329,11 +129,25 @@ mod tests {
         let task = &tasks[0];
 
         // Finish the task and check if new tasks are created
-        state_store
-            .finalize_task(task, 1, TaskOutcome::Failure, false)
+        test_state_store::finalize_task(&indexify_state, task, 1, TaskOutcome::Failure, false)
             .await
             .unwrap();
-        scheduler.run_scheduler().await?;
+
+        test_srv.process_all().await?;
+
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .get_unprocessed_state_changes_all_processors()
+            .unwrap();
+
+        // no more tasks since invocation failed
+        assert_eq!(
+            unprocessed_state_changes.len(),
+            0,
+            "unprocessed_state_changes: {:?}",
+            unprocessed_state_changes
+        );
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
@@ -357,36 +171,25 @@ mod tests {
         Ok(())
     }
 
-    pub async fn schedule_all(indexify_state: &IndexifyState, scheduler: &Scheduler) -> Result<()> {
-        let time = std::time::Instant::now();
-        loop {
-            if time.elapsed().as_secs() > 10 {
-                return Err(anyhow!("timeout"));
-            }
-            let unprocessed_state_changes =
-                indexify_state.reader().get_unprocessed_state_changes()?;
-            if unprocessed_state_changes.is_empty() {
-                return Ok(());
-            }
-            scheduler.run_scheduler().await?;
-        }
-    }
-
     #[tokio::test]
     async fn test_task_remove() -> Result<()> {
-        let state_store = TestStateStore::new().await?;
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
-        let invocation_id = state_store.with_simple_graph().await;
-        ex.register_executor(mock_executor()).await?;
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
-        schedule_all(&indexify_state, &scheduler).await?;
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+
+        test_srv.process_all().await?;
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: mock_executor(),
+                }),
+                process_state_change: None,
+            })
+            .await?;
+
+        test_srv.process_all().await?;
 
         let tasks = indexify_state
             .reader()
@@ -404,8 +207,7 @@ mod tests {
         assert_eq!(unallocated_tasks.len(), 0);
 
         let task = tasks.first().unwrap();
-        state_store
-            .finalize_task(task, 1, TaskOutcome::Success, false)
+        test_state_store::finalize_task(&indexify_state, task, 1, TaskOutcome::Success, false)
             .await?;
 
         let executor_tasks = indexify_state
@@ -421,19 +223,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_unassign() -> Result<()> {
-        let state_store = TestStateStore::new().await?;
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
-        let invocation_id = state_store.with_simple_graph().await;
-        ex.register_executor(mock_executor()).await?;
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
-        schedule_all(&indexify_state, &scheduler).await?;
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+
+        test_srv.process_all().await?;
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: mock_executor(),
+                }),
+                process_state_change: None,
+            })
+            .await?;
+
+        test_srv.process_all().await?;
 
         let tasks = indexify_state
             .reader()
@@ -450,7 +256,14 @@ mod tests {
         let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
         assert_eq!(unallocated_tasks.len(), 0);
 
-        ex.deregister_executor(mock_executor_id()).await?;
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                    executor_id: mock_executor_id(),
+                }),
+                process_state_change: None,
+            })
+            .await?;
 
         let executor_tasks = indexify_state
             .reader()
@@ -465,18 +278,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_executor() -> Result<()> {
-        let state_store = TestStateStore::new().await?;
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let invocation_id = state_store.with_simple_graph().await;
-        let ex = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
-        schedule_all(&indexify_state, &scheduler).await?;
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+
+        test_srv.process_all().await?;
 
         let tasks = indexify_state
             .reader()
@@ -488,9 +295,16 @@ mod tests {
         let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
         assert_eq!(unallocated_tasks.len(), 1);
 
-        ex.register_executor(mock_executor()).await?;
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: mock_executor(),
+                }),
+                process_state_change: None,
+            })
+            .await?;
 
-        schedule_all(&indexify_state, &scheduler).await?;
+        test_srv.process_all().await?;
 
         let executor_tasks = indexify_state
             .reader()
@@ -500,59 +314,63 @@ mod tests {
         let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
         assert_eq!(unallocated_tasks.len(), 0);
 
-        executors::schedule_deregister(ex.clone(), mock_executor_id(), Duration::from_secs(1));
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                    executor_id: mock_executor_id(),
+                }),
+                process_state_change: None,
+            })
+            .await?;
 
         let mut executor = mock_executor();
         executor.id = ExecutorId::new("2".to_string());
-        ex.register_executor(executor.clone()).await?;
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: executor.clone(),
+                }),
+                process_state_change: None,
+            })
+            .await?;
 
-        let time = std::time::Instant::now();
-        loop {
-            schedule_all(&indexify_state, &scheduler).await?;
+        test_srv.process_all().await?;
 
-            let executor_tasks = indexify_state
-                .reader()
-                .get_tasks_by_executor(&executor.id, 10)?;
-            if executor_tasks.len() == 1 {
-                break;
-            }
-
-            tokio::time::sleep(Duration::from_millis(1)).await;
-
-            if time.elapsed().as_secs() > 10 {
-                return Err(anyhow!("timeout"));
-            }
-        }
+        let executor_tasks = indexify_state
+            .reader()
+            .get_tasks_by_executor(&executor.id, 10)?;
+        assert_eq!(executor_tasks.len(), 1);
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_create_tasks_for_router_tasks() {
-        let state_store = TestStateStore::new().await.unwrap();
-        let indexify_state = state_store.indexify_state.clone();
-        let scheduler = Scheduler::new(
-            indexify_state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(
-                indexify_state.metrics.clone(),
-            )),
-        );
-        let invocation_id = state_store.with_router_graph().await;
-        scheduler.run_scheduler().await.unwrap();
+    async fn test_create_tasks_for_router_tasks() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+
+        let invocation_id = test_state_store::with_router_graph(&indexify_state).await;
+
+        test_srv.process_all().await?;
+
         let tasks = indexify_state
             .reader()
-            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
-            .unwrap()
+            .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)?
             .0;
         assert_eq!(tasks.len(), 1);
         let task_id = &tasks[0].id;
 
         // Finish the task and check if new tasks are created
-        state_store
-            .finalize_task_graph_b(&mock_invocation_payload_graph_b().id, task_id)
-            .await
-            .unwrap();
-        scheduler.run_scheduler().await.unwrap();
+        test_state_store::finalize_task_graph_b(
+            &indexify_state,
+            &mock_invocation_payload_graph_b().id,
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        test_srv.process_all().await?;
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
@@ -561,29 +379,39 @@ mod tests {
         assert_eq!(tasks.len(), 2);
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes()
+            .get_unprocessed_state_changes_all_processors()
             .unwrap();
-        // has task crated state change in it.
-        assert_eq!(unprocessed_state_changes.len(), 1);
+
+        // has task created state change in it.
+        assert_eq!(
+            unprocessed_state_changes.len(),
+            0,
+            "{:?}",
+            unprocessed_state_changes
+        );
 
         // Now finish the router task and we should have 3 tasks
         // The last one would be for the edge which the router picks
         let task_id = &tasks[1].id;
-        state_store
-            .finalize_router_x(&mock_invocation_payload_graph_b().id, task_id)
-            .await
-            .unwrap();
-        scheduler.run_scheduler().await.unwrap();
+        test_state_store::finalize_router_x(
+            &indexify_state,
+            &mock_invocation_payload_graph_b().id,
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        test_srv.process_all().await?;
+
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)
             .unwrap()
             .0;
-        assert_eq!(tasks.len(), 3);
-    }
+        assert_eq!(tasks.len(), 3, "tasks: {:?}", tasks);
 
-    // TODO write edge case test case when all fn_map finish state changes are
-    // handled in the same runloop of the executor!
+        Ok(())
+    }
 
     // test a simple reducer graph
     //
@@ -600,19 +428,8 @@ mod tests {
     //
     #[tokio::test]
     async fn test_reducer_graph() -> Result<()> {
-        let env_filter = tracing_subscriber::EnvFilter::new("trace");
-        // ignore error when set in multiple tests.
-        let _ = tracing::subscriber::set_global_default(
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
-        );
-
-        let temp_dir = tempfile::tempdir()?;
-        let state = IndexifyState::new(temp_dir.path().join("state")).await?;
-        let scheduler = Scheduler::new(
-            state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
-        );
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
         let graph = {
             let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
@@ -655,10 +472,10 @@ mod tests {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
-        state
+        indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                state_changes_processed: vec![],
+                process_state_change: None,
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -699,7 +516,7 @@ mod tests {
             };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -717,9 +534,9 @@ mod tests {
                 .collect();
 
             assert_eq!(
-                pending_tasks.len(),
                 expected_num,
-                "pending tasks: {:?}",
+                pending_tasks.len(),
+                "pending tasks: {:#?}",
                 pending_tasks
             );
             pending_tasks.iter().for_each(|t| {
@@ -735,18 +552,18 @@ mod tests {
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks: Vec<Task> = state
+            let tasks: Vec<Task> = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -761,14 +578,14 @@ mod tests {
             assert_eq!(task.compute_fn_name, "fn_gen");
 
             let request = make_finalize_request("fn_gen", &task.id, 3);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -777,14 +594,14 @@ mod tests {
             // Completing all fn_map tasks
             for task in pending_tasks {
                 let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-                state
+                indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        state_changes_processed: vec![],
+                        process_state_change: None,
                     })
                     .await?;
             }
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         // complete all fn_reduce tasks
@@ -794,14 +611,14 @@ mod tests {
 
             // Completing all fn_map tasks
             let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -809,26 +626,28 @@ mod tests {
             let pending_task = pending_tasks.first().unwrap();
 
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let state_changes = state.reader().get_unprocessed_state_changes()?;
+            let state_changes = indexify_state
+                .reader()
+                .get_unprocessed_state_changes_all_processors()?;
             assert_eq!(state_changes.len(), 0);
 
-            let graph_ctx = state
+            let graph_ctx = indexify_state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
                 .unwrap();
             assert_eq!(graph_ctx.outstanding_tasks, 0);
-            assert_eq!(graph_ctx.completed, true);
+            assert!(graph_ctx.completed);
         }
 
         Ok(())
@@ -849,19 +668,8 @@ mod tests {
     //
     #[tokio::test]
     async fn test_reducer_graph_first_reducer_finish_before_parent_finish() -> Result<()> {
-        let env_filter = tracing_subscriber::EnvFilter::new("trace");
-        // ignore error when set in multiple tests.
-        let _ = tracing::subscriber::set_global_default(
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
-        );
-
-        let temp_dir = tempfile::tempdir()?;
-        let state = IndexifyState::new(temp_dir.path().join("state")).await?;
-        let scheduler = Scheduler::new(
-            state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
-        );
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
         let graph = {
             let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
@@ -904,10 +712,10 @@ mod tests {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
-        state
+        indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                state_changes_processed: vec![],
+                process_state_change: None,
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -948,7 +756,7 @@ mod tests {
             };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -984,18 +792,18 @@ mod tests {
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks: Vec<Task> = state
+            let tasks: Vec<Task> = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1010,14 +818,14 @@ mod tests {
             assert_eq!(task.compute_fn_name, "fn_gen");
 
             let request = make_finalize_request("fn_gen", &task.id, 3);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -1025,18 +833,18 @@ mod tests {
 
             let task = pending_map_tasks[0].clone();
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1062,14 +870,14 @@ mod tests {
 
             // Completing all fn_map tasks
             let request = make_finalize_request("fn_reduce", &reduce_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -1078,15 +886,15 @@ mod tests {
             // Completing all fn_map tasks
             for task in pending_tasks {
                 let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-                state
+                indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        state_changes_processed: vec![],
+                        process_state_change: None,
                     })
                     .await?;
 
                 // FIXME: Batching all tasks will currently break the reducing.
-                scheduler.run_scheduler().await?;
+                test_srv.process_all().await?;
             }
         }
 
@@ -1096,14 +904,14 @@ mod tests {
 
             // Completing all fn_map tasks
             let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -1111,33 +919,35 @@ mod tests {
             let pending_task = pending_tasks.first().unwrap();
 
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
             let pending_task = pending_tasks.first().unwrap();
             assert_eq!(pending_task.compute_fn_name, "fn_convert");
 
             // Completing all fn_map tasks
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
         {
-            let state_changes = state.reader().get_unprocessed_state_changes()?;
+            let state_changes = indexify_state
+                .reader()
+                .get_unprocessed_state_changes_all_processors()?;
             assert_eq!(state_changes.len(), 0);
 
-            let graph_ctx = state
+            let graph_ctx = indexify_state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
                 .unwrap();
@@ -1163,19 +973,8 @@ mod tests {
     //
     #[tokio::test]
     async fn test_reducer_graph_first_reducer_error_before_parent_finish() -> Result<()> {
-        let env_filter = tracing_subscriber::EnvFilter::new("trace");
-        // ignore error when set in multiple tests.
-        let _ = tracing::subscriber::set_global_default(
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
-        );
-
-        let temp_dir = tempfile::tempdir()?;
-        let state = IndexifyState::new(temp_dir.path().join("state")).await?;
-        let scheduler = Scheduler::new(
-            state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
-        );
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
         let graph = {
             let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
@@ -1218,10 +1017,10 @@ mod tests {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
-        state
+        indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                state_changes_processed: vec![],
+                process_state_change: None,
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1262,7 +1061,7 @@ mod tests {
             };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1298,18 +1097,18 @@ mod tests {
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks: Vec<Task> = state
+            let tasks: Vec<Task> = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1324,14 +1123,14 @@ mod tests {
             assert_eq!(task.compute_fn_name, "fn_gen");
 
             let request = make_finalize_request("fn_gen", &task.id, 3);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -1339,18 +1138,18 @@ mod tests {
 
             let task = pending_map_tasks[0].clone();
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1386,14 +1185,14 @@ mod tests {
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                 diagnostics: None,
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -1402,23 +1201,25 @@ mod tests {
             // Completing all fn_map tasks
             for task in pending_tasks {
                 let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-                state
+                indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        state_changes_processed: vec![],
+                        process_state_change: None,
                     })
                     .await?;
 
                 // FIXME: Batching all tasks will currently break the reducing.
-                scheduler.run_scheduler().await?;
+                test_srv.process_all().await?;
             }
         }
 
         {
-            let state_changes = state.reader().get_unprocessed_state_changes()?;
+            let state_changes = indexify_state
+                .reader()
+                .get_unprocessed_state_changes_all_processors()?;
             assert_eq!(state_changes.len(), 0);
 
-            let graph_ctx = state
+            let graph_ctx = indexify_state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
                 .unwrap();
@@ -1444,19 +1245,8 @@ mod tests {
     //
     #[tokio::test]
     async fn test_reducer_graph_reducer_finalize_just_before_map() -> Result<()> {
-        let env_filter = tracing_subscriber::EnvFilter::new("trace");
-        // ignore error when set in multiple tests.
-        let _ = tracing::subscriber::set_global_default(
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
-        );
-
-        let temp_dir = tempfile::tempdir()?;
-        let state = IndexifyState::new(temp_dir.path().join("state")).await?;
-        let scheduler = Scheduler::new(
-            state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
-        );
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
         let graph = {
             let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
@@ -1499,10 +1289,10 @@ mod tests {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
-        state
+        indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                state_changes_processed: vec![],
+                process_state_change: None,
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1543,7 +1333,7 @@ mod tests {
             };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1579,18 +1369,18 @@ mod tests {
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks: Vec<Task> = state
+            let tasks: Vec<Task> = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1605,37 +1395,37 @@ mod tests {
             assert_eq!(task.compute_fn_name, "fn_gen");
 
             let request = make_finalize_request("fn_gen", &task.id, 3);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         let pending_map_tasks = check_pending_tasks(3, "fn_map")?;
         {
             let task = pending_map_tasks[0].clone();
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
             let task = pending_map_tasks[1].clone();
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
@@ -1645,7 +1435,7 @@ mod tests {
         // HACK: We need to finalize the reducer task before the map task, but without
         // saving it.
         let all_unprocessed_state_changes_reduce = {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1674,20 +1464,21 @@ mod tests {
                 .find(|t| t.compute_fn_name == "fn_reduce")
                 .unwrap();
 
-            let all_unprocessed_state_changes_before =
-                state.reader().get_unprocessed_state_changes()?;
+            let all_unprocessed_state_changes_before = indexify_state
+                .reader()
+                .get_unprocessed_state_changes_all_processors()?;
 
             let request = make_finalize_request("fn_reduce", &reduce_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            let all_unprocessed_state_changes_reduce: Vec<StateChange> = state
+            let all_unprocessed_state_changes_reduce: Vec<StateChange> = indexify_state
                 .reader()
-                .get_unprocessed_state_changes()?
+                .get_unprocessed_state_changes_all_processors()?
                 .iter()
                 .filter(|sc| {
                     !all_unprocessed_state_changes_before
@@ -1699,13 +1490,13 @@ mod tests {
 
             // Need to finalize without persisting the state change
             for state_change in all_unprocessed_state_changes_reduce.clone() {
-                state.db.delete_cf(
-                    &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&state.db),
-                    &state_change.id.to_key(),
+                indexify_state.db.delete_cf(
+                    &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&indexify_state.db),
+                    state_change.key(&ProcessorId::new(ProcessorType::Namespace)),
                 )?;
             }
 
-            let ctx = state
+            let ctx = indexify_state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
                 .unwrap();
@@ -1721,13 +1512,13 @@ mod tests {
             );
 
             // running scheduler for previous map
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
 
             all_unprocessed_state_changes_reduce
         };
 
         {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1752,29 +1543,29 @@ mod tests {
                 .unwrap();
 
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
             // Persisting state change
             for state_change in all_unprocessed_state_changes_reduce {
                 let serialized_state_change = JsonEncoder::encode(&state_change)?;
-                state.db.put_cf(
-                    &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&state.db),
-                    &state_change.id.to_key(),
+                indexify_state.db.put_cf(
+                    &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&indexify_state.db),
+                    state_change.key(&ProcessorId::new(ProcessorType::Namespace)),
                     serialized_state_change,
                 )?;
             }
 
             // running scheduler for reducer
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         for _ in 0..2 {
@@ -1783,14 +1574,14 @@ mod tests {
 
             // Completing all fn_map tasks
             let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -1799,24 +1590,35 @@ mod tests {
 
             // Completing all fn_map tasks
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
         {
-            let state_changes = state.reader().get_unprocessed_state_changes()?;
-            assert_eq!(state_changes.len(), 0);
+            let state_changes = indexify_state
+                .reader()
+                .get_unprocessed_state_changes_all_processors()?;
+            assert_eq!(
+                state_changes.len(),
+                0,
+                "expected no state changes: {:?}",
+                state_changes
+            );
 
-            let graph_ctx = state
+            let graph_ctx = indexify_state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
                 .unwrap();
-            assert_eq!(graph_ctx.outstanding_tasks, 0);
+            assert_eq!(
+                graph_ctx.outstanding_tasks, 0,
+                "expected no outstanding tasks: {}",
+                graph_ctx.outstanding_tasks
+            );
             assert!(graph_ctx.completed);
         }
 
@@ -1825,19 +1627,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_reducer_graph_reducer_parent_errors() -> Result<()> {
-        let env_filter = tracing_subscriber::EnvFilter::new("trace");
-        // ignore error when set in multiple tests.
-        let _ = tracing::subscriber::set_global_default(
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer().with_filter(env_filter)),
-        );
-
-        let temp_dir = tempfile::tempdir()?;
-        let state = IndexifyState::new(temp_dir.path().join("state")).await?;
-        let scheduler = Scheduler::new(
-            state.clone(),
-            Arc::new(scheduler_stats::Metrics::new(state.metrics.clone())),
-        );
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
 
         let graph = {
             let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
@@ -1880,10 +1671,10 @@ mod tests {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
         };
-        state
+        indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                state_changes_processed: vec![],
+                process_state_change: None,
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1924,7 +1715,7 @@ mod tests {
             };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-            let tasks = state
+            let tasks = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1960,18 +1751,18 @@ mod tests {
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
-            let tasks: Vec<Task> = state
+            let tasks: Vec<Task> = indexify_state
                 .reader()
                 .list_tasks_by_compute_graph(
                     &graph.namespace,
@@ -1986,14 +1777,14 @@ mod tests {
             assert_eq!(task.compute_fn_name, "fn_gen");
 
             let request = make_finalize_request("fn_gen", &task.id, 3);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         {
@@ -2001,10 +1792,10 @@ mod tests {
 
             let request =
                 make_finalize_request(&pending_tasks[0].compute_fn_name, &pending_tasks[0].id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
@@ -2020,31 +1811,33 @@ mod tests {
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                 diagnostics: None,
             };
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
             let request =
                 make_finalize_request(&pending_tasks[2].compute_fn_name, &pending_tasks[2].id, 1);
-            state
+            indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    state_changes_processed: vec![],
+                    process_state_change: None,
                 })
                 .await?;
 
-            scheduler.run_scheduler().await?;
+            test_srv.process_all().await?;
         }
 
         // Expect no more tasks and a completed graph
         {
-            let state_changes = state.reader().get_unprocessed_state_changes()?;
+            let state_changes = indexify_state
+                .reader()
+                .get_unprocessed_state_changes_all_processors()?;
             assert_eq!(state_changes.len(), 0);
 
-            let graph_ctx = state
+            let graph_ctx = indexify_state
                 .reader()
                 .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
                 .unwrap();

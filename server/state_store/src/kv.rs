@@ -67,3 +67,57 @@ impl KVS {
         Ok(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use blob_store::BlobStorageConfig;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_kvs() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+
+        let kv_store = KVS::new(
+            Arc::new(BlobStorage::new(BlobStorageConfig {
+                path: format!(
+                    "file://{}",
+                    temp_dir.path().join("blob_store").to_str().unwrap()
+                ),
+            })?),
+            "test",
+        )
+        .await
+        .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let key = "test_key";
+        let value = b"test_value";
+        kv_store
+            .put_ctx_state(WriteContextData {
+                namespace: "test_namespace".to_string(),
+                compute_graph: "test_compute_graph".to_string(),
+                invocation_id: "test_invocation_id".to_string(),
+                key: key.to_string(),
+                value: value.to_vec(),
+            })
+            .await
+            .unwrap();
+
+        let result = kv_store
+            .get_ctx_state_key(ReadContextData {
+                namespace: "test_namespace".to_string(),
+                compute_graph: "test_compute_graph".to_string(),
+                invocation_id: "test_invocation_id".to_string(),
+                key: key.to_string(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result, Bytes::copy_from_slice(value));
+
+        Ok(())
+    }
+}

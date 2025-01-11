@@ -107,8 +107,8 @@ pub fn init_provider() -> (prometheus::Registry, SdkMeterProvider) {
         ]));
 
     let low_latency_boundaries = &[
-        0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0,
-        750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
+        0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0,
+        500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
     ];
 
     let mut histogram_kind = Instrument::new();
@@ -229,11 +229,57 @@ impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
     }
 }
 
-pub mod scheduler_stats {
+pub mod processors_metrics {
+    use opentelemetry::metrics::{Histogram, UpDownCounter};
+
+    #[derive(Debug)]
+    pub struct Metrics {
+        pub requests_queue_duration: Histogram<f64>,
+        pub requests_inflight: UpDownCounter<i64>,
+        pub processors_process_duration: Histogram<f64>,
+    }
+
+    impl Default for Metrics {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Metrics {
+        pub fn new() -> Metrics {
+            let meter = opentelemetry::global::meter("dispatcher_metrics");
+
+            let requests_queue_duration = meter
+                .f64_histogram("requests_queue_duration")
+                .with_unit("s")
+                .with_description("time spent waiting for a processor in seconds")
+                .init();
+
+            let requests_inflight = meter
+                .i64_up_down_counter("requests_inflight")
+                .with_description("number of requests in flight")
+                .init();
+
+            let processors_process_duration = meter
+                .f64_histogram("processors_process_duration")
+                .with_unit("s")
+                .with_description("Processors processing latencies in seconds")
+                .init();
+
+            Metrics {
+                requests_queue_duration,
+                requests_inflight,
+                processors_process_duration,
+            }
+        }
+    }
+}
+
+pub mod state_metrics {
     use std::sync::{Arc, Mutex};
 
     use opentelemetry::{
-        metrics::{Histogram, ObservableCounter, ObservableGauge},
+        metrics::{ObservableCounter, ObservableGauge},
         KeyValue,
     };
     use tracing::error;
@@ -246,7 +292,6 @@ pub mod scheduler_stats {
         pub tasks_errored: ObservableCounter<u64>,
         pub tasks_in_progress: ObservableGauge<u64>,
         pub executors_online: ObservableGauge<u64>,
-        pub scheduler_invocations: Histogram<f64>,
         pub tasks_per_executor: ObservableGauge<u64>,
     }
 
@@ -328,11 +373,6 @@ pub mod scheduler_stats {
                 .with_description("Number of executors online")
                 .init();
 
-            let scheduler_invocations = meter
-                .f64_histogram("scheduler_invocations")
-                .with_description("Scheduler invocation latencies in seconds")
-                .init();
-
             let tasks_per_executor = meter
                 .u64_observable_gauge("tasks_per_executor")
                 .with_callback({
@@ -357,7 +397,6 @@ pub mod scheduler_stats {
                 tasks_errored,
                 tasks_in_progress,
                 executors_online,
-                scheduler_invocations,
                 tasks_per_executor,
             }
         }
@@ -484,6 +523,12 @@ pub struct StateStoreMetrics {
     pub tasks_by_executor: Arc<RwLock<HashMap<String, u64>>>,
     pub state_write: Histogram<f64>,
     pub state_read: Histogram<f64>,
+}
+
+impl Default for StateStoreMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StateStoreMetrics {

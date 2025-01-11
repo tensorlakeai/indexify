@@ -33,24 +33,27 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::requests::{
-    CreateTasksRequest,
-    DeleteInvocationRequest,
-    DeregisterExecutorRequest,
-    FinalizeTaskRequest,
-    InvokeComputeGraphRequest,
-    NamespaceRequest,
-    ReductionTasks,
-    RegisterExecutorRequest,
-    RemoveSystemTaskRequest,
-    ReplayComputeGraphRequest,
-    ReplayInvocationsRequest,
-    UpdateSystemTaskRequest,
+use crate::{
+    requests::{
+        CreateTasksRequest,
+        DeleteInvocationRequest,
+        DeregisterExecutorRequest,
+        FinalizeTaskRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
+        ProcessedStateChange,
+        ReductionTasks,
+        RegisterExecutorRequest,
+        RemoveSystemTaskRequest,
+        ReplayComputeGraphRequest,
+        ReplayInvocationsRequest,
+        UpdateSystemTaskRequest,
+    },
+    StateChangeDispatcher,
 };
-
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
 pub type ExtractionEventId = String;
@@ -79,9 +82,7 @@ pub enum IndexifyObjectsColumns {
     FnOutputs,        //  Ns_Graph_<Ingested_Id>_Fn_Id -> NodeOutput
     TaskOutputs,      //  NS_TaskID -> NodeOutputID
 
-    StateChanges, //  StateChangeId -> StateChange
-
-    UnprocessedStateChanges, //  StateChangeId -> Empty
+    UnprocessedStateChanges, //  StateChangeId -> StateChange
     TaskAllocations,         //  ExecutorId -> Task_Key
     UnallocatedTasks,        //  Task_Key -> Empty
 
@@ -227,6 +228,10 @@ pub fn replay_invocations(
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
+    if graph.version != req.graph_version {
+        // Graph was updated after replay task was created, stopping replay.
+        return Ok(Vec::new());
+    }
     let system_task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
 
     let state_changes_res = req
@@ -908,27 +913,22 @@ pub(crate) fn save_state_changes(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     state_changes: &Vec<StateChange>,
+    state_change_dispatcher: Arc<impl StateChangeDispatcher>,
 ) -> Result<()> {
     for state_change in state_changes {
-        let serialized_state_change = JsonEncoder::encode(&state_change)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::StateChanges.cf_db(&db),
-            &state_change.id.to_key(),
-            serialized_state_change.clone(),
-        )?;
-
-        if state_change.processed_at.is_none() {
-            txn.put_cf(
-                &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
-                &state_change.id.to_key(),
-                serialized_state_change,
-            )?;
-        } else {
-            txn.delete_cf(
-                &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
-                &state_change.id.to_key(),
-            )?;
-        }
+        state_change_dispatcher
+            .processor_ids_for_state_change(state_change.clone())
+            .iter()
+            .try_for_each(|processor_id| -> Result<()> {
+                let key = &state_change.key(processor_id);
+                let serialized_state_change = JsonEncoder::encode(&state_change)?;
+                txn.put_cf(
+                    &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+                    key,
+                    serialized_state_change,
+                )?;
+                Ok(())
+            })?;
     }
     Ok(())
 }
@@ -936,24 +936,16 @@ pub(crate) fn save_state_changes(
 pub(crate) fn mark_state_changes_processed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    state_change_ids: &Vec<StateChangeId>,
+    process: &ProcessedStateChange,
 ) -> Result<()> {
-    let mut state_changes = Vec::new();
-    for state_change_id in state_change_ids {
-        let state_change = txn.get_cf(
-            &IndexifyObjectsColumns::StateChanges.cf_db(&db),
-            state_change_id.to_key(),
+    for state_change in process.state_changes.iter() {
+        trace!("Marking state change processed: {:?}", state_change);
+        let key = &state_change.key(&process.processor_id);
+        txn.delete_cf(
+            &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+            key,
         )?;
-        if state_change.is_none() {
-            error!("State change not found: {}", state_change_id);
-            continue;
-        }
-        let state_change = state_change.unwrap();
-        let mut state_change: StateChange = JsonEncoder::decode(&state_change)?;
-        state_change.processed_at = Some(get_epoch_time_in_ms());
-        state_changes.push(state_change);
     }
-    save_state_changes(db, txn, &state_changes)?;
     Ok(())
 }
 

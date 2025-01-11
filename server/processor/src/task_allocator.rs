@@ -1,38 +1,26 @@
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraphVersion, ExecutorId, Node, ReduceTask, Task};
+use async_trait::async_trait;
+use data_model::{ComputeGraphVersion, ExecutorId, Node, ProcessorId, ProcessorType, Task};
 use rand::seq::SliceRandom;
 use state_store::{
-    requests::{TaskPlacement, TaskPlacementDiagnostic},
+    requests::{
+        ProcessedStateChange,
+        RequestPayload,
+        StateMachineUpdateRequest,
+        TaskAllocationUpdateRequest,
+        TaskPlacement,
+        TaskPlacementDiagnostic,
+    },
     IndexifyState,
 };
-use tracing::{error, info, span};
+use tracing::{debug, error, info, instrument, span};
 
-pub mod task_creator;
-
-#[derive(Debug)]
-pub struct TaskCreationResult {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub tasks: Vec<Task>,
-    pub new_reduction_tasks: Vec<ReduceTask>,
-    pub processed_reduction_tasks: Vec<String>,
-    pub invocation_id: String,
-}
-
-impl TaskCreationResult {
-    pub fn no_tasks(namespace: &str, compute_graph: &str, invocation_id: &str) -> Self {
-        Self {
-            namespace: namespace.to_string(),
-            compute_graph: compute_graph.to_string(),
-            invocation_id: invocation_id.to_string(),
-            tasks: vec![],
-            new_reduction_tasks: vec![],
-            processed_reduction_tasks: vec![],
-        }
-    }
-}
+use crate::{
+    dispatcher::{DispatchedRequest, Dispatcher},
+    runner::ProcessorLogic,
+};
 
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
@@ -49,15 +37,74 @@ struct ScheduleTaskResult {
     pub diagnostic_msgs: Vec<String>,
 }
 
-pub struct TaskScheduler {
-    indexify_state: Arc<IndexifyState>,
+pub struct TaskAllocationProcessor {
+    indexify_state: Arc<IndexifyState<Dispatcher>>,
 }
 
-impl TaskScheduler {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
+impl TaskAllocationProcessor {
+    pub fn new(indexify_state: Arc<IndexifyState<Dispatcher>>) -> Self {
         Self { indexify_state }
     }
+}
 
+#[async_trait]
+impl ProcessorLogic for TaskAllocationProcessor {
+    fn processor_id(&self) -> ProcessorId {
+        ProcessorId::new(ProcessorType::TaskAllocator)
+    }
+
+    #[instrument(skip(self, requests))]
+    async fn process(&self, requests: Vec<DispatchedRequest>) -> Result<()> {
+        debug!(
+            "running task allocation processor, requests_len={}",
+            requests.len()
+        );
+
+        for request in requests {
+            let update_request = StateMachineUpdateRequest {
+                payload: request.request,
+                process_state_change: None,
+            };
+            if let Err(err) = request
+                .result
+                .send(self.indexify_state.write(update_request).await)
+            {
+                error!("failed to send result: {:?}", err);
+            };
+        }
+
+        let state_changes = self
+            .indexify_state
+            .reader()
+            .get_unprocessed_state_changes(self.processor_id())?;
+
+        let task_placement_result = self.schedule_unplaced_tasks()?;
+
+        // Do not write an update request if there are no task placement changes and
+        // no state changes to mark as processed.
+        if task_placement_result.task_placements.is_empty() && state_changes.is_empty() {
+            return Ok(());
+        }
+
+        let scheduler_update_request = StateMachineUpdateRequest {
+            payload: RequestPayload::TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest {
+                allocations: task_placement_result.task_placements,
+                placement_diagnostics: task_placement_result.placement_diagnostics,
+            }),
+            process_state_change: Some(ProcessedStateChange {
+                processor_id: self.processor_id(),
+                state_changes, // consuming all task allocation state changes from the state machine
+            }),
+        };
+        if let Err(err) = self.indexify_state.write(scheduler_update_request).await {
+            error!("error writing scheduler update request: {:?}", err);
+        }
+
+        Ok(())
+    }
+}
+
+impl TaskAllocationProcessor {
     pub fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
         self.schedule_tasks(tasks)
@@ -69,7 +116,7 @@ impl TaskScheduler {
         for task in tasks {
             let span = span!(
                 tracing::Level::INFO,
-                "scheduling_task",
+                "allocate_task",
                 task_id = task.id.to_string(),
                 namespace = task.namespace,
                 compute_graph = task.compute_graph_name,
@@ -77,8 +124,8 @@ impl TaskScheduler {
             );
             let _enter = span.enter();
 
-            info!("scheduling task {:?}", task.id);
-            match self.schedule_task(task.clone()) {
+            info!("allocate task {:?}", task.id);
+            match self.allocate_task(task.clone()) {
                 Ok(ScheduleTaskResult {
                     task_placements: schedule_task_placements,
                     diagnostic_msgs: schedule_diagnostic_msgs,
@@ -92,7 +139,7 @@ impl TaskScheduler {
                     }));
                 }
                 Err(err) => {
-                    error!("failed to schedule task, skipping: {:?}", err);
+                    error!("failed to allocate task, skipping: {:?}", err);
                 }
             }
         }
@@ -102,7 +149,7 @@ impl TaskScheduler {
         })
     }
 
-    fn schedule_task(&self, task: Task) -> Result<ScheduleTaskResult> {
+    fn allocate_task(&self, task: Task) -> Result<ScheduleTaskResult> {
         let mut task_placements = Vec::new();
         let mut diagnostic_msgs = Vec::new();
         let compute_graph_version = self
@@ -130,10 +177,10 @@ impl TaskScheduler {
                 executor: executor_id.clone(),
             });
         }
-        return Ok(ScheduleTaskResult {
+        Ok(ScheduleTaskResult {
             task_placements,
             diagnostic_msgs,
-        });
+        })
     }
 
     fn filter_executors(
@@ -142,7 +189,7 @@ impl TaskScheduler {
         node: &Node,
     ) -> Result<FilteredExecutors> {
         let executors = self.indexify_state.reader().get_all_executors()?;
-        let mut filtered_executors = Vec::new();
+        let mut filtered_executors = vec![];
 
         let mut diagnostic_msgs = vec![];
 

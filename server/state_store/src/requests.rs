@@ -5,20 +5,26 @@ use data_model::{
     GraphVersion,
     InvocationPayload,
     NodeOutput,
+    ProcessorId,
     ReduceTask,
-    StateChangeId,
+    StateChange,
     Task,
     TaskDiagnostics,
     TaskId,
+    TaskOutcome,
 };
-use strum::AsRefStr;
 
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
-    pub state_changes_processed: Vec<StateChangeId>,
+    pub process_state_change: Option<ProcessedStateChange>,
 }
 
-#[derive(AsRefStr, strum::Display)]
+pub struct ProcessedStateChange {
+    pub state_changes: Vec<StateChange>,
+    pub processor_id: ProcessorId,
+}
+
+#[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     ReplayComputeGraph(ReplayComputeGraphRequest),
@@ -28,7 +34,8 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     DeleteComputeGraph(DeleteComputeGraphRequest),
     DeleteInvocation(DeleteInvocationRequest),
-    SchedulerUpdate(SchedulerUpdateRequest),
+    NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
+    TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
@@ -66,11 +73,12 @@ pub struct FinalizeTaskRequest {
     pub invocation_id: String,
     pub task_id: TaskId,
     pub node_outputs: Vec<NodeOutput>,
-    pub task_outcome: data_model::TaskOutcome,
+    pub task_outcome: TaskOutcome,
     pub executor_id: ExecutorId,
     pub diagnostics: Option<TaskDiagnostics>,
 }
 
+#[derive(Debug, Clone)]
 pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
@@ -83,26 +91,30 @@ pub struct ReplayComputeGraphRequest {
     pub compute_graph_name: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct NamespaceRequest {
     pub name: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct CreateOrUpdateComputeGraphRequest {
     pub namespace: String,
     pub compute_graph: ComputeGraph,
 }
 
+#[derive(Debug, Clone)]
 pub struct DeleteComputeGraphRequest {
     pub namespace: String,
     pub name: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct DeleteComputeGraphOutputRequest {
     pub key: String,
     pub restart_key: Option<Vec<u8>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CreateTasksRequest {
     pub namespace: String,
     pub compute_graph: String,
@@ -110,41 +122,48 @@ pub struct CreateTasksRequest {
     pub tasks: Vec<Task>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskPlacement {
     pub task: Task,
     pub executor: ExecutorId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskPlacementDiagnostic {
     pub task: Task,
     pub message: String,
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct ReductionTasks {
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
 }
-#[derive(Debug)]
-pub struct SchedulerUpdateRequest {
+#[derive(Debug, Clone)]
+pub struct NamespaceProcessorUpdateRequest {
     pub task_requests: Vec<CreateTasksRequest>,
-    pub allocations: Vec<TaskPlacement>,
     pub reduction_tasks: ReductionTasks,
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskAllocationUpdateRequest {
+    pub allocations: Vec<TaskPlacement>,
     pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 
+#[derive(Debug, Clone)]
 pub struct DeleteInvocationRequest {
     pub namespace: String,
     pub compute_graph: String,
     pub invocation_id: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct RegisterExecutorRequest {
     pub executor: ExecutorMetadata,
 }
 
+#[derive(Debug, Clone)]
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
 }
