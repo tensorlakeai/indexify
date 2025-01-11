@@ -23,7 +23,13 @@ use data_model::{
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
 use rocksdb::{
-    AsColumnFamilyRef, ColumnFamily, Direction, IteratorMode, ReadOptions, Transaction, TransactionDB
+    AsColumnFamilyRef,
+    ColumnFamily,
+    Direction,
+    IteratorMode,
+    ReadOptions,
+    Transaction,
+    TransactionDB,
 };
 use strum::AsRefStr;
 use tracing::{debug, error, info, instrument, trace};
@@ -403,31 +409,39 @@ pub(crate) fn delete_input_data_object(
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    mut compute_graph: ComputeGraph,
+    compute_graph: ComputeGraph,
 ) -> Result<()> {
-    let existing_compute_graph_bytes = txn.get_for_update_cf(
-        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        compute_graph.key(),
-        true,
-    )?;
+    let existing_compute_graph = txn
+        .get_for_update_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            compute_graph.key(),
+            true,
+        )?
+        .map(|v| JsonEncoder::decode::<ComputeGraph>(&v));
 
-    let graph_version: ComputeGraphVersion;
-    match existing_compute_graph_bytes {
-        Some(existing_compute_graph_bytes) => {
-            let mut existing_compute_graph: ComputeGraph =
-                JsonEncoder::decode(&existing_compute_graph_bytes)?;
-            graph_version = existing_compute_graph.update(compute_graph)?;
-            compute_graph = existing_compute_graph;
+    let new_compute_graph_version = match existing_compute_graph {
+        Some(Ok(mut existing_compute_graph)) => {
+            existing_compute_graph.update(compute_graph.clone());
+            Ok::<ComputeGraphVersion, anyhow::Error>(existing_compute_graph.into_version())
         }
-        None => {
-            graph_version = compute_graph.into_version();
+        Some(Err(e)) => {
+            return Err(anyhow!("failed to decode existing compute graph: {}", e));
         }
-    }
-
-    let serialized_compute_graph_version = JsonEncoder::encode(&graph_version)?;
+        None => Ok(compute_graph.into_version()),
+    }?;
+    if new_compute_graph_version.version != compute_graph.version {
+        trace!(
+            "graph {} not updated, previous version: {}, new version: {}",
+            compute_graph.name,
+            new_compute_graph_version.version.0,
+            compute_graph.version.0
+        );
+        return Ok(());
+    };
+    let serialized_compute_graph_version = JsonEncoder::encode(&new_compute_graph_version)?;
     txn.put_cf(
         &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
-        graph_version.key(),
+        new_compute_graph_version.key(),
         &serialized_compute_graph_version,
     )?;
 

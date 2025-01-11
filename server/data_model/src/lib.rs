@@ -337,18 +337,13 @@ impl ComputeGraph {
 
     /// Update the compute graph from all the supplied Graph fields.
     ///
-    /// Assumes validated update values. Fails if the new graph version is not
-    /// updated. Returns the new graph version.
-    pub fn update(&mut self, update: ComputeGraph) -> Result<ComputeGraphVersion> {
+    /// Assumes validated update values.
+    pub fn update(&mut self, update: ComputeGraph) {
         // immutable fields
         // self.namespace = other.namespace;
         // self.name = other.name;
         // self.created_at = other.created_at;
         // self.replaying = other.replaying;
-
-        if self.version == update.version {
-            return Err(anyhow!(ComputeGraphError::VersionExists));
-        }
 
         self.version = update.version;
         self.code = update.code;
@@ -358,8 +353,6 @@ impl ComputeGraph {
         self.nodes = update.nodes.clone();
         self.description = update.description;
         self.tags = update.tags;
-
-        Ok(self.into_version())
     }
 
     pub fn into_version(&self) -> ComputeGraphVersion {
@@ -1023,6 +1016,13 @@ impl StateChange {
         key.extend_from_slice(&self.id.to_key());
         key
     }
+
+    pub fn key_with_ns(&self, namespace: &str) -> Vec<u8> {
+        let mut key = namespace.as_bytes().to_vec();
+        key.extend("|".as_bytes());
+        key.extend_from_slice(&self.id.to_key());
+        key
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1087,8 +1087,7 @@ mod tests {
             description: &'static str,
             update: ComputeGraph,
             expected_graph: ComputeGraph,
-            expected_version: Option<ComputeGraphVersion>,
-            expected_error: Option<ComputeGraphError>,
+            expected_version: ComputeGraphVersion,
         }
 
         let test_cases = [
@@ -1096,8 +1095,7 @@ mod tests {
                 description: "no graph and version changes",
                 update: original_graph.clone(),
                 expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
+                expected_version: original_graph.into_version(),
             },
             TestCase {
                 description: "version update",
@@ -1109,11 +1107,10 @@ mod tests {
                     version: crate::GraphVersion::from("100"),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("100"),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             TestCase {
                 description: "immutable fields should not change when version changed",
@@ -1129,26 +1126,12 @@ mod tests {
                     version: crate::GraphVersion::from("100"),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version:ComputeGraphVersion {
                     version: GraphVersion::from("100"),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // Runtime information.
-            TestCase {
-                description: "changing runtime information without version change should not update anything",
-                update: ComputeGraph {
-                    runtime_information: RuntimeInformation {
-                        minor_version: 12, // different
-                        ..original_graph.runtime_information.clone()
-                    },
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "changing runtime information with version change should change runtime information",
                 update: ComputeGraph {
@@ -1167,30 +1150,16 @@ mod tests {
                     },
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     runtime_information: RuntimeInformation {
                         minor_version: 12, // different
                         ..original_graph.runtime_information.clone()
                     },
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // Code.
-            TestCase {
-                description: "changing code without version change should not update anything",
-                update: ComputeGraph {
-                    code: ComputeGraphCode {
-                        sha256_hash: "hash_code2".to_string(), // different
-                        ..original_graph.code.clone()
-                    },
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "changing code with version change should change code",
                 update: ComputeGraph {
@@ -1209,30 +1178,16 @@ mod tests {
                     },
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     code: ComputeGraphCode {
                         sha256_hash: "hash_code2".to_string(), // different
                         ..original_graph.code.clone()
                     },
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // Edges.
-            TestCase {
-                description: "changing edges without version change should not update anything",
-                update: ComputeGraph {
-                    edges: HashMap::from([(
-                        "fn_a".to_string(),
-                        vec!["fn_c".to_string(), "fn_b".to_string()], // c and b swapped
-                    )]),
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "changing edges with version change should change edges",
                 update: ComputeGraph {
@@ -1251,27 +1206,16 @@ mod tests {
                     )]),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     edges: HashMap::from([(
                         "fn_a".to_string(),
                         vec!["fn_c".to_string(), "fn_b".to_string()],
                     )]),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // start_fn.
-            TestCase {
-                description: "changing start function without version change should not update anything",
-                update: ComputeGraph {
-                    start_fn: Node::Compute(fn_b.clone()), // different
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "changing start function with version change should change start function",
                 update: ComputeGraph {
@@ -1284,29 +1228,13 @@ mod tests {
                     start_fn: Node::Compute(fn_b.clone()),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     start_fn: Node::Compute(fn_b.clone()),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // Adding a node.
-            TestCase {
-                description: "adding a node without version change should not update anything",
-                update: ComputeGraph {
-                    nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-                        ("fn_d".to_string(), Node::Compute(test_compute_fn("fn_d", "some_hash_fn_d".to_string()))), // added
-                    ]),
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "adding a node with version change should add node",
                 update: ComputeGraph {
@@ -1329,7 +1257,7 @@ mod tests {
                     ]),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), Node::Compute(fn_a.clone())),
@@ -1338,24 +1266,9 @@ mod tests {
                         ("fn_d".to_string(), Node::Compute(test_compute_fn("fn_d", "some_hash_fn_d".to_string()))), // added
                     ]),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // Removing a node.
-            TestCase {
-                description: "removing a node without version change should not update anything",
-                update: ComputeGraph {
-                    nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(fn_a.clone())),
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        // "fn_c" removed
-                    ]),
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "removing a node with version change should remove the node",
                 update: ComputeGraph {
@@ -1375,31 +1288,16 @@ mod tests {
                     ]),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), Node::Compute(fn_a.clone())),
                         ("fn_b".to_string(), Node::Compute(fn_b.clone())),
                     ]),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
             // Changing a node's image.
-            TestCase {
-                description: "changing a node's image without version change should not update anything",
-                update: ComputeGraph {
-                    nodes: HashMap::from([
-                        ("fn_a".to_string(), Node::Compute(test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string()))), // different
-                        ("fn_b".to_string(), Node::Compute(fn_b.clone())),
-                        ("fn_c".to_string(), Node::Compute(fn_c.clone())),
-                    ]),
-                    ..original_graph.clone()
-                },
-                expected_graph: original_graph.clone(),
-                expected_version: None,
-                expected_error: Some(ComputeGraphError::VersionExists),
-            },
             TestCase {
                 description: "changing a node's image with version change should update the image and version",
                 update: ComputeGraph {
@@ -1420,7 +1318,7 @@ mod tests {
                     ]),
                     ..original_graph.clone()
                 },
-                expected_version: Some(ComputeGraphVersion {
+                expected_version: ComputeGraphVersion {
                     version: GraphVersion::from("2"),
                     nodes: HashMap::from([
                         ("fn_a".to_string(), Node::Compute(test_compute_fn("fn_a", "some_hash_fn_a_updated".to_string()))),
@@ -1428,45 +1326,24 @@ mod tests {
                         ("fn_c".to_string(), Node::Compute(fn_c.clone())),
                     ]),
                     ..original_graph.into_version()
-                }),
-                expected_error: None,
+                },
             },
         ];
 
         for test_case in test_cases.iter() {
             let mut updated_graph = original_graph.clone();
-            let update_version_result = updated_graph.update(test_case.update.clone());
-
+            updated_graph.update(test_case.update.clone());
             assert_eq!(
                 updated_graph, test_case.expected_graph,
                 "{}",
                 test_case.description
             );
-            match update_version_result {
-                Ok(updated_version) => {
-                    assert_eq!(
-                        &updated_version,
-                        test_case.expected_version.as_ref().unwrap(),
-                        "{}",
-                        test_case.description
-                    );
-                }
-                Err(err) => match err.root_cause().downcast_ref::<ComputeGraphError>() {
-                    Some(err) => {
-                        assert_eq!(
-                            err,
-                            test_case.expected_error.as_ref().unwrap(),
-                            "{}",
-                            test_case.description
-                        );
-                    }
-                    None => assert!(
-                        false,
-                        "{}, unexpected error type: {}",
-                        test_case.description, err
-                    ),
-                },
-            }
+            assert_eq!(
+                updated_graph.into_version(),
+                test_case.expected_version.clone(),
+                "{}",
+                test_case.description
+            );
         }
     }
 
