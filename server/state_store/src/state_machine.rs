@@ -23,14 +23,7 @@ use data_model::{
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
 use rocksdb::{
-    AsColumnFamilyRef,
-    BoundColumnFamily,
-    Direction,
-    IteratorMode,
-    OptimisticTransactionDB,
-    ReadOptions,
-    Transaction,
-    TransactionDB,
+    AsColumnFamilyRef, ColumnFamily, Direction, IteratorMode, ReadOptions, Transaction, TransactionDB
 };
 use strum::AsRefStr;
 use tracing::{debug, error, info, instrument, trace};
@@ -94,15 +87,7 @@ pub enum IndexifyObjectsColumns {
 }
 
 impl IndexifyObjectsColumns {
-    pub fn cf<'a>(&'a self, db: &'a OptimisticTransactionDB) -> Arc<BoundColumnFamily> {
-        db.cf_handle(self.as_ref())
-            .inspect_none(|| {
-                error!("failed to get column family handle for {}", self.as_ref());
-            })
-            .unwrap()
-    }
-
-    pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> Arc<BoundColumnFamily> {
+    pub fn cf_db<'a>(&'a self, db: &'a TransactionDB) -> &ColumnFamily {
         db.cf_handle(self.as_ref())
             .inspect_none(|| {
                 error!("failed to get column family handle for {}", self.as_ref());

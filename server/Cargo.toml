@@ -134,7 +134,7 @@ tempfile = { workspace = true }
 
 [build-dependencies]
 # All features enabled
-vergen = { version = "9.0.3", features = ["build", "cargo", "rustc", "si"] }
+vergen = { version = "9.0.4", features = ["build", "cargo", "rustc", "si"] }
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"
