@@ -83,9 +83,9 @@ opentelemetry-otlp = { version = "0.27", features = [
 ] }
 opentelemetry-prometheus = { version = "0.27.0" }
 prometheus = { version = "0.13.4" }
-axum-otel-metrics = { version = "0.9.1" }
 tracing-opentelemetry = "0.28.0"
 dashmap = "6.1.0"
+tower-otel-http-metrics = "0.10.0"
 
 [dependencies]
 async-stream = { workspace = true }
@@ -123,13 +123,13 @@ opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry_sdk.workspace = true
 prometheus = { workspace = true }
-axum-otel-metrics = { workspace = true }
 metrics = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 axum-tracing-opentelemetry = { version = "0.25.0", features = [
     "tracing_level_info",
 ] }
+tower-otel-http-metrics = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
