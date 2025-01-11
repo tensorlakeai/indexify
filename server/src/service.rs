@@ -48,7 +48,7 @@ pub struct Service {
 
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
-        let (metrics_registry, metrics_provider) = init_provider();
+        let (metrics_registry, metrics_provider) = init_provider()?;
         let metrics_registry = Arc::new(metrics_registry);
 
         let (shutdown_tx, shutdown_rx) = watch::channel(());

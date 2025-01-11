@@ -1,11 +1,11 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
 use config::ServerConfig;
-use opentelemetry::{global, trace::TracerProvider};
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::Sampler};
+use opentelemetry::global;
+use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry_sdk::trace::TracerProvider;
 use service::Service;
 use tracing::error;
 use tracing_subscriber::{
@@ -82,41 +82,14 @@ fn setup_tracing(config: ServerConfig) -> Result<()> {
         return Ok(());
     }
 
-    let mut span_exporter: Option<opentelemetry_otlp::TonicExporterBuilder> = None;
-    // If endpoint is configured use it, otherwise use the otlp defaults.
-    if let Some(endpoint) = config.tracing.endpoint.clone() {
-        span_exporter.replace(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(endpoint),
-        );
+    let mut span_exporter = SpanExporter::builder().with_tonic();
+    if let Some(endpoint) = &config.tracing.endpoint {
+        span_exporter = span_exporter.with_endpoint(endpoint.clone());
     }
-    let span_exporter = span_exporter.unwrap_or(opentelemetry_otlp::new_exporter().tonic());
+    let span_exporter = span_exporter.build()?;
 
-    let tracer_provider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default()
-                .with_sampler(Sampler::AlwaysOn)
-                .with_resource(opentelemetry_sdk::Resource::new(vec![
-                    opentelemetry::KeyValue::new("service.name", "indexify-server"),
-                    opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-                ])),
-        )
-        .with_exporter(span_exporter)
-        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
-
+    let tracer_provider = TracerProvider::builder().with_simple_exporter(span_exporter).build();
     global::set_tracer_provider(tracer_provider.clone());
-    let tracer = tracer_provider.tracer("tracing-otel-subscriber");
-
-    // Create a layer with the configured tracer
-    let otel_layer = tracing_opentelemetry::layer()
-        .with_error_records_to_exceptions(true)
-        .with_tracer(tracer);
-    global::set_tracer_provider(tracer_provider.clone());
-
-    opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
-    tracing::subscriber::set_global_default(subscriber.with(otel_layer))?;
 
     Ok(())
 }
