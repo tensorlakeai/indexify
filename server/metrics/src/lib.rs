@@ -96,7 +96,7 @@ where
 
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 
-pub fn init_provider() -> Result<(Registry, SdkMeterProvider)> {
+pub fn init_provider() -> Result<Registry> {
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
@@ -109,8 +109,8 @@ pub fn init_provider() -> Result<(Registry, SdkMeterProvider)> {
         .with_reader(exporter)
         .build();
 
-    opentelemetry::global::set_meter_provider(provider.clone());
-    Ok((registry, provider))
+    opentelemetry::global::set_meter_provider(provider);
+    Ok(registry)
 }
 
 pub mod api_io_stats {

@@ -12,6 +12,7 @@ use processor::{
     system_tasks::SystemTasksExecutor,
     task_allocator::TaskAllocationProcessor,
 };
+use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
     self,
@@ -38,10 +39,13 @@ pub struct Service {
     pub system_tasks_executor: Arc<Mutex<SystemTasksExecutor>>,
     pub gc_executor: Arc<Mutex<Gc>>,
     pub namespace_processor: Arc<ProcessorRunner<NamespaceProcessor>>,
+    pub metrics_registry: Arc<Registry>,
 }
 
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
+        let registry = init_provider()?;
+        let metrics_registry = Arc::new(registry);
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let blob_storage = Arc::new(
             BlobStorage::new(config.blob_storage.clone())
@@ -100,6 +104,7 @@ impl Service {
             system_tasks_executor,
             gc_executor,
             namespace_processor: namespace_processor_runner,
+            metrics_registry,
         })
     }
 
@@ -110,22 +115,19 @@ impl Service {
             scheduler.start(shutdown_rx).await;
         });
 
-        let (registry, _provider) = init_provider()?;
-
-        let global_meter = opentelemetry::global::meter("indexify-server");
+        let global_meter = opentelemetry::global::meter("server-http");
         let otel_metrics_service_layer = tower_otel_http_metrics::HTTPMetricsLayerBuilder::new()
             .with_meter(global_meter)
             .build()
             .unwrap();
 
-        let metrics_registry = Arc::new(registry);
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
             dispatcher: self.dispatcher.clone(),
             kvs: self.kvs.clone(),
             blob_storage: self.blob_storage.clone(),
             executor_manager: self.executor_manager.clone(),
-            registry: metrics_registry.clone(),
+            registry: self.metrics_registry.clone(),
             metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
         };
         let namespace_processor = self.namespace_processor.clone();
