@@ -28,10 +28,6 @@ use crate::{config::ServerConfig, executors::ExecutorManager, routes::create_rou
 #[allow(dead_code)]
 pub struct Service {
     pub config: ServerConfig,
-    pub metrics_registry: Arc<Registry>,
-    // This is a handle to the metrics provider, which we should not drop until the end of the
-    // program.
-    pub metrics_provider: opentelemetry_sdk::metrics::SdkMeterProvider,
     pub shutdown_tx: watch::Sender<()>,
     pub shutdown_rx: watch::Receiver<()>,
     pub blob_storage: Arc<BlobStorage>,
@@ -39,18 +35,17 @@ pub struct Service {
     pub dispatcher: Arc<Dispatcher>,
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
-    pub route_state: RouteState,
     pub task_allocator: Arc<ProcessorRunner<TaskAllocationProcessor>>,
     pub system_tasks_executor: Arc<Mutex<SystemTasksExecutor>>,
     pub gc_executor: Arc<Mutex<Gc>>,
     pub namespace_processor: Arc<ProcessorRunner<NamespaceProcessor>>,
+    pub metrics_registry: Arc<Registry>,
 }
 
 impl Service {
     pub async fn new(config: ServerConfig) -> Result<Self> {
-        let (metrics_registry, metrics_provider) = init_provider();
-        let metrics_registry = Arc::new(metrics_registry);
-
+        let registry = init_provider()?;
+        let metrics_registry = Arc::new(registry);
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let blob_storage = Arc::new(
             BlobStorage::new(config.blob_storage.clone())
@@ -95,20 +90,9 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let route_state = RouteState {
-            indexify_state: indexify_state.clone(),
-            dispatcher: dispatcher.clone(),
-            kvs: kvs.clone(),
-            blob_storage: blob_storage.clone(),
-            executor_manager: executor_manager.clone(),
-            registry: metrics_registry.clone(),
-            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
-        };
 
         Ok(Self {
             config,
-            metrics_registry,
-            metrics_provider,
             shutdown_tx,
             shutdown_rx,
             blob_storage,
@@ -116,11 +100,11 @@ impl Service {
             dispatcher,
             executor_manager,
             kvs,
-            route_state,
             task_allocator: task_allocator_runner,
             system_tasks_executor,
             gc_executor,
             namespace_processor: namespace_processor_runner,
+            metrics_registry,
         })
     }
 
@@ -131,6 +115,21 @@ impl Service {
             scheduler.start(shutdown_rx).await;
         });
 
+        let global_meter = opentelemetry::global::meter("server-http");
+        let otel_metrics_service_layer = tower_otel_http_metrics::HTTPMetricsLayerBuilder::new()
+            .with_meter(global_meter)
+            .build()
+            .unwrap();
+
+        let route_state = RouteState {
+            indexify_state: self.indexify_state.clone(),
+            dispatcher: self.dispatcher.clone(),
+            kvs: self.kvs.clone(),
+            blob_storage: self.blob_storage.clone(),
+            executor_manager: self.executor_manager.clone(),
+            registry: self.metrics_registry.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+        };
         let namespace_processor = self.namespace_processor.clone();
         let shutdown_rx = self.shutdown_rx.clone();
         tokio::spawn(async move { namespace_processor.start(shutdown_rx).await });
@@ -157,9 +156,10 @@ impl Service {
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
+        let routes = create_routes(route_state).layer(otel_metrics_service_layer);
         axum_server::bind(addr)
             .handle(handle)
-            .serve(create_routes(self.route_state.clone()).into_make_service())
+            .serve(routes.into_make_service())
             .await?;
 
         Ok(())

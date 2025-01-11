@@ -5,7 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::Result;
 use pin_project_lite::pin_project;
+use prometheus::Registry;
 
 pin_project! {
     #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -92,44 +94,23 @@ where
     }
 }
 
-use opentelemetry_sdk::metrics::{new_view, Aggregation, Instrument, SdkMeterProvider, Stream};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 
-pub fn init_provider() -> (prometheus::Registry, SdkMeterProvider) {
+pub fn init_provider() -> Result<Registry> {
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
-        .build()
-        .unwrap();
-    let provider =
-        SdkMeterProvider::builder().with_resource(opentelemetry_sdk::Resource::new(vec![
+        .build()?;
+    let provider = SdkMeterProvider::builder()
+        .with_resource(opentelemetry_sdk::Resource::new(vec![
             opentelemetry::KeyValue::new("service.name", "indexify-server"),
             opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-        ]));
-
-    let low_latency_boundaries = &[
-        0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0,
-        500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
-    ];
-
-    let mut histogram_kind = Instrument::new();
-    histogram_kind.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
-
-    let provider = provider
-        .with_view(
-            new_view(
-                histogram_kind,
-                Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
-                    boundaries: low_latency_boundaries.to_vec(),
-                    record_min_max: true,
-                }),
-            )
-            .unwrap(),
-        )
+        ]))
         .with_reader(exporter)
         .build();
 
-    opentelemetry::global::set_meter_provider(provider.clone());
-    (registry, provider)
+    opentelemetry::global::set_meter_provider(provider);
+    Ok(registry)
 }
 
 pub mod api_io_stats {
@@ -155,19 +136,19 @@ pub mod api_io_stats {
             let invocations = meter
                 .u64_counter("invocations")
                 .with_description("number of invocations")
-                .init();
+                .build();
             let invocation_bytes = meter
                 .u64_counter("invocation_bytes")
                 .with_description("number of bytes ingested during invocations")
-                .init();
+                .build();
             let fn_outputs = meter
                 .u64_counter("fn_outputs")
                 .with_description("number of fn outputs")
-                .init();
+                .build();
             let fn_output_bytes = meter
                 .u64_counter("fn_output_bytes")
                 .with_description("number of bytes ingested for fn outputs")
-                .init();
+                .build();
             Metrics {
                 invocations,
                 invocation_bytes,
@@ -248,23 +229,29 @@ pub mod processors_metrics {
     impl Metrics {
         pub fn new() -> Metrics {
             let meter = opentelemetry::global::meter("dispatcher_metrics");
+            let low_latency_boundaries = vec![
+                0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0,
+                100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
+            ];
 
             let requests_queue_duration = meter
                 .f64_histogram("requests_queue_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries.clone())
                 .with_description("time spent waiting for a processor in seconds")
-                .init();
+                .build();
 
             let requests_inflight = meter
                 .i64_up_down_counter("requests_inflight")
                 .with_description("number of requests in flight")
-                .init();
+                .build();
 
             let processors_process_duration = meter
                 .f64_histogram("processors_process_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries)
                 .with_description("Processors processing latencies in seconds")
-                .init();
+                .build();
 
             Metrics {
                 requests_queue_duration,
@@ -317,7 +304,7 @@ pub mod state_metrics {
                     }
                 })
                 .with_description("Number of tasks completed")
-                .init();
+                .build();
 
             let prev_value = Arc::new(Mutex::new(0));
             let tasks_errored = meter
@@ -341,7 +328,7 @@ pub mod state_metrics {
                     }
                 })
                 .with_description("Number of tasks completed with error")
-                .init();
+                .build();
 
             let tasks_in_progress = meter
                 .u64_observable_gauge("tasks_in_progress")
@@ -360,7 +347,7 @@ pub mod state_metrics {
                     }
                 })
                 .with_description("Number of tasks in progress")
-                .init();
+                .build();
             let executors_online = meter
                 .u64_observable_gauge("executors_online")
                 .with_callback({
@@ -371,7 +358,7 @@ pub mod state_metrics {
                     }
                 })
                 .with_description("Number of executors online")
-                .init();
+                .build();
 
             let tasks_per_executor = meter
                 .u64_observable_gauge("tasks_per_executor")
@@ -390,7 +377,7 @@ pub mod state_metrics {
                     }
                 })
                 .with_description("Number of tasks per executor")
-                .init();
+                .build();
 
             Metrics {
                 tasks_completed,
@@ -425,7 +412,7 @@ pub mod blob_storage {
                 .f64_histogram("blob_operations_duration")
                 .with_unit("s")
                 .with_description("blob store latencies in seconds")
-                .init();
+                .build();
 
             Metrics { operations }
         }
@@ -455,13 +442,13 @@ pub mod kv_storage {
                 .f64_histogram("kv_storage_read_duration")
                 .with_unit("s")
                 .with_description("K/V store read latencies in seconds")
-                .init();
+                .build();
 
             let writes = meter
                 .f64_histogram("kv_storage_write_duration")
                 .with_unit("s")
                 .with_description("k/v store write latencies in seconds")
-                .init();
+                .build();
 
             Metrics { reads, writes }
         }
@@ -539,13 +526,13 @@ impl StateStoreMetrics {
             .f64_histogram("state_machine_write_duration")
             .with_unit("s")
             .with_description("State machine writing latency in seconds")
-            .init();
+            .build();
 
         let state_read = meter
             .f64_histogram("state_machine_read_duration")
             .with_unit("s")
             .with_description("State machine reading latency in seconds")
-            .init();
+            .build();
 
         Self {
             tasks_completed: Arc::new(RwLock::new(0)),

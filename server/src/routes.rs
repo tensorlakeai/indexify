@@ -11,7 +11,6 @@ use axum::{
     Json,
     Router,
 };
-use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_tracing_opentelemetry::{
     self,
     middleware::{OtelAxumLayer, OtelInResponseLayer},
@@ -151,9 +150,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .allow_origin(Any)
         .allow_headers(Any);
 
-    let axum_metrics = HttpMetricsLayerBuilder::new()
-        .with_path("/metrics/http".to_string())
-        .build();
     Router::new()
         .merge(SwaggerUi::new("/docs/swagger").url("/docs/openapi.json", ApiDoc::openapi()))
         .route("/", get(index))
@@ -166,15 +162,15 @@ pub fn create_routes(route_state: RouteState) -> Router {
             post(create_namespace).with_state(route_state.clone()),
         )
         .nest(
-            "/namespaces/:namespace",
+            "/namespaces/{namespace}",
             namespace_routes(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/code",
+            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/code",
             get(get_unversioned_code).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/versions/:version/code",
+            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/versions/{version}/code",
             get(get_versioned_code).with_state(route_state.clone()),
         )
         .route(
@@ -186,30 +182,28 @@ pub fn create_routes(route_state: RouteState) -> Router {
             get(list_executors).with_state(route_state.clone()),
         )
         .route(
-            "/internal/executors/:id/tasks",
+            "/internal/executors/{id}/tasks",
             post(executor_tasks).with_state(route_state.clone()),
         )
         .route(
-            "/internal/fn_outputs/:input_key",
+            "/internal/fn_outputs/{input_key}",
             get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx/:name",
+            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
             post(set_ctx_state_key).with_state(route_state.clone()),
         )
         .route(
-            "/internal/namespaces/:namespace/compute_graphs/:compute_graph/invocations/:invocation_id/ctx/:name",
+            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
         .layer(OtelInResponseLayer::default())
         .layer(OtelAxumLayer::default())
         // No tracing starting here.
-        .merge(axum_metrics.routes())
         .route("/ui", get(ui_index_handler))
-        .route("/ui/*rest", get(ui_handler))
-        .layer(cors)
+        .route("/ui/{*rest}", get(ui_handler))
         .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
-        .layer(axum_metrics)
+        .layer(cors)
         .layer(DefaultBodyLimit::disable())
 }
 
@@ -250,58 +244,58 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             get(list_compute_graphs).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph",
+            "/compute_graphs/{compute_graph}",
             delete(delete_compute_graph).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph",
+            "/compute_graphs/{compute_graph}",
             get(get_compute_graph).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations/:invocation_id/tasks",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks",
             get(list_tasks).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations/:invocation_id/outputs",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/outputs",
             get(list_outputs).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations/:invocation_id/context",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/context",
             get(get_context).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations",
+            "/compute_graphs/{compute_graph}/invocations",
             get(graph_invocations).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invoke_file",
+            "/compute_graphs/{compute_graph}/invoke_file",
             post(invoke_with_file).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invoke_object",
+            "/compute_graphs/{compute_graph}/invoke_object",
             post(invoke_with_object).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/replay",
+            "/compute_graphs/{compute_graph}/replay",
             post(replay_compute_graph).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations/:invocation_id",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}",
             delete(delete_invocation).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/notify",
+            "/compute_graphs/{compute_graph}/notify",
             get(notify_on_change).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations/:invocation_id/payload",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/payload",
             get(download_invocation_payload).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/output/:id",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
-        .route("/compute_graphs/:compute_graph/invocations/:invocation_id/fn/:fn_name/tasks/:task_id/logs/:file", get(download_task_logs).with_state(route_state.clone()))
+        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}", get(download_task_logs).with_state(route_state.clone()))
         .layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
 }
 
