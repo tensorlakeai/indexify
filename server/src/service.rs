@@ -12,6 +12,7 @@ use processor::{
     system_tasks::SystemTasksExecutor,
     task_allocator::TaskAllocationProcessor,
 };
+use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
     self,
@@ -120,7 +121,6 @@ impl Service {
             .build()
             .unwrap();
 
-        let metrics_registry = Arc::new(registry);
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
             dispatcher: self.dispatcher.clone(),
