@@ -229,10 +229,15 @@ pub mod processors_metrics {
     impl Metrics {
         pub fn new() -> Metrics {
             let meter = opentelemetry::global::meter("dispatcher_metrics");
+            let low_latency_boundaries = vec![
+                0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0,
+                100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
+            ];
 
             let requests_queue_duration = meter
                 .f64_histogram("requests_queue_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries.clone())
                 .with_description("time spent waiting for a processor in seconds")
                 .build();
 
@@ -244,6 +249,7 @@ pub mod processors_metrics {
             let processors_process_duration = meter
                 .f64_histogram("processors_process_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries)
                 .with_description("Processors processing latencies in seconds")
                 .build();
 
