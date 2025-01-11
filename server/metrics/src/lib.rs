@@ -1,3 +1,5 @@
+use anyhow::Result;
+use prometheus::Registry;
 use std::{
     future::Future,
     pin::Pin,
