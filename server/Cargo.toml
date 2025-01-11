@@ -83,6 +83,7 @@ opentelemetry-otlp = { version = "0.27", features = [
 ] }
 opentelemetry-prometheus = { version = "0.27.0" }
 prometheus = { version = "0.13.4" }
+axum-otel-metrics = { version = "0.9.1" }
 tracing-opentelemetry = "0.28.0"
 dashmap = "6.1.0"
 tower-otel-http-metrics = "0.10.0"

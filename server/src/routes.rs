@@ -202,8 +202,8 @@ pub fn create_routes(route_state: RouteState) -> Router {
         // No tracing starting here.
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
-        .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
         .layer(cors)
+        .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
         .layer(DefaultBodyLimit::disable())
 }
 
