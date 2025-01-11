@@ -88,7 +88,9 @@ fn setup_tracing(config: ServerConfig) -> Result<()> {
     }
     let span_exporter = span_exporter.build()?;
 
-    let tracer_provider = TracerProvider::builder().with_simple_exporter(span_exporter).build();
+    let tracer_provider = TracerProvider::builder()
+        .with_simple_exporter(span_exporter)
+        .build();
     global::set_tracer_provider(tracer_provider.clone());
 
     Ok(())

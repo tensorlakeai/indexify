@@ -1,5 +1,3 @@
-use anyhow::Result;
-use prometheus::Registry;
 use std::{
     future::Future,
     pin::Pin,
@@ -7,7 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::Result;
 use pin_project_lite::pin_project;
+use prometheus::Registry;
 
 pin_project! {
     #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -98,9 +98,10 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 pub fn init_provider() -> Result<(Registry, SdkMeterProvider)> {
     let registry = prometheus::Registry::new();
-    let exporter = opentelemetry_prometheus::exporter().with_registry(registry.clone()).build()?;
-    let provider =
-        SdkMeterProvider::builder()
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .build()?;
+    let provider = SdkMeterProvider::builder()
         .with_resource(opentelemetry_sdk::Resource::new(vec![
             opentelemetry::KeyValue::new("service.name", "indexify-server"),
             opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
