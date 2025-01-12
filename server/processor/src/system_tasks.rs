@@ -138,7 +138,7 @@ impl SystemTasksExecutor {
             } else {
                 info!(
                     running_invocations = task.num_running_invocations,
-                    "waiting for all invotations to finish before completing the task",
+                    "waiting for all invocations to finish before completing the task",
                 );
                 // Mark task as completing so that it gets removed on last finished invocation.
                 if !task.waiting_for_running_invocations {

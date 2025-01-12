@@ -454,11 +454,13 @@ async fn create_or_update_compute_graph(
         compute_graph,
     });
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            process_state_change: None,
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-
     info!("compute graph created: {}", name);
 
     Ok(())
@@ -483,8 +485,11 @@ async fn delete_compute_graph(
         name: compute_graph,
     });
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            process_state_change: None,
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
