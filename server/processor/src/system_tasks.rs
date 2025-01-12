@@ -14,18 +14,16 @@ use state_store::{
 use tokio::{self, sync::watch::Receiver};
 use tracing::{debug, error, info, info_span};
 
-use crate::dispatcher::Dispatcher;
-
 const MAX_PENDING_TASKS: usize = 10;
 
 pub struct SystemTasksExecutor {
-    state: Arc<IndexifyState<Dispatcher>>,
+    state: Arc<IndexifyState>,
     rx: tokio::sync::watch::Receiver<()>,
     shutdown_rx: Receiver<()>,
 }
 
 impl SystemTasksExecutor {
-    pub fn new(state: Arc<IndexifyState<Dispatcher>>, shutdown_rx: Receiver<()>) -> Self {
+    pub fn new(state: Arc<IndexifyState>, shutdown_rx: Receiver<()>) -> Self {
         let rx = state.get_system_tasks_watcher();
         Self {
             state,

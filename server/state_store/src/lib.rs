@@ -10,18 +10,9 @@ use std::{
     vec,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType,
-    ExecutorId,
-    ProcessorId,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    Task,
-    TaskId,
-    TombstoneComputeGraphEvent,
-    TombstoneInvocationEvent,
+    ChangeType, ExecutorId, ProcessorId, StateChange, StateChangeBuilder, StateChangeId, StateMachineMetadata, Task, TaskId, TombstoneComputeGraphEvent, TombstoneInvocationEvent
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
@@ -99,10 +90,9 @@ pub trait StateChangeDispatcher: Send + Sync + 'static {
     fn processor_ids_for_state_change(&self, change: StateChange) -> Vec<ProcessorId>;
 }
 
-pub struct IndexifyState<T: StateChangeDispatcher> {
+pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
-    pub state_change_dispatcher: Arc<T>,
     pub last_state_change_id: Arc<AtomicU64>,
     pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
@@ -115,8 +105,8 @@ pub struct IndexifyState<T: StateChangeDispatcher> {
     // state_metrics: Arc<StateMetrics>,
 }
 
-impl<T: StateChangeDispatcher> IndexifyState<T> {
-    pub async fn new(path: PathBuf, state_change_dispatcher: Arc<T>) -> Result<Arc<Self>> {
+impl IndexifyState {
+    pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())?;
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -130,6 +120,7 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
             sm_column_families,
         )
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
+        let sm_meta = state_machine::read_sm_meta(&db)?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
@@ -139,8 +130,7 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let s = Arc::new(Self {
             db: Arc::new(db),
-            state_change_dispatcher,
-            last_state_change_id: Arc::new(AtomicU64::new(0)),
+            last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
             task_event_tx,
             gc_tx,
@@ -152,6 +142,9 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
             change_events_rx,
             // state_metrics,
         });
+
+        info!("initialized state store with last state change id: {}", s.last_state_change_id.load(atomic::Ordering::Relaxed));
+        info!("db version discovered: {}", sm_meta.db_version);
 
         let executors = s.reader().get_all_executors()?;
         for executor in executors.iter() {
@@ -257,6 +250,7 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                     .entry(finalize_task.executor_id.clone())
                     .or_default()
                     .push(finalize_task.task_id.clone());
+                state_machine::mark_task_completed(self.db.clone(), &txn, finalize_task.clone(), self.metrics.clone())?;
                 state_changes::finalize_task(&self.last_state_change_id, &finalize_task)?
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
@@ -300,19 +294,20 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                         &self.last_state_change_id,
                         &request,
                     )?;
-                if request.task_requests.len() > 0 {
                     if let Some(completion) = state_machine::create_tasks(
                         self.db.clone(),
                         &txn,
                         request.task_requests.clone(),
                         self.metrics.clone().clone(),
+                        &request.namespace,
+                        &request.compute_graph,
+                        &request.invocation_id,
                     )? {
-                        let first_task = request.task_requests.first().unwrap();
                         if let Err(err) =
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::InvocationFinished(
                                     InvocationFinishedEvent {
-                                        id: first_task.invocation_id.clone(),
+                                        id: request.invocation_id.clone(),
                                     },
                                 ))
                         {
@@ -324,7 +319,6 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                             let _ = self.system_tasks_tx.send(());
                         }
                     };
-                }
                 state_machine::processed_reduction_tasks(
                     self.db.clone(),
                     &txn,
@@ -357,7 +351,8 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                     &request,
                     self.metrics.clone(),
                 )?;
-                state_changes::register_executor(&self.last_state_change_id, &request)?
+
+                state_changes::register_executor(&self.last_state_change_id, &request).map_err(|e| anyhow!("error getting state changes {}", e))?
             }
             RequestPayload::MutateClusterTopology(request) => {
                 state_machine::deregister_executor(
@@ -397,7 +392,8 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
                 vec![]
-            }
+            },
+            RequestPayload::Noop => vec![],
         };
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
@@ -409,6 +405,10 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 process_state_change,
             )?;
         }
+        state_machine::write_sm_meta(self.db.clone(), &txn, &StateMachineMetadata{
+            last_change_idx: self.last_state_change_id.load(atomic::Ordering::Relaxed),
+            db_version: 1,
+        })?;
         txn.commit()?;
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
@@ -434,10 +434,6 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
         if new_state_changes.len() > 0 {
             self.change_events_tx.send(()).unwrap();
         }
-        self.state_change_dispatcher
-            .dispatch_state_change(new_state_changes)
-            .context("failed to dispatch state change event: {:?}")?;
-
         Ok(())
     }
 
@@ -512,8 +508,8 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
     }
 }
 
-pub fn task_stream<T: StateChangeDispatcher>(
-    state: Arc<IndexifyState<T>>,
+pub fn task_stream(
+    state: Arc<IndexifyState>,
     executor: ExecutorId,
     limit: usize,
 ) -> TaskStream {
@@ -734,6 +730,9 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::NamespaceProcessorUpdate(
                     NamespaceProcessorUpdateRequest {
+                        namespace: task.namespace.clone(),
+                        compute_graph: task.compute_graph_name.clone(),
+                        invocation_id: task.invocation_id.clone(),
                         task_requests: vec![task.clone()],
                         reduction_tasks: ReductionTasks::default(),
                     },
@@ -793,6 +792,9 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::NamespaceProcessorUpdate(
                     NamespaceProcessorUpdateRequest {
+                        namespace: task_1.namespace.clone(),
+                        compute_graph: task_1.compute_graph_name.clone(),
+                        invocation_id: task_1.input_node_output_key.clone(),
                         task_requests: vec![task_1.clone()],
                         reduction_tasks: ReductionTasks::default(),
                     },
@@ -830,8 +832,8 @@ mod tests {
         Ok(())
     }
 
-    fn _read_cgs_from_state_store<T: StateChangeDispatcher>(
-        indexify_state: &IndexifyState<T>,
+    fn _read_cgs_from_state_store(
+        indexify_state: &IndexifyState,
     ) -> Vec<ComputeGraph> {
         let reader = indexify_state.reader();
         let result = reader
@@ -845,8 +847,8 @@ mod tests {
         compute_graphs
     }
 
-    async fn _write_to_test_state_store<T: StateChangeDispatcher>(
-        indexify_state: &Arc<IndexifyState<T>>,
+    async fn _write_to_test_state_store(
+        indexify_state: &Arc<IndexifyState>,
         compute_graph: ComputeGraph,
     ) -> Result<()> {
         indexify_state

@@ -2,23 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType,
-    ComputeGraph,
-    ComputeGraphVersion,
-    ExecutorId,
-    GraphInvocationCtx,
-    GraphInvocationCtxBuilder,
-    InvocationPayload,
-    InvokeComputeGraphEvent,
-    Namespace,
-    NodeOutput,
-    OutputPayload,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    SystemTask,
-    Task,
-    TaskAnalytics,
+    ChangeType, ComputeGraph, ComputeGraphVersion, ExecutorId, GraphInvocationCtx, GraphInvocationCtxBuilder, InvocationPayload, InvokeComputeGraphEvent, Namespace, NodeOutput, OutputPayload, StateChange, StateChangeBuilder, StateChangeId, StateMachineMetadata, SystemTask, Task, TaskAnalytics
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
@@ -668,11 +652,13 @@ pub(crate) fn create_tasks(
     txn: &Transaction<TransactionDB>,
     tasks: Vec<Task>,
     sm_metrics: Arc<StateStoreMetrics>,
+    namespace: &str,
+    compute_graph: &str,
+    invocation_id: &str,
 ) -> Result<Option<InvocationCompletion>> {
-    let first_task = tasks.first().ok_or(anyhow!("No tasks to create"))?;
     let ctx_key = format!(
         "{}|{}|{}",
-        first_task.namespace, first_task.compute_graph_name, first_task.invocation_id
+        namespace, compute_graph, invocation_id
     );
     let graph_ctx = txn.get_for_update_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
@@ -682,14 +668,14 @@ pub(crate) fn create_tasks(
     if graph_ctx.is_none() {
         error!(
             "Graph context not found for graph {} and invocation {}",
-            &first_task.compute_graph_name, &first_task.invocation_id
+            &compute_graph, &invocation_id
         );
         return Ok(None);
     }
     let graph_ctx = &graph_ctx.ok_or(anyhow!(
         "Graph context not found for graph {} and invocation {}",
-        &first_task.compute_graph_name,
-        &first_task.invocation_id
+        &compute_graph,
+        &invocation_id
     ))?;
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     for task in &tasks {
@@ -720,15 +706,15 @@ pub(crate) fn create_tasks(
         ctx_key,
         serialized_graphctx,
     )?;
-    debug!("GraphInvocationCtx updated: {:?}", graph_ctx);
+    info!("GraphInvocationCtx updated: {:?}", graph_ctx);
     sm_metrics.task_unassigned(tasks.clone());
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(
             db,
             txn,
-            &first_task.namespace,
-            &first_task.compute_graph_name,
-            &first_task.invocation_id,
+            &namespace,
+            &compute_graph,
+            &invocation_id,
         )?))
     } else {
         Ok(None)
@@ -1091,4 +1077,32 @@ where
     let serialized_task = JsonEncoder::encode(&task)?;
     txn.put_cf(cf, &key, &serialized_task)?;
     Ok(())
+}
+
+pub fn write_sm_meta(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    meta: &StateMachineMetadata,
+) -> Result<()> {
+    let serialized_meta = JsonEncoder::encode(&meta)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::StateMachineMetadata.cf_db(&db),
+        b"sm_meta",
+        &serialized_meta,
+    )?;
+    Ok(())
+}
+
+pub fn read_sm_meta(
+    db: &TransactionDB,
+) -> Result<StateMachineMetadata> {
+    let meta = db
+        .get_cf(&IndexifyObjectsColumns::StateMachineMetadata.cf_db(&db), b"sm_meta")?;
+    match meta {
+        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
+        None => Ok(StateMachineMetadata{
+            db_version: 0,
+            last_change_idx: 0,
+        }),
+    }
 }

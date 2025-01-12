@@ -100,6 +100,9 @@ pub fn deregister_executor_events(
         .change_type(ChangeType::ExecutorRemoved(ExecutorRemovedEvent {
             executor_id: request.executor_id.clone(),
         }))
+        .namespace(None)
+        .compute_graph(None)
+        .invocation(None)
         .created_at(get_epoch_time_in_ms())
         .object_id(request.executor_id.get().to_string())
         .id(StateChangeId::new(last_change_id))
@@ -112,6 +115,8 @@ pub fn register_executor(
     last_state_change_id: &AtomicU64,
     request: &RegisterExecutorRequest,
 ) -> Result<Vec<StateChange>> {
+
+    println!("Registering executor: {:?}", last_state_change_id.load(atomic::Ordering::Relaxed));
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .change_type(ChangeType::ExecutorAdded)
@@ -119,6 +124,9 @@ pub fn register_executor(
         .object_id(request.executor.id.to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
+        .namespace(None)
+        .compute_graph(None)
+        .invocation(None)
         .build()?;
 
     Ok(vec![state_change])

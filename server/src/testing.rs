@@ -41,14 +41,14 @@ impl TestService {
     }
 
     pub async fn process_all(&self) -> Result<()> {
-        self.service.namespace_processor.process().await?;
-        self.service.task_allocator.process().await?;
+        // self.service.namespace_processor.process().await?;
+        // self.service.task_allocator.process().await?;
 
         Ok(())
     }
 
     pub async fn process_ns(&self) -> Result<()> {
-        self.service.namespace_processor.process().await?;
+        //self.service.namespace_processor.process().await?;
 
         Ok(())
     }

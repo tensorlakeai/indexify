@@ -14,7 +14,7 @@ use data_model::{
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use state_store::requests::{FinalizeTaskRequest, RequestPayload};
+use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::{error, info};
 use utoipa::ToSchema;
 
@@ -236,9 +236,14 @@ pub async fn ingest_files_from_executor(
         diagnostics: Some(task_diagnostic),
     });
 
+    let sm_req = StateMachineUpdateRequest{
+        payload: request,
+        process_state_change:None,
+    };
+
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(sm_req)
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

@@ -8,10 +8,8 @@ use state_store::{
 };
 use tracing::{debug, error, info};
 
-use crate::dispatcher::Dispatcher;
-
 pub struct Gc {
-    state: Arc<IndexifyState<Dispatcher>>,
+    state: Arc<IndexifyState>,
     storage: Arc<BlobStorage>,
     rx: tokio::sync::watch::Receiver<()>,
     shutdown_rx: tokio::sync::watch::Receiver<()>,
@@ -19,7 +17,7 @@ pub struct Gc {
 
 impl Gc {
     pub fn new(
-        state: Arc<IndexifyState<Dispatcher>>,
+        state: Arc<IndexifyState>,
         storage: Arc<BlobStorage>,
         shutdown_rx: tokio::sync::watch::Receiver<()>,
     ) -> Self {

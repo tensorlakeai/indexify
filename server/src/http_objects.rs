@@ -291,6 +291,7 @@ pub struct ComputeGraph {
     pub name: String,
     pub namespace: String,
     pub description: String,
+    #[serde(default)]
     pub tombstoned: bool,
     pub start_node: Node,
     pub version: GraphVersion,

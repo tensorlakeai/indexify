@@ -38,11 +38,11 @@ struct ScheduleTaskResult {
 }
 
 pub struct TaskAllocationProcessor {
-    indexify_state: Arc<IndexifyState<Dispatcher>>,
+    indexify_state: Arc<IndexifyState>,
 }
 
 impl TaskAllocationProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState<Dispatcher>>) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
         Self { indexify_state }
     }
 }

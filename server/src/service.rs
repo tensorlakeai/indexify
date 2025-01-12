@@ -5,12 +5,7 @@ use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::{init_provider, processors_metrics};
 use processor::{
-    dispatcher::Dispatcher,
-    gc::Gc,
-    namespace::NamespaceProcessor,
-    runner::ProcessorRunner,
-    system_tasks::SystemTasksExecutor,
-    task_allocator::TaskAllocationProcessor,
+    dispatcher::Dispatcher, gc::Gc, graph_processor::GraphProcessor, namespace::NamespaceProcessor, runner::ProcessorRunner, system_tasks::SystemTasksExecutor, task_allocator::TaskAllocationProcessor, task_allocator1
 };
 use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
@@ -31,14 +26,11 @@ pub struct Service {
     pub shutdown_tx: watch::Sender<()>,
     pub shutdown_rx: watch::Receiver<()>,
     pub blob_storage: Arc<BlobStorage>,
-    pub indexify_state: Arc<IndexifyState<Dispatcher>>,
-    pub dispatcher: Arc<Dispatcher>,
+    pub indexify_state: Arc<IndexifyState>,
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
-    pub task_allocator: Arc<ProcessorRunner<TaskAllocationProcessor>>,
     pub system_tasks_executor: Arc<Mutex<SystemTasksExecutor>>,
     pub gc_executor: Arc<Mutex<Gc>>,
-    pub namespace_processor: Arc<ProcessorRunner<NamespaceProcessor>>,
     pub metrics_registry: Arc<Registry>,
 }
 
@@ -52,27 +44,12 @@ impl Service {
                 .context("error initializing BlobStorage")?,
         );
 
-        let dispatcher_metrics = Arc::new(processors_metrics::Metrics::new());
-        let dispatcher = Arc::new(Dispatcher::new(dispatcher_metrics.clone())?);
-
         let indexify_state =
-            IndexifyState::new(config.state_store_path.parse()?, dispatcher.clone()).await?;
+            IndexifyState::new(config.state_store_path.parse()?).await?;
         let executor_manager =
-            Arc::new(ExecutorManager::new(indexify_state.clone(), dispatcher.clone()).await);
+            Arc::new(ExecutorManager::new(indexify_state.clone()).await);
 
         let task_allocator = Arc::new(TaskAllocationProcessor::new(indexify_state.clone()));
-        let task_allocator_runner = Arc::new(ProcessorRunner::new(
-            task_allocator.clone(),
-            dispatcher_metrics.clone(),
-        ));
-        dispatcher.add_processor(task_allocator_runner.clone());
-
-        let namespace_processor = Arc::new(NamespaceProcessor::new(indexify_state.clone()));
-        let namespace_processor_runner = Arc::new(ProcessorRunner::new(
-            namespace_processor.clone(),
-            dispatcher_metrics.clone(),
-        ));
-        dispatcher.add_processor(namespace_processor_runner.clone());
 
         let system_tasks_executor = Arc::new(Mutex::new(SystemTasksExecutor::new(
             indexify_state.clone(),
@@ -97,22 +74,20 @@ impl Service {
             shutdown_rx,
             blob_storage,
             indexify_state,
-            dispatcher,
             executor_manager,
             kvs,
-            task_allocator: task_allocator_runner,
             system_tasks_executor,
             gc_executor,
-            namespace_processor: namespace_processor_runner,
             metrics_registry,
         })
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let scheduler = self.task_allocator.clone();
+        let task_allocator1 = task_allocator1::TaskAllocationProcessor::new(self.indexify_state.clone());
+        let graph_processor = GraphProcessor::new(self.indexify_state.clone(), task_allocator1);
         let shutdown_rx = self.shutdown_rx.clone();
         tokio::spawn(async move {
-            scheduler.start(shutdown_rx).await;
+            graph_processor.start(shutdown_rx).await;
         });
 
         let global_meter = opentelemetry::global::meter("server-http");
@@ -123,17 +98,12 @@ impl Service {
 
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
-            dispatcher: self.dispatcher.clone(),
             kvs: self.kvs.clone(),
             blob_storage: self.blob_storage.clone(),
             executor_manager: self.executor_manager.clone(),
             registry: self.metrics_registry.clone(),
             metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
         };
-        let namespace_processor = self.namespace_processor.clone();
-        let shutdown_rx = self.shutdown_rx.clone();
-        tokio::spawn(async move { namespace_processor.start(shutdown_rx).await });
-
         let system_tasks_executor = self.system_tasks_executor.clone();
         tokio::spawn(async move {
             let system_tasks_executor_guard = system_tasks_executor.lock().await;

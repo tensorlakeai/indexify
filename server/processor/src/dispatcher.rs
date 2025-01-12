@@ -115,6 +115,7 @@ impl Dispatcher {
             RequestPayload::NamespaceProcessorUpdate(_) |
             RequestPayload::RemoveGcUrls(_) |
             RequestPayload::UpdateSystemTask(_) |
+            RequestPayload::Noop |
             RequestPayload::RemoveSystemTask(_) => ProcessorId::new(ProcessorType::Namespace),
             RequestPayload::TaskAllocationProcessorUpdate(_) |
             RequestPayload::RegisterExecutor(_) |
