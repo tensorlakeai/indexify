@@ -321,14 +321,8 @@ impl IndexifyState {
                 new_state_changes
             }
             RequestPayload::TaskAllocationProcessorUpdate(request) => {
+                state_machine::handle_task_allocation_update(self.db.clone(), &txn, self.metrics.clone(), request)?;
                 for allocation in &request.allocations {
-                    state_machine::allocate_tasks(
-                        self.db.clone(),
-                        &txn,
-                        &allocation.task,
-                        &allocation.executor,
-                        self.metrics.clone(),
-                    )?;
                     allocated_tasks_by_executor.push(allocation.executor.clone());
                 }
                 vec![]
@@ -742,6 +736,7 @@ mod tests {
                             task: task.clone(),
                             executor: executor_id.clone(),
                         }],
+                        unplaced_task_keys: vec![],
                         placement_diagnostics: vec![],
                     },
                 ),
@@ -804,6 +799,7 @@ mod tests {
                             task: task_1.clone(),
                             executor: executor_id.clone(),
                         }],
+                        unplaced_task_keys: vec![],
                         placement_diagnostics: vec![],
                     },
                 ),

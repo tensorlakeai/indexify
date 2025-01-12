@@ -146,6 +146,7 @@ pub struct NamespaceProcessorUpdateRequest {
 #[derive(Debug, Clone)]
 pub struct TaskAllocationUpdateRequest {
     pub allocations: Vec<TaskPlacement>,
+    pub unplaced_task_keys: Vec<String>,
     pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 

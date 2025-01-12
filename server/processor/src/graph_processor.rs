@@ -16,7 +16,6 @@ use state_store::{
     IndexifyState,
 };
 use tokio::sync::Notify;
-use tracing::info;
 
 use crate::{
     task_allocator::{self, TaskPlacementResult},
@@ -53,7 +52,6 @@ impl GraphProcessor {
             tokio::select! {
                 _ = change_events_rx.changed() => {
                     change_events_rx.borrow_and_update();
-                    info!("notified by scheduler");
                     let sm_update = self.handle_state_change().await;
                     if let Err(err) = &sm_update {
                         tracing::error!("error processing state change: {:?}", err);
@@ -67,7 +65,6 @@ impl GraphProcessor {
                     }
                 },
                 _ = notify.notified() => {
-                    info!("notified by ourselves");
                     let sm_update = self.handle_state_change().await;
                     if let Err(err) = &sm_update {
                         tracing::error!("error processing state change: {:?}", err);
@@ -136,10 +133,13 @@ impl GraphProcessor {
                 }),
                 processed_state_changes: vec![state_change.clone()],
             })),
-            ChangeType::ExecutorAdded => Ok(Some(StateMachineUpdateRequest {
-                payload: RequestPayload::Noop,
-                processed_state_changes: vec![state_change.clone()],
-            })),
+            ChangeType::ExecutorAdded => {
+                let result = self.task_allocator.schedule_unplaced_tasks()?;
+                Ok(Some(task_placement_result_to_sm_update(
+                    result,
+                    &state_change,
+                )))
+            },
             ChangeType::ExecutorRemoved(event) => Ok(Some(StateMachineUpdateRequest {
                 payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                     executor_removed: event.executor_id.clone(),
@@ -189,6 +189,7 @@ fn task_placement_result_to_sm_update(
     StateMachineUpdateRequest {
         payload: RequestPayload::TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest {
             allocations: task_placement_result.task_placements,
+            unplaced_task_keys: task_placement_result.unplaced_task_keys,
             placement_diagnostics: task_placement_result.placement_diagnostics,
         }),
         processed_state_changes: vec![state_change.clone()],
