@@ -21,7 +21,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{error, info, span};
+use tracing::{debug, error, info, span};
 
 pub mod invocation_events;
 pub mod kv;
@@ -167,7 +167,7 @@ impl IndexifyState {
     )]
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
-        info!(
+        debug!(
             "writing state machine update request: {}",
             request.payload.to_string(),
         );
