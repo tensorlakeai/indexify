@@ -61,12 +61,12 @@ impl TaskAllocationProcessor {
                 Ok(schedule_task_results) => {
                     task_placements.extend(schedule_task_results.task_placements);
                     unplaced_task_keys.extend(schedule_task_results.unplaced_task_keys);
-                    placement_diagnostics.extend(schedule_task_results.diagnostic_msgs.iter().map(|msg| {
-                        TaskPlacementDiagnostic {
+                    placement_diagnostics.extend(schedule_task_results.diagnostic_msgs.iter().map(
+                        |msg| TaskPlacementDiagnostic {
                             task: task.clone(),
                             message: msg.clone(),
-                        }
-                    }));
+                        },
+                    ));
                 }
                 Err(err) => {
                     error!("failed to allocate task, skipping: {:?}", err);

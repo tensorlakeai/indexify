@@ -26,6 +26,7 @@ pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
     pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
     pub task_creator: Arc<task_creator::TaskCreator>,
+    pub cached_state_changes: Vec<StateChange>,
 }
 
 impl GraphProcessor {
@@ -38,10 +39,11 @@ impl GraphProcessor {
             indexify_state,
             task_allocator,
             task_creator,
+            cached_state_changes: vec![],
         }
     }
 
-    pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
+    pub async fn start(&mut self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
         // Used to run the loop when there are more than 1 change events queued up
         // The watch from the state store only notifies that there are N number of state
@@ -85,12 +87,14 @@ impl GraphProcessor {
         }
     }
 
-    pub async fn handle_state_change(&self) -> Result<Option<StateMachineUpdateRequest>> {
-        let state_change = self.indexify_state.reader().get_next_state_change()?;
-        if state_change.is_none() {
+    pub async fn handle_state_change(&mut self) -> Result<Option<StateMachineUpdateRequest>> {
+        if self.cached_state_changes.is_empty() {
+            self.cached_state_changes = self.indexify_state.reader().unprocessed_state_changes()?;
+        }
+        if self.cached_state_changes.is_empty() {
             return Ok(None);
         }
-        let state_change = state_change.unwrap();
+        let state_change = self.cached_state_changes.pop().unwrap();
         let scheduler_update = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
                 let task_creation_result = self
@@ -139,7 +143,7 @@ impl GraphProcessor {
                     result,
                     &state_change,
                 )))
-            },
+            }
             ChangeType::ExecutorRemoved(event) => Ok(Some(StateMachineUpdateRequest {
                 payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                     executor_removed: event.executor_id.clone(),

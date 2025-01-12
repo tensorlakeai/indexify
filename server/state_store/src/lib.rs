@@ -321,7 +321,12 @@ impl IndexifyState {
                 new_state_changes
             }
             RequestPayload::TaskAllocationProcessorUpdate(request) => {
-                state_machine::handle_task_allocation_update(self.db.clone(), &txn, self.metrics.clone(), request)?;
+                state_machine::handle_task_allocation_update(
+                    self.db.clone(),
+                    &txn,
+                    self.metrics.clone(),
+                    request,
+                )?;
                 for allocation in &request.allocations {
                     allocated_tasks_by_executor.push(allocation.executor.clone());
                 }
