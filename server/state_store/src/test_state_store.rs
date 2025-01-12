@@ -13,7 +13,6 @@ use data_model::{
     },
     ExecutorId,
     NodeOutput,
-    StateChange,
     Task,
     TaskId,
     TaskOutcome,
@@ -28,20 +27,7 @@ use crate::{
         StateMachineUpdateRequest,
     },
     IndexifyState,
-    StateChangeDispatcher,
 };
-
-pub struct NoopStateChangeDispatcher;
-
-impl StateChangeDispatcher for NoopStateChangeDispatcher {
-    fn dispatch_state_change(&self, _change: Vec<StateChange>) -> Result<()> {
-        Ok(())
-    }
-
-    fn processor_ids_for_state_change(&self, _change: StateChange) -> Vec<data_model::ProcessorId> {
-        vec![]
-    }
-}
 
 pub struct TestStateStore {
     pub indexify_state: Arc<IndexifyState>,
@@ -100,7 +86,7 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -113,7 +99,7 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -128,7 +114,7 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -142,7 +128,7 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -157,7 +143,7 @@ pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -171,7 +157,7 @@ pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -215,7 +201,7 @@ pub async fn finalize_task(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::FinalizeTask(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
 }
@@ -239,7 +225,7 @@ pub async fn finalize_task_graph_b(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::FinalizeTask(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
 }
@@ -263,7 +249,7 @@ pub async fn finalize_router_x(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::FinalizeTask(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
 }

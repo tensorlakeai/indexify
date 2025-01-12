@@ -109,7 +109,7 @@ impl SystemTasksExecutor {
                     invocation_ids: invocations.iter().map(|i| i.id.clone()).collect(),
                     restart_key: restart_key.clone(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -130,7 +130,7 @@ impl SystemTasksExecutor {
                             namespace: task.namespace.clone(),
                             compute_graph_name: task.compute_graph_name.clone(),
                         }),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
             } else {
@@ -147,7 +147,7 @@ impl SystemTasksExecutor {
                                 compute_graph_name: task.compute_graph_name.clone(),
                                 waiting_for_running_invocations: true,
                             }),
-                            process_state_change: None,
+                            processed_state_changes: vec![],
                         })
                         .await?;
                 }

@@ -29,7 +29,7 @@ impl ExecutorManager {
                     payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                         executor_id: executor.id.clone(),
                     }),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 };
                 if let Err(err) = cs.write(sm_req).await {
                     error!(
@@ -46,7 +46,7 @@ impl ExecutorManager {
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest { executor }),
-            process_state_change: None,
+            processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await
     }
@@ -54,7 +54,7 @@ impl ExecutorManager {
     pub async fn deregister_executor(&self, executor_id: ExecutorId) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest { executor_id }),
-            process_state_change: None,
+            processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await
     }

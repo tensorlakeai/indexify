@@ -1,4 +1,7 @@
-use std::sync::atomic::{self, AtomicU64};
+use std::{
+    sync::atomic::{self, AtomicU64},
+    vec,
+};
 
 use anyhow::Result;
 use data_model::{
@@ -10,10 +13,14 @@ use data_model::{
     StateChangeId,
     TaskCreatedEvent,
     TaskFinishedEvent,
+    TombstoneComputeGraphEvent,
+    TombstoneInvocationEvent,
 };
 use indexify_utils::get_epoch_time_in_ms;
 
 use crate::requests::{
+    DeleteComputeGraphRequest,
+    DeleteInvocationRequest,
     DeregisterExecutorRequest,
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
@@ -38,6 +45,51 @@ pub fn invoke_compute_graph(
         .created_at(get_epoch_time_in_ms())
         .object_id(request.invocation_payload.id.clone())
         .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn tombstone_compute_graph(
+    last_change_id: &AtomicU64,
+    request: &DeleteComputeGraphRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .id(StateChangeId::new(last_change_id))
+        .change_type(ChangeType::TombstoneComputeGraph(
+            TombstoneComputeGraphEvent {
+                namespace: request.namespace.clone(),
+                compute_graph: request.name.clone(),
+            },
+        ))
+        .namespace(Some(request.namespace.clone()))
+        .compute_graph(Some(request.name.clone()))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.name.clone())
+        .processed_at(None)
+        .invocation(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn tombstone_invocation(
+    last_change_id: &AtomicU64,
+    request: &DeleteInvocationRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .id(StateChangeId::new(last_change_id))
+        .change_type(ChangeType::TombstoneInvocation(TombstoneInvocationEvent {
+            namespace: request.namespace.clone(),
+            compute_graph: request.compute_graph.clone(),
+            invocation_id: request.invocation_id.clone(),
+        }))
+        .namespace(Some(request.namespace.clone()))
+        .compute_graph(Some(request.compute_graph.clone()))
+        .invocation(Some(request.invocation_id.clone()))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.invocation_id.clone())
         .processed_at(None)
         .build()?;
     Ok(vec![state_change])

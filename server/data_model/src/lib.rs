@@ -991,41 +991,6 @@ impl Display for StateChangeId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ProcessorId(ProcessorType);
-impl ProcessorId {
-    pub fn new(processor_type: ProcessorType) -> Self {
-        Self(processor_type)
-    }
-
-    pub fn key_prefix(&self) -> String {
-        self.0.key_prefix().to_string()
-    }
-}
-
-impl Display for ProcessorId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_ref())
-    }
-}
-
-#[derive(Debug, AsRefStr, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ProcessorType {
-    Namespace,
-    TaskAllocator,
-    // SystemTask,       // TODO: move replay logic in namespace processor
-    // GarbageCollector, // TODO: move GC as a system task
-}
-
-impl ProcessorType {
-    pub fn key_prefix(&self) -> &'static str {
-        match self {
-            ProcessorType::Namespace => "ns",
-            ProcessorType::TaskAllocator => "ta",
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,
