@@ -19,7 +19,6 @@ mod tests {
         TaskId,
         TaskOutcome,
     };
-    use processor::dispatcher::Dispatcher;
     use rand::Rng;
     use state_store::{
         requests::{

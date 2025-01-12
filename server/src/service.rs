@@ -3,9 +3,9 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
-use metrics::{init_provider, processors_metrics};
+use metrics::init_provider;
 use processor::{
-    dispatcher::Dispatcher, gc::Gc, graph_processor::GraphProcessor, namespace::NamespaceProcessor, runner::ProcessorRunner, system_tasks::SystemTasksExecutor, task_allocator::TaskAllocationProcessor, task_allocator1
+    gc::Gc, graph_processor::GraphProcessor, task_creator, system_tasks::SystemTasksExecutor, task_allocator::{self, TaskAllocationProcessor}
 };
 use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
@@ -49,8 +49,6 @@ impl Service {
         let executor_manager =
             Arc::new(ExecutorManager::new(indexify_state.clone()).await);
 
-        let task_allocator = Arc::new(TaskAllocationProcessor::new(indexify_state.clone()));
-
         let system_tasks_executor = Arc::new(Mutex::new(SystemTasksExecutor::new(
             indexify_state.clone(),
             shutdown_rx.clone(),
@@ -83,8 +81,9 @@ impl Service {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let task_allocator1 = task_allocator1::TaskAllocationProcessor::new(self.indexify_state.clone());
-        let graph_processor = GraphProcessor::new(self.indexify_state.clone(), task_allocator1);
+        let task_allocator1 = task_allocator::TaskAllocationProcessor::new(self.indexify_state.clone());
+        let task_creator = task_creator::TaskCreator::new(self.indexify_state.clone());
+        let graph_processor = GraphProcessor::new(self.indexify_state.clone(), task_allocator1, task_creator);
         let shutdown_rx = self.shutdown_rx.clone();
         tokio::spawn(async move {
             graph_processor.start(shutdown_rx).await;

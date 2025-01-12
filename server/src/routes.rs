@@ -23,7 +23,6 @@ use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use metrics::api_io_stats;
 use nanoid::nanoid;
-use processor::dispatcher::Dispatcher;
 use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},

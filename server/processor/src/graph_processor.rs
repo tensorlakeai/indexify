@@ -19,23 +19,26 @@ use state_store::{
 use tokio::sync::Notify;
 
 use crate::{
-    namespace::TaskCreationResult,
-    task_allocator1::{self, TaskPlacementResult},
+    task_creator::{self, TaskCreationResult},
+    task_allocator::{self, TaskPlacementResult},
 };
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
-    pub task_allocator: task_allocator1::TaskAllocationProcessor,
+    pub task_allocator: task_allocator::TaskAllocationProcessor,
+    pub task_creator: task_creator::TaskCreator,
 }
 
 impl GraphProcessor {
     pub fn new(
         indexify_state: Arc<IndexifyState>,
-        task_allocator: task_allocator1::TaskAllocationProcessor,
+        task_allocator: task_allocator::TaskAllocationProcessor,
+        task_creator: task_creator::TaskCreator,
     ) -> Self {
         Self {
             indexify_state,
             task_allocator,
+            task_creator,
         }
     }
 
@@ -88,15 +91,12 @@ impl GraphProcessor {
     pub async fn handle_state_change(&self) -> Result<Option<StateMachineUpdateRequest>> {
         let state_change = self.indexify_state.reader().get_next_state_change()?;
         if state_change.is_none() {
-            println!("NO STATE CHANGE");
             return Ok(None);
         }
         let state_change = state_change.unwrap();
-        println!("STATE CHANGE: {:?}", state_change);
         let scheduler_update = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
-                let task_creation_result = super::namespace::handle_invoke_compute_graph(
-                    self.indexify_state.clone(),
+                let task_creation_result = self.task_creator.handle_invoke_compute_graph(
                     event.clone(),
                 )
                 .await?;
@@ -109,7 +109,7 @@ impl GraphProcessor {
                 )))
             }
             ChangeType::TaskFinished(event) => {
-                let task_creation_result = super::namespace::handle_task_finished_inner(
+                let task_creation_result = self.task_creator.handle_task_finished_inner(
                     self.indexify_state.clone(),
                     event,
                 )
