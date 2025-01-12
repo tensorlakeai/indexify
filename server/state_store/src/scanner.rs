@@ -133,7 +133,7 @@ impl StateReader {
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
 
         let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(4_194_304);
+        read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
             Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
             None => IteratorMode::From(&key_prefix, Direction::Forward),
