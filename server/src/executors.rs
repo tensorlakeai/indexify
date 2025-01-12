@@ -2,7 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use data_model::{ExecutorId, ExecutorMetadata};
-use processor::dispatcher::Dispatcher;
 use state_store::{
     requests::{DeregisterExecutorRequest, RegisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
     IndexifyState,

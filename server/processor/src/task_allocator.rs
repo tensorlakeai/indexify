@@ -1,26 +1,16 @@
 use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
-use data_model::{ComputeGraphVersion, ExecutorId, Node, ProcessorId, ProcessorType, Task};
+use data_model::{ComputeGraphVersion, ExecutorId, Node, Task};
 use rand::seq::SliceRandom;
 use state_store::{
     requests::{
-        ProcessedStateChange,
-        RequestPayload,
-        StateMachineUpdateRequest,
-        TaskAllocationUpdateRequest,
         TaskPlacement,
         TaskPlacementDiagnostic,
     },
     IndexifyState,
 };
-use tracing::{debug, error, info, instrument, span};
-
-use crate::{
-    dispatcher::{DispatchedRequest, Dispatcher},
-    runner::ProcessorLogic,
-};
+use tracing::{error, info, span};
 
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
@@ -46,71 +36,13 @@ impl TaskAllocationProcessor {
         Self { indexify_state }
     }
 }
-
-#[async_trait]
-impl ProcessorLogic for TaskAllocationProcessor {
-    fn processor_id(&self) -> ProcessorId {
-        ProcessorId::new(ProcessorType::TaskAllocator)
-    }
-
-    #[instrument(skip(self, requests))]
-    async fn process(&self, requests: Vec<DispatchedRequest>) -> Result<()> {
-        debug!(
-            "running task allocation processor, requests_len={}",
-            requests.len()
-        );
-
-        for request in requests {
-            let update_request = StateMachineUpdateRequest {
-                payload: request.request,
-                process_state_change: None,
-            };
-            if let Err(err) = request
-                .result
-                .send(self.indexify_state.write(update_request).await)
-            {
-                error!("failed to send result: {:?}", err);
-            };
-        }
-
-        let state_changes = self
-            .indexify_state
-            .reader()
-            .get_unprocessed_state_changes(self.processor_id())?;
-
-        let task_placement_result = self.schedule_unplaced_tasks()?;
-
-        // Do not write an update request if there are no task placement changes and
-        // no state changes to mark as processed.
-        if task_placement_result.task_placements.is_empty() && state_changes.is_empty() {
-            return Ok(());
-        }
-
-        let scheduler_update_request = StateMachineUpdateRequest {
-            payload: RequestPayload::TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest {
-                allocations: task_placement_result.task_placements,
-                placement_diagnostics: task_placement_result.placement_diagnostics,
-            }),
-            process_state_change: Some(ProcessedStateChange {
-                processor_id: self.processor_id(),
-                state_changes, // consuming all task allocation state changes from the state machine
-            }),
-        };
-        if let Err(err) = self.indexify_state.write(scheduler_update_request).await {
-            error!("error writing scheduler update request: {:?}", err);
-        }
-
-        Ok(())
-    }
-}
-
 impl TaskAllocationProcessor {
     pub fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
         self.schedule_tasks(tasks)
     }
 
-    fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
+    pub fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
         let mut task_placements = Vec::new();
         let mut placement_diagnostics = Vec::new();
         for task in tasks {

@@ -1,36 +1,18 @@
 use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use data_model::{
-    ChangeType,
     ComputeGraphVersion,
     InvokeComputeGraphEvent,
     Node,
     OutputPayload,
-    ProcessorId,
-    ProcessorType,
     ReduceTask,
     Task,
     TaskFinishedEvent,
     TaskOutcome,
 };
-use state_store::{
-    requests::{
-        NamespaceProcessorUpdateRequest,
-        ProcessedStateChange,
-        ReductionTasks,
-        RequestPayload,
-        StateMachineUpdateRequest,
-    },
-    IndexifyState,
-};
-use tracing::{debug, error, info, instrument, trace};
-
-use crate::{
-    dispatcher::{DispatchedRequest, Dispatcher},
-    runner::ProcessorLogic,
-};
+use state_store::IndexifyState;
+use tracing::{debug, error, info, trace};
 
 #[derive(Debug)]
 pub struct TaskCreationResult {
@@ -55,171 +37,19 @@ impl TaskCreationResult {
     }
 }
 
-pub struct NamespaceProcessor {
+pub struct TaskCreator {
     indexify_state: Arc<IndexifyState>,
 }
 
-impl NamespaceProcessor {
+impl TaskCreator {
     pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
         Self { indexify_state }
     }
 }
 
-#[async_trait]
-impl ProcessorLogic for NamespaceProcessor {
-    fn processor_id(&self) -> ProcessorId {
-        ProcessorId::new(ProcessorType::Namespace)
-    }
-
-    #[instrument(skip(self, requests))]
-    async fn process(&self, requests: Vec<DispatchedRequest>) -> Result<()> {
-        debug!(
-            "running namespace processor, requests_len={}",
-            requests.len()
-        );
-
-        for request in requests {
-            let update_request = StateMachineUpdateRequest {
-                payload: request.request,
-                process_state_change: None,
-            };
-            if let Err(err) = request
-                .result
-                .send(self.indexify_state.write(update_request).await)
-            {
-                error!("failed to send result: {:?}", err);
-            };
-        }
-
-        let state_changes = self
-            .indexify_state
-            .reader()
-            .get_unprocessed_state_changes(self.processor_id())?;
-
-        for state_change in &state_changes {
-            let mut create_task_requests = vec![];
-            let mut processed_state_changes = vec![];
-            let mut new_reduction_tasks = vec![];
-            let mut processed_reduction_tasks = vec![];
-
-            trace!("processing state change: {:?}", state_change);
-
-            match self.process_state_change(state_change).await {
-                Ok(result) => {
-                    processed_state_changes.push(state_change.clone());
-
-                    if let Some(result) = result {
-                        new_reduction_tasks.extend(result.new_reduction_tasks);
-                        processed_reduction_tasks.extend(result.processed_reduction_tasks);
-                    }
-                }
-                Err(err) => {
-                    error!("error processing state change: {:?}", err);
-                    continue;
-                }
-            }
-
-            // Do not write an update request if there are no state changes to mark as
-            // processed since we did no work.
-            if processed_state_changes.is_empty() {
-                return Ok(());
-            }
-
-            let scheduler_update_request = StateMachineUpdateRequest {
-                payload: RequestPayload::NamespaceProcessorUpdate(
-                    NamespaceProcessorUpdateRequest {
-                        namespace: "default".to_string(),
-                        compute_graph: "default".to_string(),
-                        invocation_id: "default".to_string(),
-                        task_requests: create_task_requests,
-                        reduction_tasks: ReductionTasks {
-                            new_reduction_tasks,
-                            processed_reduction_tasks,
-                        },
-                    },
-                ),
-                process_state_change: Some(ProcessedStateChange {
-                    state_changes: processed_state_changes,
-                    processor_id: self.processor_id(),
-                }),
-            };
-            if let Err(err) = self.indexify_state.write(scheduler_update_request).await {
-                error!("error writing namespace update request: {:?}", err);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl NamespaceProcessor {
-    async fn process_state_change(
-        &self,
-        state_change: &data_model::StateChange,
-    ) -> Result<Option<TaskCreationResult>> {
-        let result = match &state_change.change_type {
-            ChangeType::InvokeComputeGraph(invoke_compute_graph_event) => Some(
-                handle_invoke_compute_graph(
-                    self.indexify_state.clone(),
-                    invoke_compute_graph_event.clone(),
-                )
-                .await?,
-            ),
-            ChangeType::TaskFinished(task_finished_event) => {
-                let task = self
-                    .indexify_state
-                    .reader()
-                    .get_task_from_finished_event(task_finished_event)
-                    .map_err(|e| {
-                        error!("error getting task from finished event: {:?}", e);
-                        e
-                    })?;
-                if task.is_none() {
-                    error!(
-                        "task not found for task finished event: {}",
-                        task_finished_event.task_id
-                    );
-                    return Ok(None);
-                }
-                let task =
-                    task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
-
-                let compute_graph_version = self
-                    .indexify_state
-                    .reader()
-                    .get_compute_graph_version(
-                        &task.namespace,
-                        &task.compute_graph_name,
-                        &task.graph_version,
-                    )
-                    .map_err(|e| {
-                        error!("error getting compute graph version: {:?}", e);
-                        e
-                    })?;
-                if compute_graph_version.is_none() {
-                    error!(
-                        "compute graph version not found: {:?} {:?}",
-                        task.namespace, task.compute_graph_name
-                    );
-                    return Ok(None);
-                }
-                let compute_graph_version = compute_graph_version.ok_or(anyhow!(
-                    "compute graph version not found: {:?} {:?}",
-                    task.namespace,
-                    task.compute_graph_name
-                ))?;
-                Some(
-                    handle_task_finished(self.indexify_state.clone(), task, compute_graph_version)
-                        .await?,
-                )
-            }
-            _ => None,
-        };
-        Ok(result)
-    }
-}
-
+impl TaskCreator {
 pub async fn handle_task_finished_inner(
+    &self,
     indexify_state: Arc<IndexifyState>,
     task_finished_event: &TaskFinishedEvent,
 ) -> Result<TaskCreationResult> {
@@ -270,14 +100,14 @@ pub async fn handle_task_finished_inner(
         task.namespace,
         task.compute_graph_name
     ))?;
-    handle_task_finished(indexify_state.clone(), task, compute_graph_version).await
+    self.handle_task_finished(task, compute_graph_version).await
 }
 
 pub async fn handle_invoke_compute_graph(
-    indexify_state: Arc<IndexifyState>,
+    &self,
     event: InvokeComputeGraphEvent,
 ) -> Result<TaskCreationResult> {
-    let invocation_ctx = indexify_state
+    let invocation_ctx = self.indexify_state
         .reader()
         .invocation_ctx(&event.namespace, &event.compute_graph, &event.invocation_id)
         .map_err(|e| {
@@ -299,7 +129,7 @@ pub async fn handle_invoke_compute_graph(
         event.invocation_id
     ))?;
 
-    let compute_graph_version = indexify_state
+    let compute_graph_version = self.indexify_state
         .reader()
         .get_compute_graph_version(
             &event.namespace,
@@ -357,11 +187,11 @@ pub async fn handle_invoke_compute_graph(
 }
 
 pub async fn handle_task_finished(
-    indexify_state: Arc<IndexifyState>,
+    &self,
     task: Task,
     compute_graph_version: ComputeGraphVersion,
 ) -> Result<TaskCreationResult> {
-    let invocation_ctx = indexify_state
+    let invocation_ctx = self.indexify_state
         .reader()
         .invocation_ctx(
             &task.namespace,
@@ -397,7 +227,7 @@ pub async fn handle_task_finished(
             &task.invocation_id,
         ));
     }
-    let outputs = indexify_state
+    let outputs = self.indexify_state
         .reader()
         .get_task_outputs(&task.namespace, &task.id.to_string())?;
     let mut new_tasks = vec![];
@@ -468,7 +298,7 @@ pub async fn handle_task_finished(
                         ));
                     }
                 }
-                let reduction_task = indexify_state
+                let reduction_task = self.indexify_state
                     .reader()
                     .next_reduction_task(
                         &task.namespace,
@@ -639,7 +469,7 @@ pub async fn handle_task_finished(
                 //
                 // To do so, we need to find the previous reducer task to reuse its output.
                 if successful_tasks_for_node > 0 {
-                    let (prev_reducer_tasks, _) = indexify_state.reader().get_task_by_fn(
+                    let (prev_reducer_tasks, _) = self.indexify_state.reader().get_task_by_fn(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
@@ -657,7 +487,7 @@ pub async fn handle_task_finished(
 
                     let prev_reducer_task = prev_reducer_tasks.first().unwrap();
 
-                    let prev_reducer_outputs = indexify_state.reader().get_task_outputs(
+                    let prev_reducer_outputs = self.indexify_state.reader().get_task_outputs(
                         &prev_reducer_task.namespace,
                         &prev_reducer_task.id.to_string(),
                     )?;
@@ -714,4 +544,5 @@ pub async fn handle_task_finished(
         new_reduction_tasks,
         processed_reduction_tasks: vec![],
     })
+}
 }
