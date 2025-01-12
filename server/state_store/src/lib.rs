@@ -273,6 +273,7 @@ impl IndexifyState {
                     &request.namespace,
                     &request.name,
                 )?;
+                self.gc_tx.send(()).unwrap();
                 vec![]
             }
             RequestPayload::TombstoneInvocation(request) => {
@@ -280,6 +281,7 @@ impl IndexifyState {
             }
             RequestPayload::DeleteInvocationRequest(request) => {
                 state_machine::delete_invocation(self.db.clone(), &txn, request)?;
+                self.gc_tx.send(()).unwrap();
                 vec![]
             }
             RequestPayload::NamespaceProcessorUpdate(request) => {

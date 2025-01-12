@@ -86,6 +86,16 @@ mod tests {
             })
             .await?;
 
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: compute_graph.name.clone(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+
         gc_executor.lock().await.run().await?;
 
         let urls = indexify_state.reader().get_gc_urls(None)?;
