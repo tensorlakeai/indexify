@@ -44,7 +44,14 @@ impl TestService {
     }
 
     pub async fn process_all(&self) -> Result<()> {
-        while self.service.indexify_state.reader().unprocessed_state_changes()?.len() > 0 {
+        while self
+            .service
+            .indexify_state
+            .reader()
+            .unprocessed_state_changes()?
+            .len() >
+            0
+        {
             self.process_ns().await?;
         }
         Ok(())
@@ -52,9 +59,16 @@ impl TestService {
 
     pub async fn process_ns(&self) -> Result<()> {
         let notify = Arc::new(tokio::sync::Notify::new());
-        let mut cached_state_changes: Vec<StateChange> = self.service.indexify_state.reader().unprocessed_state_changes()?;
+        let mut cached_state_changes: Vec<StateChange> = self
+            .service
+            .indexify_state
+            .reader()
+            .unprocessed_state_changes()?;
         while !cached_state_changes.is_empty() {
-            self.service.graph_processor.write_sm_update(&mut cached_state_changes, &notify).await?;
+            self.service
+                .graph_processor
+                .write_sm_update(&mut cached_state_changes, &notify)
+                .await?;
         }
         Ok(())
     }
