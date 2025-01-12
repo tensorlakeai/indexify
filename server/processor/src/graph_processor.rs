@@ -53,29 +53,15 @@ impl GraphProcessor {
             tokio::select! {
                 _ = change_events_rx.changed() => {
                     change_events_rx.borrow_and_update();
-                    let sm_update = self.handle_state_change(&mut cached_state_changes).await;
-                    if let Err(err) = &sm_update {
+                    if let Err(err) = self.write_sm_update(&mut cached_state_changes, &notify).await {
                         tracing::error!("error processing state change: {:?}", err);
                         continue
-                    }
-                    if let Ok(Some(sm_update)) = sm_update {
-                        notify.notify_one();
-                        if let Err(err) = self.indexify_state.write(sm_update).await {
-                            tracing::error!("error writing state change: {:?}", err);
-                        }
                     }
                 },
                 _ = notify.notified() => {
-                    let sm_update = self.handle_state_change(&mut cached_state_changes).await;
-                    if let Err(err) = &sm_update {
+                    if let Err(err) = self.write_sm_update(&mut cached_state_changes, &notify).await {
                         tracing::error!("error processing state change: {:?}", err);
                         continue
-                    }
-                    if let Ok(Some(sm_update)) = sm_update {
-                        notify.notify_one();
-                        if let Err(err) = self.indexify_state.write(sm_update).await {
-                            tracing::error!("error writing state change: {:?}", err);
-                        }
                     }
                 },
                 _ = shutdown_rx.changed() => {
@@ -86,80 +72,105 @@ impl GraphProcessor {
         }
     }
 
-    pub async fn handle_state_change(
-        &self,
-        cached_state_changes: &mut Vec<StateChange>,
-    ) -> Result<Option<StateMachineUpdateRequest>> {
+    pub async fn write_sm_update(&self, cached_state_changes: &mut Vec<StateChange>, notify: &Arc<Notify>) -> Result<()> {
         if cached_state_changes.is_empty() {
             cached_state_changes.extend(self.indexify_state.reader().unprocessed_state_changes()?);
         }
         if cached_state_changes.is_empty() {
-            return Ok(None);
+            return Ok(());
         }
         let state_change = cached_state_changes.pop().unwrap();
+        let sm_update = self.handle_state_change(&state_change).await;
+        let sm_update = match sm_update {
+            Ok(sm_update) => sm_update,
+            Err(err) => {
+                tracing::error!("error processing state change: {:?}", err);
+
+                // Sending NOOP SM Update
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::Noop,
+                    processed_state_changes: vec![state_change.clone()],
+                }
+            }
+        };
+        if let Err(err) = self.indexify_state.write(sm_update).await {
+            tracing::error!("error writing state change: {:?}, attempting to mark the state change as NOOP", err);
+            self.indexify_state.write(StateMachineUpdateRequest {
+                payload: RequestPayload::Noop,
+                processed_state_changes: vec![state_change.clone()],
+            }).await?;
+        }
+        notify.notify_one();
+        Ok(())
+    }
+
+    pub async fn handle_state_change(
+        &self,
+        state_change: &StateChange,
+    ) -> Result<StateMachineUpdateRequest> {
         let scheduler_update = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
                 let task_creation_result = self
                     .task_creator
                     .handle_invoke_compute_graph(event.clone())
                     .await?;
-                Ok(Some(task_creation_result_to_sm_update(
+                Ok(task_creation_result_to_sm_update(
                     &event.namespace,
                     &event.compute_graph,
                     &event.invocation_id,
                     task_creation_result,
                     &state_change,
-                )))
+                ))
             }
             ChangeType::TaskFinished(event) => {
                 let task_creation_result = self
                     .task_creator
                     .handle_task_finished_inner(self.indexify_state.clone(), event)
                     .await?;
-                Ok(Some(task_creation_result_to_sm_update(
+                Ok(task_creation_result_to_sm_update(
                     &event.namespace,
                     &event.compute_graph,
                     &event.invocation_id,
                     task_creation_result,
                     &state_change,
-                )))
+                ))
             }
-            ChangeType::TombstoneComputeGraph(request) => Ok(Some(StateMachineUpdateRequest {
+            ChangeType::TombstoneComputeGraph(request) => Ok(StateMachineUpdateRequest {
                 payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
                     namespace: request.namespace.clone(),
                     name: request.compute_graph.clone(),
                 }),
                 processed_state_changes: vec![state_change.clone()],
-            })),
-            ChangeType::TombstoneInvocation(request) => Ok(Some(StateMachineUpdateRequest {
+            }),
+            ChangeType::TombstoneInvocation(request) => Ok(StateMachineUpdateRequest {
                 payload: RequestPayload::DeleteInvocationRequest(DeleteInvocationRequest {
                     namespace: request.namespace.clone(),
                     compute_graph: request.compute_graph.clone(),
                     invocation_id: request.invocation_id.clone(),
                 }),
                 processed_state_changes: vec![state_change.clone()],
-            })),
+            }),
             ChangeType::ExecutorAdded => {
                 let result = self.task_allocator.schedule_unplaced_tasks()?;
-                Ok(Some(task_placement_result_to_sm_update(
+                Ok(task_placement_result_to_sm_update(
                     result,
                     &state_change,
-                )))
+                ))
             }
-            ChangeType::ExecutorRemoved(event) => Ok(Some(StateMachineUpdateRequest {
+            ChangeType::ExecutorRemoved(event) => Ok(StateMachineUpdateRequest {
                 payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                     executor_removed: event.executor_id.clone(),
                 }),
                 processed_state_changes: vec![state_change.clone()],
-            })),
+            }),
             ChangeType::TaskCreated(event) => {
                 let result = self
                     .task_allocator
                     .schedule_tasks(vec![event.task.clone()])?;
-                Ok(Some(task_placement_result_to_sm_update(
+                Ok(task_placement_result_to_sm_update(
                     result,
                     &state_change,
-                )))
+                ))
             }
         };
         scheduler_update
