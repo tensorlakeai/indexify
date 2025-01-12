@@ -88,9 +88,14 @@ mod tests {
         let Service {
             indexify_state,
             executor_manager,
+            graph_processor,
             shutdown_rx,
             ..
         } = test_srv.service;
+
+        tokio::spawn(async move {
+            graph_processor.start(shutdown_rx).await;
+        });
 
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
@@ -104,7 +109,6 @@ mod tests {
         let executors = indexify_state.reader().get_all_executors()?;
 
         assert_eq!(executors.len(), 1);
-
         Ok(())
     }
 
@@ -114,9 +118,14 @@ mod tests {
         let Service {
             indexify_state,
             executor_manager,
+            graph_processor,
             shutdown_rx,
             ..
         } = test_srv.service;
+
+        tokio::spawn(async move {
+            graph_processor.start(shutdown_rx).await;
+        });
 
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
@@ -131,16 +140,12 @@ mod tests {
 
         assert_eq!(executors.len(), 1);
 
-        executor_manager
-            .deregister_executor(executors[0].id.clone())
-            .await?;
-
-        let executors = indexify_state.reader().get_all_executors()?;
-
-        assert_eq!(executors.len(), 0);
-
         executor_manager.register_executor(executor.clone()).await?;
-
+        schedule_deregister(
+            executor_manager.clone(),
+            executor.id.clone(),
+            Duration::from_secs(1),
+        );
         schedule_deregister(
             executor_manager.clone(),
             executor.id.clone(),

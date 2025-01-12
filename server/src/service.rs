@@ -38,6 +38,7 @@ pub struct Service {
     pub metrics_registry: Arc<Registry>,
     pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
     pub task_creator: Arc<task_creator::TaskCreator>,
+    pub graph_processor: Arc<GraphProcessor>,
 }
 
 impl Service {
@@ -73,6 +74,11 @@ impl Service {
             indexify_state.clone(),
         ));
         let task_creator = Arc::new(task_creator::TaskCreator::new(indexify_state.clone()));
+        let graph_processor = Arc::new(GraphProcessor::new(
+            indexify_state.clone(),
+            task_allocator.clone(),
+            task_creator.clone(),
+        ));
         Ok(Self {
             config,
             shutdown_tx,
@@ -86,20 +92,14 @@ impl Service {
             metrics_registry,
             task_allocator,
             task_creator,
+            graph_processor,
         })
     }
 
     pub async fn start(&mut self) -> Result<()> {
         let shutdown_rx = self.shutdown_rx.clone();
-        let indexify_state = self.indexify_state.clone();
-        let task_allocator = self.task_allocator.clone();
-        let task_creator = self.task_creator.clone();
+        let graph_processor = self.graph_processor.clone();
         tokio::spawn(async move {
-            let mut graph_processor = GraphProcessor::new(
-                indexify_state.clone(),
-                task_allocator.clone(),
-                task_creator.clone(),
-            );
             graph_processor.start(shutdown_rx).await;
         });
 

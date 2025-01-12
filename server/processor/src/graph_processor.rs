@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 
 use anyhow::Result;
 use data_model::{ChangeType, StateChange};
@@ -26,7 +26,6 @@ pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
     pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
     pub task_creator: Arc<task_creator::TaskCreator>,
-    pub cached_state_changes: Vec<StateChange>,
 }
 
 impl GraphProcessor {
@@ -39,11 +38,11 @@ impl GraphProcessor {
             indexify_state,
             task_allocator,
             task_creator,
-            cached_state_changes: vec![],
         }
     }
 
-    pub async fn start(&mut self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
+    pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
+        let mut cached_state_changes: Vec<StateChange> = vec![];
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
         // Used to run the loop when there are more than 1 change events queued up
         // The watch from the state store only notifies that there are N number of state
@@ -54,7 +53,7 @@ impl GraphProcessor {
             tokio::select! {
                 _ = change_events_rx.changed() => {
                     change_events_rx.borrow_and_update();
-                    let sm_update = self.handle_state_change().await;
+                    let sm_update = self.handle_state_change(&mut cached_state_changes).await;
                     if let Err(err) = &sm_update {
                         tracing::error!("error processing state change: {:?}", err);
                         continue
@@ -67,7 +66,7 @@ impl GraphProcessor {
                     }
                 },
                 _ = notify.notified() => {
-                    let sm_update = self.handle_state_change().await;
+                    let sm_update = self.handle_state_change(&mut cached_state_changes).await;
                     if let Err(err) = &sm_update {
                         tracing::error!("error processing state change: {:?}", err);
                         continue
@@ -87,14 +86,17 @@ impl GraphProcessor {
         }
     }
 
-    pub async fn handle_state_change(&mut self) -> Result<Option<StateMachineUpdateRequest>> {
-        if self.cached_state_changes.is_empty() {
-            self.cached_state_changes = self.indexify_state.reader().unprocessed_state_changes()?;
+    pub async fn handle_state_change(
+        &self,
+        cached_state_changes: &mut Vec<StateChange>,
+    ) -> Result<Option<StateMachineUpdateRequest>> {
+        if cached_state_changes.is_empty() {
+            cached_state_changes.extend(self.indexify_state.reader().unprocessed_state_changes()?);
         }
-        if self.cached_state_changes.is_empty() {
+        if cached_state_changes.is_empty() {
             return Ok(None);
         }
-        let state_change = self.cached_state_changes.pop().unwrap();
+        let state_change = cached_state_changes.pop().unwrap();
         let scheduler_update = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
                 let task_creation_result = self
