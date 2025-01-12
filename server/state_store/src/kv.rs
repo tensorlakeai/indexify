@@ -43,6 +43,12 @@ impl KVS {
         })
     }
 
+    pub async fn close_db(&self) -> Result<()> {
+        self.kv_store.flush().await?;
+        self.kv_store.close().await?;
+        Ok(())
+    }
+
     pub async fn put_ctx_state(&self, req: WriteContextData) -> Result<()> {
         let timer_kvs = &[KeyValue::new("op", "put_ctx_state")];
         let _timer = Timer::start_with_labels(&self.metrics.writes, timer_kvs);

@@ -33,7 +33,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -768,7 +768,7 @@ pub(crate) fn create_tasks(
         ctx_key,
         serialized_graphctx,
     )?;
-    info!("GraphInvocationCtx updated: {:?}", graph_ctx);
+    debug!("GraphInvocationCtx updated: {:?}", graph_ctx);
     sm_metrics.task_unassigned(tasks.clone());
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(

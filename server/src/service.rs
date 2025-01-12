@@ -132,9 +132,13 @@ impl Service {
         let handle = Handle::new();
         let handle_sh = handle.clone();
         let shutdown_tx = self.shutdown_tx.clone();
+        let kvs = self.kvs.clone();
         tokio::spawn(async move {
             shutdown_signal(handle_sh, shutdown_tx).await;
             info!("graceful shutdown signal received, shutting down server gracefully");
+            if let Err(err) = kvs.close_db().await {
+                tracing::error!("error closing kv store: {:?}", err);
+            }
         });
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
