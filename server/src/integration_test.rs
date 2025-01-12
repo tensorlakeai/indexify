@@ -60,7 +60,7 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()
+            .unprocessed_state_changes()
             .unwrap();
         // Processes the invoke cg event and creates a task created event
         assert_eq!(unprocessed_state_changes.len(), 1);
@@ -81,12 +81,31 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
+
+        // Should have 1 unprocessed state - Task Created 
+        let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
+        assert_eq!(1, unprocessed_state_changes.len(), "{:?}", unprocessed_state_changes);
         let task = &tasks[0];
         // Finish the task and check if new tasks are created
-        test_state_store::finalize_task(&indexify_state, task, 1, TaskOutcome::Success, false)
-            .await
-            .unwrap();
-
+        indexify_state.write(StateMachineUpdateRequest{
+            processed_state_changes: vec![],
+            payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
+                namespace: TEST_NAMESPACE.to_string(),
+                compute_graph: "graph_A".to_string(),
+                compute_fn: "fn_a".to_string(),
+                invocation_id: invocation_id.clone(),
+                task_id: task.id.clone(),
+                node_outputs: vec![mock_node_fn_output(
+                    invocation_id.as_str(),
+                    "graph_A",
+                    "fn_a",
+                    None,
+                )],
+                task_outcome: TaskOutcome::Success,
+                executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                diagnostics: None,
+            })
+        }).await.unwrap();
         test_srv.process_ns().await?;
 
         let tasks = indexify_state
@@ -97,13 +116,13 @@ mod tests {
         assert_eq!(tasks.len(), 3);
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()
+            .unprocessed_state_changes()
             .unwrap();
 
-        // has task created state change in it.
+        // At this point there should be 2 unprocessed task created state changes - for the two new tasks
         assert_eq!(
             unprocessed_state_changes.len(),
-            1,
+            2,
             "unprocessed_state_changes: {:?}",
             unprocessed_state_changes
         );
@@ -135,7 +154,7 @@ mod tests {
 
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()
+            .unprocessed_state_changes()
             .unwrap();
 
         // no more tasks since invocation failed
@@ -262,6 +281,7 @@ mod tests {
                 processed_state_changes: vec![],
             })
             .await?;
+        test_srv.process_all().await?;
 
         let executor_tasks = indexify_state
             .reader()
@@ -321,6 +341,8 @@ mod tests {
             })
             .await?;
 
+        test_srv.process_all().await?;
+
         let mut executor = mock_executor();
         executor.id = ExecutorId::new("2".to_string());
         indexify_state
@@ -377,7 +399,7 @@ mod tests {
         assert_eq!(tasks.len(), 2);
         let unprocessed_state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()
+            .unprocessed_state_changes()
             .unwrap();
 
         // has task created state change in it.
@@ -638,7 +660,7 @@ mod tests {
         {
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -718,6 +740,7 @@ mod tests {
                 processed_state_changes: vec![],
             })
             .await?;
+        test_srv.process_all().await?;
         let invocation_payload = InvocationPayloadBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_graph_name(graph.name.clone())
@@ -944,7 +967,7 @@ mod tests {
         {
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -1217,7 +1240,7 @@ mod tests {
         {
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -1468,7 +1491,7 @@ mod tests {
 
             let all_unprocessed_state_changes_before = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
 
             let request = make_finalize_request("fn_reduce", &reduce_task.id, 1);
             indexify_state
@@ -1480,7 +1503,7 @@ mod tests {
 
             let all_unprocessed_state_changes_reduce: Vec<StateChange> = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?
+                .unprocessed_state_changes()?
                 .iter()
                 .filter(|sc| {
                     !all_unprocessed_state_changes_before
@@ -1604,7 +1627,7 @@ mod tests {
         {
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             assert_eq!(
                 state_changes.len(),
                 0,
@@ -1837,7 +1860,7 @@ mod tests {
         {
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state

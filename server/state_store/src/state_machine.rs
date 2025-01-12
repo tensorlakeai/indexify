@@ -294,6 +294,9 @@ pub fn replay_invocations(
                 .object_id(invocation_id.clone())
                 .id(StateChangeId::new(0)) // updated with correct id by the caller
                 .processed_at(None)
+                .namespace(Some(req.namespace.clone()))
+                .compute_graph(Some(req.compute_graph_name.clone()))
+                .invocation(Some(invocation_id.clone()))
                 .build()?;
 
             Ok(Some(state_change))
