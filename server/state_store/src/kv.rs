@@ -51,7 +51,7 @@ impl KVS {
             "{}|{}|{}|{}",
             req.namespace, req.compute_graph, req.invocation_id, req.key
         );
-        self.kv_store.put(key.as_bytes(), &req.value).await;
+        let _ = self.kv_store.put(key.as_bytes(), &req.value).await?;
         Ok(())
     }
 
