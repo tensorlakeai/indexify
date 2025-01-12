@@ -916,6 +916,16 @@ impl fmt::Display for TaskFinishedEvent {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct TaskCreatedEvent {
+    pub task: Task,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct ExecutorRemovedEvent {
+    pub executor_id: ExecutorId,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct TombstoneComputeGraphEvent {
     pub namespace: String,
@@ -929,15 +939,15 @@ pub struct TombstoneInvocationEvent {
     pub invocation_id: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, AsRefStr)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, AsRefStr)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
     TaskFinished(TaskFinishedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorAdded,
-    ExecutorRemoved,
-    TaskCreated,
+    ExecutorRemoved(ExecutorRemovedEvent),
+    TaskCreated(TaskCreatedEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -947,8 +957,8 @@ impl fmt::Display for ChangeType {
             ChangeType::TaskFinished(_) => write!(f, "TaskFinished"),
             ChangeType::TombstoneComputeGraph(_) => write!(f, "TombstoneComputeGraph"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
-            ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
-            ChangeType::TaskCreated => write!(f, "TaskCreated"),
+            ChangeType::ExecutorRemoved(_) => write!(f, "ExecutorRemoved"),
+            ChangeType::TaskCreated(_) => write!(f, "TaskCreated"),
             ChangeType::TombstoneInvocation(_) => write!(f, "TombstoneInvocation"),
         }
     }

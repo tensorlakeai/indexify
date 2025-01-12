@@ -109,6 +109,8 @@ pub struct IndexifyState<T: StateChangeDispatcher> {
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub system_tasks_tx: tokio::sync::watch::Sender<()>,
     pub system_tasks_rx: tokio::sync::watch::Receiver<()>,
+    pub change_events_tx: tokio::sync::watch::Sender<()>,
+    pub change_events_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
     // state_metrics: Arc<StateMetrics>,
 }
@@ -134,6 +136,7 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         StateMetrics::new(state_store_metrics.clone());
         // let state_metrics = Arc::new(StateMetrics::new(state_store_metrics.clone()));
+        let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let s = Arc::new(Self {
             db: Arc::new(db),
             state_change_dispatcher,
@@ -145,6 +148,8 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
             system_tasks_tx,
             system_tasks_rx,
             metrics: state_store_metrics,
+            change_events_tx,
+            change_events_rx,
             // state_metrics,
         });
 
@@ -231,7 +236,6 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 // Notify the system task handler that it possibly can start new tasks since
                 // a system task was removed.
                 let _ = self.system_tasks_tx.send(());
-
                 vec![]
             }
             RequestPayload::ReplayInvocations(replay_invocation_request) => {
@@ -249,21 +253,11 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 state_changes
             }
             RequestPayload::FinalizeTask(finalize_task) => {
-                let state_changes = if state_machine::mark_task_completed(
-                    self.db.clone(),
-                    &txn,
-                    finalize_task.clone(),
-                    self.metrics.clone(),
-                )? {
-                    state_changes::finalize_task(&self.last_state_change_id, &finalize_task)?
-                } else {
-                    Vec::new()
-                };
                 tasks_finalized
                     .entry(finalize_task.executor_id.clone())
                     .or_default()
                     .push(finalize_task.task_id.clone());
-                state_changes
+                state_changes::finalize_task(&self.last_state_change_id, &finalize_task)?
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::create_namespace(self.db.clone(), &namespace_request)?;
@@ -278,13 +272,6 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 vec![]
             }
             RequestPayload::DeleteComputeGraph(request) => {
-                state_machine::delete_compute_graph(
-                    self.db.clone(),
-                    &txn,
-                    &request.namespace,
-                    &request.name,
-                )?;
-                self.gc_tx.send(()).unwrap();
                 vec![StateChangeBuilder::default()
                     .change_type(ChangeType::TombstoneComputeGraph(
                         TombstoneComputeGraphEvent {
@@ -313,18 +300,19 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                         &self.last_state_change_id,
                         &request,
                     )?;
-                for req in &request.task_requests {
+                if request.task_requests.len() > 0 {
                     if let Some(completion) = state_machine::create_tasks(
                         self.db.clone(),
                         &txn,
-                        req,
+                        request.task_requests.clone(),
                         self.metrics.clone().clone(),
                     )? {
+                        let first_task = request.task_requests.first().unwrap();
                         if let Err(err) =
                             self.task_event_tx
                                 .send(InvocationStateChangeEvent::InvocationFinished(
                                     InvocationFinishedEvent {
-                                        id: req.invocation_id.clone(),
+                                        id: first_task.invocation_id.clone(),
                                     },
                                 ))
                         {
@@ -371,8 +359,17 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 )?;
                 state_changes::register_executor(&self.last_state_change_id, &request)?
             }
+            RequestPayload::MutateClusterTopology(request) => {
+                state_machine::deregister_executor(
+                    self.db.clone(),
+                    &txn,
+                    &request.executor_removed,
+                    self.metrics.clone(),
+                )?;
+                vec![]
+            }
             RequestPayload::DeregisterExecutor(request) => {
-                let state_changes = state_changes::deregister_executor_events(
+                let new_state_changes = state_changes::deregister_executor_events(
                     &self.last_state_change_id,
                     &request,
                 )?;
@@ -392,14 +389,10 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 };
                 if removed {
                     info!("de-registering executor: {}", request.executor_id);
-                    state_machine::deregister_executor(
-                        self.db.clone(),
-                        &txn,
-                        &request,
-                        self.metrics.clone(),
-                    )?;
+                    new_state_changes
+                } else {
+                    vec![]
                 }
-                state_changes
             }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
@@ -438,6 +431,9 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 });
         }
         self.handle_invocation_state_changes(&request).await;
+        if new_state_changes.len() > 0 {
+            self.change_events_tx.send(()).unwrap();
+        }
         self.state_change_dispatcher
             .dispatch_state_change(new_state_changes)
             .context("failed to dispatch state change event: {:?}")?;
@@ -458,20 +454,18 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                 }
             }
             RequestPayload::NamespaceProcessorUpdate(sched_update) => {
-                for task_request in &sched_update.task_requests {
-                    for task in task_request.tasks.iter() {
-                        if let Err(err) =
-                            self.task_event_tx
-                                .send(InvocationStateChangeEvent::TaskCreated(
-                                    invocation_events::TaskCreated {
-                                        invocation_id: task.invocation_id.clone(),
-                                        fn_name: task.compute_fn_name.clone(),
-                                        task_id: task.id.to_string(),
-                                    },
-                                ))
-                        {
-                            error!("failed to send invocation state change: {:?}", err);
-                        }
+                for task in &sched_update.task_requests {
+                    if let Err(err) =
+                        self.task_event_tx
+                            .send(InvocationStateChangeEvent::TaskCreated(
+                                invocation_events::TaskCreated {
+                                    invocation_id: task.invocation_id.clone(),
+                                    fn_name: task.compute_fn_name.clone(),
+                                    task_id: task.id.to_string(),
+                                },
+                            ))
+                    {
+                        error!("failed to send invocation state change: {:?}", err);
                     }
                 }
             }
@@ -582,7 +576,6 @@ mod tests {
     use futures::StreamExt;
     use requests::{
         CreateOrUpdateComputeGraphRequest,
-        CreateTasksRequest,
         DeleteComputeGraphRequest,
         NamespaceProcessorUpdateRequest,
         NamespaceRequest,
@@ -737,18 +730,11 @@ mod tests {
             &JsonEncoder::encode(&graph_invocation_ctx)?,
         )?;
 
-        let create_tasks_request = CreateTasksRequest {
-            namespace: task.namespace.clone(),
-            compute_graph: task.compute_graph_name.clone(),
-            invocation_id: task.invocation_id.clone(),
-            tasks: vec![task.clone()],
-        };
-
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::NamespaceProcessorUpdate(
                     NamespaceProcessorUpdateRequest {
-                        task_requests: vec![create_tasks_request],
+                        task_requests: vec![task.clone()],
                         reduction_tasks: ReductionTasks::default(),
                     },
                 ),
@@ -807,12 +793,7 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::NamespaceProcessorUpdate(
                     NamespaceProcessorUpdateRequest {
-                        task_requests: vec![CreateTasksRequest {
-                            tasks: vec![task_1.clone()],
-                            namespace: task_1.namespace.clone(),
-                            compute_graph: task_1.compute_graph_name.clone(),
-                            invocation_id: task_1.invocation_id.clone(),
-                        }],
+                        task_requests: vec![task_1.clone()],
                         reduction_tasks: ReductionTasks::default(),
                     },
                 ),
