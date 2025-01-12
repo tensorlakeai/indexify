@@ -198,9 +198,7 @@ mod tests {
 
         test_srv.process_all().await?;
 
-        let state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes()?;
+        let state_changes = indexify_state.reader().unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
 
         let graph_ctx = indexify_state.reader().invocation_ctx(
@@ -230,9 +228,7 @@ mod tests {
         system_tasks_executor.lock().await.run().await?;
 
         // Since graph version is the same it should generate new tasks
-        let state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes()?;
+        let state_changes = indexify_state.reader().unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
 
         let system_tasks = indexify_state.reader().get_system_tasks(None).unwrap().0;
@@ -287,9 +283,7 @@ mod tests {
         assert_eq!(system_tasks.len(), 1);
 
         // Since graph version is different new changes should be generated
-        let state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes()?;
+        let state_changes = indexify_state.reader().unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 1);
 
         // Number of pending system tasks should be incremented
@@ -377,9 +371,7 @@ mod tests {
 
         test_srv.process_all().await?;
 
-        let state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes()?;
+        let state_changes = indexify_state.reader().unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
 
         // Number of pending system tasks should be decremented after graph completion
@@ -496,9 +488,7 @@ mod tests {
             let incomplete_tasks = tasks
                 .iter()
                 .filter(|t: &&data_model::Task| t.outcome == TaskOutcome::Unknown);
-            let state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             if state_changes.is_empty() && incomplete_tasks.count() == 0 {
                 break;
             }
@@ -573,9 +563,7 @@ mod tests {
 
             let system_tasks = indexify_state.reader().get_system_tasks(None).unwrap().0;
 
-            let state_changes = indexify_state
-                .reader()
-                .unprocessed_state_changes()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             if state_changes.is_empty() && num_incomplete_tasks == 0 && system_tasks.is_empty() {
                 break;
             }
