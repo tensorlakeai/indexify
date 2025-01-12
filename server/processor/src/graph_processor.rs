@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use data_model::{ChangeType, ProcessorId, ProcessorType, StateChange};
+use data_model::{ChangeType, StateChange};
 use state_store::{
     requests::{
+        DeleteComputeGraphRequest,
+        DeleteInvocationRequest,
         MutateClusterTopologyRequest,
         NamespaceProcessorUpdateRequest,
-        ProcessedStateChange,
         ReductionTasks,
         RequestPayload,
         StateMachineUpdateRequest,
@@ -120,23 +121,30 @@ impl GraphProcessor {
                     &state_change,
                 )))
             }
-            ChangeType::TombstoneComputeGraph(_) => Ok(None),
-            ChangeType::TombstoneInvocation(_) => Ok(None),
+            ChangeType::TombstoneComputeGraph(request) => Ok(Some(StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
+                    namespace: request.namespace.clone(),
+                    name: request.compute_graph.clone(),
+                }),
+                processed_state_changes: vec![state_change.clone()],
+            })),
+            ChangeType::TombstoneInvocation(request) => Ok(Some(StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteInvocationRequest(DeleteInvocationRequest {
+                    namespace: request.namespace.clone(),
+                    compute_graph: request.compute_graph.clone(),
+                    invocation_id: request.invocation_id.clone(),
+                }),
+                processed_state_changes: vec![state_change.clone()],
+            })),
             ChangeType::ExecutorAdded => Ok(Some(StateMachineUpdateRequest {
                 payload: RequestPayload::Noop,
-                process_state_change: Some(ProcessedStateChange {
-                    processor_id: ProcessorId::new(ProcessorType::Namespace),
-                    state_changes: vec![state_change.clone()],
-                }),
+                processed_state_changes: vec![state_change.clone()],
             })),
             ChangeType::ExecutorRemoved(event) => Ok(Some(StateMachineUpdateRequest {
                 payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                     executor_removed: event.executor_id.clone(),
                 }),
-                process_state_change: Some(ProcessedStateChange {
-                    processor_id: ProcessorId::new(ProcessorType::Namespace),
-                    state_changes: vec![state_change.clone()],
-                }),
+                processed_state_changes: vec![state_change.clone()],
             })),
             ChangeType::TaskCreated(event) => {
                 let result = self
@@ -170,10 +178,7 @@ fn task_creation_result_to_sm_update(
                 processed_reduction_tasks: task_creation_result.processed_reduction_tasks,
             },
         }),
-        process_state_change: Some(ProcessedStateChange {
-            state_changes: vec![state_change.clone()],
-            processor_id: ProcessorId::new(ProcessorType::Namespace),
-        }),
+        processed_state_changes: vec![state_change.clone()],
     }
 }
 
@@ -186,9 +191,6 @@ fn task_placement_result_to_sm_update(
             allocations: task_placement_result.task_placements,
             placement_diagnostics: task_placement_result.placement_diagnostics,
         }),
-        process_state_change: Some(ProcessedStateChange {
-            processor_id: ProcessorId::new(ProcessorType::Namespace),
-            state_changes: vec![state_change.clone()],
-        }),
+        processed_state_changes: vec![state_change.clone()],
     }
 }

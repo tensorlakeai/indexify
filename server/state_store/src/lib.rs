@@ -11,21 +11,8 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use data_model::{
-    ChangeType,
-    ExecutorId,
-    ProcessorId,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    StateMachineMetadata,
-    Task,
-    TaskId,
-    TombstoneComputeGraphEvent,
-    TombstoneInvocationEvent,
-};
+use data_model::{ExecutorId, StateChangeId, StateMachineMetadata, Task, TaskId};
 use futures::Stream;
-use indexify_utils::get_epoch_time_in_ms;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
@@ -92,13 +79,6 @@ impl Default for ExecutorState {
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<Task>>> + Send + Sync>>;
 pub type StateChangeStream =
     Pin<Box<dyn Stream<Item = Result<InvocationStateChangeEvent>> + Send + Sync>>;
-
-pub struct InvocationChangeSubscriber {}
-
-pub trait StateChangeDispatcher: Send + Sync + 'static {
-    fn dispatch_state_change(&self, changes: Vec<StateChange>) -> Result<()>;
-    fn processor_ids_for_state_change(&self, change: StateChange) -> Vec<ProcessorId>;
-}
 
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
@@ -283,28 +263,24 @@ impl IndexifyState {
                 )?;
                 vec![]
             }
-            RequestPayload::DeleteComputeGraph(request) => {
-                vec![StateChangeBuilder::default()
-                    .change_type(ChangeType::TombstoneComputeGraph(
-                        TombstoneComputeGraphEvent {
-                            namespace: request.namespace.clone(),
-                            compute_graph: request.name.clone(),
-                        },
-                    ))
-                    .created_at(get_epoch_time_in_ms())
-                    .object_id(request.name.clone())
-                    .build()?]
+            RequestPayload::TombstoneComputeGraph(request) => {
+                state_changes::tombstone_compute_graph(&self.last_state_change_id, request)?
             }
-            RequestPayload::DeleteInvocation(request) => {
-                vec![StateChangeBuilder::default()
-                    .change_type(ChangeType::TombstoneInvocation(TombstoneInvocationEvent {
-                        namespace: request.namespace.clone(),
-                        compute_graph: request.compute_graph.clone(),
-                        invocation_id: request.invocation_id.clone(),
-                    }))
-                    .created_at(get_epoch_time_in_ms())
-                    .object_id(request.invocation_id.clone())
-                    .build()?]
+            RequestPayload::DeleteComputeGraphRequest(request) => {
+                state_machine::delete_compute_graph(
+                    self.db.clone(),
+                    &txn,
+                    &request.namespace,
+                    &request.name,
+                )?;
+                vec![]
+            }
+            RequestPayload::TombstoneInvocation(request) => {
+                state_changes::tombstone_invocation(&self.last_state_change_id, request)?
+            }
+            RequestPayload::DeleteInvocationRequest(request) => {
+                state_machine::delete_invocation(self.db.clone(), &txn, request)?;
+                vec![]
             }
             RequestPayload::NamespaceProcessorUpdate(request) => {
                 let new_state_changes =
@@ -417,13 +393,11 @@ impl IndexifyState {
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
         }
-        if let Some(process_state_change) = &request.process_state_change {
-            state_machine::mark_state_changes_processed(
-                self.db.clone(),
-                &txn,
-                process_state_change,
-            )?;
-        }
+        state_machine::mark_state_changes_processed(
+            self.db.clone(),
+            &txn,
+            &request.processed_state_changes,
+        )?;
         state_machine::write_sm_meta(
             self.db.clone(),
             &txn,
@@ -614,7 +588,7 @@ mod tests {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace1".to_string(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         indexify_state
@@ -622,7 +596,7 @@ mod tests {
                 payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                     name: "namespace2".to_string(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -660,11 +634,11 @@ mod tests {
         // Delete the compute graph
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest {
+                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
                     namespace: TEST_NAMESPACE.to_string(),
                     name: "graph_A".to_string(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -756,7 +730,7 @@ mod tests {
                         reduction_tasks: ReductionTasks::default(),
                     },
                 ),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -771,7 +745,7 @@ mod tests {
                         placement_diagnostics: vec![],
                     },
                 ),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -818,7 +792,7 @@ mod tests {
                         reduction_tasks: ReductionTasks::default(),
                     },
                 ),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -833,7 +807,7 @@ mod tests {
                         placement_diagnostics: vec![],
                     },
                 ),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -876,7 +850,7 @@ mod tests {
                         compute_graph: compute_graph.clone(),
                     },
                 ),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await
     }

@@ -101,7 +101,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await
             .unwrap();
@@ -114,7 +114,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::InvokeComputeGraph(request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await
             .unwrap();
@@ -145,7 +145,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::FinalizeTask(request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         test_srv.process_all().await?;
@@ -176,7 +176,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
         }
@@ -217,7 +217,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: request,
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -249,7 +249,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await
             .unwrap();
@@ -270,7 +270,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: request,
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -324,7 +324,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
         }
@@ -356,7 +356,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
         }
@@ -433,7 +433,7 @@ mod tests {
             state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
         }
@@ -461,7 +461,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await
             .unwrap();
@@ -475,7 +475,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await
                 .unwrap();
@@ -514,7 +514,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await
             .unwrap();
@@ -535,7 +535,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: request,
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 

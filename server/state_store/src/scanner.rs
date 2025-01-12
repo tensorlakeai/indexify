@@ -12,7 +12,6 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
-    ProcessorId,
     ReduceTask,
     StateChange,
     SystemTask,
@@ -475,41 +474,6 @@ impl StateReader {
         Ok(state_changes)
     }
 
-    #[instrument(skip(self))]
-    pub fn get_unprocessed_state_changes(
-        &self,
-        processor_id: ProcessorId,
-    ) -> Result<Vec<StateChange>> {
-        let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key_prefix = processor_id.key_prefix();
-        let key_prefix = key_prefix.as_bytes();
-
-        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
-        let iter = self
-            .db
-            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
-        let mut state_changes = Vec::new();
-        let mut count = 0;
-        for kv in iter.flatten() {
-            let (key, serialized_sc) = kv;
-
-            if !key.starts_with(key_prefix) {
-                break;
-            }
-
-            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
-            state_changes.push(state_change);
-            count += 1;
-
-            if count >= 10 {
-                break;
-            }
-        }
-        Ok(state_changes)
-    }
-
     pub fn get_all_rows_from_cf<V>(
         &self,
         column: IndexifyObjectsColumns,
@@ -946,7 +910,7 @@ mod tests {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: name.clone(),
                     }),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await
                 .unwrap();

@@ -183,7 +183,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: mock_executor(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -233,7 +233,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: mock_executor(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -259,7 +259,7 @@ mod tests {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: mock_executor_id(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -298,7 +298,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: mock_executor(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -317,7 +317,7 @@ mod tests {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: mock_executor_id(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -328,7 +328,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: executor.clone(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -474,7 +474,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -554,7 +554,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -580,7 +580,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -596,7 +596,7 @@ mod tests {
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
             }
@@ -613,7 +613,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -628,7 +628,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -715,7 +715,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -795,7 +795,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -821,7 +821,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -836,7 +836,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -873,7 +873,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -889,7 +889,7 @@ mod tests {
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
 
@@ -907,7 +907,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -922,7 +922,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -935,7 +935,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1021,7 +1021,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1101,7 +1101,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1127,7 +1127,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1142,7 +1142,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1189,7 +1189,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1205,7 +1205,7 @@ mod tests {
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
 
@@ -1294,7 +1294,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1374,7 +1374,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1400,7 +1400,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1414,7 +1414,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1427,7 +1427,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1474,7 +1474,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1548,7 +1548,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1579,7 +1579,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1595,7 +1595,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1677,7 +1677,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1757,7 +1757,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1783,7 +1783,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1798,7 +1798,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1817,7 +1817,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1826,7 +1826,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 

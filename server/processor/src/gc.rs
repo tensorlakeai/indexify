@@ -76,7 +76,7 @@ impl Gc {
             self.state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::RemoveGcUrls(urls),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
         }

@@ -5,7 +5,6 @@ use data_model::{
     GraphVersion,
     InvocationPayload,
     NodeOutput,
-    ProcessorId,
     ReduceTask,
     StateChange,
     Task,
@@ -16,12 +15,7 @@ use data_model::{
 
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
-    pub process_state_change: Option<ProcessedStateChange>,
-}
-
-pub struct ProcessedStateChange {
-    pub state_changes: Vec<StateChange>,
-    pub processor_id: ProcessorId,
+    pub processed_state_changes: Vec<StateChange>,
 }
 
 #[derive(Debug, Clone, strum::Display)]
@@ -32,8 +26,8 @@ pub enum RequestPayload {
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
-    DeleteComputeGraph(DeleteComputeGraphRequest),
-    DeleteInvocation(DeleteInvocationRequest),
+    TombstoneComputeGraph(DeleteComputeGraphRequest),
+    TombstoneInvocation(DeleteInvocationRequest),
     NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
     TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
@@ -42,6 +36,8 @@ pub enum RequestPayload {
     UpdateSystemTask(UpdateSystemTaskRequest),
     RemoveSystemTask(RemoveSystemTaskRequest),
     MutateClusterTopology(MutateClusterTopologyRequest),
+    DeleteComputeGraphRequest(DeleteComputeGraphRequest),
+    DeleteInvocationRequest(DeleteInvocationRequest),
     Noop,
 }
 

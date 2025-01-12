@@ -238,7 +238,7 @@ pub async fn ingest_files_from_executor(
 
     let sm_req = StateMachineUpdateRequest {
         payload: request,
-        process_state_change: None,
+        processed_state_changes: vec![],
     };
 
     state.indexify_state.write(sm_req).await.map_err(|e| {

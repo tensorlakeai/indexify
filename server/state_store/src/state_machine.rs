@@ -33,7 +33,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -41,7 +41,6 @@ use crate::requests::{
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
-    ProcessedStateChange,
     ReductionTasks,
     RegisterExecutorRequest,
     RemoveSystemTaskRequest,
@@ -378,29 +377,63 @@ pub fn create_graph_input(
 }
 
 // TODO: Do this in a transaction.
-pub(crate) fn delete_input_data_object(
+pub(crate) fn delete_invocation(
     db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
     req: &DeleteInvocationRequest,
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
+
+    // Delete the invocation payload
     let prefix = format!(
         "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
     );
-    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
-    let iter = db.iterator_cf_opt(
+    delete_cf_prefix(
+        txn,
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        read_options,
-        iterator_mode,
-    );
-    for key in iter {
-        let key = key?;
-        db.delete_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(&db), &key.0)?;
-    }
+        prefix.as_bytes(),
+    )?;
 
-    // FIXME - Delete the data objects which are outputs of the compute functions of
-    // the invocation
+    // Delete Tasks
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::Tasks.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+    // Delete Allocated Tasks
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    // Delete Unallocated Tasks
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    // Delete Task Outputs
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+    // Delete State Changes for the invocation
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
     Ok(())
 }
 
@@ -801,10 +834,15 @@ pub fn mark_task_completed(
         "{}|{}|{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
     );
-    let task = txn
-        .get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?
-        .ok_or(anyhow!("Task not found: {}", &req.task_id))?;
-    let mut task = JsonEncoder::decode::<Task>(&task)?;
+    let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
+    if task.is_none() {
+        info!(
+            "Task not found: {} for task completion update for task id: {}",
+            &task_key, &req.task_id
+        );
+        return Ok(false);
+    }
+    let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
     if task.terminal_state() {
         info!(
             task_key = task.key(),
@@ -939,9 +977,9 @@ pub(crate) fn save_state_changes(
 pub(crate) fn mark_state_changes_processed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    process: &ProcessedStateChange,
+    processed_state_changes: &Vec<StateChange>,
 ) -> Result<()> {
-    for state_change in process.state_changes.iter() {
+    for state_change in processed_state_changes.iter() {
         trace!("Marking state change processed: {:?}", state_change);
         let key = &state_change.key();
         txn.delete_cf(
