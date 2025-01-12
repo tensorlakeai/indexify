@@ -418,11 +418,8 @@ pub(crate) fn delete_invocation(
     )?;
 
     // Delete Task Outputs
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
+    // FIXME: This requires putting the invocation id in the task output key
+
     // Delete State Changes for the invocation
     delete_cf_prefix(
         txn,
@@ -430,11 +427,34 @@ pub(crate) fn delete_invocation(
         format!("ns_{}", prefix).as_bytes(),
     )?;
 
+    // Delete Graph Invocation Context
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         prefix.as_bytes(),
     )?;
+
+    // mark all fn output urls for gc.
+    for iter in make_prefix_iterator(
+        txn,
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        prefix.as_bytes(),
+        &None,
+    ) {
+        let (key, value) = iter?;
+        let value = JsonEncoder::decode::<NodeOutput>(&value)?;
+        match &value.payload {
+            OutputPayload::Router(_) => {}
+            OutputPayload::Fn(payload) => {
+                txn.put_cf(
+                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                    payload.path.as_bytes(),
+                    [],
+                )?;
+            }
+        }
+        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
+    }
     Ok(())
 }
 
