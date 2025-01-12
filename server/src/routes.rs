@@ -294,7 +294,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
         .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}", get(download_task_logs).with_state(route_state.clone()))
-        //.layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
+    //.layer(middleware::from_fn(move |rpp, r, n| namespace_middleware(route_state.clone(), rpp, r, n)))
 }
 
 /// Middleware to check if the namespace exists.
@@ -348,7 +348,7 @@ async fn create_namespace(
     State(state): State<RouteState>,
     Json(namespace): Json<CreateNamespace>,
 ) -> Result<(), IndexifyAPIError> {
-    let req = StateMachineUpdateRequest{
+    let req = StateMachineUpdateRequest {
         payload: RequestPayload::CreateNameSpace(NamespaceRequest {
             name: namespace.name.clone(),
         }),
@@ -815,7 +815,8 @@ async fn delete_invocation(
     };
 
     state
-    .indexify_state.write(req)
+        .indexify_state
+        .write(req)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())

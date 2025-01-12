@@ -12,7 +12,17 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType, ExecutorId, ProcessorId, StateChange, StateChangeBuilder, StateChangeId, StateMachineMetadata, Task, TaskId, TombstoneComputeGraphEvent, TombstoneInvocationEvent
+    ChangeType,
+    ExecutorId,
+    ProcessorId,
+    StateChange,
+    StateChangeBuilder,
+    StateChangeId,
+    StateMachineMetadata,
+    Task,
+    TaskId,
+    TombstoneComputeGraphEvent,
+    TombstoneInvocationEvent,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
@@ -143,7 +153,10 @@ impl IndexifyState {
             // state_metrics,
         });
 
-        info!("initialized state store with last state change id: {}", s.last_state_change_id.load(atomic::Ordering::Relaxed));
+        info!(
+            "initialized state store with last state change id: {}",
+            s.last_state_change_id.load(atomic::Ordering::Relaxed)
+        );
         info!("db version discovered: {}", sm_meta.db_version);
 
         let executors = s.reader().get_all_executors()?;
@@ -250,7 +263,12 @@ impl IndexifyState {
                     .entry(finalize_task.executor_id.clone())
                     .or_default()
                     .push(finalize_task.task_id.clone());
-                state_machine::mark_task_completed(self.db.clone(), &txn, finalize_task.clone(), self.metrics.clone())?;
+                state_machine::mark_task_completed(
+                    self.db.clone(),
+                    &txn,
+                    finalize_task.clone(),
+                    self.metrics.clone(),
+                )?;
                 state_changes::finalize_task(&self.last_state_change_id, &finalize_task)?
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
@@ -294,31 +312,31 @@ impl IndexifyState {
                         &self.last_state_change_id,
                         &request,
                     )?;
-                    if let Some(completion) = state_machine::create_tasks(
-                        self.db.clone(),
-                        &txn,
-                        request.task_requests.clone(),
-                        self.metrics.clone().clone(),
-                        &request.namespace,
-                        &request.compute_graph,
-                        &request.invocation_id,
-                    )? {
-                        if let Err(err) =
-                            self.task_event_tx
-                                .send(InvocationStateChangeEvent::InvocationFinished(
-                                    InvocationFinishedEvent {
-                                        id: request.invocation_id.clone(),
-                                    },
-                                ))
-                        {
-                            error!("failed to send invocation state change: {:?}", err);
-                        }
-                        if completion == InvocationCompletion::System {
-                            // Notify the system task handler that it can start new tasks since
-                            // a task was completed
-                            let _ = self.system_tasks_tx.send(());
-                        }
-                    };
+                if let Some(completion) = state_machine::create_tasks(
+                    self.db.clone(),
+                    &txn,
+                    request.task_requests.clone(),
+                    self.metrics.clone().clone(),
+                    &request.namespace,
+                    &request.compute_graph,
+                    &request.invocation_id,
+                )? {
+                    if let Err(err) =
+                        self.task_event_tx
+                            .send(InvocationStateChangeEvent::InvocationFinished(
+                                InvocationFinishedEvent {
+                                    id: request.invocation_id.clone(),
+                                },
+                            ))
+                    {
+                        error!("failed to send invocation state change: {:?}", err);
+                    }
+                    if completion == InvocationCompletion::System {
+                        // Notify the system task handler that it can start new tasks since
+                        // a task was completed
+                        let _ = self.system_tasks_tx.send(());
+                    }
+                };
                 state_machine::processed_reduction_tasks(
                     self.db.clone(),
                     &txn,
@@ -352,7 +370,8 @@ impl IndexifyState {
                     self.metrics.clone(),
                 )?;
 
-                state_changes::register_executor(&self.last_state_change_id, &request).map_err(|e| anyhow!("error getting state changes {}", e))?
+                state_changes::register_executor(&self.last_state_change_id, &request)
+                    .map_err(|e| anyhow!("error getting state changes {}", e))?
             }
             RequestPayload::MutateClusterTopology(request) => {
                 state_machine::deregister_executor(
@@ -392,7 +411,7 @@ impl IndexifyState {
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
                 vec![]
-            },
+            }
             RequestPayload::Noop => vec![],
         };
         if !new_state_changes.is_empty() {
@@ -405,10 +424,14 @@ impl IndexifyState {
                 process_state_change,
             )?;
         }
-        state_machine::write_sm_meta(self.db.clone(), &txn, &StateMachineMetadata{
-            last_change_idx: self.last_state_change_id.load(atomic::Ordering::Relaxed),
-            db_version: 1,
-        })?;
+        state_machine::write_sm_meta(
+            self.db.clone(),
+            &txn,
+            &StateMachineMetadata {
+                last_change_idx: self.last_state_change_id.load(atomic::Ordering::Relaxed),
+                db_version: 1,
+            },
+        )?;
         txn.commit()?;
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
@@ -508,11 +531,7 @@ impl IndexifyState {
     }
 }
 
-pub fn task_stream(
-    state: Arc<IndexifyState>,
-    executor: ExecutorId,
-    limit: usize,
-) -> TaskStream {
+pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize) -> TaskStream {
     let stream = async_stream::stream! {
         let mut rx = state
         .executor_states
@@ -832,9 +851,7 @@ mod tests {
         Ok(())
     }
 
-    fn _read_cgs_from_state_store(
-        indexify_state: &IndexifyState,
-    ) -> Vec<ComputeGraph> {
+    fn _read_cgs_from_state_store(indexify_state: &IndexifyState) -> Vec<ComputeGraph> {
         let reader = indexify_state.reader();
         let result = reader
             .get_all_rows_from_cf::<ComputeGraph>(IndexifyObjectsColumns::ComputeGraphs)

@@ -127,17 +127,13 @@ pub async fn invoke_with_file(
         compute_graph_name: compute_graph.clone(),
         invocation_payload,
     });
-    let sm_req = StateMachineUpdateRequest{
+    let sm_req = StateMachineUpdateRequest {
         payload: request,
-        process_state_change:None,
+        process_state_change: None,
     };
-    state
-        .indexify_state
-        .write(sm_req)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
+    state.indexify_state.write(sm_req).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+    })?;
     Ok(Json(InvocationId { id }))
 }
 
@@ -269,12 +265,8 @@ pub async fn replay_compute_graph(
         payload: request,
         process_state_change: None,
     };
-    state
-        .indexify_state
-        .write(sm_req)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))
-        })?;
+    state.indexify_state.write(sm_req).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))
+    })?;
     Ok(())
 }

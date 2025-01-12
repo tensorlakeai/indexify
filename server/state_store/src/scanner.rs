@@ -433,7 +433,10 @@ impl StateReader {
             .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
         let first = iter.next();
         if let Some(Ok((_key, serialized_sc))) = first {
-            println!("Got state change {} ", String::from_utf8(_key.clone().to_vec()).unwrap());
+            println!(
+                "Got state change {} ",
+                String::from_utf8(_key.clone().to_vec()).unwrap()
+            );
 
             let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
             Ok(Some(state_change))
