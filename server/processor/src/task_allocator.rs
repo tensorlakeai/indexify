@@ -1,7 +1,10 @@
-use std::{sync::Arc, vec};
+use std::{
+    sync::{Arc, RwLock},
+    vec,
+};
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraphVersion, ExecutorId, Node, Task};
+use data_model::{ComputeGraphVersion, ExecutorId, ExecutorMetadata, Node, Task};
 use rand::seq::SliceRandom;
 use state_store::{
     requests::{TaskPlacement, TaskPlacementDiagnostic},
@@ -28,17 +31,29 @@ struct ScheduleTaskResult {
 
 pub struct TaskAllocationProcessor {
     indexify_state: Arc<IndexifyState>,
+    executors: Arc<RwLock<Vec<ExecutorMetadata>>>,
 }
 
 impl TaskAllocationProcessor {
     pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
-        Self { indexify_state }
+        let executors = Arc::new(RwLock::new(Vec::new()));
+        Self {
+            indexify_state,
+            executors,
+        }
     }
 }
 impl TaskAllocationProcessor {
     pub fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
         let tasks = self.indexify_state.reader().unallocated_tasks()?;
         self.schedule_tasks(tasks)
+    }
+
+    pub fn refresh_executors(&self) -> Result<()> {
+        let all_executors = self.indexify_state.reader().get_all_executors()?;
+        let mut executors = self.executors.write().unwrap();
+        *executors = all_executors;
+        Ok(())
     }
 
     pub fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
@@ -123,12 +138,12 @@ impl TaskAllocationProcessor {
         compute_graph: &ComputeGraphVersion,
         node: &Node,
     ) -> Result<FilteredExecutors> {
-        let executors = self.indexify_state.reader().get_all_executors()?;
         let mut filtered_executors = vec![];
 
         let mut diagnostic_msgs = vec![];
+        let executors = self.executors.read().unwrap();
 
-        for executor in &executors {
+        for executor in executors.iter() {
             match executor.function_allowlist {
                 Some(ref allowlist) => {
                     for func_uri in allowlist {
