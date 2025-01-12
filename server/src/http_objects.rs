@@ -291,6 +291,7 @@ pub struct ComputeGraph {
     pub name: String,
     pub namespace: String,
     pub description: String,
+    pub tombstoned: bool,
     pub start_node: Node,
     pub version: GraphVersion,
     #[serde(default)]
@@ -334,6 +335,7 @@ impl ComputeGraph {
             created_at: 0,
             runtime_information: self.runtime_information.into(),
             replaying: false,
+            tombstoned: self.tombstoned,
         };
         Ok(compute_graph)
     }
@@ -361,6 +363,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             created_at: compute_graph.created_at,
             runtime_information: compute_graph.runtime_information.into(),
             replaying: compute_graph.replaying,
+            tombstoned: compute_graph.tombstoned,
         }
     }
 }

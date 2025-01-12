@@ -35,23 +35,20 @@ use strum::AsRefStr;
 use tracing::{debug, error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
-use crate::{
-    requests::{
-        CreateTasksRequest,
-        DeleteInvocationRequest,
-        DeregisterExecutorRequest,
-        FinalizeTaskRequest,
-        InvokeComputeGraphRequest,
-        NamespaceRequest,
-        ProcessedStateChange,
-        ReductionTasks,
-        RegisterExecutorRequest,
-        RemoveSystemTaskRequest,
-        ReplayComputeGraphRequest,
-        ReplayInvocationsRequest,
-        UpdateSystemTaskRequest,
-    },
-    StateChangeDispatcher,
+use crate::requests::{
+    CreateTasksRequest,
+    DeleteInvocationRequest,
+    DeregisterExecutorRequest,
+    FinalizeTaskRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+    ProcessedStateChange,
+    ReductionTasks,
+    RegisterExecutorRequest,
+    RemoveSystemTaskRequest,
+    ReplayComputeGraphRequest,
+    ReplayInvocationsRequest,
+    UpdateSystemTaskRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -352,10 +349,13 @@ pub fn create_graph_input(
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
             &compute_graph_key,
-            false,
+            true,
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
+    if cg.tombstoned {
+        return Err(anyhow::anyhow!("Compute graph is tombstoned"));
+    }
     let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
@@ -405,7 +405,6 @@ pub(crate) fn delete_input_data_object(
     Ok(())
 }
 
-// TODO: Do this in a transaction.
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
@@ -470,6 +469,30 @@ fn delete_cf_prefix(
         }
         txn.delete_cf(cf, &key)?;
     }
+    Ok(())
+}
+
+pub fn tombstone_compute_graph(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    namespace: &str,
+    name: &str,
+) -> Result<()> {
+    let mut existing_compute_graph = txn
+        .get_for_update_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            ComputeGraph::key_from(namespace, name),
+            true,
+        )?
+        .map(|v| JsonEncoder::decode::<ComputeGraph>(&v))
+        .ok_or(anyhow!(
+            "compute graph not found namespace: {},  {}",
+            namespace,
+            name
+        ))?
+        .map_err(|e| anyhow!("failed to decode existing compute graph: {}", e))?;
+
+    existing_compute_graph.tombstoned = true;
     Ok(())
 }
 
@@ -901,22 +924,15 @@ pub(crate) fn save_state_changes(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     state_changes: &Vec<StateChange>,
-    state_change_dispatcher: Arc<impl StateChangeDispatcher>,
 ) -> Result<()> {
     for state_change in state_changes {
-        state_change_dispatcher
-            .processor_ids_for_state_change(state_change.clone())
-            .iter()
-            .try_for_each(|processor_id| -> Result<()> {
-                let key = &state_change.key(processor_id);
-                let serialized_state_change = JsonEncoder::encode(&state_change)?;
-                txn.put_cf(
-                    &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
-                    key,
-                    serialized_state_change,
-                )?;
-                Ok(())
-            })?;
+        let key = &state_change.key();
+        let serialized_state_change = JsonEncoder::encode(&state_change)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
+            key,
+            serialized_state_change,
+        )?;
     }
     Ok(())
 }
@@ -928,7 +944,7 @@ pub(crate) fn mark_state_changes_processed(
 ) -> Result<()> {
     for state_change in process.state_changes.iter() {
         trace!("Marking state change processed: {:?}", state_change);
-        let key = &state_change.key(&process.processor_id);
+        let key = &state_change.key();
         txn.delete_cf(
             &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
             key,

@@ -14,40 +14,33 @@ use anyhow::{anyhow, Context, Result};
 use data_model::{
     ChangeType,
     ExecutorId,
-    InvokeComputeGraphEvent,
     ProcessorId,
     StateChange,
     StateChangeBuilder,
     StateChangeId,
     Task,
-    TaskFinishedEvent,
     TaskId,
+    TombstoneComputeGraphEvent,
+    TombstoneInvocationEvent,
 };
 use futures::Stream;
 use indexify_utils::get_epoch_time_in_ms;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
-use requests::{
-    DeregisterExecutorRequest,
-    FinalizeTaskRequest,
-    InvokeComputeGraphRequest,
-    NamespaceProcessorUpdateRequest,
-    RegisterExecutorRequest,
-    RequestPayload,
-    StateMachineUpdateRequest,
-};
+use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{error, info, instrument, span};
+use tracing::{error, info, span};
 
 pub mod invocation_events;
 pub mod kv;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;
+pub mod state_changes;
 pub mod state_machine;
 pub mod test_state_store;
 
@@ -200,9 +193,10 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                     invocation_id = invoke_compute_graph_request.invocation_payload.id.clone(),
                     compute_graph = invoke_compute_graph_request.compute_graph_name.clone(),
                 );
-                let state_changes = self
-                    .invoke_compute_graph(&invoke_compute_graph_request)
-                    .await?;
+                let state_changes = state_changes::invoke_compute_graph(
+                    &self.last_state_change_id,
+                    &invoke_compute_graph_request,
+                )?;
                 state_machine::create_graph_input(
                     self.db.clone(),
                     &txn,
@@ -261,7 +255,7 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                     finalize_task.clone(),
                     self.metrics.clone(),
                 )? {
-                    self.finalize_task(&finalize_task).await?
+                    state_changes::finalize_task(&self.last_state_change_id, &finalize_task)?
                 } else {
                     Vec::new()
                 };
@@ -291,15 +285,34 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                     &request.name,
                 )?;
                 self.gc_tx.send(()).unwrap();
-                vec![]
+                vec![StateChangeBuilder::default()
+                    .change_type(ChangeType::TombstoneComputeGraph(
+                        TombstoneComputeGraphEvent {
+                            namespace: request.namespace.clone(),
+                            compute_graph: request.name.clone(),
+                        },
+                    ))
+                    .created_at(get_epoch_time_in_ms())
+                    .object_id(request.name.clone())
+                    .build()?]
             }
             RequestPayload::DeleteInvocation(request) => {
-                state_machine::delete_input_data_object(self.db.clone(), &request)?;
-                vec![]
+                vec![StateChangeBuilder::default()
+                    .change_type(ChangeType::TombstoneInvocation(TombstoneInvocationEvent {
+                        namespace: request.namespace.clone(),
+                        compute_graph: request.compute_graph.clone(),
+                        invocation_id: request.invocation_id.clone(),
+                    }))
+                    .created_at(get_epoch_time_in_ms())
+                    .object_id(request.invocation_id.clone())
+                    .build()?]
             }
             RequestPayload::NamespaceProcessorUpdate(request) => {
                 let new_state_changes =
-                    self.change_events_for_namespace_processor_update(&request)?;
+                    state_changes::change_events_for_namespace_processor_update(
+                        &self.last_state_change_id,
+                        &request,
+                    )?;
                 for req in &request.task_requests {
                     if let Some(completion) = state_machine::create_tasks(
                         self.db.clone(),
@@ -356,10 +369,13 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
                     &request,
                     self.metrics.clone(),
                 )?;
-                self.register_executor(&request)?
+                state_changes::register_executor(&self.last_state_change_id, &request)?
             }
             RequestPayload::DeregisterExecutor(request) => {
-                let state_changes = self.deregister_executor_events(&request)?;
+                let state_changes = state_changes::deregister_executor_events(
+                    &self.last_state_change_id,
+                    &request,
+                )?;
                 let removed = {
                     let mut states = self.executor_states.write().await;
                     if let Some(s) = states.get_mut(&request.executor_id) {
@@ -391,12 +407,7 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
             }
         };
         if !new_state_changes.is_empty() {
-            state_machine::save_state_changes(
-                self.db.clone(),
-                &txn,
-                &new_state_changes,
-                self.state_change_dispatcher.clone(),
-            )?;
+            state_machine::save_state_changes(self.db.clone(), &txn, &new_state_changes)?;
         }
         if let Some(process_state_change) = &request.process_state_change {
             state_machine::mark_state_changes_processed(
@@ -498,103 +509,6 @@ impl<T: StateChangeDispatcher> IndexifyState<T> {
         }
     }
 
-    async fn finalize_task(&self, request: &FinalizeTaskRequest) -> Result<Vec<StateChange>> {
-        let last_change_id = self
-            .last_state_change_id
-            .fetch_add(1, atomic::Ordering::Relaxed);
-        let state_change = StateChangeBuilder::default()
-            .change_type(ChangeType::TaskFinished(TaskFinishedEvent {
-                namespace: request.namespace.clone(),
-                compute_graph: request.compute_graph.clone(),
-                compute_fn: request.compute_fn.clone(),
-                invocation_id: request.invocation_id.clone(),
-                task_id: request.task_id.clone(),
-            }))
-            .created_at(get_epoch_time_in_ms())
-            .object_id(request.task_id.clone().to_string())
-            .id(StateChangeId::new(last_change_id))
-            .processed_at(None)
-            .build()?;
-        Ok(vec![state_change])
-    }
-
-    #[instrument(skip(self, request))]
-    async fn invoke_compute_graph(
-        &self,
-        request: &InvokeComputeGraphRequest,
-    ) -> Result<Vec<StateChange>> {
-        let last_change_id = self
-            .last_state_change_id
-            .fetch_add(1, atomic::Ordering::Relaxed);
-        let state_change = StateChangeBuilder::default()
-            .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
-                namespace: request.namespace.clone(),
-                invocation_id: request.invocation_payload.id.clone(),
-                compute_graph: request.compute_graph_name.clone(),
-            }))
-            .created_at(get_epoch_time_in_ms())
-            .object_id(request.invocation_payload.id.clone())
-            .id(StateChangeId::new(last_change_id))
-            .processed_at(None)
-            .build()?;
-        Ok(vec![state_change])
-    }
-
-    fn change_events_for_namespace_processor_update(
-        &self,
-        req: &NamespaceProcessorUpdateRequest,
-    ) -> Result<Vec<StateChange>> {
-        let mut state_changes = Vec::new();
-        for task_request in &req.task_requests {
-            let last_change_id = self
-                .last_state_change_id
-                .fetch_add(1, atomic::Ordering::Relaxed);
-            for task in &task_request.tasks {
-                let state_change = StateChangeBuilder::default()
-                    .change_type(ChangeType::TaskCreated)
-                    .created_at(get_epoch_time_in_ms())
-                    .object_id(task.id.to_string())
-                    .id(StateChangeId::new(last_change_id))
-                    .processed_at(None)
-                    .build()?;
-                state_changes.push(state_change);
-            }
-        }
-        Ok(state_changes)
-    }
-
-    fn deregister_executor_events(
-        &self,
-        request: &DeregisterExecutorRequest,
-    ) -> Result<Vec<StateChange>> {
-        let last_change_id = self
-            .last_state_change_id
-            .fetch_add(1, atomic::Ordering::Relaxed);
-        let state_change = StateChangeBuilder::default()
-            .change_type(ChangeType::ExecutorRemoved)
-            .created_at(get_epoch_time_in_ms())
-            .object_id(request.executor_id.get().to_string())
-            .id(StateChangeId::new(last_change_id))
-            .processed_at(None)
-            .build()?;
-        Ok(vec![state_change])
-    }
-
-    fn register_executor(&self, request: &RegisterExecutorRequest) -> Result<Vec<StateChange>> {
-        let last_change_id = self
-            .last_state_change_id
-            .fetch_add(1, atomic::Ordering::Relaxed);
-        let state_change = StateChangeBuilder::default()
-            .change_type(ChangeType::ExecutorAdded)
-            .created_at(get_epoch_time_in_ms())
-            .object_id(request.executor.id.to_string())
-            .id(StateChangeId::new(last_change_id))
-            .processed_at(None)
-            .build()?;
-
-        Ok(vec![state_change])
-    }
-
     pub fn reader(&self) -> scanner::StateReader {
         scanner::StateReader::new(self.db.clone(), self.metrics.clone())
     }
@@ -670,6 +584,7 @@ mod tests {
         CreateOrUpdateComputeGraphRequest,
         CreateTasksRequest,
         DeleteComputeGraphRequest,
+        NamespaceProcessorUpdateRequest,
         NamespaceRequest,
         ReductionTasks,
         TaskAllocationUpdateRequest,

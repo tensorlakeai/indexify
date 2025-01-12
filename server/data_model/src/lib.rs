@@ -311,6 +311,7 @@ pub struct RuntimeInformation {
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
+    pub tombstoned: bool,
     pub description: String,
     #[serde(default)]
     pub tags: HashMap<String, String>,
@@ -915,12 +916,25 @@ impl fmt::Display for TaskFinishedEvent {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+pub struct TombstoneComputeGraphEvent {
+    pub namespace: String,
+    pub compute_graph: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+pub struct TombstoneInvocationEvent {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, AsRefStr)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
     TaskFinished(TaskFinishedEvent),
-    TombstoneIngestedData,
-    TombstoneComputeGraph,
+    TombstoneComputeGraph(TombstoneComputeGraphEvent),
+    TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorAdded,
     ExecutorRemoved,
     TaskCreated,
@@ -931,11 +945,11 @@ impl fmt::Display for ChangeType {
         match self {
             ChangeType::InvokeComputeGraph(_) => write!(f, "InvokeComputeGraph"),
             ChangeType::TaskFinished(_) => write!(f, "TaskFinished"),
-            ChangeType::TombstoneIngestedData => write!(f, "TombstoneIngestedData"),
-            ChangeType::TombstoneComputeGraph => write!(f, "TombstoneComputeGraph"),
+            ChangeType::TombstoneComputeGraph(_) => write!(f, "TombstoneComputeGraph"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
             ChangeType::TaskCreated => write!(f, "TaskCreated"),
+            ChangeType::TombstoneInvocation(_) => write!(f, "TombstoneInvocation"),
         }
     }
 }
@@ -946,11 +960,6 @@ pub struct StateChangeId(u64);
 impl StateChangeId {
     pub fn new(id: u64) -> Self {
         Self(id)
-    }
-
-    /// Return key to store in k/v db
-    fn to_key(self) -> [u8; 8] {
-        self.0.to_be_bytes()
     }
 }
 
@@ -1008,20 +1017,26 @@ pub struct StateChange {
     pub change_type: ChangeType,
     pub created_at: u64,
     pub processed_at: Option<u64>,
+    pub namespace: Option<String>,
+    pub compute_graph: Option<String>,
+    pub invocation: Option<String>,
 }
 impl StateChange {
-    pub fn key(&self, processor_id: &ProcessorId) -> Vec<u8> {
-        let mut key = processor_id.key_prefix().as_bytes().to_vec();
-        key.extend("|".as_bytes());
-        key.extend_from_slice(&self.id.to_key());
-        key
-    }
-
-    pub fn key_with_ns(&self, namespace: &str) -> Vec<u8> {
-        let mut key = namespace.as_bytes().to_vec();
-        key.extend("|".as_bytes());
-        key.extend_from_slice(&self.id.to_key());
-        key
+    pub fn key(&self) -> Vec<u8> {
+        let mut key = String::new();
+        if let Some(ns) = &self.namespace {
+            key.push_str(&format!("{}|", &ns));
+        } else {
+            key.push_str("global|");
+        }
+        if let Some(cg) = &self.compute_graph {
+            key.push_str(&format!("{}|", &cg));
+        }
+        if let Some(inv) = &self.invocation {
+            key.push_str(&format!("{}|", &inv));
+        }
+        key.push_str(format!("{}", self.id).as_str());
+        key.as_bytes().to_vec()
     }
 }
 
@@ -1056,6 +1071,7 @@ mod tests {
         let original_graph: ComputeGraph = ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
+            tombstoned: false,
             description: "description1".to_string(),
             tags: HashMap::new(),
             nodes: HashMap::from([

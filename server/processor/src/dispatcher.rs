@@ -158,7 +158,7 @@ impl StateChangeDispatcher for Dispatcher {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskFinished(_) => {
                 vec![ProcessorId::new(ProcessorType::Namespace)]
             }
-            ChangeType::TombstoneIngestedData | ChangeType::TombstoneComputeGraph => {
+            ChangeType::TombstoneInvocation(_) | ChangeType::TombstoneComputeGraph(_) => {
                 vec![
                     ProcessorId::new(ProcessorType::Namespace),
                     ProcessorId::new(ProcessorType::TaskAllocator),

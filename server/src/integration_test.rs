@@ -21,8 +21,6 @@ mod tests {
         GraphVersion,
         InvocationPayloadBuilder,
         Node,
-        ProcessorId,
-        ProcessorType,
         RuntimeInformation,
         StateChange,
         Task,
@@ -440,6 +438,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -680,6 +679,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -985,6 +985,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1257,6 +1258,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1492,7 +1494,7 @@ mod tests {
             for state_change in all_unprocessed_state_changes_reduce.clone() {
                 indexify_state.db.delete_cf(
                     &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&indexify_state.db),
-                    state_change.key(&ProcessorId::new(ProcessorType::Namespace)),
+                    state_change.key(),
                 )?;
             }
 
@@ -1559,7 +1561,7 @@ mod tests {
                 let serialized_state_change = JsonEncoder::encode(&state_change)?;
                 indexify_state.db.put_cf(
                     &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&indexify_state.db),
-                    state_change.key(&ProcessorId::new(ProcessorType::Namespace)),
+                    state_change.key(),
                     serialized_state_change,
                 )?;
             }
@@ -1639,6 +1641,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),

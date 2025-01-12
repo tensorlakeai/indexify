@@ -159,6 +159,7 @@ pub mod tests {
                 ("tag1".to_string(), "val1".to_string()),
                 ("tag2".to_string(), "val2".to_string()),
             ]),
+            tombstoned: false,
             nodes: HashMap::from([
                 ("fn_b".to_string(), Node::Compute(fn_b)),
                 ("fn_c".to_string(), Node::Compute(fn_c)),
@@ -218,6 +219,7 @@ pub mod tests {
                 ("tag1".to_string(), "val1".to_string()),
                 ("tag2".to_string(), "val2".to_string()),
             ]),
+            tombstoned: false,
             nodes: HashMap::from([
                 ("fn_b".to_string(), Node::Compute(fn_b)),
                 ("fn_c".to_string(), Node::Compute(fn_c)),
@@ -254,6 +256,7 @@ pub mod tests {
                 ("tag1".to_string(), "val1".to_string()),
                 ("tag2".to_string(), "val2".to_string()),
             ]),
+            tombstoned: false,
             nodes: HashMap::from([
                 ("fn_a".to_string(), Node::Compute(fn_a.clone())),
                 ("fn_b".to_string(), Node::Compute(fn_b)),

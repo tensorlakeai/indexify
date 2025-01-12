@@ -453,16 +453,14 @@ async fn create_or_update_compute_graph(
         namespace,
         compute_graph,
     });
-    let result = state.dispatcher.dispatch_requests(request).await;
-    if let Err(e) = result {
-        return match e.root_cause().downcast_ref::<ComputeGraphError>() {
-            Some(ComputeGraphError::VersionExists) => Err(IndexifyAPIError::bad_request(
-                "This graph version already exists, please update the graph version",
-            )),
-            _ => Err(IndexifyAPIError::internal_error(e)),
-        };
-    }
-
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            process_state_change: None,
+        })
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
     info!("compute graph created: {}", name);
 
     Ok(())
@@ -487,8 +485,11 @@ async fn delete_compute_graph(
         name: compute_graph,
     });
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            process_state_change: None,
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())
