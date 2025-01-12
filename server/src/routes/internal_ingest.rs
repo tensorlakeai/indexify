@@ -236,18 +236,14 @@ pub async fn ingest_files_from_executor(
         diagnostics: Some(task_diagnostic),
     });
 
-    let sm_req = StateMachineUpdateRequest{
+    let sm_req = StateMachineUpdateRequest {
         payload: request,
-        process_state_change:None,
+        process_state_change: None,
     };
 
-    state
-        .indexify_state
-        .write(sm_req)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
+    state.indexify_state.write(sm_req).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+    })?;
 
     Ok(())
 }

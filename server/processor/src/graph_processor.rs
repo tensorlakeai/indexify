@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use tracing::info;
-
 use anyhow::Result;
 use data_model::{ChangeType, ProcessorId, ProcessorType, StateChange};
 use state_store::{
@@ -17,23 +15,24 @@ use state_store::{
     IndexifyState,
 };
 use tokio::sync::Notify;
+use tracing::info;
 
 use crate::{
-    task_creator::{self, TaskCreationResult},
     task_allocator::{self, TaskPlacementResult},
+    task_creator::{self, TaskCreationResult},
 };
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
-    pub task_allocator: task_allocator::TaskAllocationProcessor,
-    pub task_creator: task_creator::TaskCreator,
+    pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
+    pub task_creator: Arc<task_creator::TaskCreator>,
 }
 
 impl GraphProcessor {
     pub fn new(
         indexify_state: Arc<IndexifyState>,
-        task_allocator: task_allocator::TaskAllocationProcessor,
-        task_creator: task_creator::TaskCreator,
+        task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
+        task_creator: Arc<task_creator::TaskCreator>,
     ) -> Self {
         Self {
             indexify_state,
@@ -96,10 +95,10 @@ impl GraphProcessor {
         let state_change = state_change.unwrap();
         let scheduler_update = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
-                let task_creation_result = self.task_creator.handle_invoke_compute_graph(
-                    event.clone(),
-                )
-                .await?;
+                let task_creation_result = self
+                    .task_creator
+                    .handle_invoke_compute_graph(event.clone())
+                    .await?;
                 Ok(Some(task_creation_result_to_sm_update(
                     &event.namespace,
                     &event.compute_graph,
@@ -109,11 +108,10 @@ impl GraphProcessor {
                 )))
             }
             ChangeType::TaskFinished(event) => {
-                let task_creation_result = self.task_creator.handle_task_finished_inner(
-                    self.indexify_state.clone(),
-                    event,
-                )
-                .await?;
+                let task_creation_result = self
+                    .task_creator
+                    .handle_task_finished_inner(self.indexify_state.clone(), event)
+                    .await?;
                 Ok(Some(task_creation_result_to_sm_update(
                     &event.namespace,
                     &event.compute_graph,

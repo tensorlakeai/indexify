@@ -3,7 +3,12 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use data_model::{ExecutorId, ExecutorMetadata};
 use state_store::{
-    requests::{DeregisterExecutorRequest, RegisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
+    requests::{
+        DeregisterExecutorRequest,
+        RegisterExecutorRequest,
+        RequestPayload,
+        StateMachineUpdateRequest,
+    },
     IndexifyState,
 };
 use tracing::error;
@@ -14,9 +19,7 @@ pub struct ExecutorManager {
 }
 
 impl ExecutorManager {
-    pub async fn new(
-        indexify_state: Arc<IndexifyState>,
-    ) -> Self {
+    pub async fn new(indexify_state: Arc<IndexifyState>) -> Self {
         let cs = indexify_state.clone();
         let executors = cs.reader().get_all_executors().unwrap_or_default();
         tokio::spawn(async move {
@@ -28,10 +31,7 @@ impl ExecutorManager {
                     }),
                     process_state_change: None,
                 };
-                if let Err(err) = cs
-                    .write(sm_req)
-                    .await
-                {
+                if let Err(err) = cs.write(sm_req).await {
                     error!(
                         "failed to deregister executor on startup {}: {:?}",
                         executor.id, err
@@ -40,33 +40,23 @@ impl ExecutorManager {
             }
         });
 
-        ExecutorManager {
-            indexify_state,
-        }
+        ExecutorManager { indexify_state }
     }
 
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
-                executor,
-            }),
+            payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest { executor }),
             process_state_change: None,
         };
-        self.indexify_state
-            .write(sm_req)
-            .await
+        self.indexify_state.write(sm_req).await
     }
 
     pub async fn deregister_executor(&self, executor_id: ExecutorId) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                executor_id,
-            }),
+            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest { executor_id }),
             process_state_change: None,
         };
-        self.indexify_state
-            .write(sm_req)
-            .await
+        self.indexify_state.write(sm_req).await
     }
 
     pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {

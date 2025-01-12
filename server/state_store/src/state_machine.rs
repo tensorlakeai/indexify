@@ -2,7 +2,24 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType, ComputeGraph, ComputeGraphVersion, ExecutorId, GraphInvocationCtx, GraphInvocationCtxBuilder, InvocationPayload, InvokeComputeGraphEvent, Namespace, NodeOutput, OutputPayload, StateChange, StateChangeBuilder, StateChangeId, StateMachineMetadata, SystemTask, Task, TaskAnalytics
+    ChangeType,
+    ComputeGraph,
+    ComputeGraphVersion,
+    ExecutorId,
+    GraphInvocationCtx,
+    GraphInvocationCtxBuilder,
+    InvocationPayload,
+    InvokeComputeGraphEvent,
+    Namespace,
+    NodeOutput,
+    OutputPayload,
+    StateChange,
+    StateChangeBuilder,
+    StateChangeId,
+    StateMachineMetadata,
+    SystemTask,
+    Task,
+    TaskAnalytics,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
@@ -656,10 +673,7 @@ pub(crate) fn create_tasks(
     compute_graph: &str,
     invocation_id: &str,
 ) -> Result<Option<InvocationCompletion>> {
-    let ctx_key = format!(
-        "{}|{}|{}",
-        namespace, compute_graph, invocation_id
-    );
+    let ctx_key = format!("{}|{}|{}", namespace, compute_graph, invocation_id);
     let graph_ctx = txn.get_for_update_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         &ctx_key,
@@ -1093,14 +1107,14 @@ pub fn write_sm_meta(
     Ok(())
 }
 
-pub fn read_sm_meta(
-    db: &TransactionDB,
-) -> Result<StateMachineMetadata> {
-    let meta = db
-        .get_cf(&IndexifyObjectsColumns::StateMachineMetadata.cf_db(&db), b"sm_meta")?;
+pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
+    let meta = db.get_cf(
+        &IndexifyObjectsColumns::StateMachineMetadata.cf_db(&db),
+        b"sm_meta",
+    )?;
     match meta {
         Some(meta) => Ok(JsonEncoder::decode(&meta)?),
-        None => Ok(StateMachineMetadata{
+        None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
         }),

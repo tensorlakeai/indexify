@@ -50,8 +50,7 @@ pub struct TestStateStore {
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let temp_dir = tempfile::tempdir()?;
-        let indexify_state =
-            IndexifyState::new(temp_dir.path().join("state")).await?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
         Ok(TestStateStore { indexify_state })
     }
 
@@ -93,9 +92,7 @@ impl TestStateStore {
     }
 }
 
-pub async fn with_simple_graph(
-    indexify_state: &IndexifyState,
-) -> String {
+pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_a("image_hash".to_string()),
@@ -123,9 +120,7 @@ pub async fn with_simple_graph(
     invocation_payload.id
 }
 
-pub async fn with_router_graph(
-    indexify_state: &IndexifyState,
-) -> String {
+pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_b(),
@@ -154,9 +149,7 @@ pub async fn with_router_graph(
     invocation_payload.id
 }
 
-pub async fn with_reducer_graph(
-    indexify_state: &IndexifyState,
-) -> String {
+pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_with_reducer(),
@@ -251,7 +244,7 @@ pub async fn finalize_task_graph_b(
         .await
 }
 
-pub async fn finalize_router_x (
+pub async fn finalize_router_x(
     indexify_state: &IndexifyState,
     invocation_id: &str,
     task_id: &TaskId,

@@ -4,10 +4,7 @@ use anyhow::{anyhow, Result};
 use data_model::{ComputeGraphVersion, ExecutorId, Node, Task};
 use rand::seq::SliceRandom;
 use state_store::{
-    requests::{
-        TaskPlacement,
-        TaskPlacementDiagnostic,
-    },
+    requests::{TaskPlacement, TaskPlacementDiagnostic},
     IndexifyState,
 };
 use tracing::{error, info, span};
