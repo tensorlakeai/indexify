@@ -37,16 +37,7 @@ use tracing::{error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    DeleteInvocationRequest,
-    FinalizeTaskRequest,
-    InvokeComputeGraphRequest,
-    NamespaceRequest,
-    ReductionTasks,
-    RegisterExecutorRequest,
-    RemoveSystemTaskRequest,
-    ReplayComputeGraphRequest,
-    ReplayInvocationsRequest,
-    UpdateSystemTaskRequest,
+    DeleteInvocationRequest, FinalizeTaskRequest, InvokeComputeGraphRequest, NamespaceRequest, ReductionTasks, RegisterExecutorRequest, RemoveSystemTaskRequest, ReplayComputeGraphRequest, ReplayInvocationsRequest, TaskAllocationUpdateRequest, UpdateSystemTaskRequest
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -732,12 +723,6 @@ pub(crate) fn create_tasks(
             task.key(),
             &serialized_task,
         )?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            task.key(),
-            &[],
-        )?;
-
         let analytics = graph_ctx
             .fn_task_analytics
             .entry(task.compute_fn_name.clone())
@@ -768,24 +753,28 @@ pub(crate) fn create_tasks(
     }
 }
 
-pub fn allocate_tasks(
+pub fn handle_task_allocation_update(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    task: &Task,
-    executor_id: &ExecutorId,
     sm_metrics: Arc<StateStoreMetrics>,
+    request: &TaskAllocationUpdateRequest,
 ) -> Result<()> {
-    // TODO: check if executor is registered
-    txn.put_cf(
+    for task_placement in &request.allocations {
+     txn.put_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        task.make_allocation_key(executor_id),
+        task_placement.task.make_allocation_key(&task_placement.executor),
         &[],
     )?;
     txn.delete_cf(
         &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-        task.key(),
+        task_placement.task.key(),
     )?;
-    sm_metrics.task_assigned(vec![task.clone()], executor_id.get());
+
+    sm_metrics.task_assigned(vec![task_placement.task.clone()], task_placement.executor.get());
+    }
+    for unplaced_task_key in &request.unplaced_task_keys {
+        txn.put_cf(&IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db), unplaced_task_key.as_bytes(), &[])?;  
+    }
     Ok(())
 }
 

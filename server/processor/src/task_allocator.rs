@@ -16,11 +16,13 @@ pub struct FilteredExecutors {
 
 pub struct TaskPlacementResult {
     pub task_placements: Vec<TaskPlacement>,
+    pub unplaced_task_keys: Vec<String>,
     pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 
 struct ScheduleTaskResult {
     pub task_placements: Vec<TaskPlacement>,
+    pub unplaced_task_keys: Vec<String>,
     pub diagnostic_msgs: Vec<String>,
 }
 
@@ -41,6 +43,7 @@ impl TaskAllocationProcessor {
 
     pub fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
         let mut task_placements = Vec::new();
+        let mut unplaced_task_keys: Vec<String> = Vec::new();
         let mut placement_diagnostics = Vec::new();
         for task in tasks {
             let span = span!(
@@ -55,12 +58,10 @@ impl TaskAllocationProcessor {
 
             info!("allocate task {:?}", task.id);
             match self.allocate_task(task.clone()) {
-                Ok(ScheduleTaskResult {
-                    task_placements: schedule_task_placements,
-                    diagnostic_msgs: schedule_diagnostic_msgs,
-                }) => {
-                    task_placements.extend(schedule_task_placements);
-                    placement_diagnostics.extend(schedule_diagnostic_msgs.iter().map(|msg| {
+                Ok(schedule_task_results) => {
+                    task_placements.extend(schedule_task_results.task_placements);
+                    unplaced_task_keys.extend(schedule_task_results.unplaced_task_keys);
+                    placement_diagnostics.extend(schedule_task_results.diagnostic_msgs.iter().map(|msg| {
                         TaskPlacementDiagnostic {
                             task: task.clone(),
                             message: msg.clone(),
@@ -74,12 +75,14 @@ impl TaskAllocationProcessor {
         }
         Ok(TaskPlacementResult {
             task_placements,
+            unplaced_task_keys,
             placement_diagnostics,
         })
     }
 
     fn allocate_task(&self, task: Task) -> Result<ScheduleTaskResult> {
         let mut task_placements = Vec::new();
+        let mut unplaced_task_keys = Vec::new();
         let mut diagnostic_msgs = Vec::new();
         let compute_graph_version = self
             .indexify_state
@@ -105,9 +108,12 @@ impl TaskAllocationProcessor {
                 task,
                 executor: executor_id.clone(),
             });
+        } else {
+            unplaced_task_keys.push(task.key());
         }
         Ok(ScheduleTaskResult {
             task_placements,
+            unplaced_task_keys,
             diagnostic_msgs,
         })
     }
