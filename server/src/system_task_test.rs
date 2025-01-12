@@ -200,7 +200,7 @@ mod tests {
 
         let state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()?;
+            .unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
 
         let graph_ctx = indexify_state.reader().invocation_ctx(
@@ -232,7 +232,7 @@ mod tests {
         // Since graph version is the same it should generate new tasks
         let state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()?;
+            .unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
 
         let system_tasks = indexify_state.reader().get_system_tasks(None).unwrap().0;
@@ -289,7 +289,7 @@ mod tests {
         // Since graph version is different new changes should be generated
         let state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()?;
+            .unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 1);
 
         // Number of pending system tasks should be incremented
@@ -379,7 +379,7 @@ mod tests {
 
         let state_changes = indexify_state
             .reader()
-            .get_unprocessed_state_changes_all_processors()?;
+            .unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
 
         // Number of pending system tasks should be decremented after graph completion
@@ -466,6 +466,7 @@ mod tests {
             .await
             .unwrap();
 
+        test_srv.process_all().await?;
         for _ in 0..10 * 3 {
             let request = InvokeComputeGraphRequest {
                 namespace: graph.namespace.clone(),
@@ -479,9 +480,9 @@ mod tests {
                 })
                 .await
                 .unwrap();
-        }
 
-        test_srv.process_all().await?;
+            test_srv.process_all().await?;
+        }
 
         loop {
             finalize_incomplete_tasks(&indexify_state, &graph.namespace).await?;
@@ -497,7 +498,7 @@ mod tests {
                 .filter(|t: &&data_model::Task| t.outcome == TaskOutcome::Unknown);
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             if state_changes.is_empty() && incomplete_tasks.count() == 0 {
                 break;
             }
@@ -519,6 +520,8 @@ mod tests {
             .await
             .unwrap();
 
+        test_srv.process_all().await?;
+
         let (graphs, _) =
             indexify_state
                 .reader()
@@ -538,6 +541,8 @@ mod tests {
                 processed_state_changes: vec![],
             })
             .await?;
+
+        test_srv.process_all().await?;
 
         let system_tasks = indexify_state.reader().get_system_tasks(None).unwrap().0;
         assert_eq!(system_tasks.len(), 1);
@@ -570,7 +575,7 @@ mod tests {
 
             let state_changes = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+                .unprocessed_state_changes()?;
             if state_changes.is_empty() && num_incomplete_tasks == 0 && system_tasks.is_empty() {
                 break;
             }

@@ -23,7 +23,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::{debug, instrument};
+use tracing::debug;
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -444,34 +444,6 @@ impl StateReader {
             )?
             .0;
         Ok(ns_state_changes)
-    }
-
-    #[instrument(skip(self))]
-    pub fn get_unprocessed_state_changes_all_processors(&self) -> Result<Vec<StateChange>> {
-        let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key_prefix = "";
-        let key_prefix = key_prefix.as_bytes();
-
-        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
-        let iter = self
-            .db
-            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
-        let mut state_changes = Vec::new();
-        let mut count = 0;
-        for kv in iter.flatten() {
-            let (_key, serialized_sc) = kv;
-
-            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
-            state_changes.push(state_change);
-            count += 1;
-
-            if count >= 10 {
-                break;
-            }
-        }
-        Ok(state_changes)
     }
 
     pub fn get_all_rows_from_cf<V>(

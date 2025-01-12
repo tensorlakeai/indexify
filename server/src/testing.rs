@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
+use data_model::StateChange;
 use tracing::subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
@@ -41,15 +44,18 @@ impl TestService {
     }
 
     pub async fn process_all(&self) -> Result<()> {
-        // self.service.namespace_processor.process().await?;
-        // self.service.task_allocator.process().await?;
-
+        while self.service.indexify_state.reader().unprocessed_state_changes()?.len() > 0 {
+            self.process_ns().await?;
+        }
         Ok(())
     }
 
     pub async fn process_ns(&self) -> Result<()> {
-        //self.service.namespace_processor.process().await?;
-
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let mut cached_state_changes: Vec<StateChange> = self.service.indexify_state.reader().unprocessed_state_changes()?;
+        while !cached_state_changes.is_empty() {
+            self.service.graph_processor.write_sm_update(&mut cached_state_changes, &notify).await?;
+        }
         Ok(())
     }
 }
