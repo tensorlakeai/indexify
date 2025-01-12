@@ -749,6 +749,9 @@ pub(crate) fn create_tasks(
         &invocation_id
     ))?;
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
+    if graph_ctx.completed {
+        return Ok(None);
+    }
     for task in &tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(

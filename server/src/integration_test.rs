@@ -73,6 +73,9 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
         let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
 
+        // Should have 1 unprocessed state - one task created event
+        let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
+        assert_eq!(1, unprocessed_state_changes.len(), "{:?}", unprocessed_state_changes);
         test_srv.process_all().await?;
 
         let tasks = indexify_state
@@ -82,9 +85,11 @@ mod tests {
             .0;
         assert_eq!(tasks.len(), 1);
 
-        // Should have 1 unprocessed state - Task Created 
+        // Should have 0 unprocessed state - one task it would be unallocated
         let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
-        assert_eq!(1, unprocessed_state_changes.len(), "{:?}", unprocessed_state_changes);
+        assert_eq!(0, unprocessed_state_changes.len(), "{:?}", unprocessed_state_changes);
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(1, unallocated_tasks.len(), "{:?}", unallocated_tasks);
         let task = &tasks[0];
         // Finish the task and check if new tasks are created
         indexify_state.write(StateMachineUpdateRequest{
@@ -964,6 +969,7 @@ mod tests {
 
             test_srv.process_all().await?;
         }
+
         {
             let state_changes = indexify_state
                 .reader()
