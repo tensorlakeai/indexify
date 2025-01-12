@@ -42,6 +42,7 @@ pub enum RequestPayload {
     UpdateSystemTask(UpdateSystemTaskRequest),
     RemoveSystemTask(RemoveSystemTaskRequest),
     MutateClusterTopology(MutateClusterTopologyRequest),
+    Noop,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +140,9 @@ pub struct ReductionTasks {
 }
 #[derive(Debug, Clone)]
 pub struct NamespaceProcessorUpdateRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
     pub task_requests: Vec<Task>,
     pub reduction_tasks: ReductionTasks,
 }

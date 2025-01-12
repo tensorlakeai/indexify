@@ -44,15 +44,14 @@ impl StateChangeDispatcher for NoopStateChangeDispatcher {
 }
 
 pub struct TestStateStore {
-    pub indexify_state: Arc<IndexifyState<NoopStateChangeDispatcher>>,
+    pub indexify_state: Arc<IndexifyState>,
 }
 
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let temp_dir = tempfile::tempdir()?;
-        let noop_state_change_dispatcher = Arc::new(NoopStateChangeDispatcher {});
         let indexify_state =
-            IndexifyState::new(temp_dir.path().join("state"), noop_state_change_dispatcher).await?;
+            IndexifyState::new(temp_dir.path().join("state")).await?;
         Ok(TestStateStore { indexify_state })
     }
 
@@ -94,8 +93,8 @@ impl TestStateStore {
     }
 }
 
-pub async fn with_simple_graph<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn with_simple_graph(
+    indexify_state: &IndexifyState,
 ) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
@@ -124,8 +123,8 @@ pub async fn with_simple_graph<T: StateChangeDispatcher>(
     invocation_payload.id
 }
 
-pub async fn with_router_graph<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn with_router_graph(
+    indexify_state: &IndexifyState,
 ) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
@@ -155,8 +154,8 @@ pub async fn with_router_graph<T: StateChangeDispatcher>(
     invocation_payload.id
 }
 
-pub async fn with_reducer_graph<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn with_reducer_graph(
+    indexify_state: &IndexifyState,
 ) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
@@ -186,8 +185,8 @@ pub async fn with_reducer_graph<T: StateChangeDispatcher>(
     invocation_payload.id
 }
 
-pub async fn finalize_task<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn finalize_task(
+    indexify_state: &IndexifyState,
     task: &Task,
     num_outputs: usize,
     task_outcome: TaskOutcome,
@@ -228,8 +227,8 @@ pub async fn finalize_task<T: StateChangeDispatcher>(
         .await
 }
 
-pub async fn finalize_task_graph_b<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn finalize_task_graph_b(
+    indexify_state: &IndexifyState,
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {
@@ -252,8 +251,8 @@ pub async fn finalize_task_graph_b<T: StateChangeDispatcher>(
         .await
 }
 
-pub async fn finalize_router_x<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn finalize_router_x (
+    indexify_state: &IndexifyState,
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {

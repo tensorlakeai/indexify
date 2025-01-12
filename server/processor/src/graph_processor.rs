@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tracing::info;
+
 use anyhow::Result;
 use data_model::{ChangeType, ProcessorId, ProcessorType, StateChange};
 use state_store::{
@@ -17,19 +19,18 @@ use state_store::{
 use tokio::sync::Notify;
 
 use crate::{
-    dispatcher::Dispatcher,
     namespace::TaskCreationResult,
     task_allocator1::{self, TaskPlacementResult},
 };
 
 pub struct GraphProcessor {
-    pub indexify_state: Arc<IndexifyState<Dispatcher>>,
+    pub indexify_state: Arc<IndexifyState>,
     pub task_allocator: task_allocator1::TaskAllocationProcessor,
 }
 
 impl GraphProcessor {
     pub fn new(
-        indexify_state: Arc<IndexifyState<Dispatcher>>,
+        indexify_state: Arc<IndexifyState>,
         task_allocator: task_allocator1::TaskAllocationProcessor,
     ) -> Self {
         Self {
@@ -46,9 +47,10 @@ impl GraphProcessor {
         // watch will not notify again
         let notify = Arc::new(Notify::new());
         loop {
-            change_events_rx.borrow_and_update();
             tokio::select! {
                 _ = change_events_rx.changed() => {
+                    change_events_rx.borrow_and_update();
+                    info!("notified by scheduler");
                     let sm_update = self.handle_state_change().await;
                     if let Err(err) = &sm_update {
                         tracing::error!("error processing state change: {:?}", err);
@@ -62,6 +64,7 @@ impl GraphProcessor {
                     }
                 },
                 _ = notify.notified() => {
+                    info!("notified by ourselves");
                     let sm_update = self.handle_state_change().await;
                     if let Err(err) = &sm_update {
                         tracing::error!("error processing state change: {:?}", err);
@@ -85,9 +88,11 @@ impl GraphProcessor {
     pub async fn handle_state_change(&self) -> Result<Option<StateMachineUpdateRequest>> {
         let state_change = self.indexify_state.reader().get_next_state_change()?;
         if state_change.is_none() {
+            println!("NO STATE CHANGE");
             return Ok(None);
         }
         let state_change = state_change.unwrap();
+        println!("STATE CHANGE: {:?}", state_change);
         let scheduler_update = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
                 let task_creation_result = super::namespace::handle_invoke_compute_graph(
@@ -96,6 +101,9 @@ impl GraphProcessor {
                 )
                 .await?;
                 Ok(Some(task_creation_result_to_sm_update(
+                    &event.namespace,
+                    &event.compute_graph,
+                    &event.invocation_id,
                     task_creation_result,
                     &state_change,
                 )))
@@ -107,13 +115,22 @@ impl GraphProcessor {
                 )
                 .await?;
                 Ok(Some(task_creation_result_to_sm_update(
+                    &event.namespace,
+                    &event.compute_graph,
+                    &event.invocation_id,
                     task_creation_result,
                     &state_change,
                 )))
             }
             ChangeType::TombstoneComputeGraph(_) => Ok(None),
             ChangeType::TombstoneInvocation(_) => Ok(None),
-            ChangeType::ExecutorAdded => Ok(None),
+            ChangeType::ExecutorAdded => Ok(Some(StateMachineUpdateRequest {
+                payload: RequestPayload::Noop,
+                process_state_change: Some(ProcessedStateChange {
+                    processor_id: ProcessorId::new(ProcessorType::Namespace),
+                    state_changes: vec![state_change.clone()],
+                }),
+            })),
             ChangeType::ExecutorRemoved(event) => Ok(Some(StateMachineUpdateRequest {
                 payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                     executor_removed: event.executor_id.clone(),
@@ -138,11 +155,17 @@ impl GraphProcessor {
 }
 
 fn task_creation_result_to_sm_update(
+    ns: &str,
+    compute_graph: &str,
+    invocation_id: &str,
     task_creation_result: TaskCreationResult,
     state_change: &StateChange,
 ) -> StateMachineUpdateRequest {
     StateMachineUpdateRequest {
         payload: RequestPayload::NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest {
+            namespace: ns.to_string(),
+            compute_graph: compute_graph.to_string(),
+            invocation_id: invocation_id.to_string(),
             task_requests: task_creation_result.tasks,
             reduction_tasks: ReductionTasks {
                 new_reduction_tasks: task_creation_result.new_reduction_tasks,

@@ -414,7 +414,7 @@ mod tests {
     }
 
     async fn finalize_incomplete_tasks(
-        state: &IndexifyState<Dispatcher>,
+        state: &IndexifyState,
         namespace: &str,
     ) -> Result<(), anyhow::Error> {
         let tasks = state

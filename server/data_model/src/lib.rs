@@ -17,6 +17,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strum::AsRefStr;
 
+#[derive(Debug, Clone, Serialize, Deserialize)] 
+pub struct StateMachineMetadata {
+    pub db_version: u64,
+    pub last_change_idx: u64,
+}
+
 // Invoke graph for all existing payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemTask {

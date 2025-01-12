@@ -56,11 +56,11 @@ impl TaskCreationResult {
 }
 
 pub struct NamespaceProcessor {
-    indexify_state: Arc<IndexifyState<Dispatcher>>,
+    indexify_state: Arc<IndexifyState>,
 }
 
 impl NamespaceProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState<Dispatcher>>) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
         Self { indexify_state }
     }
 }
@@ -128,6 +128,9 @@ impl ProcessorLogic for NamespaceProcessor {
             let scheduler_update_request = StateMachineUpdateRequest {
                 payload: RequestPayload::NamespaceProcessorUpdate(
                     NamespaceProcessorUpdateRequest {
+                        namespace: "default".to_string(),
+                        compute_graph: "default".to_string(),
+                        invocation_id: "default".to_string(),
                         task_requests: create_task_requests,
                         reduction_tasks: ReductionTasks {
                             new_reduction_tasks,
@@ -217,7 +220,7 @@ impl NamespaceProcessor {
 }
 
 pub async fn handle_task_finished_inner(
-    indexify_state: Arc<IndexifyState<Dispatcher>>,
+    indexify_state: Arc<IndexifyState>,
     task_finished_event: &TaskFinishedEvent,
 ) -> Result<TaskCreationResult> {
     let task = indexify_state
@@ -271,7 +274,7 @@ pub async fn handle_task_finished_inner(
 }
 
 pub async fn handle_invoke_compute_graph(
-    indexify_state: Arc<IndexifyState<Dispatcher>>,
+    indexify_state: Arc<IndexifyState>,
     event: InvokeComputeGraphEvent,
 ) -> Result<TaskCreationResult> {
     let invocation_ctx = indexify_state
@@ -354,7 +357,7 @@ pub async fn handle_invoke_compute_graph(
 }
 
 pub async fn handle_task_finished(
-    indexify_state: Arc<IndexifyState<Dispatcher>>,
+    indexify_state: Arc<IndexifyState>,
     task: Task,
     compute_graph_version: ComputeGraphVersion,
 ) -> Result<TaskCreationResult> {
