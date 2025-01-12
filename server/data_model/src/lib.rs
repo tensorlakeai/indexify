@@ -999,7 +999,7 @@ impl StateChange {
     pub fn key(&self) -> Vec<u8> {
         let mut key = String::new();
         if let Some(ns) = &self.namespace {
-            key.push_str(&format!("{}|", &ns));
+            key.push_str(&format!("ns_{}|", &ns));
         } else {
             key.push_str("global|");
         }

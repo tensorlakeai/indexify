@@ -37,7 +37,17 @@ use tracing::{error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    DeleteInvocationRequest, FinalizeTaskRequest, InvokeComputeGraphRequest, NamespaceRequest, ReductionTasks, RegisterExecutorRequest, RemoveSystemTaskRequest, ReplayComputeGraphRequest, ReplayInvocationsRequest, TaskAllocationUpdateRequest, UpdateSystemTaskRequest
+    DeleteInvocationRequest,
+    FinalizeTaskRequest,
+    InvokeComputeGraphRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    RegisterExecutorRequest,
+    RemoveSystemTaskRequest,
+    ReplayComputeGraphRequest,
+    ReplayInvocationsRequest,
+    TaskAllocationUpdateRequest,
+    UpdateSystemTaskRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -417,7 +427,7 @@ pub(crate) fn delete_invocation(
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
-        prefix.as_bytes(),
+        format!("ns_{}", prefix).as_bytes(),
     )?;
 
     delete_cf_prefix(
@@ -760,20 +770,29 @@ pub fn handle_task_allocation_update(
     request: &TaskAllocationUpdateRequest,
 ) -> Result<()> {
     for task_placement in &request.allocations {
-     txn.put_cf(
-        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        task_placement.task.make_allocation_key(&task_placement.executor),
-        &[],
-    )?;
-    txn.delete_cf(
-        &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-        task_placement.task.key(),
-    )?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+            task_placement
+                .task
+                .make_allocation_key(&task_placement.executor),
+            &[],
+        )?;
+        txn.delete_cf(
+            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+            task_placement.task.key(),
+        )?;
 
-    sm_metrics.task_assigned(vec![task_placement.task.clone()], task_placement.executor.get());
+        sm_metrics.task_assigned(
+            vec![task_placement.task.clone()],
+            task_placement.executor.get(),
+        );
     }
     for unplaced_task_key in &request.unplaced_task_keys {
-        txn.put_cf(&IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db), unplaced_task_key.as_bytes(), &[])?;  
+        txn.put_cf(
+            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+            unplaced_task_key.as_bytes(),
+            &[],
+        )?;
     }
     Ok(())
 }

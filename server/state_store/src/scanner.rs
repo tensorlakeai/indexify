@@ -87,7 +87,7 @@ impl StateReader {
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
 
         let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(4_194_304);
+        read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
             Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
             None => IteratorMode::From(&key_prefix, Direction::Forward),
@@ -421,29 +421,29 @@ impl StateReader {
         Ok(urls)
     }
 
-    pub fn get_next_state_change(&self) -> Result<Option<StateChange>> {
+    pub fn unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "get_next_state_change")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
-
-        let key_prefix = "".as_bytes();
-        let mut iter = self
-            .db
-            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
-        let first = iter.next();
-        if let Some(Ok((_key, serialized_sc))) = first {
-            println!(
-                "Got state change {} ",
-                String::from_utf8(_key.clone().to_vec()).unwrap()
-            );
-
-            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
-            Ok(Some(state_change))
-        } else if let Some(Err(e)) = first {
-            Err(anyhow::anyhow!("Error reading db: {}", e))
-        } else {
-            Ok(None)
+        let global_state_changes: Vec<StateChange> = self
+            .get_rows_from_cf_with_limits(
+                "global".as_bytes(),
+                None,
+                IndexifyObjectsColumns::UnprocessedStateChanges,
+                None,
+            )?
+            .0;
+        if global_state_changes.len() > 0 {
+            return Ok(global_state_changes);
         }
+        let ns_state_changes: Vec<StateChange> = self
+            .get_rows_from_cf_with_limits(
+                "ns".as_bytes(),
+                None,
+                IndexifyObjectsColumns::UnprocessedStateChanges,
+                Some(100),
+            )?
+            .0;
+        Ok(ns_state_changes)
     }
 
     #[instrument(skip(self))]
