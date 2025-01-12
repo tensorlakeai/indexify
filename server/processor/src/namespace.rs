@@ -12,11 +12,11 @@ use data_model::{
     ProcessorType,
     ReduceTask,
     Task,
+    TaskFinishedEvent,
     TaskOutcome,
 };
 use state_store::{
     requests::{
-        CreateTasksRequest,
         NamespaceProcessorUpdateRequest,
         ProcessedStateChange,
         ReductionTasks,
@@ -109,13 +109,6 @@ impl ProcessorLogic for NamespaceProcessor {
                     processed_state_changes.push(state_change.clone());
 
                     if let Some(result) = result {
-                        let request = CreateTasksRequest {
-                            namespace: result.namespace.clone(),
-                            invocation_id: result.invocation_id.clone(),
-                            compute_graph: result.compute_graph.clone(),
-                            tasks: result.tasks,
-                        };
-                        create_task_requests.push(request);
                         new_reduction_tasks.extend(result.new_reduction_tasks);
                         processed_reduction_tasks.extend(result.processed_reduction_tasks);
                     }
@@ -221,6 +214,60 @@ impl NamespaceProcessor {
         };
         Ok(result)
     }
+}
+
+pub async fn handle_task_finished_inner(
+    indexify_state: Arc<IndexifyState<Dispatcher>>,
+    task_finished_event: &TaskFinishedEvent,
+) -> Result<TaskCreationResult> {
+    let task = indexify_state
+        .reader()
+        .get_task_from_finished_event(task_finished_event)
+        .map_err(|e| {
+            error!("error getting task from finished event: {:?}", e);
+            e
+        })?;
+    if task.is_none() {
+        error!(
+            "task not found for task finished event: {}",
+            task_finished_event.task_id
+        );
+        return Ok(TaskCreationResult::no_tasks(
+            &task_finished_event.namespace,
+            &task_finished_event.compute_graph,
+            &task_finished_event.invocation_id,
+        ));
+    }
+    let task = task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
+
+    let compute_graph_version = indexify_state
+        .reader()
+        .get_compute_graph_version(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.graph_version,
+        )
+        .map_err(|e| {
+            error!("error getting compute graph version: {:?}", e);
+            e
+        })?;
+    if compute_graph_version.is_none() {
+        error!(
+            "compute graph version not found: {:?} {:?}",
+            task.namespace, task.compute_graph_name
+        );
+        return Ok(TaskCreationResult::no_tasks(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.invocation_id,
+        ));
+    }
+    let compute_graph_version = compute_graph_version.ok_or(anyhow!(
+        "compute graph version not found: {:?} {:?}",
+        task.namespace,
+        task.compute_graph_name
+    ))?;
+    handle_task_finished(indexify_state.clone(), task, compute_graph_version).await
 }
 
 pub async fn handle_invoke_compute_graph(

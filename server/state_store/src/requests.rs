@@ -41,6 +41,12 @@ pub enum RequestPayload {
     RemoveGcUrls(Vec<String>),
     UpdateSystemTask(UpdateSystemTaskRequest),
     RemoveSystemTask(RemoveSystemTaskRequest),
+    MutateClusterTopology(MutateClusterTopologyRequest),
+}
+
+#[derive(Debug, Clone)]
+pub struct MutateClusterTopologyRequest {
+    pub executor_removed: ExecutorId,
 }
 
 #[derive(Debug, Clone)]
@@ -115,14 +121,6 @@ pub struct DeleteComputeGraphOutputRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateTasksRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub tasks: Vec<Task>,
-}
-
-#[derive(Debug, Clone)]
 pub struct TaskPlacement {
     pub task: Task,
     pub executor: ExecutorId,
@@ -141,7 +139,7 @@ pub struct ReductionTasks {
 }
 #[derive(Debug, Clone)]
 pub struct NamespaceProcessorUpdateRequest {
-    pub task_requests: Vec<CreateTasksRequest>,
+    pub task_requests: Vec<Task>,
     pub reduction_tasks: ReductionTasks,
 }
 

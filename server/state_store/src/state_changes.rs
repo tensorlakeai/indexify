@@ -3,10 +3,12 @@ use std::sync::atomic::{self, AtomicU64};
 use anyhow::Result;
 use data_model::{
     ChangeType,
+    ExecutorRemovedEvent,
     InvokeComputeGraphEvent,
     StateChange,
     StateChangeBuilder,
     StateChangeId,
+    TaskCreatedEvent,
     TaskFinishedEvent,
 };
 use indexify_utils::get_epoch_time_in_ms;
@@ -70,21 +72,21 @@ pub fn change_events_for_namespace_processor_update(
     req: &NamespaceProcessorUpdateRequest,
 ) -> Result<Vec<StateChange>> {
     let mut state_changes = Vec::new();
-    for task_request in &req.task_requests {
+    for task in &req.task_requests {
         let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-        for task in &task_request.tasks {
-            let state_change = StateChangeBuilder::default()
-                .change_type(ChangeType::TaskCreated)
-                .namespace(Some(task.namespace.clone()))
-                .compute_graph(Some(task.compute_graph_name.clone()))
-                .invocation(Some(task.invocation_id.clone()))
-                .created_at(get_epoch_time_in_ms())
-                .object_id(task.id.to_string())
-                .id(StateChangeId::new(last_change_id))
-                .processed_at(None)
-                .build()?;
-            state_changes.push(state_change);
-        }
+        let state_change = StateChangeBuilder::default()
+            .change_type(ChangeType::TaskCreated(TaskCreatedEvent {
+                task: task.clone(),
+            }))
+            .namespace(Some(task.namespace.clone()))
+            .compute_graph(Some(task.compute_graph_name.clone()))
+            .invocation(Some(task.invocation_id.clone()))
+            .created_at(get_epoch_time_in_ms())
+            .object_id(task.id.to_string())
+            .id(StateChangeId::new(last_change_id))
+            .processed_at(None)
+            .build()?;
+        state_changes.push(state_change);
     }
     Ok(state_changes)
 }
@@ -95,7 +97,9 @@ pub fn deregister_executor_events(
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
-        .change_type(ChangeType::ExecutorRemoved)
+        .change_type(ChangeType::ExecutorRemoved(ExecutorRemovedEvent {
+            executor_id: request.executor_id.clone(),
+        }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.executor_id.get().to_string())
         .id(StateChangeId::new(last_change_id))

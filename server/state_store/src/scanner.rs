@@ -422,6 +422,26 @@ impl StateReader {
         Ok(urls)
     }
 
+    pub fn get_next_state_change(&self) -> Result<Option<StateChange>> {
+        let kvs = &[KeyValue::new("op", "get_next_state_change")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
+
+        let key_prefix = "".as_bytes();
+        let mut iter = self
+            .db
+            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
+        let first = iter.next();
+        if let Some(Ok((_key, serialized_sc))) = first {
+            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
+            Ok(Some(state_change))
+        } else if let Some(Err(e)) = first {
+            Err(anyhow::anyhow!("Error reading db: {}", e))
+        } else {
+            Ok(None)
+        }
+    }
+
     #[instrument(skip(self))]
     pub fn get_unprocessed_state_changes_all_processors(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];

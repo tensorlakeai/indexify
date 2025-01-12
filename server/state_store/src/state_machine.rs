@@ -36,9 +36,7 @@ use tracing::{debug, error, info, instrument, trace};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    CreateTasksRequest,
     DeleteInvocationRequest,
-    DeregisterExecutorRequest,
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
@@ -664,16 +662,17 @@ pub(crate) enum InvocationCompletion {
 }
 
 // returns true if system task has finished
-#[instrument(skip(db, txn, req, sm_metrics))]
+#[instrument(skip(db, txn, tasks, sm_metrics))]
 pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: &CreateTasksRequest,
+    tasks: Vec<Task>,
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<Option<InvocationCompletion>> {
+    let first_task = tasks.first().ok_or(anyhow!("No tasks to create"))?;
     let ctx_key = format!(
         "{}|{}|{}",
-        req.namespace, req.compute_graph, req.invocation_id
+        first_task.namespace, first_task.compute_graph_name, first_task.invocation_id
     );
     let graph_ctx = txn.get_for_update_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
@@ -683,17 +682,17 @@ pub(crate) fn create_tasks(
     if graph_ctx.is_none() {
         error!(
             "Graph context not found for graph {} and invocation {}",
-            &req.compute_graph, &req.invocation_id
+            &first_task.compute_graph_name, &first_task.invocation_id
         );
         return Ok(None);
     }
     let graph_ctx = &graph_ctx.ok_or(anyhow!(
         "Graph context not found for graph {} and invocation {}",
-        &req.compute_graph,
-        &req.invocation_id
+        &first_task.compute_graph_name,
+        &first_task.invocation_id
     ))?;
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
-    for task in &req.tasks {
+    for task in &tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
             &IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -712,7 +711,7 @@ pub(crate) fn create_tasks(
             .or_insert_with(|| TaskAnalytics::default());
         analytics.pending();
     }
-    graph_ctx.outstanding_tasks += req.tasks.len() as u64;
+    graph_ctx.outstanding_tasks += tasks.len() as u64;
     // Subtract reference for completed state change event
     graph_ctx.outstanding_tasks -= 1;
     let serialized_graphctx = JsonEncoder::encode(&graph_ctx)?;
@@ -722,14 +721,14 @@ pub(crate) fn create_tasks(
         serialized_graphctx,
     )?;
     debug!("GraphInvocationCtx updated: {:?}", graph_ctx);
-    sm_metrics.task_unassigned(req.tasks.clone());
+    sm_metrics.task_unassigned(tasks.clone());
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(
             db,
             txn,
-            &req.namespace,
-            &req.compute_graph,
-            &req.invocation_id,
+            &first_task.namespace,
+            &first_task.compute_graph_name,
+            &first_task.invocation_id,
         )?))
     } else {
         Ok(None)
@@ -1039,12 +1038,12 @@ pub(crate) fn register_executor(
 pub(crate) fn deregister_executor(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    req: &DeregisterExecutorRequest,
+    executor_id: &ExecutorId,
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}|", req.executor_id);
+    let prefix = format!("{}|", executor_id);
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = txn.iterator_cf_opt(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
@@ -1063,9 +1062,9 @@ pub(crate) fn deregister_executor(
     }
     txn.delete_cf(
         &IndexifyObjectsColumns::Executors.cf_db(&db),
-        req.executor_id.to_string(),
+        executor_id.to_string(),
     )?;
-    sm_metrics.remove_executor(req.executor_id.get());
+    sm_metrics.remove_executor(executor_id.get());
     Ok(())
 }
 

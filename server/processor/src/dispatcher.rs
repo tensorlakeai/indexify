@@ -118,6 +118,7 @@ impl Dispatcher {
             RequestPayload::RemoveSystemTask(_) => ProcessorId::new(ProcessorType::Namespace),
             RequestPayload::TaskAllocationProcessorUpdate(_) |
             RequestPayload::RegisterExecutor(_) |
+            RequestPayload::MutateClusterTopology(_) |
             RequestPayload::DeregisterExecutor(_) => ProcessorId::new(ProcessorType::TaskAllocator),
         }
     }
@@ -164,7 +165,9 @@ impl StateChangeDispatcher for Dispatcher {
                     ProcessorId::new(ProcessorType::TaskAllocator),
                 ]
             }
-            ChangeType::ExecutorAdded | ChangeType::ExecutorRemoved | ChangeType::TaskCreated => {
+            ChangeType::ExecutorAdded |
+            ChangeType::ExecutorRemoved(_) |
+            ChangeType::TaskCreated(_) => {
                 vec![ProcessorId::new(ProcessorType::TaskAllocator)]
             }
         }
