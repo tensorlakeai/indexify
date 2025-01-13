@@ -641,15 +641,17 @@ async fn executor_tasks(
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
-    let function_allowlist = payload.function_allowlist.map(|function_uris| function_uris
-                .iter()
-                .map(|f| data_model::FunctionURI {
-                    namespace: f.namespace.clone(),
-                    compute_graph_name: f.compute_graph.clone(),
-                    compute_fn_name: f.compute_fn.clone(),
-                    version: f.version.clone().into(),
-                })
-                .collect());
+    let function_allowlist = payload.function_allowlist.map(|function_uris| {
+        function_uris
+            .iter()
+            .map(|f| data_model::FunctionURI {
+                namespace: f.namespace.clone(),
+                compute_graph_name: f.compute_graph.clone(),
+                compute_fn_name: f.compute_fn.clone(),
+                version: f.version.clone().into(),
+            })
+            .collect()
+    });
     let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {

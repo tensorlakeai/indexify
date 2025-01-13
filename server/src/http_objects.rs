@@ -548,15 +548,17 @@ pub struct ExecutorMetadata {
 
 impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
     fn from(executor: data_model::ExecutorMetadata) -> Self {
-        let function_allowlist = executor.function_allowlist.map(|allowlist| allowlist
-                    .iter()
-                    .map(|fn_uri| FunctionURI {
-                        namespace: fn_uri.namespace.clone(),
-                        compute_graph: fn_uri.compute_graph_name.clone(),
-                        compute_fn: fn_uri.compute_fn_name.clone(),
-                        version: fn_uri.version.clone().into(),
-                    })
-                    .collect());
+        let function_allowlist = executor.function_allowlist.map(|allowlist| {
+            allowlist
+                .iter()
+                .map(|fn_uri| FunctionURI {
+                    namespace: fn_uri.namespace.clone(),
+                    compute_graph: fn_uri.compute_graph_name.clone(),
+                    compute_fn: fn_uri.compute_fn_name.clone(),
+                    version: fn_uri.version.clone().into(),
+                })
+                .collect()
+        });
         Self {
             id: executor.id.to_string(),
             executor_version: executor.executor_version,

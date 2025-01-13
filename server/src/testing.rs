@@ -48,7 +48,8 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes()?.is_empty()
+            .unprocessed_state_changes()?
+            .is_empty()
         {
             self.process_ns().await?;
         }
