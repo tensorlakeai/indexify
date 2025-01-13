@@ -563,7 +563,10 @@ develop = true
 
 [package.dependencies]
 grpcio = "1.68.1"
+httpx = {version = "^0.28.1", extras = ["http2"]}
+httpx-sse = "^0.4.0"
 indexify-function-executor = {path = "../function_executor", develop = true}
+pydantic = "2.10.4"
 pyyaml = "^6"
 tensorlake = "^0.1.1"
 
