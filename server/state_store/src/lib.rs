@@ -20,8 +20,8 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
 use strum::IntoEnumIterator;
-use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error, info, span};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tracing::{debug, info, span};
 
 pub mod invocation_events;
 pub mod kv;
@@ -31,6 +31,7 @@ pub mod serializer;
 pub mod state_changes;
 pub mod state_machine;
 pub mod test_state_store;
+pub mod invocations_diagnostics;
 
 #[derive(Debug)]
 pub struct ExecutorState {
@@ -77,14 +78,11 @@ impl Default for ExecutorState {
 }
 
 pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<Task>>> + Send + Sync>>;
-pub type StateChangeStream =
-    Pin<Box<dyn Stream<Item = Result<InvocationStateChangeEvent>> + Send + Sync>>;
-
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub last_state_change_id: Arc<AtomicU64>,
-    pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
+    pub invocation_events_tx: Option<tokio::sync::mpsc::Sender<InvocationStateChangeEvent>>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
     pub gc_rx: tokio::sync::watch::Receiver<()>,
     pub system_tasks_tx: tokio::sync::watch::Sender<()>,
@@ -96,7 +94,7 @@ pub struct IndexifyState {
 }
 
 impl IndexifyState {
-    pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
+    pub async fn new(path: PathBuf, invocation_events_tx: Option<mpsc::Sender<InvocationStateChangeEvent>>) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())?;
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -112,7 +110,6 @@ impl IndexifyState {
         .map_err(|e| anyhow!("failed to open db: {}", e))?;
         let sm_meta = state_machine::read_sm_meta(&db)?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
-        let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         StateMetrics::new(state_store_metrics.clone());
@@ -122,7 +119,7 @@ impl IndexifyState {
             db: Arc::new(db),
             last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
-            task_event_tx,
+            invocation_events_tx,
             gc_tx,
             gc_rx,
             system_tasks_tx,
@@ -299,16 +296,14 @@ impl IndexifyState {
                     &request.compute_graph,
                     &request.invocation_id,
                 )? {
-                    if let Err(err) =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::InvocationFinished(
-                                InvocationFinishedEvent {
-                                    id: request.invocation_id.clone(),
-                                },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                    if self.invocation_events_tx.is_some() {
+                        let _ = self.invocation_events_tx.as_ref().unwrap()
+                        .send(InvocationStateChangeEvent::InvocationFinished(
+                            InvocationFinishedEvent {
+                                id: request.invocation_id.clone(),
+                            },
+                    )).await;
+                }
                     if completion == InvocationCompletion::System {
                         // Notify the system task handler that it can start new tasks since
                         // a task was completed
@@ -436,37 +431,27 @@ impl IndexifyState {
     }
 
     async fn handle_invocation_state_changes(&self, update_request: &StateMachineUpdateRequest) {
-        if self.task_event_tx.receiver_count() == 0 {
-            return;
-        }
         match &update_request.payload {
             RequestPayload::FinalizeTask(task_finished_event) => {
                 let ev =
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
-                if let Err(err) = self.task_event_tx.send(ev) {
-                    error!("failed to send invocation state change: {:?}", err);
-                }
+                let _ = self.invocation_events_tx.as_ref().unwrap().send(ev).await;
             }
             RequestPayload::NamespaceProcessorUpdate(sched_update) => {
                 for task in &sched_update.task_requests {
-                    if let Err(err) =
-                        self.task_event_tx
+                        let _ = self.invocation_events_tx.as_ref().unwrap()
                             .send(InvocationStateChangeEvent::TaskCreated(
                                 invocation_events::TaskCreated {
                                     invocation_id: task.invocation_id.clone(),
                                     fn_name: task.compute_fn_name.clone(),
                                     task_id: task.id.to_string(),
                                 },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                            )).await;
                 }
             }
             RequestPayload::TaskAllocationProcessorUpdate(sched_update) => {
                 for task_allocated in &sched_update.allocations {
-                    if let Err(err) =
-                        self.task_event_tx
+                        let _ = self.invocation_events_tx.as_ref().unwrap()
                             .send(InvocationStateChangeEvent::TaskAssigned(
                                 invocation_events::TaskAssigned {
                                     invocation_id: task_allocated.task.invocation_id.clone(),
@@ -474,23 +459,16 @@ impl IndexifyState {
                                     task_id: task_allocated.task.id.to_string(),
                                     executor_id: task_allocated.executor.get().to_string(),
                                 },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                            )).await;
                 }
                 for diagnostic in &sched_update.placement_diagnostics {
-                    if let Err(err) =
-                        self.task_event_tx
+                        let _ = self.invocation_events_tx.as_ref().unwrap()
                             .send(InvocationStateChangeEvent::DiagnosticMessage(
                                 invocation_events::DiagnosticMessage {
                                     invocation_id: diagnostic.task.invocation_id.clone(),
                                     message: diagnostic.message.clone(),
                                 },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                            )).await;
                 }
             }
             _ => {}
@@ -499,10 +477,6 @@ impl IndexifyState {
 
     pub fn reader(&self) -> scanner::StateReader {
         scanner::StateReader::new(self.db.clone(), self.metrics.clone())
-    }
-
-    pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {
-        self.task_event_tx.subscribe()
     }
 }
 

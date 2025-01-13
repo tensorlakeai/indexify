@@ -36,7 +36,7 @@ pub struct TestStateStore {
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let temp_dir = tempfile::tempdir()?;
-        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state"), None).await?;
         Ok(TestStateStore { indexify_state })
     }
 

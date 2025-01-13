@@ -16,7 +16,7 @@ use state_store::{kv::KVS, IndexifyState};
 use tokio::{
     self,
     signal,
-    sync::{watch, Mutex},
+    sync::{mpsc, watch, Mutex},
 };
 use tracing::info;
 
@@ -51,7 +51,9 @@ impl Service {
                 .context("error initializing BlobStorage")?,
         );
 
-        let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
+        let (tx, rx) = mpsc::channel(100);
+
+        let indexify_state = IndexifyState::new(config.state_store_path.parse()?, Some(tx)).await?;
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
 
         let system_tasks_executor = Arc::new(Mutex::new(SystemTasksExecutor::new(

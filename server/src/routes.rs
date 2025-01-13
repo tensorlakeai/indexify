@@ -282,10 +282,6 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             delete(delete_invocation).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/{compute_graph}/notify",
-            get(notify_on_change).with_state(route_state.clone()),
-        )
-        .route(
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}/payload",
             get(download_invocation_payload).with_state(route_state.clone()),
         )
@@ -588,29 +584,6 @@ async fn graph_invocations(
         invocations,
         cursor,
     }))
-}
-
-async fn notify_on_change(
-    Path((_namespace, _compute_graph)): Path<(String, String)>,
-    State(state): State<RouteState>,
-) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let mut rx = state.indexify_state.task_event_stream();
-    let invocation_event_stream = async_stream::stream! {
-        loop {
-                if let Ok(ev)  =  rx.recv().await {
-                        yield Event::default().json_data(ev.clone());
-                        return;
-                    }
-                }
-    };
-
-    Ok(
-        axum::response::Sse::new(invocation_event_stream).keep_alive(
-            axum::response::sse::KeepAlive::new()
-                .interval(Duration::from_secs(1))
-                .text("keep-alive-text"),
-        ),
-    )
 }
 
 /// List executors
