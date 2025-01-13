@@ -1,5 +1,5 @@
 pub mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, vec};
 
     use rand::{distributions::Alphanumeric, Rng};
 
@@ -68,41 +68,51 @@ pub mod tests {
         compute_fn
     }
 
+
+
     pub fn mock_node_fn_output_fn_a(
         invocation_id: &str,
         graph: &str,
+        compute_fn: &str,
         reducer_fn: Option<String>,
+        outputs: usize,
     ) -> NodeOutput {
-        mock_node_fn_output(invocation_id, graph, "fn_a", reducer_fn)
+        let outputs = mock_node_fn_output(invocation_id, graph, reducer_fn, outputs);
+        NodeOutputBuilder::default()
+            .namespace(TEST_NAMESPACE.to_string())
+            .compute_fn_name(compute_fn.to_string())
+            .compute_graph_name(graph.to_string())
+            .invocation_id(invocation_id.to_string())
+            .payload(crate::OutputPayload::Fn(outputs))
+            .build()
+            .unwrap()
     }
 
     pub fn mock_node_fn_output(
         invocation_id: &str,
         graph: &str,
-        compute_fn_name: &str,
         reducer_fn: Option<String>,
-    ) -> NodeOutput {
+        outputs: usize,
+    ) ->  Vec<DataPayload> {
+        let mut data_payloads= vec![];
+        for _ in 0..outputs {
         let mut path: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(7)
             .map(char::from)
             .collect();
-        if let Some(reducer_fn) = reducer_fn {
+        if let Some(reducer_fn) = &reducer_fn {
             // Simulating overriding the existing output for accumulators
             path = format!("{}-{}-{}", invocation_id, graph, reducer_fn);
+
         }
-        NodeOutputBuilder::default()
-            .namespace(TEST_NAMESPACE.to_string())
-            .compute_fn_name(compute_fn_name.to_string())
-            .compute_graph_name(graph.to_string())
-            .invocation_id(invocation_id.to_string())
-            .payload(crate::OutputPayload::Fn(DataPayload {
-                sha256_hash: "3433".to_string(),
-                path,
-                size: 12,
-            }))
-            .build()
-            .unwrap()
+        data_payloads.push(DataPayload {
+            sha256_hash: "3433".to_string(),
+            path,
+            size: 12,
+        })
+    }
+    data_payloads
     }
 
     pub fn mock_node_router_output_x(invocation_id: &str, graph: &str) -> NodeOutput {

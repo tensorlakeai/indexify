@@ -152,7 +152,7 @@ impl GraphProcessor {
             ChangeType::TaskFinished(event) => {
                 let task_creation_result = self
                     .task_creator
-                    .handle_task_finished_inner(self.indexify_state.clone(), event)
+                    .handle_task_finished(self.indexify_state.clone(), event)
                     .await?;
                 Ok(task_creation_result_to_sm_update(
                     &event.namespace,

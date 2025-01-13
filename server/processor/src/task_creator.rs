@@ -48,7 +48,7 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
-    pub async fn handle_task_finished_inner(
+    pub async fn handle_task_finished(
         &self,
         indexify_state: Arc<IndexifyState>,
         task_finished_event: &TaskFinishedEvent,
@@ -100,7 +100,7 @@ impl TaskCreator {
             task.namespace,
             task.compute_graph_name
         ))?;
-        self.handle_task_finished(task, compute_graph_version).await
+        self.handle_task_finished_inner(task, compute_graph_version)
     }
 
     pub async fn handle_invoke_compute_graph(
@@ -188,7 +188,7 @@ impl TaskCreator {
         })
     }
 
-    pub async fn handle_task_finished(
+    fn handle_task_finished_inner(
         &self,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
@@ -234,21 +234,29 @@ impl TaskCreator {
             .indexify_state
             .reader()
             .get_task_outputs(&task.namespace, &task.id.to_string())?;
+        if outputs.is_none() {
+            return Ok(TaskCreationResult::no_tasks(
+                                &task.namespace,
+                                &task.compute_graph_name,
+                                &task.invocation_id,
+                            ));
+                        }
+        let outputs = outputs.ok_or(anyhow!(
+            "outputs not found for task: {:?} {:?}",
+            task.namespace,
+            task.id
+        ))?;
         let mut new_tasks = vec![];
 
         // Check if the task has a router output and create new tasks for the router
         // edges.
         {
             let mut router_edges = vec![];
-            for output in &outputs {
-                if let OutputPayload::Router(router_output) = &output.payload {
-                    for edge in &router_output.edges {
-                        router_edges.push(edge);
-                    }
-                }
+            if let OutputPayload::Router(router_output) = &outputs.payload {
+                router_edges.extend(router_output.edges);
             }
             if !router_edges.is_empty() {
-                for edge in router_edges {
+                for edge in &router_edges {
                     let compute_fn = compute_graph_version
                         .nodes
                         .get(edge)
@@ -466,7 +474,7 @@ impl TaskCreator {
                             &task.compute_graph_name,
                             &task.invocation_id,
                             &task.id.to_string(),
-                            &output.key(&task.invocation_id),
+                            &output.key(),
                         );
                         trace!(
                             compute_fn_name = compute_node.name(),
@@ -517,7 +525,7 @@ impl TaskCreator {
                             &task.namespace,
                             &task.compute_graph_name,
                             &task.invocation_id,
-                            &output.key(&task.invocation_id),
+                            &output.key(),
                             Some(prev_reducer_output.id.clone()),
                             &invocation_ctx.graph_version,
                         )?;
@@ -536,7 +544,7 @@ impl TaskCreator {
                     &task.namespace,
                     &task.compute_graph_name,
                     &task.invocation_id,
-                    &output.key(&task.invocation_id),
+                    &output.key(),
                     None,
                     &invocation_ctx.graph_version,
                 )?;

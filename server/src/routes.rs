@@ -184,7 +184,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             post(executor_tasks).with_state(route_state.clone()),
         )
         .route(
-            "/internal/fn_outputs/{input_key}",
+            "/internal/fn_outputs/{input_key}/{index}",
             get(download_fn_output_by_key).with_state(route_state.clone()),
         )
         .route(
@@ -290,7 +290,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             get(download_invocation_payload).with_state(route_state.clone()),
         )
         .route(
-            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{index}",
             get(download_fn_output_payload).with_state(route_state.clone()),
         )
         .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/tasks/{task_id}/logs/{file}", get(download_task_logs).with_state(route_state.clone()))

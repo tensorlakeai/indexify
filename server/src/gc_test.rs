@@ -55,17 +55,17 @@ mod tests {
             compute_fn_name: "fn_a".to_string(),
             compute_graph_name: "graph_A".to_string(),
             invocation_id: "invocation_id".to_string(),
-            payload: data_model::OutputPayload::Fn(data_model::DataPayload {
+            payload: data_model::OutputPayload::Fn(vec![data_model::DataPayload {
                 path: res.url.clone(),
                 size: res.size_bytes,
                 sha256_hash: res.sha256_hash,
-            }),
+            }]),
             errors: None,
             reduced_state: false,
             created_at: 5,
             encoding: "application/octet-stream".to_string(),
         };
-        let key = output.key(&output.invocation_id);
+        let key = output.key();
         let serialized_output = JsonEncoder::encode(&output)?;
         indexify_state.db.put_cf(
             &IndexifyObjectsColumns::FnOutputs.cf_db(&indexify_state.db),

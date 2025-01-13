@@ -10,12 +10,7 @@ use data_model::{
         mock_node_router_output_x,
         TEST_EXECUTOR_ID,
         TEST_NAMESPACE,
-    },
-    ExecutorId,
-    NodeOutput,
-    Task,
-    TaskId,
-    TaskOutcome,
+    }, ExecutorId, Task, TaskId, TaskOutcome
 };
 
 use crate::{
@@ -176,16 +171,7 @@ pub async fn finalize_task(
     } else {
         None
     };
-    let node_outputs: Vec<NodeOutput> = (0..num_outputs)
-        .map(|_| {
-            mock_node_fn_output_fn_a(
-                &task.invocation_id,
-                &task.compute_graph_name,
-                compute_fn_for_reducer.clone(),
-            )
-        })
-        .into_iter()
-        .collect();
+    let node_output = mock_node_fn_output_fn_a(&task.invocation_id, &task.compute_graph_name, "fn_a", compute_fn_for_reducer, num_outputs);
     let request = FinalizeTaskRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: task.compute_graph_name.to_string(),
@@ -193,7 +179,7 @@ pub async fn finalize_task(
         invocation_id: task.invocation_id.to_string(),
         task_id: task.id.clone(),
         task_outcome,
-        node_outputs,
+        node_output: Some(node_output),
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         diagnostics: None,
     };
@@ -211,13 +197,14 @@ pub async fn finalize_task_graph_b(
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {
+    let node_output = mock_node_fn_output_fn_a(&invocation_id, "graph_B", "fn_a", None, 1);
     let request = FinalizeTaskRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
         compute_fn: "fn_a".to_string(),
         invocation_id: invocation_id.to_string(),
         task_id: task_id.clone(),
-        node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_B", None)],
+        node_output: Some(node_output),
         task_outcome: TaskOutcome::Success,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         diagnostics: None,
@@ -241,7 +228,7 @@ pub async fn finalize_router_x(
         compute_fn: "router_x".to_string(),
         invocation_id: invocation_id.to_string(),
         task_id: task_id.clone(),
-        node_outputs: vec![mock_node_router_output_x(&invocation_id, "graph_B")],
+        node_output: Some(mock_node_router_output_x(&invocation_id, "graph_B")),
         task_outcome: TaskOutcome::Success,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         diagnostics: None,

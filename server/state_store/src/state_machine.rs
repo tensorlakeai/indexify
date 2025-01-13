@@ -448,12 +448,14 @@ pub(crate) fn delete_invocation(
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
         match &value.payload {
             OutputPayload::Router(_) => {}
-            OutputPayload::Fn(payload) => {
-                txn.put_cf(
-                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                    payload.path.as_bytes(),
-                    [],
-                )?;
+            OutputPayload::Fn(outputs) => {
+                for output in outputs {
+                    txn.put_cf(
+                        &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                        output.path.as_bytes(),
+                        [],
+                    )?;
+                }
             }
         }
         txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
@@ -649,12 +651,14 @@ pub fn delete_compute_graph(
         let value = JsonEncoder::decode::<NodeOutput>(&value)?;
         match &value.payload {
             OutputPayload::Router(_) => {}
-            OutputPayload::Fn(payload) => {
-                txn.put_cf(
-                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                    payload.path.as_bytes(),
-                    [],
-                )?;
+            OutputPayload::Fn(outputs) => {
+                for output in outputs {
+                    txn.put_cf(
+                        &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                        output.path.as_bytes(),
+                        [],
+                    )?;
+                }
             }
         }
         txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
@@ -937,24 +941,14 @@ pub fn mark_task_completed(
         "Graph context not found for task: {}",
         &req.task_id
     ))?)?;
-    for output in req.node_outputs {
+    if let Some(output) = req.node_output {
         let serialized_output = JsonEncoder::encode(&output)?;
-        // Create an output key
-        let output_key = output.key(&req.invocation_id);
-        txn.put_cf(
-            &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-            &output_key,
-            serialized_output,
-        )?;
-
-        // Create a key to store the pointer to the node output to the task
-        // NS_TASK_ID_<OutputID> -> Output Key
-        let task_output_key = task.key_output(&output.id);
-        let node_output_id = JsonEncoder::encode(&output_key)?;
+        txn.put_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), output.key(), serialized_output)?;
+        let task_output_key = task.key_output();
         txn.put_cf(
             &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
             task_output_key,
-            node_output_id,
+            output.key(),
         )?;
     }
     let analytics = graph_ctx

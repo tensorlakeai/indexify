@@ -6,7 +6,6 @@ use blob_store::{BlobStorage, PutResult};
 use data_model::{
     DataPayload,
     ExecutorId,
-    NodeOutput,
     NodeOutputBuilder,
     OutputPayload,
     TaskDiagnostics,
@@ -95,7 +94,7 @@ pub async fn ingest_files_from_executor(
     mut files: Multipart,
 ) -> Result<(), IndexifyAPIError> {
     let mut output_objects: Vec<PutResult> = vec![];
-    let mut output_encoding: Vec<String> = vec![];
+    let mut output_encoding: Option<String> = None;
     let mut stdout_msg: Option<PutResult> = None;
     let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
@@ -126,7 +125,8 @@ pub async fn ingest_files_from_executor(
                     ));
                 };
                 // If there is no content_type, set it as octet-stream.
-                output_encoding.push(
+
+                output_encoding.replace(
                     field
                         .content_type()
                         .unwrap_or("application/octet-stream")
@@ -178,27 +178,33 @@ pub async fn ingest_files_from_executor(
     // Save metadata in rocksdb for the objects in the blob store.
     let task_result =
         task_result.ok_or(IndexifyAPIError::bad_request("task_result is required"))?;
-    let mut node_outputs: Vec<NodeOutput> = vec![];
-
-    for (index, put_result) in output_objects.iter().enumerate() {
+    let mut fn_outputs: Vec<DataPayload> = vec![];
+    for put_result in output_objects.iter() {
         let data_payload = data_model::DataPayload {
             path: put_result.clone().url,
             size: put_result.clone().size_bytes,
             sha256_hash: put_result.clone().sha256_hash,
         };
-        let node_output = NodeOutputBuilder::default()
+        fn_outputs.push(data_payload.clone());
+    }
+    let mut output_payload = OutputPayload::Fn(fn_outputs);
+    if let Some(router_output) = task_result.router_output {
+        output_payload = OutputPayload::Router(data_model::RouterOutput {
+            edges: router_output.edges.clone(),
+        }); 
+    }
+    let encoding = output_encoding.unwrap_or("application/octet-stream".to_string());
+    let node_output = NodeOutputBuilder::default()
             .namespace(task_result.namespace.to_string())
             .compute_graph_name(task_result.compute_graph.to_string())
             .invocation_id(task_result.invocation_id.to_string())
             .compute_fn_name(task_result.compute_fn.to_string())
-            .payload(OutputPayload::Fn(data_payload))
-            .encoding(output_encoding[index].to_string())
+            .payload(output_payload)
+            .encoding(encoding)
             .build()
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
             })?;
-        node_outputs.push(node_output);
-    }
 
     let stdout_payload = prepare_data_payload(stdout_msg);
     let stderr_payload = prepare_data_payload(stderr_msg);
@@ -208,29 +214,13 @@ pub async fn ingest_files_from_executor(
         stderr: stderr_payload,
     };
 
-    if let Some(router_output) = task_result.router_output {
-        let node_output = NodeOutputBuilder::default()
-            .namespace(task_result.namespace.to_string())
-            .compute_graph_name(task_result.compute_graph.to_string())
-            .invocation_id(task_result.invocation_id.to_string())
-            .compute_fn_name(task_result.compute_fn.to_string())
-            .payload(OutputPayload::Router(data_model::RouterOutput {
-                edges: router_output.edges.clone(),
-            }))
-            .build()
-            .map_err(|e| {
-                IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-            })?;
-        node_outputs.push(node_output);
-    }
-
     let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
         namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
         compute_fn: task_result.compute_fn.to_string(),
         invocation_id: task_result.invocation_id.to_string(),
         task_id: TaskId::new(task_result.task_id.to_string()),
-        node_outputs,
+        node_output: Some(node_output),
         task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
         diagnostics: Some(task_diagnostic),

@@ -3,10 +3,7 @@ mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{
-            mock_graph_a,
-            mock_invocation_payload,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
+            mock_graph_a, mock_invocation_payload, mock_node_fn_output_fn_a, TEST_EXECUTOR_ID, TEST_NAMESPACE
         },
         DataPayload,
         ExecutorId,
@@ -51,11 +48,11 @@ mod tests {
             .compute_fn_name(compute_fn_name.to_string())
             .compute_graph_name(graph.to_string())
             .invocation_id(invocation_id.to_string())
-            .payload(OutputPayload::Fn(DataPayload {
+            .payload(OutputPayload::Fn(vec![DataPayload {
                 sha256_hash: generate_random_hash(),
                 path: Uuid::new_v4().to_string(),
                 size: 12,
-            }))
+            }]))
             .build()
             .unwrap()
     }
@@ -73,11 +70,13 @@ mod tests {
             compute_fn: compute_fn_name.to_string(),
             invocation_id: invocation_id.to_string(),
             task_id: task_id.clone(),
-            node_outputs: vec![mock_node_fn_output(
+            node_output: Some(mock_node_fn_output_fn_a(
                 invocation_id,
                 compute_graph,
                 compute_fn_name,
-            )],
+                None,
+                1,
+            )),
             task_outcome: TaskOutcome::Success,
             executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
             diagnostics: None,

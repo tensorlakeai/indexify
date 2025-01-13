@@ -5,14 +5,7 @@ mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{
-            mock_executor,
-            mock_executor_id,
-            mock_invocation_payload_graph_b,
-            mock_node_fn_output,
-            reducer_fn,
-            test_compute_fn,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
+            mock_executor, mock_executor_id, mock_invocation_payload_graph_b, mock_node_fn_output_fn_a, reducer_fn, test_compute_fn, TEST_EXECUTOR_ID, TEST_NAMESPACE
         },
         ComputeGraph,
         ComputeGraphCode,
@@ -112,12 +105,7 @@ mod tests {
                     compute_fn: "fn_a".to_string(),
                     invocation_id: invocation_id.clone(),
                     task_id: task.id.clone(),
-                    node_outputs: vec![mock_node_fn_output(
-                        invocation_id.as_str(),
-                        "graph_A",
-                        "fn_a",
-                        None,
-                    )],
+                    node_output: Some(mock_node_fn_output_fn_a(&invocation_id, "graph_A", "fn_a", None, 1)),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
@@ -526,24 +514,14 @@ mod tests {
 
         let make_finalize_request =
             |compute_fn_name: &str, task_id: &TaskId, num_outputs: usize| -> FinalizeTaskRequest {
-                // let invocation_payload_clone = invocation_payload.clone();
-                let node_outputs = (0..num_outputs)
-                    .map(|_| {
-                        mock_node_fn_output(
-                            invocation_payload.id.as_str(),
-                            invocation_payload.compute_graph_name.as_str(),
-                            compute_fn_name,
-                            None,
-                        )
-                    })
-                    .collect();
+                let node_output = mock_node_fn_output_fn_a(&invocation_payload.id, &invocation_payload.compute_graph_name, compute_fn_name, None, num_outputs);
                 FinalizeTaskRequest {
                     namespace: invocation_payload.namespace.clone(),
                     compute_graph: invocation_payload.compute_graph_name.clone(),
                     compute_fn: compute_fn_name.to_string(),
                     invocation_id: invocation_payload.id.clone(),
                     task_id: task_id.clone(),
-                    node_outputs,
+                    node_output: Some(node_output),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
@@ -766,24 +744,14 @@ mod tests {
 
         let make_finalize_request =
             |compute_fn_name: &str, task_id: &TaskId, num_outputs: usize| -> FinalizeTaskRequest {
-                // let invocation_payload_clone = invocation_payload.clone();
-                let node_outputs = (0..num_outputs)
-                    .map(|_| {
-                        mock_node_fn_output(
-                            invocation_payload.id.as_str(),
-                            invocation_payload.compute_graph_name.as_str(),
-                            compute_fn_name,
-                            None,
-                        )
-                    })
-                    .collect();
+                let node_output = mock_node_fn_output_fn_a(&invocation_payload.id, &invocation_payload.compute_graph_name, compute_fn_name, None, num_outputs);
                 FinalizeTaskRequest {
                     namespace: invocation_payload.namespace.clone(),
                     compute_graph: invocation_payload.compute_graph_name.clone(),
                     compute_fn: compute_fn_name.to_string(),
                     invocation_id: invocation_payload.id.clone(),
                     task_id: task_id.clone(),
-                    node_outputs,
+                    node_output: Some(node_output),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
@@ -1071,24 +1039,14 @@ mod tests {
 
         let make_finalize_request =
             |compute_fn_name: &str, task_id: &TaskId, num_outputs: usize| -> FinalizeTaskRequest {
-                // let invocation_payload_clone = invocation_payload.clone();
-                let node_outputs = (0..num_outputs)
-                    .map(|_| {
-                        mock_node_fn_output(
-                            invocation_payload.id.as_str(),
-                            invocation_payload.compute_graph_name.as_str(),
-                            compute_fn_name,
-                            None,
-                        )
-                    })
-                    .collect();
+                let node_output = mock_node_fn_output_fn_a(&invocation_payload.id, &invocation_payload.compute_graph_name, compute_fn_name, None, num_outputs);
                 FinalizeTaskRequest {
                     namespace: invocation_payload.namespace.clone(),
                     compute_graph: invocation_payload.compute_graph_name.clone(),
                     compute_fn: compute_fn_name.to_string(),
                     invocation_id: invocation_payload.id.clone(),
                     task_id: task_id.clone(),
-                    node_outputs,
+                    node_output: Some(node_output),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
@@ -1215,7 +1173,7 @@ mod tests {
                 compute_fn: "fn_reduce".to_string(),
                 invocation_id: invocation_payload.id.clone(),
                 task_id: reduce_task.id.clone(),
-                node_outputs: vec![],
+                node_output: None,
                 task_outcome: TaskOutcome::Failure, // Failure!
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                 diagnostics: None,
@@ -1342,24 +1300,14 @@ mod tests {
 
         let make_finalize_request =
             |compute_fn_name: &str, task_id: &TaskId, num_outputs: usize| -> FinalizeTaskRequest {
-                // let invocation_payload_clone = invocation_payload.clone();
-                let node_outputs = (0..num_outputs)
-                    .map(|_| {
-                        mock_node_fn_output(
-                            invocation_payload.id.as_str(),
-                            invocation_payload.compute_graph_name.as_str(),
-                            compute_fn_name,
-                            None,
-                        )
-                    })
-                    .collect();
+                let node_output = mock_node_fn_output_fn_a(&invocation_payload.id, &invocation_payload.compute_graph_name, compute_fn_name, None, num_outputs);
                 FinalizeTaskRequest {
                     namespace: invocation_payload.namespace.clone(),
                     compute_graph: invocation_payload.compute_graph_name.clone(),
                     compute_fn: compute_fn_name.to_string(),
                     invocation_id: invocation_payload.id.clone(),
                     task_id: task_id.clone(),
-                    node_outputs,
+                    node_output: Some(node_output),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
@@ -1722,24 +1670,14 @@ mod tests {
 
         let make_finalize_request =
             |compute_fn_name: &str, task_id: &TaskId, num_outputs: usize| -> FinalizeTaskRequest {
-                // let invocation_payload_clone = invocation_payload.clone();
-                let node_outputs = (0..num_outputs)
-                    .map(|_| {
-                        mock_node_fn_output(
-                            invocation_payload.id.as_str(),
-                            invocation_payload.compute_graph_name.as_str(),
-                            compute_fn_name,
-                            None,
-                        )
-                    })
-                    .collect();
+                let node_output = mock_node_fn_output_fn_a(&invocation_payload.id, &invocation_payload.compute_graph_name, compute_fn_name, None, num_outputs);
                 FinalizeTaskRequest {
                     namespace: invocation_payload.namespace.clone(),
                     compute_graph: invocation_payload.compute_graph_name.clone(),
                     compute_fn: compute_fn_name.to_string(),
                     invocation_id: invocation_payload.id.clone(),
                     task_id: task_id.clone(),
-                    node_outputs,
+                    node_output: Some(node_output),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
@@ -1838,7 +1776,7 @@ mod tests {
                 compute_fn: "fn_map".to_string(),
                 invocation_id: invocation_payload.id.clone(),
                 task_id: pending_tasks[1].id.clone(),
-                node_outputs: vec![],
+                node_output: None,
                 task_outcome: TaskOutcome::Failure, // Failure!
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                 diagnostics: None,
@@ -1957,12 +1895,7 @@ mod tests {
                     compute_fn: "fn_a".to_string(),
                     invocation_id: invocation_id.clone(),
                     task_id: res[0].id.clone(),
-                    node_outputs: vec![mock_node_fn_output(
-                        invocation_id.as_str(),
-                        "graph_A",
-                        "fn_a",
-                        None,
-                    )],
+                    node_output: Some(mock_node_fn_output_fn_a(&invocation_id, "graph_A", "fn_a", None, 1)),
                     task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,

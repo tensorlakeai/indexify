@@ -4,6 +4,7 @@ use axum::{
     extract::{Path, State},
     response::Response,
 };
+use data_model::OutputPayload;
 use futures::TryStreamExt;
 
 use super::RouteState;
@@ -52,7 +53,7 @@ pub async fn download_invocation_payload(
 /// Get function output
 #[utoipa::path(
     get,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{id}",
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/fn/{fn_name}/output/{index}",
     tag = "retrieve",
     responses(
         (status = 200, description = "Function output"),
@@ -60,19 +61,19 @@ pub async fn download_invocation_payload(
     ),
 )]
 pub async fn download_fn_output_payload(
-    Path((namespace, compute_graph, invocation_id, fn_name, id)): Path<(
+    Path((namespace, compute_graph, invocation_id, fn_name, index)): Path<(
         String,
         String,
         String,
         String,
-        String,
+        u64,
     )>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
     let output = state
         .indexify_state
         .reader()
-        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name, &id)
+        .fn_output_payload(&namespace, &compute_graph, &invocation_id, &fn_name)
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!(
                 "failed to download invocation payload: {}",
@@ -82,28 +83,37 @@ pub async fn download_fn_output_payload(
         .ok_or(IndexifyAPIError::not_found(
             format!(
                 "fn output not found: {}/{}/{}/{}/{}",
-                namespace, compute_graph, invocation_id, fn_name, id
+                namespace, compute_graph, invocation_id, fn_name, index
             )
             .as_str(),
         ))?;
     let encoding = output.encoding.clone();
 
-    let payload = match output.payload {
-        data_model::OutputPayload::Fn(payload) => payload,
-        _ => {
-            return Err(IndexifyAPIError::internal_error(anyhow!(
-                "expected fn output payload, got {:?}",
-                output.payload
-            )))
-        }
-    };
-    let storage_reader = state
-        .blob_storage
-        .get(&payload.path)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
+    if let OutputPayload::Router(edges) = &output.payload {
+        let out = serde_json::to_string(edges).map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!(
+                "failed to serialize router output: {}",
+                e
+            ))
+        })?;
+        return Response::builder()
+        .header("Content-Type", "application/json")
+        .header("Content-Length", out.len())
+        .body(Body::from(out))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
+    }
 
-    // Check if the content type is JSON
+    if let OutputPayload::Fn(outputs) = &output.payload {
+        let output = outputs.get(index as usize).ok_or_else(|| {
+            IndexifyAPIError::not_found(format!("fn output not found: {}", index).as_str())
+        })?;
+        
+        let storage_reader = state
+            .blob_storage
+            .get(&output.path)
+            .await
+            .map_err(IndexifyAPIError::internal_error)?;
+        
     if encoding == "application/json" {
         let json_bytes = storage_reader
             .map_ok(|chunk| chunk.to_vec())
@@ -116,15 +126,17 @@ pub async fn download_fn_output_payload(
             .body(Body::from(json_bytes))
             .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
-    Response::builder()
+    return Response::builder()
         .header("Content-Type", encoding)
-        .header("Content-Length", payload.size.to_string())
+        .header("Content-Length", output.size.to_string())
         .body(Body::from_stream(storage_reader))
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
+    }
+    return Err(IndexifyAPIError::bad_request(&format!("expected fn output payload, got {:?}",output.payload)));
 }
 
 pub async fn download_fn_output_by_key(
-    Path(output_key): Path<String>,
+    Path((output_key, index)): Path<(String, u64)>,
     State(state): State<RouteState>,
 ) -> Result<Response<Body>, IndexifyAPIError> {
     let output = state
@@ -137,8 +149,13 @@ pub async fn download_fn_output_by_key(
                 e
             ))
         })?;
+
     let payload = match output.payload {
-        data_model::OutputPayload::Fn(payload) => payload,
+        data_model::OutputPayload::Fn(outputs) => {
+            outputs.get(index as usize).ok_or_else(|| {
+                IndexifyAPIError::not_found(format!("fn output not found: {}", index).as_str())
+            })?.clone()
+        }
         _ => {
             return Err(IndexifyAPIError::internal_error(anyhow!(
                 "expected fn output payload, got {:?}",

@@ -671,21 +671,17 @@ impl StateReader {
         )
     }
 
-    pub fn get_task_outputs(&self, namespace: &str, task_id: &str) -> Result<Vec<NodeOutput>> {
+    pub fn get_task_outputs(&self, namespace: &str, task_id: &str) -> Result<Option<NodeOutput>> {
         let kvs = &[KeyValue::new("op", "get_task_outputs")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let key = format!("{}|{}", namespace, task_id);
-        let (node_output_keys, _) = self.get_rows_from_cf_with_limits::<String>(
-            key.as_bytes(),
-            None,
-            IndexifyObjectsColumns::TaskOutputs,
-            None,
-        )?;
-        let keys = node_output_keys.iter().map(|key| key.as_bytes()).collect();
-        let data_objects =
-            self.get_rows_from_cf_multi_key::<NodeOutput>(keys, IndexifyObjectsColumns::FnOutputs)?;
-        Ok(data_objects)
+        let output_key = self.get_from_cf::<String, String>(&IndexifyObjectsColumns::TaskOutputs, key)?;
+        if output_key.is_none() {
+            return Ok(None);
+        }
+        let node_output = self.get_from_cf::<NodeOutput, String>(&IndexifyObjectsColumns::FnOutputs, output_key.unwrap())?;
+        Ok(node_output)
     }
 
     pub fn get_tasks_by_executor(&self, executor: &ExecutorId, limit: usize) -> Result<Vec<Task>> {
@@ -813,12 +809,11 @@ impl StateReader {
         compute_graph: &str,
         invocation_id: &str,
         compute_fn: &str,
-        id: &str,
     ) -> Result<Option<NodeOutput>> {
         let kvs = &[KeyValue::new("op", "fn_output_payload")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn, id);
+        let key = NodeOutput::key_from(namespace, compute_graph, invocation_id, compute_fn);
         let value = self
             .db
             .get_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&self.db), &key)

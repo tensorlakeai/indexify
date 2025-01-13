@@ -437,7 +437,7 @@ pub struct TaskDiagnostics {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputPayload {
     Router(RouterOutput),
-    Fn(DataPayload),
+    Fn(Vec<DataPayload>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
@@ -456,13 +456,12 @@ pub struct NodeOutput {
 }
 
 impl NodeOutput {
-    pub fn key(&self, invocation_id: &str) -> String {
+    pub fn key(&self) -> String {
         NodeOutput::key_from(
             &self.namespace,
             &self.compute_graph_name,
-            invocation_id,
+            &self.invocation_id,
             &self.compute_fn_name,
-            &self.id,
         )
     }
 
@@ -471,11 +470,10 @@ impl NodeOutput {
         compute_graph: &str,
         invocation_id: &str,
         compute_fn: &str,
-        id: &str,
     ) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            namespace, compute_graph, invocation_id, compute_fn, id
+            "{}|{}|{}|{}",
+            namespace, compute_graph, invocation_id, compute_fn
         )
     }
 }
@@ -512,8 +510,11 @@ impl NodeOutputBuilder {
         invocation_id.hash(&mut hasher);
         match &payload {
             OutputPayload::Router(router) => router.edges.hash(&mut hasher),
-            OutputPayload::Fn(data) => {
-                data.path.hash(&mut hasher);
+            OutputPayload::Fn(outputs) => {
+                for output in outputs {
+                    output.sha256_hash.hash(&mut hasher);
+                    output.path.hash(&mut hasher);
+                }
             }
         }
         let errors = self.errors.clone().flatten();
@@ -751,8 +752,8 @@ impl Task {
         )
     }
 
-    pub fn key_output(&self, output_id: &str) -> String {
-        format!("{}|{}|{}", self.namespace, self.id, output_id)
+    pub fn key_output(&self) -> String {
+        format!("{}|{}", self.namespace, self.id)
     }
 
     pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
