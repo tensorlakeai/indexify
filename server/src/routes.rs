@@ -16,7 +16,7 @@ use axum_tracing_opentelemetry::{
     middleware::{OtelAxumLayer, OtelInResponseLayer},
 };
 use blob_store::PutResult;
-use data_model::ExecutorId;
+use data_model::{ComputeGraphError, ExecutorId};
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -453,11 +453,15 @@ async fn create_or_update_compute_graph(
         namespace,
         compute_graph,
     });
-    state
-        .dispatcher
-        .dispatch_requests(request)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
+    let result = state.dispatcher.dispatch_requests(request).await;
+    if let Err(e) = result {
+        return match e.root_cause().downcast_ref::<ComputeGraphError>() {
+            Some(ComputeGraphError::VersionExists) => Err(IndexifyAPIError::bad_request(
+                "This graph version already exists, please update the graph version",
+            )),
+            _ => Err(IndexifyAPIError::internal_error(e)),
+        };
+    }
 
     info!("compute graph created: {}", name);
 

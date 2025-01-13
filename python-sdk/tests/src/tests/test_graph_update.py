@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 import tests.testing
 from indexify import RemoteGraph
-from indexify.error import GraphStillProcessing
+from indexify.error import ApiException, GraphStillProcessing
 from indexify.functions_sdk.graph import Graph
 from indexify.functions_sdk.indexify_functions import indexify_function
 from tests.testing import test_graph_name
@@ -173,6 +173,33 @@ class TestGraphUpdate(unittest.TestCase):
                 break
             except GraphStillProcessing:
                 time.sleep(1)
+
+    def test_graph_update_fails_without_version_update(self):
+        graph_name = test_graph_name(self)
+
+        @indexify_function()
+        def function_a() -> str:
+            return "success"
+
+        g = Graph(
+            name=graph_name,
+            description="test description",
+            start_node=function_a,
+        )
+        RemoteGraph.deploy(g)
+
+        g.description = "updated description without version update"
+        try:
+            RemoteGraph.deploy(g)
+            self.fail("Expected an exception to be raised")
+        except ApiException as e:
+            self.assertIn(
+                "This graph version already exists, please update the graph version",
+                str(e),
+            )
+            self.assertIn("status code: 400", str(e))
+        except Exception as e:
+            self.fail(f"Unexpected exception: {e}")
 
 
 if __name__ == "__main__":
