@@ -59,19 +59,23 @@ class Executor:
         )
 
     def run(self):
+        for signum in [
+            signal.SIGABRT,
+            signal.SIGINT,
+            signal.SIGTERM,
+            signal.SIGQUIT,
+            signal.SIGHUP,
+        ]:
+            asyncio.get_event_loop().add_signal_handler(
+                signum, self.shutdown, asyncio.get_event_loop()
+            )
+
         try:
             asyncio.get_event_loop().run_until_complete(self._run_async())
         except asyncio.CancelledError:
             self._logger.info("graceful shutdown")
 
     async def _run_async(self):
-        asyncio.get_event_loop().add_signal_handler(
-            signal.SIGINT, self.shutdown, asyncio.get_event_loop()
-        )
-        asyncio.get_event_loop().add_signal_handler(
-            signal.SIGTERM, self.shutdown, asyncio.get_event_loop()
-        )
-
         while self._should_run:
             try:
                 async for task in self._task_fetcher.run():
