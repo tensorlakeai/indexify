@@ -44,13 +44,11 @@ impl TestService {
     }
 
     pub async fn process_all(&self) -> Result<()> {
-        while self
+        while !self
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes()?
-            .len() >
-            0
+            .unprocessed_state_changes()?.is_empty()
         {
             self.process_ns().await?;
         }

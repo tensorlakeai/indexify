@@ -195,7 +195,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-        .layer(OtelInResponseLayer::default())
+        .layer(OtelInResponseLayer)
         .layer(OtelAxumLayer::default())
         // No tracing starting here.
         .route("/ui", get(ui_index_handler))
@@ -641,9 +641,7 @@ async fn executor_tasks(
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
-    let function_allowlist = match payload.function_allowlist {
-        Some(function_uris) => Some(
-            function_uris
+    let function_allowlist = payload.function_allowlist.map(|function_uris| function_uris
                 .iter()
                 .map(|f| data_model::FunctionURI {
                     namespace: f.namespace.clone(),
@@ -651,10 +649,7 @@ async fn executor_tasks(
                     compute_fn_name: f.compute_fn.clone(),
                     version: f.version.clone().into(),
                 })
-                .collect(),
-        ),
-        None => None,
-    };
+                .collect());
     let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
