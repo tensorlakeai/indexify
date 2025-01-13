@@ -129,7 +129,7 @@ pub async fn ingest_files_from_executor(
                 output_encoding.push(
                     field
                         .content_type()
-                        .unwrap_or_else(|| "application/octet-stream")
+                        .unwrap_or("application/octet-stream")
                         .to_string(),
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;

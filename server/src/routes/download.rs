@@ -36,10 +36,10 @@ pub async fn download_invocation_payload(
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
 
-        return Ok(Response::builder()
+        return Response::builder()
             .header("Content-Type", output.encoding)
             .body(Body::from(json_bytes))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
 
     Response::builder()
@@ -111,10 +111,10 @@ pub async fn download_fn_output_payload(
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
 
-        return Ok(Response::builder()
+        return Response::builder()
             .header("Content-Type", encoding)
             .body(Body::from(json_bytes))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     Response::builder()
         .header("Content-Type", encoding)
@@ -162,10 +162,10 @@ pub async fn download_fn_output_by_key(
             .await
             .map_err(|e| IndexifyAPIError::internal_error(anyhow!("Failed to read JSON: {}", e)))?;
 
-        return Ok(Response::builder()
+        return Response::builder()
             .header("Content-Type", encoding)
             .body(Body::from(json_bytes))
-            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?);
+            .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     Response::builder()
         .header("Content-Type", encoding)
