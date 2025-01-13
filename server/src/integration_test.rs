@@ -27,9 +27,11 @@ mod tests {
         TaskId,
         TaskOutcome,
     };
+    use futures::StreamExt;
     use state_store::{
         requests::{
             CreateOrUpdateComputeGraphRequest,
+            DeleteComputeGraphRequest,
             DeregisterExecutorRequest,
             FinalizeTaskRequest,
             InvokeComputeGraphRequest,
@@ -39,6 +41,7 @@ mod tests {
         },
         serializer::{JsonEncode, JsonEncoder},
         state_machine::IndexifyObjectsColumns,
+        task_stream,
         test_state_store,
     };
 
@@ -1872,6 +1875,105 @@ mod tests {
             assert!(graph_ctx.completed);
         }
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_read_and_delete_compute_graph() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let _ = test_state_store::with_simple_graph(&indexify_state).await;
+
+        let (compute_graphs, _) = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .unwrap();
+
+        // Check if the compute graph was created
+        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        // Delete the compute graph
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: "graph_A".to_string(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+        test_srv.process_all().await?;
+
+        // Read the compute graph again
+        let (compute_graphs, _) = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .unwrap();
+
+        // Check if the compute graph was deleted
+        assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_stream() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all().await?;
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: mock_executor(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+
+        test_srv.process_all().await?;
+
+        let res = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(res.len(), 1);
+
+        let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone(), 10);
+        let res = stream.next().await.unwrap()?;
+
+        assert_eq!(res.len(), 1);
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                processed_state_changes: vec![],
+                payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    compute_graph: "graph_A".to_string(),
+                    compute_fn: "fn_a".to_string(),
+                    invocation_id: invocation_id.clone(),
+                    task_id: res[0].id.clone(),
+                    node_outputs: vec![mock_node_fn_output(
+                        invocation_id.as_str(),
+                        "graph_A",
+                        "fn_a",
+                        None,
+                    )],
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }),
+            })
+            .await
+            .unwrap();
+        test_srv.process_ns().await?;
+
+        let res = stream.next().await.unwrap()?;
+        assert_eq!(res.len(), 0);
         Ok(())
     }
 }

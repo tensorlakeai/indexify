@@ -619,40 +619,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_read_and_delete_compute_graph() -> Result<()> {
-        let indexify_state = TestStateStore::new().await?.indexify_state;
-
-        // Create a compute graph
-        let compute_graph = mock_graph_a("image_hash".to_string());
-        _write_to_test_state_store(&indexify_state, compute_graph).await?;
-
-        // Read the compute graph
-        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
-
-        // Check if the compute graph was created
-        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-
-        // Delete the compute graph
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
-                    namespace: TEST_NAMESPACE.to_string(),
-                    name: "graph_A".to_string(),
-                }),
-                processed_state_changes: vec![],
-            })
-            .await?;
-
-        // Read the compute graph again
-        let compute_graphs = _read_cgs_from_state_store(&indexify_state);
-
-        // Check if the compute graph was deleted
-        assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_version_bump_and_graph_update() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
 
