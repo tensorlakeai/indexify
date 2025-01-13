@@ -1,11 +1,11 @@
 import unittest
 from typing import List, Mapping
 
+from pydantic import BaseModel
 from tensorlake import Graph
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.functions import tensorlake_function
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
-from pydantic import BaseModel
 
 from function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
