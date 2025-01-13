@@ -77,14 +77,30 @@ impl GraphProcessor {
         cached_state_changes: &mut Vec<StateChange>,
         notify: &Arc<Notify>,
     ) -> Result<()> {
+        // 1. First load 100 state changes. Process the `global` state changes first
+        // and then the `ns_` state changes
         if cached_state_changes.is_empty() {
             cached_state_changes.extend(self.indexify_state.reader().unprocessed_state_changes()?);
         }
+        // 2. If there are no state changes to process, return
+        // and wait for the scheduler to wake us up again when there are state changes
         if cached_state_changes.is_empty() {
             return Ok(());
         }
+
+        // 3. Fire a notification to wake ourselves up to see if there are more than 100
+        //    state changes
+        notify.notify_one();
+
+        // 4. Process the next state change from the queue
         let state_change = cached_state_changes.pop().unwrap();
         let sm_update = self.handle_state_change(&state_change).await;
+
+        // 5. Write the state change to the state store
+        // If there is an error processing the state change, we write a NOOP state
+        // change That way this problematic state change will never be processed
+        // again This most likely is a bug but in production we want to move
+        // along.
         let sm_update = match sm_update {
             Ok(sm_update) => sm_update,
             Err(err) => {
@@ -97,11 +113,14 @@ impl GraphProcessor {
                 }
             }
         };
+        // 6. Write the state change
         if let Err(err) = self.indexify_state.write(sm_update).await {
             tracing::error!(
                 "error writing state change: {:?}, attempting to mark the state change as NOOP",
                 err
             );
+            // 7. If SM update fails for whatever reason, lets just write a NOOP state
+            //    change
             self.indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::Noop,
@@ -109,7 +128,6 @@ impl GraphProcessor {
                 })
                 .await?;
         }
-        notify.notify_one();
         Ok(())
     }
 
