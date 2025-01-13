@@ -15,12 +15,12 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.9"
 pydantic = "2.10.4"
-httpx = { version = "0.27.2", extras = ["http2"] }
+httpx = { version = "^0.28.1", extras = ["http2"] }
 pyyaml = "^6"
 httpx-sse = "^0.4.0"
 grpcio = "1.68.1"
-indexify-python-utils = { path = "../python_utils", develop = true }
 indexify-function-executor = { path = "../function_executor", develop = true }
+tensorlake = "^0.1.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

@@ -3,7 +3,7 @@ import unittest
 from typing import Any, List
 
 import grpc
-from indexify.functions_sdk.object_serializer import CloudPickleSerializer
+from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 
 from function_executor.proto.configuration import GRPC_CHANNEL_OPTIONS
 from function_executor.proto.function_executor_pb2 import (

@@ -3,8 +3,8 @@ import io
 from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import date
-from indexify.functions_sdk.data_objects import File
-from indexify import indexify_function, Graph, RemoteGraph, Image
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake import indexify_function, Graph, RemoteGraph, Image
 from typing import Optional, List, Any
 
 

@@ -3,10 +3,10 @@ import os
 from typing import List
 
 from pydantic import BaseModel, Field
-from indexify import RemoteGraph
-from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import indexify_function
-from indexify.functions_sdk.image import Image
+from tensorlake import RemoteGraph
+from tensorlake.functions_sdk.graph import Graph
+from tensorlake.functions_sdk.functions import indexify_function
+from tensorlake.functions_sdk.image import Image
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

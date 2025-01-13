@@ -10,8 +10,8 @@ repository = "https://github.com/tensorlakeai/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-indexify-python-sdk = { path = "../../python-sdk", develop = true }
 indexify-function-executor = { path = "..", develop = true }
+tensorlake = "^0.1.1"
 
 [build-system]
 requires = ["poetry==2.0.0"]

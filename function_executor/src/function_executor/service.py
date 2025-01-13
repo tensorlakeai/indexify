@@ -2,8 +2,8 @@ from typing import Iterator, Optional, Union
 
 import grpc
 import structlog
-from indexify.functions_sdk.indexify_functions import IndexifyFunction, IndexifyRouter
-from indexify.functions_sdk.object_serializer import get_serializer
+from tensorlake.functions_sdk.functions import TensorlakeCompute, TensorlakeCompute
+from tensorlake.functions_sdk.object_serializer import get_serializer
 
 from .handlers.run_function.handler import Handler as RunTaskHandler
 from .handlers.run_function.request_validator import (
@@ -29,7 +29,7 @@ class Service(FunctionExecutorServicer):
         self._graph_name: Optional[str] = None
         self._graph_version: Optional[str] = None
         self._function_name: Optional[str] = None
-        self._function: Optional[Union[IndexifyFunction, IndexifyRouter]] = None
+        self._function: Optional[Union[TensorlakeCompute, TensorlakeCompute]] = None
         self._invocation_state_proxy_server: Optional[InvocationStateProxyServer] = None
 
     def initialize(

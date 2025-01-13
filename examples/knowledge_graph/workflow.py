@@ -2,10 +2,10 @@ import logging
 import os
 from typing import List, Dict, Tuple, Any
 from pydantic import BaseModel, Field
-from indexify import RemoteGraph
-from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
-from indexify.functions_sdk.image import Image
+from tensorlake import RemoteGraph
+from tensorlake.functions_sdk.graph import Graph
+from tensorlake.functions_sdk.functions import indexify_function, TensorlakeCompute
+from tensorlake.functions_sdk.image import Image
 from neo4j import GraphDatabase
 import json
 import google.generativeai as genai
@@ -101,7 +101,7 @@ gemini_image = (
     .run("pip install google-generativeai")
 )
 
-class NLPFunction(IndexifyFunction):
+class NLPFunction(TensorlakeCompute):
     name = "nlp-function"
     image = nlp_image
     fn_name = "nlp"

@@ -5,12 +5,12 @@ import base64
 import uuid
 
 from common_objects import ImageWithEmbedding, TextChunk
-from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from tensorlake.functions_sdk.functions import TensorlakeCompute
 
 from images import st_image
 
 
-class ElasticSearchWriter(IndexifyFunction):
+class ElasticSearchWriter(TensorlakeCompute):
     name = "elastic_search_writer"
     image = st_image
 

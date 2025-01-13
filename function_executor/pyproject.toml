@@ -22,8 +22,7 @@ cloudpickle = "^3.1.0"
 structlog = "^24.4.0"
 grpcio = "1.68.1"
 grpcio-tools = "1.68.1"
-indexify-python-sdk = { path = "../python-sdk", develop = true }
-indexify-python-utils = { path = "../python_utils", develop = true }
+tensorlake = "^0.1.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

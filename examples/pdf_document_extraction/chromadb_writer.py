@@ -1,9 +1,9 @@
-from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from tensorlake.functions_sdk.functions import TensorlakeCompute
 from typing import Union
 from common_objects import ImageWithEmbedding, TextChunk
 from images import chroma_image
 
-class ChromaDBWriter(IndexifyFunction):
+class ChromaDBWriter(TensorlakeCompute):
     name = "chroma_db_writer"
     image = chroma_image
 

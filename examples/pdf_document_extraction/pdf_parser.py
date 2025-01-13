@@ -1,10 +1,10 @@
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.functions import TensorlakeCompute
 
 from inkwell.api.document import Document
 from images import inkwell_image_gpu
 
-class PDFParser(IndexifyFunction):
+class PDFParser(TensorlakeCompute):
     name = "pdf-parse"
     description = "Parser class that captures a pdf file"
     # Change to gpu_image to use GPU

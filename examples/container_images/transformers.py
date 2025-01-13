@@ -1,4 +1,4 @@
-from indexify import Image
+from tensorlake import Image
 
 
 tf_image = (

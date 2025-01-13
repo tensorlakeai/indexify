@@ -3,11 +3,11 @@ from typing import List, Optional, Union
 import logging
 
 from pydantic import BaseModel, Field
-from indexify import RemoteGraph
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.image import Image
-from indexify.functions_sdk.indexify_functions import indexify_function, indexify_router
+from tensorlake import RemoteGraph
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.graph import Graph
+from tensorlake.functions_sdk.image import Image
+from tensorlake.functions_sdk.functions import indexify_function, indexify_router
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -7,7 +7,7 @@ from function_executor.proto.function_executor_pb2 import (
     InitializeResponse,
 )
 from function_executor.proto.function_executor_pb2_grpc import FunctionExecutorStub
-from python_utils.http_client import get_httpx_client
+from tensorlake.utils.http_client import get_httpx_client
 
 from .invocation_state_client import InvocationStateClient
 from .server.function_executor_server import (

@@ -4,15 +4,15 @@ import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any, Optional, Union
 
-from indexify.functions_sdk.indexify_functions import (
+from tensorlake.functions_sdk.functions import (
     FunctionCallResult,
     GraphInvocationContext,
-    IndexifyFunction,
-    IndexifyFunctionWrapper,
-    IndexifyRouter,
+    TensorlakeCompute,
+    TensorlakeFunctionWrapper,
+    TensorlakeCompute,
     RouterCallResult,
 )
-from indexify.functions_sdk.invocation_state.invocation_state import InvocationState
+from tensorlake.functions_sdk.invocation_state.invocation_state import InvocationState
 
 from function_executor.proto.function_executor_pb2 import (
     RunTaskRequest,
@@ -30,7 +30,7 @@ class Handler:
         graph_name: str,
         graph_version: str,
         function_name: str,
-        function: Union[IndexifyFunction, IndexifyRouter],
+        function: Union[TensorlakeCompute, TensorlakeCompute],
         invocation_state: InvocationState,
         logger: Any,
     ):
@@ -46,7 +46,7 @@ class Handler:
         self._func_stdout: io.StringIO = io.StringIO()
         self._func_stderr: io.StringIO = io.StringIO()
 
-        self._function_wrapper: IndexifyFunctionWrapper = IndexifyFunctionWrapper(
+        self._function_wrapper: TensorlakeFunctionWrapper = TensorlakeFunctionWrapper(
             indexify_function=function,
             context=GraphInvocationContext(
                 invocation_id=request.graph_invocation_id,
@@ -114,7 +114,7 @@ class Handler:
         sys.stderr.flush()
 
 
-def _is_router(func_wrapper: IndexifyFunctionWrapper) -> bool:
+def _is_router(func_wrapper: TensorlakeFunctionWrapper) -> bool:
     """Determines if the function is a router.
 
     A function is a router if it is an instance of IndexifyRouter or if it is an IndexifyRouter class.
@@ -122,9 +122,9 @@ def _is_router(func_wrapper: IndexifyFunctionWrapper) -> bool:
     return str(
         type(func_wrapper.indexify_function)
     ) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>" or isinstance(
-        func_wrapper.indexify_function, IndexifyRouter
+        func_wrapper.indexify_function, TensorlakeCompute
     )
 
 
-def _func_is_reducer(func_wrapper: IndexifyFunctionWrapper) -> bool:
+def _func_is_reducer(func_wrapper: TensorlakeFunctionWrapper) -> bool:
     return func_wrapper.indexify_function.accumulate is not None

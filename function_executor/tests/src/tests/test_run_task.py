@@ -1,10 +1,10 @@
 import unittest
 from typing import List, Mapping
 
-from indexify import Graph
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.indexify_functions import indexify_function
-from indexify.functions_sdk.object_serializer import CloudPickleSerializer
+from tensorlake import Graph
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.functions import tensorlake_function
+from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 from pydantic import BaseModel
 
 from function_executor.proto.function_executor_pb2 import (
@@ -21,7 +21,7 @@ from tests.utils import (
 )
 
 
-@indexify_function()
+@tensorlake_function()
 def extractor_a(url: str) -> File:
     print(f"extractor_a called with url: {url}")
     assert url == "https://example.com"
@@ -35,7 +35,7 @@ class FileChunk(BaseModel):
     end: int
 
 
-@indexify_function()
+@tensorlake_function()
 def extractor_b(file: File) -> List[FileChunk]:
     return [
         FileChunk(data=file.data, start=0, end=5),
@@ -47,12 +47,12 @@ class SomeMetadata(BaseModel):
     metadata: Mapping[str, str]
 
 
-@indexify_function()
+@tensorlake_function()
 def extractor_c(file_chunk: FileChunk) -> SomeMetadata:
     return SomeMetadata(metadata={"a": "b", "c": "d"})
 
 
-@indexify_function()
+@tensorlake_function()
 def extractor_exception(a: int) -> int:
     raise Exception("this extractor throws an exception.")
 

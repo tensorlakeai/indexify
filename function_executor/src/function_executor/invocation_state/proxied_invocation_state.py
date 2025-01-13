@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from indexify.functions_sdk.invocation_state.invocation_state import InvocationState
+from tensorlake.functions_sdk.invocation_state.invocation_state import InvocationState
 
 from .invocation_state_proxy_server import InvocationStateProxyServer
 

@@ -2,7 +2,7 @@ import queue
 import threading
 from typing import Any, Iterator, Optional
 
-from indexify.functions_sdk.object_serializer import (
+from tensorlake.functions_sdk.object_serializer import (
     CloudPickleSerializer,
     get_serializer,
 )
