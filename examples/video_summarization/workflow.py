@@ -7,7 +7,7 @@ from tensorlake import RemoteGraph
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.graph import Graph
 from tensorlake.functions_sdk.image import Image
-from tensorlake.functions_sdk.functions import indexify_function, indexify_router
+from tensorlake.functions_sdk.functions import tensorlake_function, tensorlake_router
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -58,7 +58,7 @@ llama_cpp_image = (
 )
 
 # Indexify Functions
-@indexify_function(image=yt_downloader_image)
+@tensorlake_function(image=yt_downloader_image)
 def download_youtube_video(url: YoutubeURL) -> List[File]:
     """Download the YouTube video from the URL."""
     from pytubefix import YouTube
@@ -68,14 +68,14 @@ def download_youtube_video(url: YoutubeURL) -> List[File]:
     logging.info("Video downloaded")
     return [File(data=content, mime_type="video/mp4")]
 
-@indexify_function(image=audio_image)
+@tensorlake_function(image=audio_image)
 def extract_audio_from_video(file: File) -> File:
     """Extract the audio from the video."""
     from pydub import AudioSegment
     audio = AudioSegment.from_file(file.data)
     return File(data=audio.export("audio.wav", format="wav").read(), mime_type="audio/wav")
 
-@indexify_function(image=transcribe_image)
+@tensorlake_function(image=transcribe_image)
 def transcribe_audio(file: File) -> Transcription:
     """Transcribe audio and diarize speakers."""
     from faster_whisper import WhisperModel
@@ -84,7 +84,7 @@ def transcribe_audio(file: File) -> Transcription:
     audio_segments = [SpeechSegment(text=segment.text, start_ts=segment.start, end_ts=segment.end) for segment in segments]
     return Transcription(segments=audio_segments)
 
-@indexify_function(image=llama_cpp_image)
+@tensorlake_function(image=llama_cpp_image)
 def classify_meeting_intent(speech: Transcription) -> Transcription:
     try:
         """Classify the intent of the audio."""
@@ -125,7 +125,7 @@ def classify_meeting_intent(speech: Transcription) -> Transcription:
         speech.classification = SpeechClassification(classification="unknown", confidence=0.5)
         return speech
 
-@indexify_function(image=llama_cpp_image)
+@tensorlake_function(image=llama_cpp_image)
 def summarize_job_interview(speech: Transcription) -> Summary:
     """Summarize the job interview."""
     from llama_cpp import Llama
@@ -151,7 +151,7 @@ def summarize_job_interview(speech: Transcription) -> Summary:
     output = model(prompt=prompt, max_tokens=30000, stop=["\n"])
     return Summary(summary=output["choices"][0]["text"])
 
-@indexify_function(image=llama_cpp_image)
+@tensorlake_function(image=llama_cpp_image)
 def summarize_sales_call(speech: Transcription) -> Summary:
     """Summarize the sales call."""
     from llama_cpp import Llama
@@ -177,7 +177,7 @@ def summarize_sales_call(speech: Transcription) -> Summary:
     output = model(prompt=prompt, max_tokens=30000, stop=["\n"])
     return Summary(summary=output["choices"][0]["text"])
 
-@indexify_router(image=base_image)
+@tensorlake_router(image=base_image)
 def route_transcription_to_summarizer(speech: Transcription) -> List[Union[summarize_job_interview, summarize_sales_call]]:
     """Route the transcription to the appropriate summarizer based on the classification."""
     if speech.classification.classification == "job-interview":

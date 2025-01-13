@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from tensorlake import tensorlake_function, indexify_router, Graph
+from tensorlake import tensorlake_function, tensorlake_router, Graph
 from typing import List, Union
 
 @tensorlake_function()

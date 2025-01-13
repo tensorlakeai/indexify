@@ -5,7 +5,7 @@ from typing import List
 from pydantic import BaseModel, Field
 from tensorlake import RemoteGraph
 from tensorlake.functions_sdk.graph import Graph
-from tensorlake.functions_sdk.functions import indexify_function
+from tensorlake.functions_sdk.functions import tensorlake_function
 from tensorlake.functions_sdk.image import Image
 
 # Set up logging
@@ -51,7 +51,7 @@ openai_image_3_11 = (
 )
 
 
-@indexify_function(image=openai_image_3_10)
+@tensorlake_function(image=openai_image_3_10)
 def generate_tweet_topics(subject: str) -> List[str]:
     """Generate topics for tweets about a given subject."""
     import openai
@@ -74,7 +74,7 @@ def generate_tweet_topics(subject: str) -> List[str]:
     topics = response.choices[0].message.parsed
     return topics.topics
 
-@indexify_function(image=openai_image_3_10)
+@tensorlake_function(image=openai_image_3_10)
 def generate_tweet(topic: str) -> str:
     """Generate a tweet about a given topic."""
     import openai
@@ -96,13 +96,13 @@ def generate_tweet(topic: str) -> str:
     tweet = response.choices[0].message.parsed
     return tweet.tweet
 
-@indexify_function(image=base_image_3_10, accumulate=Tweets)
+@tensorlake_function(image=base_image_3_10, accumulate=Tweets)
 def accumulate_tweets(acc: Tweets, tweet: str) -> Tweets:
     """Accumulate generated tweets."""
     acc.tweets.append(tweet)
     return acc
 
-@indexify_function(image=openai_image_3_10)
+@tensorlake_function(image=openai_image_3_10)
 def score_and_rank_tweets(tweets: Tweets) -> RankedTweets:
     """Score and rank the accumulated tweets."""
     import openai

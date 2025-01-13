@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import date
 from tensorlake.functions_sdk.data_objects import File
-from tensorlake import indexify_function, Graph, RemoteGraph, Image
+from tensorlake import tensorlake_function, Graph, RemoteGraph, Image
 from typing import Optional, List, Any
 
 
@@ -18,7 +18,7 @@ image = (
 )
 
 
-@indexify_function(image=image)
+@tensorlake_function(image=image)
 def tensorlake_document_ai_parse(file: File) -> str:
     """
     Call the inkwell parse API. TODO replace the token below for `Bearer`.
@@ -120,7 +120,7 @@ def _call_oai_client(system_prompt: str, user_prompt: str, markdown: str) -> str
     return response.choices[0].message.content
 
 
-@indexify_function(image=image)
+@tensorlake_function(image=image)
 def extract_with_oai(markdown: str) -> BillSchema:
     schema = BillSchema.model_json_schema()
 

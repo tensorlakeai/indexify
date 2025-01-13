@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from tensorlake import RemoteGraph
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.graph import Graph
-from tensorlake.functions_sdk.functions import indexify_function
+from tensorlake.functions_sdk.functions import tensorlake_function
 from tensorlake.functions_sdk.image import Image
 
 # Set up logging
@@ -42,7 +42,7 @@ elevenlabs_image = (
     .run("pip install elevenlabs")
 )
 
-@indexify_function(image=scraper_image)
+@tensorlake_function(image=scraper_image)
 def scrape_website(url: str) -> WebsiteData:
     """Scrape the website content."""
     try:
@@ -53,7 +53,7 @@ def scrape_website(url: str) -> WebsiteData:
         logging.error(f"Error scraping website: {e}")
         raise
 
-@indexify_function(image=openai_image)
+@tensorlake_function(image=openai_image)
 def summarize_website(website_data: WebsiteData) -> SummarizeWebsite:
     """Summarize the website content."""
     try:
@@ -80,7 +80,7 @@ def summarize_website(website_data: WebsiteData) -> SummarizeWebsite:
         logging.error(f"Error summarizing website: {e}")
         raise
 
-@indexify_function(image=elevenlabs_image)
+@tensorlake_function(image=elevenlabs_image)
 def generate_tts(summary: SummarizeWebsite) -> Audio:
     """Generate TTS for the summary using elevenlabs."""
     try:

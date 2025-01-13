@@ -3,7 +3,7 @@ from tensorlake import RemoteGraph, Graph, Image
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.functions import (
     TensorlakeCompute,
-    indexify_function,
+    tensorlake_function,
 )
 from pydantic import BaseModel
 from typing import List
