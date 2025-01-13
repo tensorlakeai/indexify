@@ -424,6 +424,7 @@ impl StateReader {
     pub fn unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
         let kvs = &[KeyValue::new("op", "get_next_state_change")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+        let mut state_changes = Vec::new();
         let global_state_changes: Vec<StateChange> = self
             .get_rows_from_cf_with_limits(
                 "global".as_bytes(),
@@ -432,18 +433,20 @@ impl StateReader {
                 None,
             )?
             .0;
-        if global_state_changes.len() > 0 {
-            return Ok(global_state_changes);
+        state_changes.extend(global_state_changes);
+        if state_changes.len() >= 100 {
+            return Ok(state_changes);
         }
         let ns_state_changes: Vec<StateChange> = self
             .get_rows_from_cf_with_limits(
                 "ns".as_bytes(),
                 None,
                 IndexifyObjectsColumns::UnprocessedStateChanges,
-                Some(100),
+                Some(100 - state_changes.len()),
             )?
             .0;
-        Ok(ns_state_changes)
+        state_changes.extend(ns_state_changes);
+        Ok(state_changes)
     }
 
     pub fn get_all_rows_from_cf<V>(

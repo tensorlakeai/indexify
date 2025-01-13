@@ -555,12 +555,22 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
 #[cfg(test)]
 mod tests {
     use data_model::{
-        test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        test_objects::tests::{
+            mock_executor,
+            mock_graph_a,
+            mock_invocation_payload,
+            TEST_NAMESPACE,
+        },
         ComputeGraph,
         GraphVersion,
         Namespace,
     };
-    use requests::{CreateOrUpdateComputeGraphRequest, NamespaceRequest};
+    use requests::{
+        CreateOrUpdateComputeGraphRequest,
+        InvokeComputeGraphRequest,
+        NamespaceRequest,
+        RegisterExecutorRequest,
+    };
     use test_state_store::TestStateStore;
     use tokio;
 
@@ -645,6 +655,54 @@ mod tests {
             assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
         }
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_order_state_changes() -> Result<()> {
+        let indexify_state = TestStateStore::new().await?.indexify_state;
+        let tx = indexify_state.db.transaction();
+        let state_change_1 = state_changes::invoke_compute_graph(
+            &indexify_state.last_state_change_id,
+            &InvokeComputeGraphRequest {
+                namespace: "namespace".to_string(),
+                compute_graph_name: "graph_A".to_string(),
+                invocation_payload: mock_invocation_payload(),
+            },
+        )
+        .unwrap();
+        state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_1).unwrap();
+        tx.commit().unwrap();
+        let tx = indexify_state.db.transaction();
+        let state_change_2 = state_changes::register_executor(
+            &indexify_state.last_state_change_id,
+            &RegisterExecutorRequest {
+                executor: mock_executor(),
+            },
+        )
+        .unwrap();
+        state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_2).unwrap();
+        tx.commit().unwrap();
+        let tx = indexify_state.db.transaction();
+        let state_change_3 = state_changes::invoke_compute_graph(
+            &indexify_state.last_state_change_id,
+            &InvokeComputeGraphRequest {
+                namespace: "namespace".to_string(),
+                compute_graph_name: "graph_A".to_string(),
+                invocation_payload: mock_invocation_payload(),
+            },
+        )
+        .unwrap();
+        state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_3).unwrap();
+        tx.commit().unwrap();
+        let state_changes = indexify_state.reader().unprocessed_state_changes().unwrap();
+        assert_eq!(state_changes.len(), 3);
+        // global state_change_2
+        assert_eq!(state_changes[0].id, StateChangeId::new(1));
+        // state_change_1
+        assert_eq!(state_changes[1].id, StateChangeId::new(0));
+        // state_change_3
+        assert_eq!(state_changes[2].id, StateChangeId::new(2));
         Ok(())
     }
 
