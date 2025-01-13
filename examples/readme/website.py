@@ -1,15 +1,15 @@
-from tensorlake import indexify_function, Graph
+from tensorlake import tensorlake_function, Graph
 from pydantic import BaseModel
 
 class Audio(BaseModel):
     file: bytes
 
-@indexify_function()
+@tensorlake_function()
 def scrape_website(url: str) -> str:
     import requests
     return requests.get(f"http://r.jina.ai/{url}").text
 
-@indexify_function()
+@tensorlake_function()
 def summarize_text(text: str) -> str:
     from openai import OpenAI
     completion = OpenAI().chat.completions.create(
@@ -21,7 +21,7 @@ def summarize_text(text: str) -> str:
     )
     return completion.choices[0].message.content
 
-@indexify_function()
+@tensorlake_function()
 def create_audio(summary: str) -> Audio:
     import elevenlabs
     from elevenlabs import save

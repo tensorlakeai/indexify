@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import date
 import tempfile
 from tensorlake.functions_sdk.data_objects import File
-from tensorlake import indexify_function, Graph, RemoteGraph, Image
+from tensorlake import tensorlake_function, Graph, RemoteGraph, Image
 from typing import Optional
 
 image = (
@@ -37,7 +37,7 @@ class BillSchema(BaseModel):
             Decimal: lambda v: str(v)
         }
 
-@indexify_function(image=image)
+@tensorlake_function(image=image)
 def parse_pdf(file: File) -> BillSchema:
     from inkwell.ocr import OCRType, OCRFactory
     from inkwell.io import read_pdf_as_images
@@ -61,7 +61,7 @@ def parse_pdf(file: File) -> BillSchema:
         print(result)
         return BillSchema.model_validate_json(result)
 
-@indexify_function(image=image)
+@tensorlake_function(image=image)
 def write_to_db(bill: BillSchema) -> None:
     from sqlmodel import Field, SQLModel, Session, create_engine
     from typing import Optional

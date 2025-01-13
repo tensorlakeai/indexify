@@ -1,19 +1,19 @@
 from pydantic import BaseModel
-from tensorlake import indexify_function, Graph
+from tensorlake import tensorlake_function, Graph
 from typing import List
 
 class Total(BaseModel):
     val: int = 0
 
-@indexify_function()
+@tensorlake_function()
 def generate_numbers(a: int) -> List[int]:
     return [i for i in range(a)]
 
-@indexify_function()
+@tensorlake_function()
 def square(x: int) -> int:
     return x ** 2
 
-@indexify_function(accumulate=Total)
+@tensorlake_function(accumulate=Total)
 def add(total: Total, new: int) -> Total:
     total.val += new
     return total

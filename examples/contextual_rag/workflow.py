@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from tensorlake.functions_sdk.graph import Graph
 from tensorlake.functions_sdk.image import Image
-from tensorlake.functions_sdk.functions import indexify_function, TensorlakeCompute
+from tensorlake.functions_sdk.functions import tensorlake_function, TensorlakeCompute
 
 # TODO User set this
 contextual_retrieval_prompt = """
@@ -43,7 +43,7 @@ class ChunkContext(BaseModel):
     chunks: List[str]
     chunk_contexts: List[str]
 
-@indexify_function(image=image)
+@tensorlake_function(image=image)
 def generate_chunk_contexts(doc: str) -> ChunkContext:
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=750,

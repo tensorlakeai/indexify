@@ -3,10 +3,10 @@ from embedding import chunk_text_docling, ImageEmbeddingDoclingExtractor
 from tensorlake import RemoteGraph
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.graph import Graph
-from tensorlake.functions_sdk.functions import indexify_function
+from tensorlake.functions_sdk.functions import tensorlake_function
 from images import http_client_image
 
-@indexify_function(image=http_client_image)
+@tensorlake_function(image=http_client_image)
 def download_pdf(url: str) -> File:
     """
     Download pdf from url

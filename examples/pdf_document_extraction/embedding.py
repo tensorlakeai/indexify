@@ -1,6 +1,6 @@
 from typing import Any, List
 
-from tensorlake.functions_sdk.functions import TensorlakeCompute, indexify_function
+from tensorlake.functions_sdk.functions import TensorlakeCompute, tensorlake_function
 from sentence_transformers import SentenceTransformer
 from common_objects import ImageWithEmbedding, TextChunk, PDFParserDoclingOutput
 from inkwell.api.document import Document
@@ -8,7 +8,7 @@ from inkwell.api.page import PageFragmentType
 import base64
 from images import st_image
 
-@indexify_function(image=st_image)
+@tensorlake_function(image=st_image)
 def chunk_text(document: Document) -> List[TextChunk]:
     """
     Extract chunks from document
@@ -40,7 +40,7 @@ def chunk_text(document: Document) -> List[TextChunk]:
     return chunks
 
 
-@indexify_function(image=st_image)
+@tensorlake_function(image=st_image)
 def chunk_text_docling(document: PDFParserDoclingOutput) -> List[TextChunk]:
     """
     Extract chunks from documents

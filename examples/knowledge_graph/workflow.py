@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple, Any
 from pydantic import BaseModel, Field
 from tensorlake import RemoteGraph
 from tensorlake.functions_sdk.graph import Graph
-from tensorlake.functions_sdk.functions import indexify_function, TensorlakeCompute
+from tensorlake.functions_sdk.functions import tensorlake_function, TensorlakeCompute
 from tensorlake.functions_sdk.image import Image
 from neo4j import GraphDatabase
 import json
@@ -187,7 +187,7 @@ class ExtractRelationships(NLPFunction):
             logging.error(f"Error in extract_relationships: {str(e)}")
             raise
 
-@indexify_function(image=base_image)
+@tensorlake_function(image=base_image)
 def build_knowledge_graph(data: Tuple[List[Entity], List[Relationship], Document]) -> KnowledgeGraphOutput:
     try:
         entities, relationships, doc = data
@@ -199,7 +199,7 @@ def build_knowledge_graph(data: Tuple[List[Entity], List[Relationship], Document
         logging.error(f"Error in build_knowledge_graph: {str(e)}", "knowledge_graph_output --->")
         raise
 
-@indexify_function(image=neo4j_image)
+@tensorlake_function(image=neo4j_image)
 def store_in_neo4j(data: KnowledgeGraphOutput) -> bool:
     try:
         kg = data.knowledge_graph
@@ -226,7 +226,7 @@ def store_in_neo4j(data: KnowledgeGraphOutput) -> bool:
         logging.error(f"Error in store_in_neo4j: {str(e)}")
         raise
 
-@indexify_function(image=embedding_image)
+@tensorlake_function(image=embedding_image)
 def generate_embeddings(data: KnowledgeGraphOutput) -> TextChunk:
     try:
         doc = data.document
@@ -246,7 +246,7 @@ def generate_embeddings(data: KnowledgeGraphOutput) -> TextChunk:
         logging.error(f"Error in generate_embeddings: {str(e)}")
         raise
 
-@indexify_function(image=gemini_image)
+@tensorlake_function(image=gemini_image)
 def question_to_cypher(question: Question) -> CypherQueryAndQuestion:
     try:
         model = genai.GenerativeModel("gemini-pro")
@@ -274,7 +274,7 @@ def question_to_cypher(question: Question) -> CypherQueryAndQuestion:
         logging.error(f"Error in question_to_cypher: {str(e)}")
         raise
 
-@indexify_function(image=neo4j_image)
+@tensorlake_function(image=neo4j_image)
 def execute_cypher_query(data: CypherQueryAndQuestion) -> QuestionAndResult:
     cypher_query, question = data.cypher_query, data.question
     uri = os.getenv('NEO4J_URI', "bolt://localhost:7687")
@@ -294,7 +294,7 @@ def execute_cypher_query(data: CypherQueryAndQuestion) -> QuestionAndResult:
     
     return QuestionAndResult(question=question, query_result=QueryResult(result=records))
 
-@indexify_function(image=gemini_image)
+@tensorlake_function(image=gemini_image)
 def generate_answer(data: QuestionAndResult) -> Answer:
     query_result, question = data.query_result, data.question
 

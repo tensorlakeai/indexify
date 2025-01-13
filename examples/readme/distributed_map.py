@@ -1,12 +1,12 @@
 from pydantic import BaseModel
-from tensorlake import indexify_function, indexify_router, Graph
+from tensorlake import tensorlake_function, tensorlake_router, Graph
 from typing import List, Union
 
-@indexify_function()
+@tensorlake_function()
 def generate_sequence(a: int) -> List[int]:
     return [i for i in range(a)]
 
-@indexify_function()
+@tensorlake_function()
 def squared(x: int) -> int:
     return x * x
 
