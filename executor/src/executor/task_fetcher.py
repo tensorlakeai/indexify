@@ -4,7 +4,7 @@ from typing import AsyncGenerator, List, Optional
 
 import structlog
 from httpx_sse import aconnect_sse
-from python_utils.http_client import get_httpx_client
+from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import ExecutorMetadata, FunctionURI, Task
 from .runtime_probes import ProbeInfo, RuntimeProbes

@@ -13,9 +13,9 @@ from rich.console import Console
 from sentence_transformers import SentenceTransformer
 from pydantic import BaseModel
 
-from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.image import Image
-from indexify.functions_sdk.indexify_functions import indexify_function, IndexifyFunction
+from tensorlake.functions_sdk.graph import Graph
+from tensorlake.functions_sdk.image import Image
+from tensorlake.functions_sdk.functions import indexify_function, TensorlakeCompute
 
 # TODO User set this
 contextual_retrieval_prompt = """
@@ -90,7 +90,7 @@ class TextChunk(BaseModel):
     chunk: List[str]
     chunk_with_context: List[str]
 
-class TextEmbeddingExtractor(IndexifyFunction):
+class TextEmbeddingExtractor(TensorlakeCompute):
     name = "text-embedding-extractor"
     description = "Extractor class that captures an embedding model"
     system_dependencies = []
@@ -137,7 +137,7 @@ class ChunkEmbeddingTable(LanceModel):
     chunk: str
 
 
-class LanceDBWriter(IndexifyFunction):
+class LanceDBWriter(TensorlakeCompute):
     name = "lancedb_writer_context_rag"
     image = image
 

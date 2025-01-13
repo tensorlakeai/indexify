@@ -1,6 +1,6 @@
 from typing import Any, List
 
-from indexify.functions_sdk.indexify_functions import IndexifyFunction, indexify_function
+from tensorlake.functions_sdk.functions import TensorlakeCompute, indexify_function
 from sentence_transformers import SentenceTransformer
 from common_objects import ImageWithEmbedding, TextChunk, PDFParserDoclingOutput
 from inkwell.api.document import Document
@@ -58,7 +58,7 @@ def chunk_text_docling(document: PDFParserDoclingOutput) -> List[TextChunk]:
     return chunks
 
 
-class TextEmbeddingExtractor(IndexifyFunction):
+class TextEmbeddingExtractor(TensorlakeCompute):
     name = "text-embedding-extractor"
     description = "Extractor class that captures an embedding model"
     system_dependencies = []
@@ -75,7 +75,7 @@ class TextEmbeddingExtractor(IndexifyFunction):
         return input
 
 
-class ImageEmbeddingExtractor(IndexifyFunction):
+class ImageEmbeddingExtractor(TensorlakeCompute):
     name = "image-embedding"
     description = "Extractor class that captures an embedding model"
     image=st_image
@@ -105,7 +105,7 @@ class ImageEmbeddingExtractor(IndexifyFunction):
         return embedding
 
 
-class ImageEmbeddingDoclingExtractor(IndexifyFunction):
+class ImageEmbeddingDoclingExtractor(TensorlakeCompute):
     name = "image-embedding-docling"
     description = "Extractor class that captures an embedding model"
     image=st_image

@@ -4,8 +4,8 @@ import time
 import unittest
 from typing import List, Optional
 
-from indexify import Graph, indexify_function
-from indexify.remote_graph import RemoteGraph
+from tensorlake import Graph, tensorlake_function
+from tensorlake.remote_graph import RemoteGraph
 from tests.testing import ExecutorProcessContextManager, function_uri, test_graph_name
 
 # There's a dev mode executor already running in the testing environment.
@@ -23,12 +23,12 @@ def get_executor_pid() -> int:
     return os.getppid()
 
 
-@indexify_function()
+@tensorlake_function()
 def get_dev_mode_executor_pid() -> int:
     return get_executor_pid()
 
 
-@indexify_function()
+@tensorlake_function()
 def function_a() -> str:
     global dev_mode_executor_pid
     global function_a_executor_pid
@@ -43,7 +43,7 @@ def function_a() -> str:
     return "success"
 
 
-@indexify_function()
+@tensorlake_function()
 def function_b(_: str) -> str:
     global dev_mode_executor_pid
     global function_a_executor_pid
@@ -58,7 +58,7 @@ def function_b(_: str) -> str:
     return "success"
 
 
-@indexify_function()
+@tensorlake_function()
 def function_dev(_: str) -> str:
     current_executor_pid: int = get_executor_pid()
     allowed_executor_pids: List[int] = [dev_mode_executor_pid]

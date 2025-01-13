@@ -1,11 +1,11 @@
 from common_objects import PDFParserDoclingOutput
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.functions import TensorlakeCompute
 
 from images import inkwell_image_gpu
 
 
-class PDFParserDocling(IndexifyFunction):
+class PDFParserDocling(TensorlakeCompute):
     name = "pdf-parse-docling"
     description = "Parser class that captures a pdf file"
     # Change to gpu_image to use GPU

@@ -1,8 +1,8 @@
 import urllib.request
-from indexify import RemoteGraph, Graph, Image
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.indexify_functions import (
-    IndexifyFunction,
+from tensorlake import RemoteGraph, Graph, Image
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.functions import (
+    TensorlakeCompute,
     indexify_function,
 )
 from pydantic import BaseModel
@@ -32,7 +32,7 @@ class ObjectDetectionResult(BaseModel):
     image: File
 
 
-class ObjectDetector(IndexifyFunction):
+class ObjectDetector(TensorlakeCompute):
     name = "object_detector"
     image = image
 
@@ -78,7 +78,7 @@ class FilteredImage(BaseModel):
     is_filtered: bool
 
 
-class ImageDescriber(IndexifyFunction):
+class ImageDescriber(TensorlakeCompute):
     name = "image_describer"
     image = image
 

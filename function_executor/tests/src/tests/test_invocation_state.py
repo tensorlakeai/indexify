@@ -2,9 +2,9 @@ import threading
 import unittest
 from typing import Any, Dict, List
 
-from indexify import Graph
-from indexify.functions_sdk.indexify_functions import get_ctx, indexify_function
-from indexify.functions_sdk.object_serializer import CloudPickleSerializer
+from tensorlake import Graph
+from tensorlake.functions_sdk.functions import get_ctx, tensorlake_function
+from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 from pydantic import BaseModel
 
 from function_executor.proto.function_executor_pb2 import (
@@ -69,7 +69,7 @@ def invocation_state_client_stub(
 
 class TestSetInvocationState(FunctionExecutorServerTestCase):
     def _create_graph(self):
-        @indexify_function()
+        @tensorlake_function()
         def set_invocation_state(x: int) -> str:
             get_ctx().invocation_state.set(
                 "test_state_key",
@@ -205,7 +205,7 @@ class TestSetInvocationState(FunctionExecutorServerTestCase):
 
 class TestGetInvocationState(FunctionExecutorServerTestCase):
     def _create_graph_with_result_validation(self):
-        @indexify_function()
+        @tensorlake_function()
         def get_invocation_state(x: int) -> str:
             got_state: StructuredState = get_ctx().invocation_state.get(
                 "test_state_key"
@@ -295,7 +295,7 @@ class TestGetInvocationState(FunctionExecutorServerTestCase):
             client_thread.join()
 
     def test_success_none_value(self):
-        @indexify_function()
+        @tensorlake_function()
         def get_invocation_state(x: int) -> str:
             got_state: StructuredState = get_ctx().invocation_state.get(
                 "test_state_key"

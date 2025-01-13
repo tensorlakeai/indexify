@@ -1,6 +1,6 @@
-from indexify import RemoteGraph, Graph, Image
-from indexify.functions_sdk.indexify_functions import (
-    IndexifyFunction,
+from tensorlake import RemoteGraph, Graph, Image
+from tensorlake.functions_sdk.functions import (
+    TensorlakeCompute,
 )
 from pydantic import BaseModel
 from typing import List
@@ -22,7 +22,7 @@ class Embedding(BaseModel):
 class Sentences(BaseModel):
     sentences: List[str]
 
-class EmbeddingFunction(IndexifyFunction):
+class EmbeddingFunction(TensorlakeCompute):
     name = "sentence_embedder"
     image = tf_image 
 

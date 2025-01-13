@@ -1,4 +1,4 @@
-from python_utils.logging import configure_logging_early, configure_production_logging
+from tensorlake.utils.logging import configure_logging_early, configure_production_logging
 
 configure_logging_early()
 

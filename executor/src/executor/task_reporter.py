@@ -4,7 +4,7 @@ from typing import Any, List, Optional, Tuple
 import nanoid
 from function_executor.proto.function_executor_pb2 import FunctionOutput
 from httpx import Timeout
-from python_utils.http_client import get_httpx_client
+from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import RouterOutput, Task, TaskResult
 from .task_runner import TaskOutput

@@ -1,17 +1,17 @@
 from pydantic import BaseModel
-from indexify import indexify_function, indexify_router, Graph
+from tensorlake import tensorlake_function, indexify_router, Graph
 from typing import List, Union
 
-@indexify_function()
+@tensorlake_function()
 def generate_sequence(a: int) -> List[int]:
     return [i for i in range(a)]
 
-@indexify_function()
+@tensorlake_function()
 def squared(x: int) -> int:
     return x * x 
 
 if __name__ == '__main__':
-    from indexify import create_client
+    from tensorlake import create_client
     g = Graph(name="map_square", start_node=generate_sequence, description="Simple Sequence Summer")
     g.add_edge(generate_sequence, squared)
 

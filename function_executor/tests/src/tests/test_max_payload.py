@@ -4,9 +4,9 @@ import os
 import time
 import unittest
 
-from indexify import Graph, indexify_function
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.object_serializer import CloudPickleSerializer
+from tensorlake import Graph, tensorlake_function
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 
 from function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
@@ -43,7 +43,7 @@ def hash(data: bytes) -> str:
     return hash_value
 
 
-@indexify_function()
+@tensorlake_function()
 def validate_max_input(input: File) -> str:
     if len(input.data) != MAX_FUNCTION_PAYLOAD_SIZE_BYTES:
         raise ValueError(
@@ -58,7 +58,7 @@ def validate_max_input(input: File) -> str:
     return "success"
 
 
-@indexify_function()
+@tensorlake_function()
 def generate_max_output(x: int) -> File:
     data = random_bytes(MAX_FUNCTION_PAYLOAD_SIZE_BYTES)
     return File(data=data, sha_256=hash(data))

@@ -1,4 +1,4 @@
-from indexify import Image
+from tensorlake import Image
 
 http_client_image = (
     Image()

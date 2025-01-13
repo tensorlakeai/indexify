@@ -1,4 +1,4 @@
-from python_utils.logging import configure_logging_early, configure_production_logging
+from tensorlake.utils.logging import configure_logging_early, configure_production_logging
 
 configure_logging_early()
 
@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.text import Text
 from rich.theme import Theme
 
-from indexify.functions_sdk.image import GetDefaultPythonImage, Image
+from tensorlake.functions_sdk.image import GetDefaultPythonImage, Image
 
 logger = structlog.get_logger(module=__name__)
 

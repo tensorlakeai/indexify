@@ -1,6 +1,6 @@
 from typing import Union
 
-from indexify.functions_sdk.indexify_functions import IndexifyFunction
+from tensorlake.functions_sdk.functions import TensorlakeCompute
 from common_objects import ImageWithEmbedding, TextChunk
 import lancedb
 from lancedb.pydantic import LanceModel, Vector
@@ -17,7 +17,7 @@ class TextEmbeddingTable(LanceModel):
     text: str
     page_number: int
 
-class LanceDBWriter(IndexifyFunction):
+class LanceDBWriter(TensorlakeCompute):
     name = "lancedb_writer"
     image = lance_image
 

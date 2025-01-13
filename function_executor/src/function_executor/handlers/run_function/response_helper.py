@@ -1,11 +1,11 @@
 from typing import List
 
-from indexify.functions_sdk.data_objects import IndexifyData
-from indexify.functions_sdk.indexify_functions import (
+from tensorlake.functions_sdk.data_objects import TensorlakeData
+from tensorlake.functions_sdk.functions import (
     FunctionCallResult,
     RouterCallResult,
 )
-from indexify.functions_sdk.object_serializer import get_serializer
+from tensorlake.functions_sdk.object_serializer import get_serializer
 
 from function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
@@ -82,7 +82,7 @@ class ResponseHelper:
             success=False,
         )
 
-    def _to_function_output(self, outputs: List[IndexifyData]) -> FunctionOutput:
+    def _to_function_output(self, outputs: List[TensorlakeData]) -> FunctionOutput:
         output = FunctionOutput(outputs=[])
         for ix_data in outputs:
             serialized_object: SerializedObject = SerializedObject(

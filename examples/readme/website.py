@@ -1,4 +1,4 @@
-from indexify import indexify_function, Graph
+from tensorlake import indexify_function, Graph
 from pydantic import BaseModel
 
 class Audio(BaseModel):
@@ -41,7 +41,7 @@ g.add_edge(summarize_text, create_audio)
 
 if __name__ == "__main__":
     #g.run(url="https://en.wikipedia.org/wiki/Golden_State_Warriors")
-    from indexify import RemoteGraph
+    from tensorlake import RemoteGraph
     RemoteGraph.deploy(g, server_url="http://localhost:8900")
     graph = RemoteGraph.by_name(name="website-summarizer", server_url="http://localhost:8900")
     invocation_id = graph.run(block_until_done=True, url="https://en.wikipedia.org/wiki/Golden_State_Warriors")

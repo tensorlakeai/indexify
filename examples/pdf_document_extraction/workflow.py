@@ -1,9 +1,9 @@
 from elastic_writer import ElasticSearchWriter
 from embedding import chunk_text_docling, ImageEmbeddingDoclingExtractor
-from indexify import RemoteGraph
-from indexify.functions_sdk.data_objects import File
-from indexify.functions_sdk.graph import Graph
-from indexify.functions_sdk.indexify_functions import indexify_function
+from tensorlake import RemoteGraph
+from tensorlake.functions_sdk.data_objects import File
+from tensorlake.functions_sdk.graph import Graph
+from tensorlake.functions_sdk.functions import indexify_function
 from images import http_client_image
 
 @indexify_function(image=http_client_image)

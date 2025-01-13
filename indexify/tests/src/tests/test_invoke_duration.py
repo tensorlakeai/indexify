@@ -1,11 +1,11 @@
 import time
 import unittest
 
-from indexify import Graph, indexify_function
-from indexify.remote_graph import RemoteGraph
+from tensorlake import Graph, tensorlake_function
+from tensorlake.remote_graph import RemoteGraph
 
 
-@indexify_function()
+@tensorlake_function()
 def get_start_time(x: int) -> str:
     return str(time.time())
 
