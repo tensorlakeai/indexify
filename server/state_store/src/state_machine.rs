@@ -2,24 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType,
-    ComputeGraph,
-    ComputeGraphVersion,
-    ExecutorId,
-    GraphInvocationCtx,
-    GraphInvocationCtxBuilder,
-    InvocationPayload,
-    InvokeComputeGraphEvent,
-    Namespace,
-    NodeOutput,
-    OutputPayload,
-    StateChange,
-    StateChangeBuilder,
-    StateChangeId,
-    StateMachineMetadata,
-    SystemTask,
-    Task,
-    TaskAnalytics,
+    ChangeType, ComputeGraph, ComputeGraphError, ComputeGraphVersion, ExecutorId, GraphInvocationCtx, GraphInvocationCtxBuilder, InvocationPayload, InvokeComputeGraphEvent, Namespace, NodeOutput, OutputPayload, StateChange, StateChangeBuilder, StateChangeId, StateMachineMetadata, SystemTask, Task, TaskAnalytics
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
@@ -476,6 +459,9 @@ pub(crate) fn create_or_update_compute_graph(
 
     let new_compute_graph_version = match existing_compute_graph {
         Some(Ok(mut existing_compute_graph)) => {
+            if existing_compute_graph.version == compute_graph.version {
+                return Err(anyhow!(ComputeGraphError::VersionExists));
+            }
             existing_compute_graph.update(compute_graph.clone());
             Ok::<ComputeGraphVersion, anyhow::Error>(existing_compute_graph.into_version())
         }
@@ -484,15 +470,6 @@ pub(crate) fn create_or_update_compute_graph(
         }
         None => Ok(compute_graph.into_version()),
     }?;
-    if new_compute_graph_version.version != compute_graph.version {
-        trace!(
-            "graph {} not updated, previous version: {}, new version: {}",
-            compute_graph.name,
-            new_compute_graph_version.version.0,
-            compute_graph.version.0
-        );
-        return Ok(());
-    };
     let serialized_compute_graph_version = JsonEncoder::encode(&new_compute_graph_version)?;
     txn.put_cf(
         &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
