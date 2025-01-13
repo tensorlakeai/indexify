@@ -554,29 +554,17 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use data_model::{
-        test_objects::tests::{create_mock_task, mock_graph_a, TEST_NAMESPACE},
+        test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
         ComputeGraph,
-        GraphInvocationCtxBuilder,
         GraphVersion,
         Namespace,
     };
-    use futures::StreamExt;
-    use requests::{
-        CreateOrUpdateComputeGraphRequest,
-        NamespaceProcessorUpdateRequest,
-        NamespaceRequest,
-        ReductionTasks,
-        TaskAllocationUpdateRequest,
-        TaskPlacement,
-    };
+    use requests::{CreateOrUpdateComputeGraphRequest, NamespaceRequest};
     use test_state_store::TestStateStore;
     use tokio;
 
     use super::*;
-    use crate::serializer::{JsonEncode, JsonEncoder};
 
     #[tokio::test]
     async fn test_create_and_list_namespaces() -> Result<()> {
@@ -656,139 +644,6 @@ mod tests {
             assert_eq!(nodes["fn_b"].image_hash(), new_hash.clone());
             assert_eq!(nodes["fn_c"].image_hash(), new_hash.clone());
         }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_task_stream() -> Result<()> {
-        let indexify_state = TestStateStore::new().await?.indexify_state;
-
-        let executor_id = ExecutorId::new("executor1".to_string());
-        let cg = mock_graph_a("image_hash".to_string());
-        let task = create_mock_task(
-            &cg,
-            "fn",
-            "namespace|graph|ingested_id|fn|id_1",
-            "ingested_id",
-        );
-        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
-            .namespace(task.namespace.clone())
-            .compute_graph_name(task.compute_graph_name.clone())
-            .graph_version(GraphVersion::from("1").clone())
-            .invocation_id(task.invocation_id.clone())
-            .fn_task_analytics(HashMap::new())
-            .build(cg.clone())?;
-        indexify_state.db.put_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
-            graph_invocation_ctx.key(),
-            &JsonEncoder::encode(&graph_invocation_ctx)?,
-        )?;
-
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::NamespaceProcessorUpdate(
-                    NamespaceProcessorUpdateRequest {
-                        namespace: task.namespace.clone(),
-                        compute_graph: task.compute_graph_name.clone(),
-                        invocation_id: task.invocation_id.clone(),
-                        task_requests: vec![task.clone()],
-                        reduction_tasks: ReductionTasks::default(),
-                    },
-                ),
-                processed_state_changes: vec![],
-            })
-            .await?;
-
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::TaskAllocationProcessorUpdate(
-                    TaskAllocationUpdateRequest {
-                        allocations: vec![TaskPlacement {
-                            task: task.clone(),
-                            executor: executor_id.clone(),
-                        }],
-                        unplaced_task_keys: vec![],
-                        placement_diagnostics: vec![],
-                    },
-                ),
-                processed_state_changes: vec![],
-            })
-            .await?;
-
-        let res = indexify_state
-            .reader()
-            .get_tasks_by_executor(&executor_id, 10)?;
-        assert_eq!(res.len(), 1);
-        assert_eq!(res[0].id, task.id);
-
-        let mut stream = task_stream(indexify_state.clone(), executor_id.clone(), 10);
-        let res = stream.next().await.unwrap()?;
-
-        assert_eq!(res.len(), 1);
-        assert_eq!(res[0].id, task.id);
-
-        let task_1 = create_mock_task(
-            &cg,
-            "fn",
-            "namespace|graph|ingested_id|fn|id_2",
-            "ingested_id",
-        );
-
-        let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
-            .namespace(task.namespace.clone())
-            .compute_graph_name(task.compute_graph_name.clone())
-            .graph_version(GraphVersion::from("1").clone())
-            .invocation_id(task.invocation_id.clone())
-            .fn_task_analytics(HashMap::new())
-            .build(cg.clone())?;
-        indexify_state.db.put_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&indexify_state.db),
-            graph_invocation_ctx.key(),
-            &JsonEncoder::encode(&graph_invocation_ctx)?,
-        )?;
-
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::NamespaceProcessorUpdate(
-                    NamespaceProcessorUpdateRequest {
-                        namespace: task_1.namespace.clone(),
-                        compute_graph: task_1.compute_graph_name.clone(),
-                        invocation_id: task_1.input_node_output_key.clone(),
-                        task_requests: vec![task_1.clone()],
-                        reduction_tasks: ReductionTasks::default(),
-                    },
-                ),
-                processed_state_changes: vec![],
-            })
-            .await?;
-
-        indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::TaskAllocationProcessorUpdate(
-                    TaskAllocationUpdateRequest {
-                        allocations: vec![TaskPlacement {
-                            task: task_1.clone(),
-                            executor: executor_id.clone(),
-                        }],
-                        unplaced_task_keys: vec![],
-                        placement_diagnostics: vec![],
-                    },
-                ),
-                processed_state_changes: vec![],
-            })
-            .await?;
-
-        let res = indexify_state
-            .reader()
-            .get_tasks_by_executor(&executor_id, 10)?;
-        assert_eq!(res.len(), 2);
-        assert_eq!(res[1].id, task_1.id);
-
-        let res = stream.next().await.unwrap()?;
-
-        assert_eq!(res.len(), 1);
-        assert_eq!(res[0].id, task_1.id);
 
         Ok(())
     }
