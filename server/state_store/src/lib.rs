@@ -566,7 +566,6 @@ mod tests {
     use futures::StreamExt;
     use requests::{
         CreateOrUpdateComputeGraphRequest,
-        DeleteComputeGraphRequest,
         NamespaceProcessorUpdateRequest,
         NamespaceRequest,
         ReductionTasks,
