@@ -2,7 +2,7 @@ from typing import Iterator, Optional, Union
 
 import grpc
 import structlog
-from tensorlake.functions_sdk.functions import TensorlakeCompute, TensorlakeCompute
+from tensorlake.functions_sdk.functions import TensorlakeCompute
 from tensorlake.functions_sdk.object_serializer import get_serializer
 
 from .handlers.run_function.handler import Handler as RunTaskHandler

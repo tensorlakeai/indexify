@@ -1,8 +1,8 @@
 from typing import Optional
 
+from pydantic import BaseModel
 from tensorlake.functions_sdk.data_objects import TensorlakeData
 from tensorlake.functions_sdk.object_serializer import get_serializer
-from pydantic import BaseModel
 
 from function_executor.proto.function_executor_pb2 import (
     RunTaskRequest,

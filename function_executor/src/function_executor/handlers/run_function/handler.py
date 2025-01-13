@@ -7,10 +7,9 @@ from typing import Any, Optional, Union
 from tensorlake.functions_sdk.functions import (
     FunctionCallResult,
     GraphInvocationContext,
+    RouterCallResult,
     TensorlakeCompute,
     TensorlakeFunctionWrapper,
-    TensorlakeCompute,
-    RouterCallResult,
 )
 from tensorlake.functions_sdk.invocation_state.invocation_state import InvocationState
 

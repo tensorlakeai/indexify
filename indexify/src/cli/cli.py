@@ -1,4 +1,7 @@
-from tensorlake.utils.logging import configure_logging_early, configure_production_logging
+from tensorlake.utils.logging import (
+    configure_logging_early,
+    configure_production_logging,
+)
 
 configure_logging_early()
 
@@ -24,7 +27,6 @@ from executor.function_executor.server.subprocess_function_executor_server_facto
 from rich.console import Console
 from rich.text import Text
 from rich.theme import Theme
-
 from tensorlake.functions_sdk.image import GetDefaultPythonImage, Image
 
 logger = structlog.get_logger(module=__name__)
