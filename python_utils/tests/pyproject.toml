@@ -10,7 +10,7 @@ repository = "https://github.com/tensorlakeai/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-indexify-python-utils = { path = "..", develop = true }
+python-utils = { path = "..", develop = true }
 
 [build-system]
 requires = ["poetry==2.0.0"]

@@ -1,4 +1,3 @@
-
 [tool.poetry]
 name = "tests"
 version = "0.1.0"
@@ -11,7 +10,7 @@ repository = "https://github.com/tensorlakeai/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-indexify-executor = { path = "..", develop = true }
+executor = { path = "..", develop = true }
 
 [build-system]
 requires = ["poetry==2.0.0"]

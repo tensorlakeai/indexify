@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "indexify-python-utils"
+name = "python-utils"
 version = "0.1.0"
 description = "Common utilities for Python packages"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
@@ -7,15 +7,12 @@ license = "Apache 2.0"
 readme = "README.md"
 homepage = "https://github.com/tensorlakeai/indexify"
 repository = "https://github.com/tensorlakeai/indexify"
-packages = [
-    { include = "python_utils", from="src", format = ["sdist", "wheel"] },
-]
 
 [tool.poetry.dependencies]
 python = "^3.9"
 pyyaml = "^6"
 structlog = "^24.4.0"
-httpx = { version = "0.27.2", extras = ["http2"] }
+httpx = { version = "^0.28.1", extras = ["http2"] }
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
