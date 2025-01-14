@@ -7,7 +7,7 @@ from httpx import AsyncClient, Client
 
 def get_httpx_client(
     config_path: Optional[str] = None, make_async: Optional[bool] = False
-) -> AsyncClient | Client:
+) -> Union[AsyncClient, Client]:
     """
     Creates and returns an httpx.Client instance, optionally configured with TLS settings from a YAML config file.
 
@@ -54,7 +54,7 @@ def get_sync_or_async_client(
     cert_path: Optional[str] = None,
     key_path: Optional[str] = None,
     ca_bundle_path: Optional[str] = None,
-) -> AsyncClient | Client:
+) -> Union[AsyncClient, Client]:
     """
     Creates and returns either a synchronous or asynchronous httpx client with optional TLS configuration.
 
