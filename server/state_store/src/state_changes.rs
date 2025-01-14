@@ -188,10 +188,6 @@ pub fn register_executor(
     last_state_change_id: &AtomicU64,
     request: &RegisterExecutorRequest,
 ) -> Result<Vec<StateChange>> {
-    println!(
-        "Registering executor: {:?}",
-        last_state_change_id.load(atomic::Ordering::Relaxed)
-    );
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .change_type(ChangeType::ExecutorAdded)
