@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use data_model::{
     ChangeType,
+    ExecutorAddedEvent,
     ExecutorRemovedEvent,
     InvokeComputeGraphEvent,
     StateChange,
@@ -190,7 +191,9 @@ pub fn register_executor(
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
-        .change_type(ChangeType::ExecutorAdded)
+        .change_type(ChangeType::ExecutorAdded(ExecutorAddedEvent {
+            executor_id: request.executor.id.clone(),
+        }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.executor.id.to_string())
         .id(StateChangeId::new(last_change_id))

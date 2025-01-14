@@ -178,8 +178,8 @@ impl GraphProcessor {
                 }),
                 processed_state_changes: vec![state_change.clone()],
             }),
-            ChangeType::ExecutorAdded => {
-                info!("registering executor");
+            ChangeType::ExecutorAdded(event) => {
+                info!("registering executor: {:?}", event);
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     tracing::error!("error refreshing executors: {:?}", err);
                 }
