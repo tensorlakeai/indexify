@@ -1012,12 +1012,6 @@ impl StateChange {
         } else {
             key.push_str("global|");
         }
-        if let Some(cg) = &self.compute_graph {
-            key.push_str(&format!("{}|", &cg));
-        }
-        if let Some(inv) = &self.invocation {
-            key.push_str(&format!("{}|", &inv));
-        }
         key.push_str(format!("{}", self.id).as_str());
         key.as_bytes().to_vec()
     }

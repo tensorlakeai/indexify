@@ -424,13 +424,6 @@ pub(crate) fn delete_invocation(
     // Delete Task Outputs
     // FIXME: This requires putting the invocation id in the task output key
 
-    // Delete State Changes for the invocation
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),
-        format!("ns_{}", prefix).as_bytes(),
-    )?;
-
     // Delete Graph Invocation Context
     delete_cf_prefix(
         txn,
