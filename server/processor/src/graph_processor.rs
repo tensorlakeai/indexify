@@ -191,13 +191,19 @@ impl GraphProcessor {
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     tracing::error!("error refreshing executors: {:?}", err);
                 }
-                if let Err(err) = self.task_allocator.schedule_unplaced_tasks() {
+                let task_allocation_result = self.task_allocator.schedule_unplaced_tasks();
+                if let Err(err) = &task_allocation_result {
                     tracing::error!("error scheduling unplaced tasks: {:?}", err);
                 }
-                Ok(StateMachineUpdateRequest {
-                    payload: RequestPayload::Noop,
-                    processed_state_changes: vec![state_change.clone()],
-                })
+                let result = task_allocation_result.unwrap();
+                if result.task_placements.is_empty() {
+                    Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::Noop,
+                        processed_state_changes: vec![state_change.clone()],
+                    })
+                } else {
+                    Ok(task_placement_result_to_sm_update(result, &state_change))
+                }
             }
             ChangeType::TombStoneExecutor(event) => {
                 info!("tombstone executor {:?}", event);
