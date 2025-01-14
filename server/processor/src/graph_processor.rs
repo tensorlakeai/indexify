@@ -16,6 +16,7 @@ use state_store::{
     IndexifyState,
 };
 use tokio::sync::Notify;
+use tracing::info;
 
 use crate::{
     task_allocator::{self, TaskPlacementResult},
@@ -178,16 +179,28 @@ impl GraphProcessor {
                 processed_state_changes: vec![state_change.clone()],
             }),
             ChangeType::ExecutorAdded => {
+                info!("registering executor");
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     tracing::error!("error refreshing executors: {:?}", err);
                 }
                 let result = self.task_allocator.schedule_unplaced_tasks()?;
                 Ok(task_placement_result_to_sm_update(result, &state_change))
             }
-            ChangeType::ExecutorRemoved(event) => {
+            ChangeType::ExecutorRemoved(_event) => {
+                info!("de-registering executor {:?}", _event);
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     tracing::error!("error refreshing executors: {:?}", err);
                 }
+                if let Err(err) = self.task_allocator.schedule_unplaced_tasks() {
+                    tracing::error!("error scheduling unplaced tasks: {:?}", err);
+                }
+                Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::Noop,
+                    processed_state_changes: vec![state_change.clone()],
+                })
+            }
+            ChangeType::TombStoneExecutor(event) => {
+                info!("tombstone executor {:?}", event);
                 Ok(StateMachineUpdateRequest {
                     payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                         executor_removed: event.executor_id.clone(),

@@ -24,6 +24,7 @@ use crate::requests::{
     DeregisterExecutorRequest,
     FinalizeTaskRequest,
     InvokeComputeGraphRequest,
+    MutateClusterTopologyRequest,
     NamespaceProcessorUpdateRequest,
     RegisterExecutorRequest,
 };
@@ -145,11 +146,31 @@ pub fn change_events_for_namespace_processor_update(
 
 pub fn deregister_executor_events(
     last_state_change_id: &AtomicU64,
-    request: &DeregisterExecutorRequest,
+    request: &MutateClusterTopologyRequest,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .change_type(ChangeType::ExecutorRemoved(ExecutorRemovedEvent {
+            executor_id: request.executor_removed.clone(),
+        }))
+        .namespace(None)
+        .compute_graph(None)
+        .invocation(None)
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.executor_removed.get().to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn tombstone_executor(
+    last_state_change_id: &AtomicU64,
+    request: &DeregisterExecutorRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .change_type(ChangeType::TombStoneExecutor(ExecutorRemovedEvent {
             executor_id: request.executor_id.clone(),
         }))
         .namespace(None)

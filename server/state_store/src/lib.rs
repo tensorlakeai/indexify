@@ -357,13 +357,11 @@ impl IndexifyState {
                     &request.executor_removed,
                     self.metrics.clone(),
                 )?;
-                vec![]
+                state_changes::deregister_executor_events(&self.last_state_change_id, &request)?
             }
             RequestPayload::DeregisterExecutor(request) => {
-                let new_state_changes = state_changes::deregister_executor_events(
-                    &self.last_state_change_id,
-                    &request,
-                )?;
+                let new_state_changes =
+                    state_changes::tombstone_executor(&self.last_state_change_id, &request)?;
                 let removed = {
                     let mut states = self.executor_states.write().await;
                     if let Some(s) = states.get_mut(&request.executor_id) {

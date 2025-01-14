@@ -952,6 +952,7 @@ pub enum ChangeType {
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorAdded,
+    TombStoneExecutor(ExecutorRemovedEvent),
     ExecutorRemoved(ExecutorRemovedEvent),
     TaskCreated(TaskCreatedEvent),
 }
@@ -963,6 +964,7 @@ impl fmt::Display for ChangeType {
             ChangeType::TaskFinished(_) => write!(f, "TaskFinished"),
             ChangeType::TombstoneComputeGraph(_) => write!(f, "TombstoneComputeGraph"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
+            ChangeType::TombStoneExecutor(_) => write!(f, "TombStoneExecutor"),
             ChangeType::ExecutorRemoved(_) => write!(f, "ExecutorRemoved"),
             ChangeType::TaskCreated(_) => write!(f, "TaskCreated"),
             ChangeType::TombstoneInvocation(_) => write!(f, "TombstoneInvocation"),
@@ -1035,7 +1037,6 @@ mod tests {
         test_objects::tests::test_compute_fn,
         ComputeGraph,
         ComputeGraphCode,
-        ComputeGraphError,
         ComputeGraphVersion,
         DynamicEdgeRouter,
         GraphVersion,
