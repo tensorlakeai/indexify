@@ -22,7 +22,7 @@ rich = "^13.9.2"
 typer = "^0.12"
 nanoid = "^2.0.0"
 structlog = "^24.4.0"
-tensorlake = "^0.1.6"
+tensorlake = "^0.1.7"
 executor = { path = "../executor", develop = true }
 
 [tool.poetry.group.dev.dependencies]
