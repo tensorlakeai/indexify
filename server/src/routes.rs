@@ -47,6 +47,8 @@ mod download;
 mod internal_ingest;
 mod invoke;
 mod logs;
+mod webhook;
+
 use download::{
     download_fn_output_by_key,
     download_fn_output_payload,
@@ -82,6 +84,7 @@ use crate::{
         Tasks,
     },
 };
+use crate::routes::webhook::receive_webhook;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -201,6 +204,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
         .route("/metrics/service",get(service_metrics).with_state(route_state.clone()))
+        .route("/inkwell_webhook", get(receive_webhook).with_state(route_state.clone()))
         .layer(cors)
         .layer(DefaultBodyLimit::disable())
 }

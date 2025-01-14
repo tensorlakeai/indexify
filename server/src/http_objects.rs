@@ -574,6 +574,12 @@ pub struct InvocationQueryParams {
     pub block_until_finish: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InkwellWebhookQueryParams {
+    pub job_id: String,
+    pub job_status: String,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::http_objects::{ComputeFn, DynamicRouter};
