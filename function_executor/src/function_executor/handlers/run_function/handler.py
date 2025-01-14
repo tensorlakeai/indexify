@@ -2,7 +2,7 @@ import io
 import sys
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from tensorlake.functions_sdk.functions import (
     FunctionCallResult,
@@ -10,6 +10,7 @@ from tensorlake.functions_sdk.functions import (
     RouterCallResult,
     TensorlakeCompute,
     TensorlakeFunctionWrapper,
+    TensorlakeRouter,
 )
 from tensorlake.functions_sdk.invocation_state.invocation_state import InvocationState
 
@@ -116,12 +117,12 @@ class Handler:
 def _is_router(func_wrapper: TensorlakeFunctionWrapper) -> bool:
     """Determines if the function is a router.
 
-    A function is a router if it is an instance of IndexifyRouter or if it is an IndexifyRouter class.
+    A function is a router if it is an instance of TensorlakeRouter or if it is an TensorlakeRouter class.
     """
     return str(
         type(func_wrapper.indexify_function)
-    ) == "<class 'indexify.functions_sdk.indexify_functions.IndexifyRouter'>" or isinstance(
-        func_wrapper.indexify_function, TensorlakeCompute
+    ) == "<class 'tensorlake.functions_sdk.functions.TensorlakeRouter'>" or isinstance(
+        func_wrapper.indexify_function, TensorlakeRouter
     )
 
 

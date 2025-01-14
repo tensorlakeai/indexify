@@ -1,7 +1,4 @@
-from tensorlake.utils.logging import (
-    configure_logging_early,
-    configure_production_logging,
-)
+from python_utils.logging import configure_logging_early, configure_production_logging
 
 configure_logging_early()
 
@@ -215,7 +212,7 @@ def executor(
         server_addr=server_addr,
         config_path=config_path,
         executor_id=id,
-        executor_version=version("indexify-executor"),
+        executor_version=version("executor"),
         executor_cache=executor_cache,
         ports=ports,
         functions=function_uris,

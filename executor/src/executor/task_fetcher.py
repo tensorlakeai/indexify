@@ -4,7 +4,7 @@ from typing import AsyncGenerator, List, Optional
 
 import structlog
 from httpx_sse import aconnect_sse
-from tensorlake.utils.http_client import get_httpx_client
+from python_utils.http_client import get_httpx_client
 
 from .api_objects import ExecutorMetadata, FunctionURI, Task
 from .runtime_probes import ProbeInfo, RuntimeProbes
@@ -29,7 +29,7 @@ class TaskFetcher:
         probe_info: ProbeInfo = RuntimeProbes().probe()
         self._executor_metadata: ExecutorMetadata = ExecutorMetadata(
             id=executor_id,
-            executor_version=version("indexify-executor"),
+            executor_version=version("executor"),
             addr="",
             function_allowlist=function_allowlist,
             labels=probe_info.labels,

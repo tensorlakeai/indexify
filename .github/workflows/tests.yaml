@@ -14,7 +14,6 @@ on:
       - 'function_executor/**'
       - 'indexify/**'
       - 'python_utils/**'
-      - 'python-sdk/**'
       - '.github/workflows/tests.yaml'
 
 env:
@@ -87,8 +86,6 @@ jobs:
         run: cd indexify && make build && make check
       - name: Build and lint python_utils
         run: cd python_utils && make build && make check
-      - name: Build and lint python-sdk
-        run: cd python-sdk && make build && make check
 
   acceptance_tests:
     name: Run Acceptance Tests
@@ -169,8 +166,6 @@ jobs:
         run: cd indexify && make test
       - name: Run python_utils tests
         run: cd python_utils && make test
-      - name: Run python-sdk tests
-        run: cd python-sdk && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
@@ -276,8 +271,6 @@ jobs:
         run: cd indexify && make test
       - name: Run python_utils tests
         run: cd python_utils && make test
-      - name: Run python-sdk tests
-        run: cd python-sdk && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
