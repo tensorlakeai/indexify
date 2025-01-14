@@ -455,16 +455,23 @@ async fn create_or_update_compute_graph(
         namespace,
         compute_graph,
     });
-    state
+    let result = state
         .indexify_state
         .write(StateMachineUpdateRequest {
             payload: request,
             processed_state_changes: vec![],
         })
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    info!("compute graph created: {}", name);
+        .await;
+    if let Err(err) = result {
+        return match err.root_cause().downcast_ref::<ComputeGraphError>() {
+            Some(ComputeGraphError::VersionExists) => Err(IndexifyAPIError::bad_request(
+                "This graph version already exists, please update the graph version",
+            )),
+            _ => Err(IndexifyAPIError::internal_error(err)),
+        };
+    }
 
+    info!("compute graph created: {}", name);
     Ok(())
 }
 
