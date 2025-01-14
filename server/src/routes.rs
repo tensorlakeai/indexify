@@ -23,7 +23,6 @@ use indexify_ui::Assets as UiAssets;
 use indexify_utils::GuardStreamExt;
 use metrics::api_io_stats;
 use nanoid::nanoid;
-use processor::dispatcher::Dispatcher;
 use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},
@@ -135,8 +134,7 @@ struct ApiDoc;
 
 #[derive(Clone)]
 pub struct RouteState {
-    pub indexify_state: Arc<IndexifyState<Dispatcher>>,
-    pub dispatcher: Arc<Dispatcher>,
+    pub indexify_state: Arc<IndexifyState>,
     pub blob_storage: Arc<blob_store::BlobStorage>,
     pub kvs: Arc<KVS>,
     pub executor_manager: Arc<ExecutorManager>,
@@ -197,7 +195,7 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-        .layer(OtelInResponseLayer::default())
+        .layer(OtelInResponseLayer)
         .layer(OtelAxumLayer::default())
         // No tracing starting here.
         .route("/ui", get(ui_index_handler))
@@ -323,7 +321,7 @@ async fn namespace_middleware(
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: namespace.to_string(),
                     }),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await
                 .map_err(IndexifyAPIError::internal_error)?;
@@ -350,11 +348,15 @@ async fn create_namespace(
     State(state): State<RouteState>,
     Json(namespace): Json<CreateNamespace>,
 ) -> Result<(), IndexifyAPIError> {
-    state
-        .dispatcher
-        .dispatch_requests(RequestPayload::CreateNameSpace(NamespaceRequest {
+    let req = StateMachineUpdateRequest {
+        payload: RequestPayload::CreateNameSpace(NamespaceRequest {
             name: namespace.name.clone(),
-        }))
+        }),
+        processed_state_changes: vec![],
+    };
+    state
+        .indexify_state
+        .write(req)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -453,18 +455,23 @@ async fn create_or_update_compute_graph(
         namespace,
         compute_graph,
     });
-    let result = state.dispatcher.dispatch_requests(request).await;
-    if let Err(e) = result {
-        return match e.root_cause().downcast_ref::<ComputeGraphError>() {
+    let result = state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            processed_state_changes: vec![],
+        })
+        .await;
+    if let Err(err) = result {
+        return match err.root_cause().downcast_ref::<ComputeGraphError>() {
             Some(ComputeGraphError::VersionExists) => Err(IndexifyAPIError::bad_request(
                 "This graph version already exists, please update the graph version",
             )),
-            _ => Err(IndexifyAPIError::internal_error(e)),
+            _ => Err(IndexifyAPIError::internal_error(err)),
         };
     }
 
     info!("compute graph created: {}", name);
-
     Ok(())
 }
 
@@ -482,15 +489,20 @@ async fn delete_compute_graph(
     Path((namespace, compute_graph)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest {
+    let request = RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
         namespace,
-        name: compute_graph,
+        name: compute_graph.clone(),
     });
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request,
+            processed_state_changes: vec![],
+        })
         .await
         .map_err(IndexifyAPIError::internal_error)?;
+
+    info!("compute graph deleted: {}", compute_graph);
     Ok(())
 }
 
@@ -636,20 +648,17 @@ async fn executor_tasks(
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
-    let function_allowlist = match payload.function_allowlist {
-        Some(function_uris) => Some(
-            function_uris
-                .iter()
-                .map(|f| data_model::FunctionURI {
-                    namespace: f.namespace.clone(),
-                    compute_graph_name: f.compute_graph.clone(),
-                    compute_fn_name: f.compute_fn.clone(),
-                    version: f.version.clone().into(),
-                })
-                .collect(),
-        ),
-        None => None,
-    };
+    let function_allowlist = payload.function_allowlist.map(|function_uris| {
+        function_uris
+            .iter()
+            .map(|f| data_model::FunctionURI {
+                namespace: f.namespace.clone(),
+                compute_graph_name: f.compute_graph.clone(),
+                compute_fn_name: f.compute_fn.clone(),
+                version: f.version.clone().into(),
+            })
+            .collect()
+    });
     let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
@@ -801,15 +810,19 @@ async fn delete_invocation(
     Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::DeleteInvocation(DeleteInvocationRequest {
+    let request = RequestPayload::TombstoneInvocation(DeleteInvocationRequest {
         namespace,
         compute_graph,
         invocation_id,
     });
+    let req = StateMachineUpdateRequest {
+        payload: request,
+        processed_state_changes: vec![],
+    };
 
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(req)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(())

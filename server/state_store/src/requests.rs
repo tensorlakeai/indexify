@@ -5,7 +5,6 @@ use data_model::{
     GraphVersion,
     InvocationPayload,
     NodeOutput,
-    ProcessorId,
     ReduceTask,
     StateChange,
     Task,
@@ -16,12 +15,7 @@ use data_model::{
 
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
-    pub process_state_change: Option<ProcessedStateChange>,
-}
-
-pub struct ProcessedStateChange {
-    pub state_changes: Vec<StateChange>,
-    pub processor_id: ProcessorId,
+    pub processed_state_changes: Vec<StateChange>,
 }
 
 #[derive(Debug, Clone, strum::Display)]
@@ -32,8 +26,8 @@ pub enum RequestPayload {
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
-    DeleteComputeGraph(DeleteComputeGraphRequest),
-    DeleteInvocation(DeleteInvocationRequest),
+    TombstoneComputeGraph(DeleteComputeGraphRequest),
+    TombstoneInvocation(DeleteInvocationRequest),
     NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
     TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
@@ -41,6 +35,15 @@ pub enum RequestPayload {
     RemoveGcUrls(Vec<String>),
     UpdateSystemTask(UpdateSystemTaskRequest),
     RemoveSystemTask(RemoveSystemTaskRequest),
+    MutateClusterTopology(MutateClusterTopologyRequest),
+    DeleteComputeGraphRequest(DeleteComputeGraphRequest),
+    DeleteInvocationRequest(DeleteInvocationRequest),
+    Noop,
+}
+
+#[derive(Debug, Clone)]
+pub struct MutateClusterTopologyRequest {
+    pub executor_removed: ExecutorId,
 }
 
 #[derive(Debug, Clone)]
@@ -115,14 +118,6 @@ pub struct DeleteComputeGraphOutputRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateTasksRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub tasks: Vec<Task>,
-}
-
-#[derive(Debug, Clone)]
 pub struct TaskPlacement {
     pub task: Task,
     pub executor: ExecutorId,
@@ -141,13 +136,17 @@ pub struct ReductionTasks {
 }
 #[derive(Debug, Clone)]
 pub struct NamespaceProcessorUpdateRequest {
-    pub task_requests: Vec<CreateTasksRequest>,
+    pub namespace: String,
+    pub compute_graph: String,
+    pub invocation_id: String,
+    pub task_requests: Vec<Task>,
     pub reduction_tasks: ReductionTasks,
 }
 
 #[derive(Debug, Clone)]
 pub struct TaskAllocationUpdateRequest {
     pub allocations: Vec<TaskPlacement>,
+    pub unplaced_task_keys: Vec<String>,
     pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 

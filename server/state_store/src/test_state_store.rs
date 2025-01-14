@@ -13,7 +13,6 @@ use data_model::{
     },
     ExecutorId,
     NodeOutput,
-    StateChange,
     Task,
     TaskId,
     TaskOutcome,
@@ -28,31 +27,16 @@ use crate::{
         StateMachineUpdateRequest,
     },
     IndexifyState,
-    StateChangeDispatcher,
 };
 
-pub struct NoopStateChangeDispatcher;
-
-impl StateChangeDispatcher for NoopStateChangeDispatcher {
-    fn dispatch_state_change(&self, _change: Vec<StateChange>) -> Result<()> {
-        Ok(())
-    }
-
-    fn processor_ids_for_state_change(&self, _change: StateChange) -> Vec<data_model::ProcessorId> {
-        vec![]
-    }
-}
-
 pub struct TestStateStore {
-    pub indexify_state: Arc<IndexifyState<NoopStateChangeDispatcher>>,
+    pub indexify_state: Arc<IndexifyState>,
 }
 
 impl TestStateStore {
     pub async fn new() -> Result<TestStateStore> {
         let temp_dir = tempfile::tempdir()?;
-        let noop_state_change_dispatcher = Arc::new(NoopStateChangeDispatcher {});
-        let indexify_state =
-            IndexifyState::new(temp_dir.path().join("state"), noop_state_change_dispatcher).await?;
+        let indexify_state = IndexifyState::new(temp_dir.path().join("state")).await?;
         Ok(TestStateStore { indexify_state })
     }
 
@@ -94,9 +78,7 @@ impl TestStateStore {
     }
 }
 
-pub async fn with_simple_graph<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
-) -> String {
+pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_a("image_hash".to_string()),
@@ -104,7 +86,7 @@ pub async fn with_simple_graph<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -117,16 +99,14 @@ pub async fn with_simple_graph<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
     invocation_payload.id
 }
 
-pub async fn with_router_graph<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
-) -> String {
+pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_b(),
@@ -134,7 +114,7 @@ pub async fn with_router_graph<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -148,16 +128,14 @@ pub async fn with_router_graph<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
     invocation_payload.id
 }
 
-pub async fn with_reducer_graph<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
-) -> String {
+pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_with_reducer(),
@@ -165,7 +143,7 @@ pub async fn with_reducer_graph<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
@@ -179,15 +157,15 @@ pub async fn with_reducer_graph<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::InvokeComputeGraph(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
         .unwrap();
     invocation_payload.id
 }
 
-pub async fn finalize_task<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn finalize_task(
+    indexify_state: &IndexifyState,
     task: &Task,
     num_outputs: usize,
     task_outcome: TaskOutcome,
@@ -223,13 +201,13 @@ pub async fn finalize_task<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::FinalizeTask(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
 }
 
-pub async fn finalize_task_graph_b<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn finalize_task_graph_b(
+    indexify_state: &IndexifyState,
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {
@@ -247,13 +225,13 @@ pub async fn finalize_task_graph_b<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::FinalizeTask(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
 }
 
-pub async fn finalize_router_x<T: StateChangeDispatcher>(
-    indexify_state: &IndexifyState<T>,
+pub async fn finalize_router_x(
+    indexify_state: &IndexifyState,
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {
@@ -271,7 +249,7 @@ pub async fn finalize_router_x<T: StateChangeDispatcher>(
     indexify_state
         .write(StateMachineUpdateRequest {
             payload: RequestPayload::FinalizeTask(request),
-            process_state_change: None,
+            processed_state_changes: vec![],
         })
         .await
 }

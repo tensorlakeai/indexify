@@ -40,7 +40,7 @@ mod tests {
                         compute_graph: compute_graph.clone(),
                     },
                 ),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -75,14 +75,24 @@ mod tests {
 
         blob_storage.read_bytes(&res.url).await?;
 
-        let request = RequestPayload::DeleteComputeGraph(DeleteComputeGraphRequest {
+        let request = RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
             namespace: TEST_NAMESPACE.to_string(),
             name: compute_graph.name.clone(),
         });
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: request,
-                process_state_change: None,
+                processed_state_changes: vec![],
+            })
+            .await?;
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: compute_graph.name.clone(),
+                }),
+                processed_state_changes: vec![],
             })
             .await?;
 

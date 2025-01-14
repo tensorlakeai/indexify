@@ -13,7 +13,12 @@ use data_model::InvocationPayloadBuilder;
 use futures::{stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
-    requests::{InvokeComputeGraphRequest, ReplayComputeGraphRequest, RequestPayload},
+    requests::{
+        InvokeComputeGraphRequest,
+        ReplayComputeGraphRequest,
+        RequestPayload,
+        StateMachineUpdateRequest,
+    },
 };
 use tokio::sync::broadcast::Receiver;
 use tracing::{error, info};
@@ -122,13 +127,13 @@ pub async fn invoke_with_file(
         compute_graph_name: compute_graph.clone(),
         invocation_payload,
     });
-    state
-        .dispatcher
-        .dispatch_requests(request)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
+    let sm_req = StateMachineUpdateRequest {
+        payload: request,
+        processed_state_changes: vec![],
+    };
+    state.indexify_state.write(sm_req).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+    })?;
     Ok(Json(InvocationId { id }))
 }
 
@@ -197,13 +202,15 @@ pub async fn invoke_with_object(
         invocation_payload,
     });
     state
-        .dispatcher
-        .dispatch_requests(request)
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: request.clone(),
+            processed_state_changes: vec![],
+        })
         .await
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-
     let invocation_event_stream = async_stream::stream! {
         if !should_block {
             yield Event::default().json_data(InvocationId { id: id.clone() });
@@ -254,12 +261,12 @@ pub async fn replay_compute_graph(
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.clone(),
     });
-    state
-        .dispatcher
-        .dispatch_requests(request)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))
-        })?;
+    let sm_req = StateMachineUpdateRequest {
+        payload: request,
+        processed_state_changes: vec![],
+    };
+    state.indexify_state.write(sm_req).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))
+    })?;
     Ok(())
 }

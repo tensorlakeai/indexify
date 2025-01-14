@@ -14,18 +14,16 @@ use state_store::{
 use tokio::{self, sync::watch::Receiver};
 use tracing::{debug, error, info, info_span};
 
-use crate::dispatcher::Dispatcher;
-
 const MAX_PENDING_TASKS: usize = 10;
 
 pub struct SystemTasksExecutor {
-    state: Arc<IndexifyState<Dispatcher>>,
+    state: Arc<IndexifyState>,
     rx: tokio::sync::watch::Receiver<()>,
     shutdown_rx: Receiver<()>,
 }
 
 impl SystemTasksExecutor {
-    pub fn new(state: Arc<IndexifyState<Dispatcher>>, shutdown_rx: Receiver<()>) -> Self {
+    pub fn new(state: Arc<IndexifyState>, shutdown_rx: Receiver<()>) -> Self {
         let rx = state.get_system_tasks_watcher();
         Self {
             state,
@@ -102,16 +100,17 @@ impl SystemTasksExecutor {
 
         info!(queuing = invocations.len(), "queueing invocations");
 
+        let replay_req = ReplayInvocationsRequest {
+            namespace: task.namespace.clone(),
+            compute_graph_name: task.compute_graph_name.clone(),
+            graph_version: task.graph_version.clone(),
+            invocation_ids: invocations.iter().map(|i| i.id.clone()).collect(),
+            restart_key: restart_key.clone(),
+        };
         self.state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::ReplayInvocations(ReplayInvocationsRequest {
-                    namespace: task.namespace.clone(),
-                    compute_graph_name: task.compute_graph_name.clone(),
-                    graph_version: task.graph_version.clone(),
-                    invocation_ids: invocations.iter().map(|i| i.id.clone()).collect(),
-                    restart_key: restart_key.clone(),
-                }),
-                process_state_change: None,
+                payload: RequestPayload::ReplayInvocations(replay_req),
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -132,13 +131,13 @@ impl SystemTasksExecutor {
                             namespace: task.namespace.clone(),
                             compute_graph_name: task.compute_graph_name.clone(),
                         }),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
             } else {
                 info!(
                     running_invocations = task.num_running_invocations,
-                    "waiting for all invotations to finish before completing the task",
+                    "waiting for all invocations to finish before completing the task",
                 );
                 // Mark task as completing so that it gets removed on last finished invocation.
                 if !task.waiting_for_running_invocations {
@@ -149,7 +148,7 @@ impl SystemTasksExecutor {
                                 compute_graph_name: task.compute_graph_name.clone(),
                                 waiting_for_running_invocations: true,
                             }),
-                            process_state_change: None,
+                            processed_state_changes: vec![],
                         })
                         .await?;
                 }

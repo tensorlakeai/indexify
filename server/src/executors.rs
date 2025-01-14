@@ -2,38 +2,36 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use data_model::{ExecutorId, ExecutorMetadata};
-use processor::dispatcher::Dispatcher;
 use state_store::{
-    requests::{DeregisterExecutorRequest, RegisterExecutorRequest, RequestPayload},
+    requests::{
+        DeregisterExecutorRequest,
+        RegisterExecutorRequest,
+        RequestPayload,
+        StateMachineUpdateRequest,
+    },
     IndexifyState,
 };
 use tracing::error;
 
 pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct ExecutorManager {
-    indexify_state: Arc<IndexifyState<Dispatcher>>,
-    dispatcher: Arc<Dispatcher>,
+    indexify_state: Arc<IndexifyState>,
 }
 
 impl ExecutorManager {
-    pub async fn new(
-        indexify_state: Arc<IndexifyState<Dispatcher>>,
-        dispatcher: Arc<Dispatcher>,
-    ) -> Self {
+    pub async fn new(indexify_state: Arc<IndexifyState>) -> Self {
         let cs = indexify_state.clone();
-        let dispatch = dispatcher.clone();
         let executors = cs.reader().get_all_executors().unwrap_or_default();
         tokio::spawn(async move {
             tokio::time::sleep(EXECUTOR_TIMEOUT).await;
             for executor in executors {
-                if let Err(err) = dispatch
-                    .dispatch_requests(RequestPayload::DeregisterExecutor(
-                        DeregisterExecutorRequest {
-                            executor_id: executor.id.clone(),
-                        },
-                    ))
-                    .await
-                {
+                let sm_req = StateMachineUpdateRequest {
+                    payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                        executor_id: executor.id.clone(),
+                    }),
+                    processed_state_changes: vec![],
+                };
+                if let Err(err) = cs.write(sm_req).await {
                     error!(
                         "failed to deregister executor on startup {}: {:?}",
                         executor.id, err
@@ -42,26 +40,23 @@ impl ExecutorManager {
             }
         });
 
-        ExecutorManager {
-            indexify_state,
-            dispatcher,
-        }
+        ExecutorManager { indexify_state }
     }
 
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
-        self.dispatcher
-            .dispatch_requests(RequestPayload::RegisterExecutor(RegisterExecutorRequest {
-                executor,
-            }))
-            .await
+        let sm_req = StateMachineUpdateRequest {
+            payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest { executor }),
+            processed_state_changes: vec![],
+        };
+        self.indexify_state.write(sm_req).await
     }
 
     pub async fn deregister_executor(&self, executor_id: ExecutorId) -> Result<()> {
-        self.dispatcher
-            .dispatch_requests(RequestPayload::DeregisterExecutor(
-                DeregisterExecutorRequest { executor_id },
-            ))
-            .await
+        let sm_req = StateMachineUpdateRequest {
+            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest { executor_id }),
+            processed_state_changes: vec![],
+        };
+        self.indexify_state.write(sm_req).await
     }
 
     pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {
@@ -93,13 +88,13 @@ mod tests {
         let Service {
             indexify_state,
             executor_manager,
-            task_allocator,
+            graph_processor,
             shutdown_rx,
             ..
         } = test_srv.service;
 
         tokio::spawn(async move {
-            task_allocator.start(shutdown_rx.clone()).await;
+            graph_processor.start(shutdown_rx).await;
         });
 
         let executor = ExecutorMetadata {
@@ -114,7 +109,6 @@ mod tests {
         let executors = indexify_state.reader().get_all_executors()?;
 
         assert_eq!(executors.len(), 1);
-
         Ok(())
     }
 
@@ -124,13 +118,13 @@ mod tests {
         let Service {
             indexify_state,
             executor_manager,
-            task_allocator,
+            graph_processor,
             shutdown_rx,
             ..
         } = test_srv.service;
 
         tokio::spawn(async move {
-            task_allocator.start(shutdown_rx.clone()).await;
+            graph_processor.start(shutdown_rx).await;
         });
 
         let executor = ExecutorMetadata {
@@ -146,16 +140,12 @@ mod tests {
 
         assert_eq!(executors.len(), 1);
 
-        executor_manager
-            .deregister_executor(executors[0].id.clone())
-            .await?;
-
-        let executors = indexify_state.reader().get_all_executors()?;
-
-        assert_eq!(executors.len(), 0);
-
         executor_manager.register_executor(executor.clone()).await?;
-
+        schedule_deregister(
+            executor_manager.clone(),
+            executor.id.clone(),
+            Duration::from_secs(1),
+        );
         schedule_deregister(
             executor_manager.clone(),
             executor.id.clone(),

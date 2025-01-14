@@ -12,7 +12,6 @@ use data_model::{
     InvocationPayload,
     Namespace,
     NodeOutput,
-    ProcessorId,
     ReduceTask,
     StateChange,
     SystemTask,
@@ -24,7 +23,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::{debug, instrument};
+use tracing::debug;
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -88,7 +87,7 @@ impl StateReader {
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
 
         let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(4_194_304);
+        read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
             Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
             None => IteratorMode::From(&key_prefix, Direction::Forward),
@@ -134,7 +133,7 @@ impl StateReader {
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
 
         let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(4_194_304);
+        read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
             Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
             None => IteratorMode::From(&key_prefix, Direction::Forward),
@@ -422,66 +421,31 @@ impl StateReader {
         Ok(urls)
     }
 
-    #[instrument(skip(self))]
-    pub fn get_unprocessed_state_changes_all_processors(&self) -> Result<Vec<StateChange>> {
-        let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
+    pub fn unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
+        let kvs = &[KeyValue::new("op", "get_next_state_change")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key_prefix = "";
-        let key_prefix = key_prefix.as_bytes();
-
-        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
-        let iter = self
-            .db
-            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
         let mut state_changes = Vec::new();
-        let mut count = 0;
-        for kv in iter.flatten() {
-            let (_key, serialized_sc) = kv;
-
-            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
-            state_changes.push(state_change);
-            count += 1;
-
-            if count >= 10 {
-                break;
-            }
+        let global_state_changes: Vec<StateChange> = self
+            .get_rows_from_cf_with_limits(
+                "global".as_bytes(),
+                None,
+                IndexifyObjectsColumns::UnprocessedStateChanges,
+                None,
+            )?
+            .0;
+        state_changes.extend(global_state_changes);
+        if state_changes.len() >= 100 {
+            return Ok(state_changes);
         }
-        Ok(state_changes)
-    }
-
-    #[instrument(skip(self))]
-    pub fn get_unprocessed_state_changes(
-        &self,
-        processor_id: ProcessorId,
-    ) -> Result<Vec<StateChange>> {
-        let kvs = &[KeyValue::new("op", "get_unprocessed_state_changes")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key_prefix = processor_id.key_prefix();
-        let key_prefix = key_prefix.as_bytes();
-
-        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
-        let iter = self
-            .db
-            .iterator_cf(&cf, IteratorMode::From(key_prefix, Direction::Forward));
-        let mut state_changes = Vec::new();
-        let mut count = 0;
-        for kv in iter.flatten() {
-            let (key, serialized_sc) = kv;
-
-            if !key.starts_with(key_prefix) {
-                break;
-            }
-
-            let state_change = JsonEncoder::decode::<StateChange>(&serialized_sc)?;
-            state_changes.push(state_change);
-            count += 1;
-
-            if count >= 10 {
-                break;
-            }
-        }
+        let ns_state_changes: Vec<StateChange> = self
+            .get_rows_from_cf_with_limits(
+                "ns".as_bytes(),
+                None,
+                IndexifyObjectsColumns::UnprocessedStateChanges,
+                Some(100 - state_changes.len()),
+            )?
+            .0;
+        state_changes.extend(ns_state_changes);
         Ok(state_changes)
     }
 
@@ -921,7 +885,7 @@ mod tests {
                     payload: RequestPayload::CreateNameSpace(NamespaceRequest {
                         name: name.clone(),
                     }),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await
                 .unwrap();

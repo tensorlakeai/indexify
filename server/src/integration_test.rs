@@ -21,17 +21,17 @@ mod tests {
         GraphVersion,
         InvocationPayloadBuilder,
         Node,
-        ProcessorId,
-        ProcessorType,
         RuntimeInformation,
         StateChange,
         Task,
         TaskId,
         TaskOutcome,
     };
+    use futures::StreamExt;
     use state_store::{
         requests::{
             CreateOrUpdateComputeGraphRequest,
+            DeleteComputeGraphRequest,
             DeregisterExecutorRequest,
             FinalizeTaskRequest,
             InvokeComputeGraphRequest,
@@ -41,6 +41,7 @@ mod tests {
         },
         serializer::{JsonEncode, JsonEncoder},
         state_machine::IndexifyObjectsColumns,
+        task_stream,
         test_state_store,
     };
 
@@ -60,10 +61,8 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .get_unprocessed_state_changes_all_processors()
-            .unwrap();
+        let unprocessed_state_changes =
+            indexify_state.reader().unprocessed_state_changes().unwrap();
         // Processes the invoke cg event and creates a task created event
         assert_eq!(unprocessed_state_changes.len(), 1);
         Ok(())
@@ -75,6 +74,14 @@ mod tests {
         let Service { indexify_state, .. } = test_srv.service.clone();
         let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
 
+        // Should have 1 unprocessed state - one task created event
+        let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
+        assert_eq!(
+            1,
+            unprocessed_state_changes.len(),
+            "{:?}",
+            unprocessed_state_changes
+        );
         test_srv.process_all().await?;
 
         let tasks = indexify_state
@@ -83,12 +90,41 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 1);
+
+        // Should have 0 unprocessed state - one task it would be unallocated
+        let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
+        assert_eq!(
+            0,
+            unprocessed_state_changes.len(),
+            "{:?}",
+            unprocessed_state_changes
+        );
+        let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+        assert_eq!(1, unallocated_tasks.len(), "{:?}", unallocated_tasks);
         let task = &tasks[0];
         // Finish the task and check if new tasks are created
-        test_state_store::finalize_task(&indexify_state, task, 1, TaskOutcome::Success, false)
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                processed_state_changes: vec![],
+                payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    compute_graph: "graph_A".to_string(),
+                    compute_fn: "fn_a".to_string(),
+                    invocation_id: invocation_id.clone(),
+                    task_id: task.id.clone(),
+                    node_outputs: vec![mock_node_fn_output(
+                        invocation_id.as_str(),
+                        "graph_A",
+                        "fn_a",
+                        None,
+                    )],
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }),
+            })
             .await
             .unwrap();
-
         test_srv.process_ns().await?;
 
         let tasks = indexify_state
@@ -97,15 +133,14 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 3);
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .get_unprocessed_state_changes_all_processors()
-            .unwrap();
+        let unprocessed_state_changes =
+            indexify_state.reader().unprocessed_state_changes().unwrap();
 
-        // has task created state change in it.
+        // At this point there should be 2 unprocessed task created state changes - for
+        // the two new tasks
         assert_eq!(
             unprocessed_state_changes.len(),
-            1,
+            2,
             "unprocessed_state_changes: {:?}",
             unprocessed_state_changes
         );
@@ -135,10 +170,8 @@ mod tests {
 
         test_srv.process_all().await?;
 
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .get_unprocessed_state_changes_all_processors()
-            .unwrap();
+        let unprocessed_state_changes =
+            indexify_state.reader().unprocessed_state_changes().unwrap();
 
         // no more tasks since invocation failed
         assert_eq!(
@@ -185,7 +218,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: mock_executor(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -235,7 +268,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: mock_executor(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -261,9 +294,10 @@ mod tests {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: mock_executor_id(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
+        test_srv.process_all().await?;
 
         let executor_tasks = indexify_state
             .reader()
@@ -300,7 +334,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: mock_executor(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -319,9 +353,11 @@ mod tests {
                 payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
                     executor_id: mock_executor_id(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
+
+        test_srv.process_all().await?;
 
         let mut executor = mock_executor();
         executor.id = ExecutorId::new("2".to_string());
@@ -330,7 +366,7 @@ mod tests {
                 payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
                     executor: executor.clone(),
                 }),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
 
@@ -377,10 +413,8 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 2);
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .get_unprocessed_state_changes_all_processors()
-            .unwrap();
+        let unprocessed_state_changes =
+            indexify_state.reader().unprocessed_state_changes().unwrap();
 
         // has task created state change in it.
         assert_eq!(
@@ -440,6 +474,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -475,7 +510,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -555,7 +590,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -581,7 +616,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -597,7 +632,7 @@ mod tests {
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
             }
@@ -614,7 +649,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -629,7 +664,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -637,9 +672,7 @@ mod tests {
         }
 
         {
-            let state_changes = indexify_state
-                .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -680,6 +713,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -715,9 +749,10 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
+        test_srv.process_all().await?;
         let invocation_payload = InvocationPayloadBuilder::default()
             .namespace(TEST_NAMESPACE.to_string())
             .compute_graph_name(graph.name.clone())
@@ -795,7 +830,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -821,7 +856,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -836,7 +871,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -873,7 +908,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -889,7 +924,7 @@ mod tests {
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
 
@@ -907,7 +942,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -922,7 +957,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -935,16 +970,15 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
             test_srv.process_all().await?;
         }
+
         {
-            let state_changes = indexify_state
-                .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -985,6 +1019,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1020,7 +1055,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1100,7 +1135,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1126,7 +1161,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1141,7 +1176,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1188,7 +1223,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1204,7 +1239,7 @@ mod tests {
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::FinalizeTask(request),
-                        process_state_change: None,
+                        processed_state_changes: vec![],
                     })
                     .await?;
 
@@ -1214,9 +1249,7 @@ mod tests {
         }
 
         {
-            let state_changes = indexify_state
-                .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -1257,6 +1290,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1292,7 +1326,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1372,7 +1406,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1398,7 +1432,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1412,7 +1446,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1425,7 +1459,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1464,21 +1498,20 @@ mod tests {
                 .find(|t| t.compute_fn_name == "fn_reduce")
                 .unwrap();
 
-            let all_unprocessed_state_changes_before = indexify_state
-                .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+            let all_unprocessed_state_changes_before =
+                indexify_state.reader().unprocessed_state_changes()?;
 
             let request = make_finalize_request("fn_reduce", &reduce_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
             let all_unprocessed_state_changes_reduce: Vec<StateChange> = indexify_state
                 .reader()
-                .get_unprocessed_state_changes_all_processors()?
+                .unprocessed_state_changes()?
                 .iter()
                 .filter(|sc| {
                     !all_unprocessed_state_changes_before
@@ -1492,7 +1525,7 @@ mod tests {
             for state_change in all_unprocessed_state_changes_reduce.clone() {
                 indexify_state.db.delete_cf(
                     &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&indexify_state.db),
-                    state_change.key(&ProcessorId::new(ProcessorType::Namespace)),
+                    state_change.key(),
                 )?;
             }
 
@@ -1546,7 +1579,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1559,7 +1592,7 @@ mod tests {
                 let serialized_state_change = JsonEncoder::encode(&state_change)?;
                 indexify_state.db.put_cf(
                     &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&indexify_state.db),
-                    state_change.key(&ProcessorId::new(ProcessorType::Namespace)),
+                    state_change.key(),
                     serialized_state_change,
                 )?;
             }
@@ -1577,7 +1610,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1593,16 +1626,14 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
             test_srv.process_all().await?;
         }
         {
-            let state_changes = indexify_state
-                .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             assert_eq!(
                 state_changes.len(),
                 0,
@@ -1639,6 +1670,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1674,7 +1706,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-                process_state_change: None,
+                processed_state_changes: vec![],
             })
             .await?;
         let invocation_payload = InvocationPayloadBuilder::default()
@@ -1754,7 +1786,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::InvokeComputeGraph(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1780,7 +1812,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1795,7 +1827,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1814,7 +1846,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1823,7 +1855,7 @@ mod tests {
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::FinalizeTask(request),
-                    process_state_change: None,
+                    processed_state_changes: vec![],
                 })
                 .await?;
 
@@ -1832,9 +1864,7 @@ mod tests {
 
         // Expect no more tasks and a completed graph
         {
-            let state_changes = indexify_state
-                .reader()
-                .get_unprocessed_state_changes_all_processors()?;
+            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
             assert_eq!(state_changes.len(), 0);
 
             let graph_ctx = indexify_state
@@ -1845,6 +1875,105 @@ mod tests {
             assert!(graph_ctx.completed);
         }
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_read_and_delete_compute_graph() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let _ = test_state_store::with_simple_graph(&indexify_state).await;
+
+        let (compute_graphs, _) = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .unwrap();
+
+        // Check if the compute graph was created
+        assert!(compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        // Delete the compute graph
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::TombstoneComputeGraph(DeleteComputeGraphRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    name: "graph_A".to_string(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+        test_srv.process_all().await?;
+
+        // Read the compute graph again
+        let (compute_graphs, _) = test_srv
+            .service
+            .indexify_state
+            .reader()
+            .list_compute_graphs(TEST_NAMESPACE, None, None)
+            .unwrap();
+
+        // Check if the compute graph was deleted
+        assert!(!compute_graphs.iter().any(|cg| cg.name == "graph_A"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_stream() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let Service { indexify_state, .. } = test_srv.service.clone();
+        let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
+        test_srv.process_all().await?;
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: mock_executor(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+
+        test_srv.process_all().await?;
+
+        let res = indexify_state
+            .reader()
+            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+        assert_eq!(res.len(), 1);
+
+        let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone(), 10);
+        let res = stream.next().await.unwrap()?;
+
+        assert_eq!(res.len(), 1);
+
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                processed_state_changes: vec![],
+                payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
+                    namespace: TEST_NAMESPACE.to_string(),
+                    compute_graph: "graph_A".to_string(),
+                    compute_fn: "fn_a".to_string(),
+                    invocation_id: invocation_id.clone(),
+                    task_id: res[0].id.clone(),
+                    node_outputs: vec![mock_node_fn_output(
+                        invocation_id.as_str(),
+                        "graph_A",
+                        "fn_a",
+                        None,
+                    )],
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }),
+            })
+            .await
+            .unwrap();
+        test_srv.process_ns().await?;
+
+        let res = stream.next().await.unwrap()?;
+        assert_eq!(res.len(), 0);
         Ok(())
     }
 }

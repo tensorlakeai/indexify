@@ -14,7 +14,7 @@ use data_model::{
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use state_store::requests::{FinalizeTaskRequest, RequestPayload};
+use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::{error, info};
 use utoipa::ToSchema;
 
@@ -129,7 +129,7 @@ pub async fn ingest_files_from_executor(
                 output_encoding.push(
                     field
                         .content_type()
-                        .unwrap_or_else(|| "application/octet-stream")
+                        .unwrap_or("application/octet-stream")
                         .to_string(),
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
@@ -236,13 +236,14 @@ pub async fn ingest_files_from_executor(
         diagnostics: Some(task_diagnostic),
     });
 
-    state
-        .dispatcher
-        .dispatch_requests(request)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
-        })?;
+    let sm_req = StateMachineUpdateRequest {
+        payload: request,
+        processed_state_changes: vec![],
+    };
+
+    state.indexify_state.write(sm_req).await.map_err(|e| {
+        IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+    })?;
 
     Ok(())
 }
