@@ -83,8 +83,8 @@ use crate::{
         TaskOutcome,
         Tasks,
     },
+    routes::webhook::receive_webhook,
 };
-use crate::routes::webhook::receive_webhook;
 
 #[derive(OpenApi)]
 #[openapi(
