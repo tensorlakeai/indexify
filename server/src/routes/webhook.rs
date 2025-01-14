@@ -4,13 +4,14 @@ use axum::{
 };
 
 use crate::{
-    http_objects::{IndexifyAPIError, InkwellWebhookQueryParams},
+    http_objects::{IndexifyAPIError, InkwellWebhookParams},
     routes::RouteState,
 };
 
 #[utoipa::path(
     post,
     path = "/inkwell_webhook",
+    request_body = InkwellWebhookParams,
     tag = "operations",
     responses(
         (status = 200, description = "Post a webhook for processing"),
@@ -19,8 +20,8 @@ use crate::{
 )]
 pub async fn receive_webhook(
     State(state): State<RouteState>,
-    Query(_params): Query<InkwellWebhookQueryParams>,
+    Json(body): Json<InkwellWebhookParams>,
 ) -> Result<Json<String>, IndexifyAPIError> {
-    let value = format!("{}, {}", _params.job_id, _params.job_status);
+    let value = format!("{}, {}", body.job_id, body.job_status);
     Ok(Json(value))
 }

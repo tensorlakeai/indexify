@@ -575,7 +575,7 @@ pub struct InvocationQueryParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InkwellWebhookQueryParams {
+pub struct InkwellWebhookParams {
     pub job_id: String,
     pub job_status: String,
 }
