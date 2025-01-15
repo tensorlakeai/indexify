@@ -170,6 +170,8 @@ jobs:
         run: cd indexify && make test
       - name: Run python_utils tests
         run: cd python_utils && make test
+      - name: Run tensorlake SDK tests
+        run: cd tensorlake && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
