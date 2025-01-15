@@ -3,6 +3,7 @@ import signal
 from pathlib import Path
 from typing import Any, List, Optional
 
+import python_utils.logging
 import structlog
 from function_executor.proto.function_executor_pb2 import SerializedObject
 
@@ -27,7 +28,7 @@ class Executor:
         config_path: Optional[str] = None,
     ):
         self._logger = structlog.get_logger(module=__name__)
-        self._should_run = True
+        self._is_shutdown: bool = False
         self._config_path = config_path
         protocol: str = "http"
         if config_path:
@@ -73,10 +74,10 @@ class Executor:
         try:
             asyncio.get_event_loop().run_until_complete(self._run_async())
         except asyncio.CancelledError:
-            self._logger.info("graceful shutdown")
+            pass  # Suppress this expected exception and return without error (normally).
 
     async def _run_async(self):
-        while self._should_run:
+        while not self._is_shutdown:
             try:
                 async for task in self._task_fetcher.run():
                     asyncio.create_task(self._run_task(task))
@@ -135,8 +136,14 @@ class Executor:
 
     async def _shutdown(self, loop):
         self._logger.info("shutting_down")
-        self._should_run = False
+        # There will be lots of task cancellation exceptions and "X is shutting down"
+        # exceptions logged during Executor shutdown. Suppress their logs as they are
+        # expected and are confusing for users.
+        python_utils.logging.suppress()
+
+        self._is_shutdown = True
         await self._task_runner.shutdown()
+        # We mainly need to cancel the task that runs _run_async() loop.
         for task in asyncio.all_tasks(loop):
             task.cancel()
 

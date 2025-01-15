@@ -2,6 +2,9 @@ import logging
 import sys
 
 import structlog
+from structlog.contextvars import merge_contextvars
+from structlog.dev import ConsoleRenderer, set_exc_info
+from structlog.processors import StackInfoRenderer, TimeStamper, add_log_level
 
 # Using this module allows us to be consistent with the logging configuration across all Python programs.
 
@@ -24,9 +27,40 @@ def configure_logging_early():
     )
 
 
-def configure_production_logging():
+def configure_development_mode_logging():
     processors = [
+        structlog_suppressor,
+        merge_contextvars,
+        add_log_level,
+        StackInfoRenderer(),
+        set_exc_info,
+        TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        ConsoleRenderer(),
+    ]
+    structlog.configure(
+        processors=processors,
+    )
+
+
+def configure_production_mode_logging():
+    processors = [
+        structlog_suppressor,
         structlog.processors.format_exc_info,
         structlog.processors.JSONRenderer(),
     ]
     structlog.configure(processors=processors)
+
+
+_suppress_logging = False
+
+
+def structlog_suppressor(logger, name, event_dict):
+    global _suppress_logging
+    return None if _suppress_logging else event_dict
+
+
+def suppress():
+    """Sets the log level for the root logger to the new level."""
+    global _suppress_logging
+    _suppress_logging = True
+    logging.getLogger().setLevel(logging.CRITICAL)

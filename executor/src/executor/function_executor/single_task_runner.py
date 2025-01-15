@@ -46,6 +46,9 @@ class SingleTaskRunner:
         Raises an exception if an error occured."""
         self._state.check_locked()
 
+        if self._state.is_shutdown:
+            raise RuntimeError("Function Executor state is shutting down.")
+
         if self._state.function_executor is None:
             try:
                 await self._create_function_executor()
@@ -102,7 +105,9 @@ class SingleTaskRunner:
         channel: grpc.aio.Channel = self._state.function_executor.channel()
 
         async with _RunningTaskContextManager(
-            task_input=self._task_input, function_executor_state=self._state
+            invocation_id=self._task_input.task.invocation_id,
+            task_id=self._task_input.task.id,
+            function_executor_state=self._state,
         ):
             response: RunTaskResponse = await FunctionExecutorStub(channel).run_task(
                 request
@@ -114,16 +119,20 @@ class _RunningTaskContextManager:
     """Performs all the actions required before and after running a task."""
 
     def __init__(
-        self, task_input: TaskInput, function_executor_state: FunctionExecutorState
+        self,
+        invocation_id: str,
+        task_id: str,
+        function_executor_state: FunctionExecutorState,
     ):
-        self._task_input: TaskInput = task_input
+        self._invocation_id: str = invocation_id
+        self._task_id: str = task_id
         self._state: FunctionExecutorState = function_executor_state
 
     async def __aenter__(self):
         self._state.increment_running_tasks()
         self._state.function_executor.invocation_state_client().add_task_to_invocation_id_entry(
-            task_id=self._task_input.task.id,
-            invocation_id=self._task_input.task.invocation_id,
+            task_id=self._task_id,
+            invocation_id=self._invocation_id,
         )
         # Unlock the state so other tasks can act depending on it.
         self._state.lock.release()
@@ -133,7 +142,7 @@ class _RunningTaskContextManager:
         await self._state.lock.acquire()
         self._state.decrement_running_tasks()
         self._state.function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
-            task_id=self._task_input.task.id
+            task_id=self._task_id
         )
 
 
