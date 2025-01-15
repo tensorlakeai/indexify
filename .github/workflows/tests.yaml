@@ -230,7 +230,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: 3.9
           cache: 'poetry'
       - name: Build indexify
         run: cd indexify && make build
@@ -277,6 +277,8 @@ jobs:
         run: cd indexify && make test
       - name: Run python_utils tests
         run: cd python_utils && make test
+      - name: Run tensorlake tests
+        run: cd tensorlake && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
