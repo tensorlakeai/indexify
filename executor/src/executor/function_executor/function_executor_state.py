@@ -15,9 +15,11 @@ class FunctionExecutorState:
     def __init__(self, function_id_with_version: str, function_id_without_version: str):
         self.function_id_with_version: str = function_id_with_version
         self.function_id_without_version: str = function_id_without_version
+        # All the fields below are protected by the lock.
+        self.lock: asyncio.Lock = asyncio.Lock()
+        self.is_shutdown: bool = False
         self.function_executor: Optional[FunctionExecutor] = None
         self.running_tasks: int = 0
-        self.lock: asyncio.Lock = asyncio.Lock()
         self.running_tasks_change_notifier: asyncio.Condition = asyncio.Condition(
             lock=self.lock
         )
@@ -58,16 +60,17 @@ class FunctionExecutorState:
             await self.function_executor.destroy()
             self.function_executor = None
 
-    async def destroy_function_executor_not_locked(self) -> None:
-        """Destroys the Function Executor if it exists.
+    async def shutdown(self) -> None:
+        """Shuts down the state.
 
-        The caller doesn't need to hold the lock but this call
-        might make the state inconsistent."""
-        if self.function_executor is not None:
-            # Atomically hide the destroyed Function Executor from other asyncio tasks.
-            ref = self.function_executor
-            self.function_executor = None
-            await ref.destroy()
+        Called only during Executor shutdown so it's okay to fail all running and pending
+        Function Executor tasks. The state is not valid anymore after this call.
+        The caller must hold the lock.
+        """
+        self.check_locked()
+        # Pending tasks will not create a new Function Executor and won't run.
+        self.is_shutdown = True
+        await self.destroy_function_executor()
 
     def check_locked(self) -> None:
         """Raises an exception if the lock is not held."""

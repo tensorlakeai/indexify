@@ -1,4 +1,8 @@
-from python_utils.logging import configure_logging_early, configure_production_logging
+from python_utils.logging import (
+    configure_development_mode_logging,
+    configure_logging_early,
+    configure_production_mode_logging,
+)
 
 configure_logging_early()
 
@@ -199,8 +203,10 @@ def executor(
         (50000, 51000), help="Range of localhost TCP ports to be used by the executor"
     ),
 ):
-    if not dev:
-        configure_production_logging()
+    if dev:
+        configure_development_mode_logging()
+    else:
+        configure_production_mode_logging()
         if function_uris is None:
             raise typer.BadParameter(
                 "At least one function must be specified when not running in development mode"

@@ -1,4 +1,8 @@
-from python_utils.logging import configure_logging_early, configure_production_logging
+from python_utils.logging import (
+    configure_development_mode_logging,
+    configure_logging_early,
+    configure_production_mode_logging,
+)
 
 configure_logging_early()
 
@@ -28,8 +32,10 @@ def main():
     )
     args = parser.parse_args()
 
-    if not args.dev:
-        configure_production_logging()
+    if args.dev:
+        configure_development_mode_logging()
+    else:
+        configure_production_mode_logging()
     validate_args(args)
 
     logger.info("starting function executor server", address=args.address)
