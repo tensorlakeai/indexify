@@ -8,11 +8,11 @@ use data_model::{
     OutputPayload,
     ReduceTask,
     Task,
-    TaskFinishedEvent,
+    TaskFinalizedEvent,
     TaskOutcome,
 };
 use state_store::IndexifyState;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
 #[derive(Debug)]
 pub struct TaskCreationResult {
@@ -51,7 +51,7 @@ impl TaskCreator {
     pub async fn handle_task_finished_inner(
         &self,
         indexify_state: Arc<IndexifyState>,
-        task_finished_event: &TaskFinishedEvent,
+        task_finished_event: &TaskFinalizedEvent,
     ) -> Result<TaskCreationResult> {
         let task = indexify_state
             .reader()
@@ -209,6 +209,7 @@ impl TaskCreator {
                 )
             })?;
         if invocation_ctx.is_none() {
+            trace!("no invocation ctx, stopping scheduling of child tasks");
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -378,7 +379,7 @@ impl TaskCreator {
 
         // If there are no edges, check if the invocation should be finished.
         if edges.is_none() {
-            debug!(
+            trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
             return Ok(TaskCreationResult::no_tasks(
@@ -548,6 +549,8 @@ impl TaskCreator {
                 new_tasks.push(new_task);
             }
         }
+
+        trace!("tasks: {:?}", new_tasks.len());
         Ok(TaskCreationResult {
             namespace: task.namespace.clone(),
             compute_graph: task.compute_graph_name.clone(),

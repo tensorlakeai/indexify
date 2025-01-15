@@ -16,7 +16,6 @@ use filter::LabelsFilter;
 use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use strum::{AsRefStr, Display};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
@@ -377,7 +376,7 @@ impl ComputeGraph {
     }
 }
 
-#[derive(Debug, Display, PartialEq)]
+#[derive(Debug, strum::Display, PartialEq)]
 pub enum ComputeGraphError {
     VersionExists,
 }
@@ -692,6 +691,20 @@ impl ReduceTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TaskOutputsIngestionStatus {
+    /// Outputs are not ingested yet.
+    Pending,
+    /// Outputs were ingested.
+    Ingested,
+}
+
+impl TaskOutputsIngestionStatus {
+    fn pending() -> Self {
+        Self::Pending
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskOutcome {
     Unknown,
     Success,
@@ -707,6 +720,8 @@ pub struct Task {
     pub compute_graph_name: String,
     pub invocation_id: String,
     pub input_node_output_key: String,
+    #[serde(default = "TaskOutputsIngestionStatus::pending")]
+    pub output_status: TaskOutputsIngestionStatus,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
@@ -717,10 +732,6 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn terminal_state(&self) -> bool {
-        self.outcome != TaskOutcome::Unknown
-    }
-
     pub fn key_prefix_for_fn(
         namespace: &str,
         compute_graph: &str,
@@ -828,6 +839,7 @@ impl TaskBuilder {
             input_node_output_key: input_key,
             invocation_id,
             namespace,
+            output_status: TaskOutputsIngestionStatus::Pending,
             outcome: TaskOutcome::Unknown,
             creation_time: SystemTime::now(),
             diagnostics: None,
@@ -904,7 +916,7 @@ pub struct InvokeComputeGraphEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
-pub struct TaskFinishedEvent {
+pub struct TaskFinalizedEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
@@ -912,7 +924,7 @@ pub struct TaskFinishedEvent {
     pub task_id: TaskId,
 }
 
-impl fmt::Display for TaskFinishedEvent {
+impl fmt::Display for TaskFinalizedEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -920,6 +932,18 @@ impl fmt::Display for TaskFinishedEvent {
             self.namespace, self.compute_graph, self.compute_fn, self.task_id
         )
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct TaskOutputsIngestedEvent {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub invocation_id: String,
+    pub task_id: TaskId,
+    pub outcome: TaskOutcome,
+    pub executor_id: ExecutorId,
+    pub diagnostic: Option<TaskDiagnostics>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -932,28 +956,29 @@ pub struct ExecutorRemovedEvent {
     pub executor_id: ExecutorId,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TombstoneComputeGraphEvent {
     pub namespace: String,
     pub compute_graph: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TombstoneInvocationEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub invocation_id: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ExecutorAddedEvent {
     pub executor_id: ExecutorId,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, AsRefStr)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
-    TaskFinished(TaskFinishedEvent),
+    TaskFinalized(TaskFinalizedEvent),
+    TaskOutputsIngested(TaskOutputsIngestedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
     ExecutorAdded(ExecutorAddedEvent),
@@ -966,7 +991,8 @@ impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::InvokeComputeGraph(_) => write!(f, "InvokeComputeGraph"),
-            ChangeType::TaskFinished(_) => write!(f, "TaskFinished"),
+            ChangeType::TaskFinalized(_) => write!(f, "TaskFinalized"),
+            ChangeType::TaskOutputsIngested(_) => write!(f, "TaskOutputsIngested"),
             ChangeType::TombstoneComputeGraph(_) => write!(f, "TombstoneComputeGraph"),
             ChangeType::ExecutorAdded(_) => write!(f, "ExecutorAdded"),
             ChangeType::TombStoneExecutor(_) => write!(f, "TombStoneExecutor"),
@@ -977,7 +1003,7 @@ impl fmt::Display for ChangeType {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Copy, Ord, PartialOrd)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Copy, PartialOrd)]
 pub struct StateChangeId(u64);
 
 impl StateChangeId {

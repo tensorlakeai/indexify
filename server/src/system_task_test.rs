@@ -23,7 +23,7 @@ mod tests {
     use state_store::{
         requests::{
             CreateOrUpdateComputeGraphRequest,
-            FinalizeTaskRequest,
+            IngestTaskOutputsRequest,
             InvokeComputeGraphRequest,
             ReplayComputeGraphRequest,
             RequestPayload,
@@ -66,8 +66,8 @@ mod tests {
         invocation_id: &str,
         compute_fn_name: &str,
         task_id: &TaskId,
-    ) -> FinalizeTaskRequest {
-        FinalizeTaskRequest {
+    ) -> IngestTaskOutputsRequest {
+        IngestTaskOutputsRequest {
             namespace: namespace.to_string(),
             compute_graph: compute_graph.to_string(),
             compute_fn: compute_fn_name.to_string(),
@@ -119,7 +119,7 @@ mod tests {
             .await
             .unwrap();
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
 
         let tasks = indexify_state
             .reader()
@@ -144,11 +144,11 @@ mod tests {
         );
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::FinalizeTask(request),
+                payload: RequestPayload::IngestTaskOuputs(request),
                 processed_state_changes: vec![],
             })
             .await?;
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(
@@ -175,12 +175,12 @@ mod tests {
             info!("complete task {:?}", task);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::FinalizeTask(request),
+                    payload: RequestPayload::IngestTaskOuputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
         }
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
         assert_eq!(tasks.len(), 3);
         let tasks = indexify_state
             .reader()
@@ -196,7 +196,7 @@ mod tests {
         let incomplete_tasks = tasks.iter().filter(|t| t.outcome == TaskOutcome::Unknown);
         assert_eq!(incomplete_tasks.clone().count(), 0);
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
 
         let state_changes = indexify_state.reader().unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
@@ -290,7 +290,7 @@ mod tests {
         let num_pending_tasks = indexify_state.reader().get_pending_system_tasks()?;
         assert_eq!(num_pending_tasks, 1);
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
 
         let tasks = indexify_state
             .reader()
@@ -317,13 +317,13 @@ mod tests {
             info!("complete task {:?} req {:?}", task, request);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::FinalizeTask(request),
+                    payload: RequestPayload::IngestTaskOuputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
         }
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(
@@ -349,12 +349,12 @@ mod tests {
             info!("complete task {:?}", task);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::FinalizeTask(request),
+                    payload: RequestPayload::IngestTaskOuputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
         }
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
         let tasks = indexify_state
             .reader()
             .list_tasks_by_compute_graph(
@@ -369,7 +369,7 @@ mod tests {
         let incomplete_tasks = tasks.iter().filter(|t| t.outcome == TaskOutcome::Unknown);
         assert_eq!(incomplete_tasks.clone().count(), 0);
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
 
         let state_changes = indexify_state.reader().unprocessed_state_changes()?;
         assert_eq!(state_changes.len(), 0);
@@ -424,7 +424,7 @@ mod tests {
             );
             state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::FinalizeTask(request),
+                    payload: RequestPayload::IngestTaskOuputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -458,7 +458,7 @@ mod tests {
             .await
             .unwrap();
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
         for _ in 0..10 * 3 {
             let request = InvokeComputeGraphRequest {
                 namespace: graph.namespace.clone(),
@@ -473,13 +473,13 @@ mod tests {
                 .await
                 .unwrap();
 
-            test_srv.process_all().await?;
+            test_srv.process_all_state_changes().await?;
         }
 
         loop {
             finalize_incomplete_tasks(&indexify_state, &graph.namespace).await?;
 
-            test_srv.process_all().await?;
+            test_srv.process_all_state_changes().await?;
             let tasks = indexify_state
                 .reader()
                 .list_tasks_by_namespace(&graph.namespace, None, None)
@@ -510,7 +510,7 @@ mod tests {
             .await
             .unwrap();
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
 
         let (graphs, _) =
             indexify_state
@@ -532,7 +532,7 @@ mod tests {
             })
             .await?;
 
-        test_srv.process_all().await?;
+        test_srv.process_all_state_changes().await?;
 
         let system_tasks = indexify_state.reader().get_system_tasks(None).unwrap().0;
         assert_eq!(system_tasks.len(), 1);
@@ -547,7 +547,7 @@ mod tests {
             info!("num pending tasks {:?}", num_pending_tasks);
             assert!(num_pending_tasks <= 10);
 
-            test_srv.process_all().await?;
+            test_srv.process_all_state_changes().await?;
 
             finalize_incomplete_tasks(&indexify_state, &graph.namespace).await?;
 

@@ -6,6 +6,7 @@ use state_store::{
     requests::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
+        FinalizeTaskRequest,
         MutateClusterTopologyRequest,
         NamespaceProcessorUpdateRequest,
         ReductionTasks,
@@ -16,7 +17,7 @@ use state_store::{
     IndexifyState,
 };
 use tokio::sync::Notify;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{
     task_allocator::{self, TaskPlacementResult},
@@ -55,18 +56,18 @@ impl GraphProcessor {
                 _ = change_events_rx.changed() => {
                     change_events_rx.borrow_and_update();
                     if let Err(err) = self.write_sm_update(&mut cached_state_changes, &notify).await {
-                        tracing::error!("error processing state change: {:?}", err);
+                        error!("error processing state change: {:?}", err);
                         continue
                     }
                 },
                 _ = notify.notified() => {
                     if let Err(err) = self.write_sm_update(&mut cached_state_changes, &notify).await {
-                        tracing::error!("error processing state change: {:?}", err);
+                        error!("error processing state change: {:?}", err);
                         continue
                     }
                 },
                 _ = shutdown_rx.changed() => {
-                    tracing::info!("graph processor shutting down");
+                    info!("graph processor shutting down");
                     break;
                 }
             }
@@ -81,7 +82,14 @@ impl GraphProcessor {
         // 1. First load 100 state changes. Process the `global` state changes first
         // and then the `ns_` state changes
         if cached_state_changes.is_empty() {
-            cached_state_changes.extend(self.indexify_state.reader().unprocessed_state_changes()?);
+            cached_state_changes.extend(
+                self.indexify_state
+                    .reader()
+                    .unprocessed_state_changes()?
+                    // reversing the vec to process the oldest state changes first when using pop.
+                    .into_iter()
+                    .rev(),
+            );
         }
         // 2. If there are no state changes to process, return
         // and wait for the scheduler to wake us up again when there are state changes
@@ -105,7 +113,12 @@ impl GraphProcessor {
         let sm_update = match sm_update {
             Ok(sm_update) => sm_update,
             Err(err) => {
-                tracing::error!("error processing state change: {:?}", err);
+                // TODO: Determine if error is transient or not to determine if retrying should
+                // be done.
+                error!(
+                    "error processing state change {}, marking as processed: {:?}",
+                    state_change.change_type, err
+                );
 
                 // Sending NOOP SM Update
                 StateMachineUpdateRequest {
@@ -116,9 +129,11 @@ impl GraphProcessor {
         };
         // 6. Write the state change
         if let Err(err) = self.indexify_state.write(sm_update).await {
-            tracing::error!(
-                "error writing state change: {:?}, attempting to mark the state change as NOOP",
-                err
+            // TODO: Determine if error is transient or not to determine if retrying should
+            // be done.
+            error!(
+                "error writing state change {}, marking as processed: {:?}",
+                state_change.change_type, err,
             );
             // 7. If SM update fails for whatever reason, lets just write a NOOP state
             //    change
@@ -136,7 +151,7 @@ impl GraphProcessor {
         &self,
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
-        let scheduler_update = match &state_change.change_type {
+        match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
                 let task_creation_result = self
                     .task_creator
@@ -150,7 +165,20 @@ impl GraphProcessor {
                     &state_change,
                 ))
             }
-            ChangeType::TaskFinished(event) => {
+            ChangeType::TaskOutputsIngested(event) => Ok(StateMachineUpdateRequest {
+                payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
+                    namespace: event.namespace.clone(),
+                    compute_graph: event.compute_graph.clone(),
+                    compute_fn: event.compute_fn.clone(),
+                    invocation_id: event.invocation_id.clone(),
+                    task_id: event.task_id.clone(),
+                    task_outcome: event.outcome.clone(),
+                    executor_id: event.executor_id.clone(),
+                    diagnostics: event.diagnostic.clone(),
+                }),
+                processed_state_changes: vec![state_change.clone()],
+            }),
+            ChangeType::TaskFinalized(event) => {
                 let task_creation_result = self
                     .task_creator
                     .handle_task_finished_inner(self.indexify_state.clone(), event)
@@ -181,28 +209,27 @@ impl GraphProcessor {
             ChangeType::ExecutorAdded(event) => {
                 info!("registering executor: {:?}", event);
                 if let Err(err) = self.task_allocator.refresh_executors() {
-                    tracing::error!("error refreshing executors: {:?}", err);
+                    error!("error refreshing executors: {:?}", err);
                 }
                 let result = self.task_allocator.schedule_unplaced_tasks()?;
                 Ok(task_placement_result_to_sm_update(result, &state_change))
             }
-            ChangeType::ExecutorRemoved(_event) => {
-                info!("de-registering executor {:?}", _event);
+            ChangeType::ExecutorRemoved(event) => {
+                info!("de-registering executor {:?}", event);
                 if let Err(err) = self.task_allocator.refresh_executors() {
-                    tracing::error!("error refreshing executors: {:?}", err);
+                    error!("error refreshing executors: {:?}", err);
                 }
-                let task_allocation_result = self.task_allocator.schedule_unplaced_tasks();
-                if let Err(err) = &task_allocation_result {
-                    tracing::error!("error scheduling unplaced tasks: {:?}", err);
-                }
-                let result = task_allocation_result.unwrap();
-                if result.task_placements.is_empty() {
+                let task_allocation = self.task_allocator.schedule_unplaced_tasks()?;
+                if task_allocation.task_placements.is_empty() {
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::Noop,
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
-                    Ok(task_placement_result_to_sm_update(result, &state_change))
+                    Ok(task_placement_result_to_sm_update(
+                        task_allocation,
+                        &state_change,
+                    ))
                 }
             }
             ChangeType::TombStoneExecutor(event) => {
@@ -220,8 +247,7 @@ impl GraphProcessor {
                     .schedule_tasks(vec![event.task.clone()])?;
                 Ok(task_placement_result_to_sm_update(result, &state_change))
             }
-        };
-        scheduler_update
+        }
     }
 }
 

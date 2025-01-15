@@ -584,9 +584,9 @@ impl StateStoreMetrics {
         }
     }
 
-    pub fn task_unassigned(&self, tasks: Vec<Task>) {
+    pub fn task_unassigned(&self, tasks: &[Task]) {
         for task in tasks {
-            let id = FnMetricsId::from_task(&task);
+            let id = FnMetricsId::from_task(task);
             match self.unassigned_tasks.write() {
                 Ok(mut count) => *count.entry(id).or_insert(0) += 1,
                 Err(e) => tracing::error!("Failed to lock unassigned_tasks: {:?}", e),
@@ -594,7 +594,7 @@ impl StateStoreMetrics {
         }
     }
 
-    pub fn task_assigned(&self, tasks: Vec<Task>, executor_id: &str) {
+    pub fn task_assigned(&self, tasks: &[Task], executor_id: &str) {
         match self.tasks_by_executor.write() {
             Ok(mut tasks_by_executor) => {
                 tasks_by_executor
@@ -606,7 +606,7 @@ impl StateStoreMetrics {
         }
 
         for task in tasks {
-            let id = FnMetricsId::from_task(&task);
+            let id = FnMetricsId::from_task(task);
             match self.assigned_tasks.write() {
                 Ok(mut count_assigned) => *count_assigned.entry(id.clone()).or_insert(0) += 1,
                 Err(e) => tracing::error!("Failed to lock assigned_tasks: {:?}", e),

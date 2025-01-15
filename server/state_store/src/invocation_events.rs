@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use data_model::{TaskAnalytics, TaskOutcome};
 use serde::{Deserialize, Serialize};
 
-use crate::requests::FinalizeTaskRequest;
+use crate::requests::IngestTaskOutputsRequest;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InvocationStateChangeEvent {
@@ -16,7 +16,7 @@ pub enum InvocationStateChangeEvent {
 }
 
 impl InvocationStateChangeEvent {
-    pub fn from_task_finished(event: FinalizeTaskRequest) -> Self {
+    pub fn from_task_finished(event: IngestTaskOutputsRequest) -> Self {
         Self::TaskCompleted(TaskCompleted {
             invocation_id: event.invocation_id,
             fn_name: event.compute_fn,
