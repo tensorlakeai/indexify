@@ -35,7 +35,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
+          python-version: 3.9
       - name: Install toml
         run: pip install toml
       - id: version_extraction
@@ -55,13 +55,15 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
+          python-version: 3.9
       - name: Install Poetry
         run: pipx install --force 'poetry==2.0.0'
       - name: Build python-sdk
         run: make build
       - name: Publish Indexify to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: indexify/dist/
 
   publish-containers:
     name: Publish Containers
