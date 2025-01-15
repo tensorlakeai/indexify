@@ -25,7 +25,7 @@ jobs:
     name: Lint Indexify Server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Lint indexify-server
         run: |
           cd server
@@ -35,7 +35,7 @@ jobs:
     name: Build Indexify Server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
       - name: Setup Rust
@@ -70,7 +70,7 @@ jobs:
     name: Lint Python packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Install poetry
@@ -94,7 +94,7 @@ jobs:
     needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Download indexify-server
@@ -197,7 +197,7 @@ jobs:
     needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Checkout latest

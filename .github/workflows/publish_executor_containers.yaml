@@ -41,6 +41,11 @@ jobs:
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
           uv pip install --system 'indexify==${{ inputs.indexify_version }}' -U
+          indexify-cli build-default-image --python-version 3.9
+          docker tag tensorlake/indexify-executor-default:3.9 tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
+          docker push tensorlake/indexify-executor-default:3.9
+          docker push tensorlake/indexify-executor-default:3.9-${{ inputs.indexify_version }}
+
           indexify-cli build-default-image --python-version 3.10
           docker tag tensorlake/indexify-executor-default:3.10 tensorlake/indexify-executor-default:3.10-${{ inputs.indexify_version }}
           docker push tensorlake/indexify-executor-default:3.10
