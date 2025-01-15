@@ -71,6 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: true
       - name: Install poetry
         run: pipx install --force 'poetry==2.0.0'
       - name: Setup Python
@@ -93,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: true
       - name: Download indexify-server
         uses: actions/download-artifact@v4
         with:
@@ -194,6 +198,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: true
       - name: Checkout latest
         run: |
           git fetch --tags
