@@ -31,6 +31,8 @@ jobs:
       version: ${{ steps.version_extraction.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v4
         with:
           python-version: "3.9"
@@ -49,6 +51,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-python@v4
         with:
           python-version: "3.9"

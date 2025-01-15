@@ -25,7 +25,7 @@ jobs:
     name: Lint Indexify Server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Lint indexify-server
         run: |
           cd server
@@ -35,7 +35,7 @@ jobs:
     name: Build Indexify Server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .
       - name: Setup Rust
@@ -70,13 +70,15 @@ jobs:
     name: Lint Python packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Install poetry
         run: pipx install --force 'poetry==2.0.0'
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: 3.9
           cache: 'poetry'
       - name: Build and lint executor
         run: cd executor && make build && make check
@@ -92,7 +94,9 @@ jobs:
     needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Download indexify-server
         uses: actions/download-artifact@v4
         with:
@@ -119,7 +123,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: 3.9
           cache: 'poetry'
       - name: Build indexify
         run: cd indexify && make build
@@ -166,6 +170,8 @@ jobs:
         run: cd indexify && make test
       - name: Run python_utils tests
         run: cd python_utils && make test
+      - name: Run tensorlake SDK tests
+        run: cd tensorlake && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |
@@ -193,7 +199,9 @@ jobs:
     needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Checkout latest
         run: |
           git fetch --tags
@@ -224,7 +232,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: 3.9
           cache: 'poetry'
       - name: Build indexify
         run: cd indexify && make build
@@ -271,6 +279,8 @@ jobs:
         run: cd indexify && make test
       - name: Run python_utils tests
         run: cd python_utils && make test
+      - name: Run tensorlake tests
+        run: cd tensorlake && make test
       - name: Terminate processes
         # We want to test clean termination of processes.
         run: |

@@ -1,0 +1,3 @@
+[submodule "tensorlake"]
+	path = tensorlake
+	url = git@github.com:tensorlakeai/tensorlake.git
