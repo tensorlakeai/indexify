@@ -268,7 +268,7 @@ grpcio-tools = "1.68.1"
 pydantic = "2.10.4"
 python_utils = {path = "../python_utils", develop = true}
 structlog = "^24.4.0"
-tensorlake = "^0.1.7"
+tensorlake = {path = "../tensorlake", develop = true}
 
 [package.source]
 type = "directory"
@@ -554,7 +554,7 @@ executor = {path = "../executor", develop = true}
 nanoid = "^2.0.0"
 rich = "^13.9.2"
 structlog = "^24.4.0"
-tensorlake = "^0.1.7"
+tensorlake = {path = "../tensorlake", develop = true}
 typer = "^0.12"
 
 [package.source]
@@ -1016,23 +1016,25 @@ name = "tensorlake"
 version = "0.1.7"
 description = "Petabyte scale data framework for unstructured data of any modality"
 optional = false
-python-versions = "<4.0,>=3.9"
+python-versions = "^3.9"
 groups = ["main"]
-files = [
-    {file = "tensorlake-0.1.7-py3-none-any.whl", hash = "sha256:118fcc92a9da32f824dae626d67dbfee61589f12ea7074e912b55d8e79fccbc0"},
-    {file = "tensorlake-0.1.7.tar.gz", hash = "sha256:8eaf612b5587336ea3c5e0bcb4cfbd592c6529178dc8a98745bc192b3730a2ab"},
-]
+files = []
+develop = true
 
 [package.dependencies]
-click = ">=8.1.8,<9.0.0"
-cloudpickle = ">=3.1.0,<4.0.0"
-docker = ">=7.1.0,<8.0.0"
-httpx = {version = ">=0.28.1,<0.29.0", extras = ["http2"]}
-httpx-sse = ">=0.4.0,<0.5.0"
-nanoid = ">=2.0.0,<3.0.0"
+click = "^8.1.8"
+cloudpickle = "^3.1.0"
+docker = "^7.1.0"
+httpx = {version = "^0.28.1", extras = ["http2"]}
+httpx-sse = "^0.4.0"
+nanoid = "^2.0.0"
 pydantic = "2.10.4"
-pyyaml = ">=6.0.2,<7.0.0"
-rich = ">=13.9.4,<14.0.0"
+pyyaml = "^6.0.2"
+rich = "^13.9.4"
+
+[package.source]
+type = "directory"
+url = "../../tensorlake"
 
 [[package]]
 name = "typer"
@@ -1085,4 +1087,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "cd41609900e124dcfc8e5b5cb5fbf7ed3148046e5849540ccfda24dc85593ab5"
+content-hash = "1d7cdb9eb3d5b10b8c1cbd4bd9e0181efd65049c7db366252ed2df43c3dc38d7"

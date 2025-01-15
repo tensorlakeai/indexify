@@ -19,7 +19,7 @@ cloudpickle = "^3.1.0"
 structlog = "^24.4.0"
 grpcio = "1.68.1"
 grpcio-tools = "1.68.1"
-tensorlake = "^0.1.7"
+tensorlake = { path = "../tensorlake", develop = true }
 python_utils = { path = "../python_utils", develop = true }
 
 [tool.poetry.group.dev.dependencies]

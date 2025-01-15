@@ -12,7 +12,7 @@ repository = "https://github.com/tensorlakeai/indexify"
 python = "^3.9"
 pydantic = "2.10.4"
 parameterized = "^0.9.0"
-tensorlake = "^0.1.6"
+tensorlake = { path = "../../tensorlake", develop = true }
 indexify = { path = "..", develop = true }
 
 [build-system]

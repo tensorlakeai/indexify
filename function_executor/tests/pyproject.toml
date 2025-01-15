@@ -10,7 +10,7 @@ repository = "https://github.com/tensorlakeai/indexify"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-tensorlake = "^0.1.6"
+tensorlake = { path = "../../tensorlake", develop = true }
 function-executor = { path = "..", develop = true }
 
 [build-system]
