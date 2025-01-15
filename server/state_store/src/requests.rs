@@ -23,6 +23,7 @@ pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
     ReplayComputeGraph(ReplayComputeGraphRequest),
     ReplayInvocations(ReplayInvocationsRequest),
+    IngestTaskOuputs(IngestTaskOutputsRequest),
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
@@ -69,7 +70,7 @@ pub struct ReplayInvocationsRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct FinalizeTaskRequest {
+pub struct IngestTaskOutputsRequest {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
@@ -77,8 +78,20 @@ pub struct FinalizeTaskRequest {
     pub task_id: TaskId,
     pub node_outputs: Vec<NodeOutput>,
     pub task_outcome: TaskOutcome,
-    pub executor_id: ExecutorId,
     pub diagnostics: Option<TaskDiagnostics>,
+    pub executor_id: ExecutorId,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizeTaskRequest {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub invocation_id: String,
+    pub task_id: TaskId,
+    pub task_outcome: TaskOutcome,
+    pub diagnostics: Option<TaskDiagnostics>,
+    pub executor_id: ExecutorId,
 }
 
 #[derive(Debug, Clone)]

@@ -2,7 +2,21 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
-use data_model::StateChange;
+use data_model::{
+    test_objects::tests::{mock_executor, mock_node_fn_output},
+    ExecutorId,
+    ExecutorMetadata,
+    StateChange,
+    Task,
+    TaskOutcome,
+};
+use state_store::requests::{
+    DeregisterExecutorRequest,
+    IngestTaskOutputsRequest,
+    RegisterExecutorRequest,
+    RequestPayload,
+    StateMachineUpdateRequest,
+};
 use tracing::subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
@@ -43,7 +57,7 @@ impl TestService {
         Ok(Self { service: srv })
     }
 
-    pub async fn process_all(&self) -> Result<()> {
+    pub async fn process_all_state_changes(&self) -> Result<()> {
         while !self
             .service
             .indexify_state
@@ -51,12 +65,12 @@ impl TestService {
             .unprocessed_state_changes()?
             .is_empty()
         {
-            self.process_ns().await?;
+            self.process_graph_processor().await?;
         }
         Ok(())
     }
 
-    pub async fn process_ns(&self) -> Result<()> {
+    pub async fn process_graph_processor(&self) -> Result<()> {
         let notify = Arc::new(tokio::sync::Notify::new());
         let mut cached_state_changes: Vec<StateChange> = self
             .service
@@ -69,6 +83,111 @@ impl TestService {
                 .write_sm_update(&mut cached_state_changes, &notify)
                 .await?;
         }
+        Ok(())
+    }
+
+    pub async fn register_executor(&self, executor_id: ExecutorId) -> Result<TestExecutor> {
+        let mut executor = mock_executor();
+        executor.id = executor_id.clone();
+        self.service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                    executor: executor.clone(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+
+        Ok(TestExecutor {
+            executor: executor.clone(),
+            service: self,
+        })
+    }
+}
+
+pub struct FinalizeTaskArgs {
+    pub num_outputs: i32,
+    pub task_outcome: TaskOutcome,
+    pub reducer_fn: Option<String>,
+}
+
+impl FinalizeTaskArgs {
+    pub fn new() -> FinalizeTaskArgs {
+        FinalizeTaskArgs {
+            num_outputs: 1,
+            task_outcome: TaskOutcome::Success,
+            reducer_fn: None,
+        }
+    }
+
+    pub fn task_outcome(mut self, task_outcome: TaskOutcome) -> FinalizeTaskArgs {
+        self.task_outcome = task_outcome;
+        self
+    }
+}
+
+pub struct TestExecutor<'a> {
+    pub executor: ExecutorMetadata,
+    pub service: &'a TestService,
+}
+
+impl TestExecutor<'_> {
+    pub async fn deregister(&self) -> Result<()> {
+        self.service
+            .service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                    executor_id: self.executor.id.clone(),
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_tasks(&self) -> Result<Vec<Task>> {
+        let tasks = self
+            .service
+            .service
+            .indexify_state
+            .reader()
+            .get_tasks_by_executor(&self.executor.id, 100)?;
+
+        Ok(tasks)
+    }
+
+    pub async fn finalize_task(&self, task: &Task, args: FinalizeTaskArgs) -> Result<()> {
+        let node_outputs = (0..args.num_outputs)
+            .map(|_| {
+                mock_node_fn_output(
+                    task.invocation_id.as_str(),
+                    task.compute_graph_name.as_str(),
+                    task.compute_fn_name.as_str(),
+                    args.reducer_fn.clone(),
+                )
+            })
+            .collect();
+
+        self.service
+            .service
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::IngestTaskOuputs(IngestTaskOutputsRequest {
+                    namespace: task.namespace.clone(),
+                    compute_graph: task.compute_graph_name.clone(),
+                    compute_fn: task.compute_fn_name.clone(),
+                    invocation_id: task.invocation_id.clone(),
+                    task_id: task.id.clone(),
+                    node_outputs,
+                    task_outcome: args.task_outcome,
+                    executor_id: self.executor.id.clone(),
+                    diagnostics: None,
+                }),
+                processed_state_changes: vec![],
+            })
+            .await?;
         Ok(())
     }
 }

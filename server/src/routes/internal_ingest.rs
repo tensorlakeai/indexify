@@ -14,7 +14,7 @@ use data_model::{
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use state_store::requests::{FinalizeTaskRequest, RequestPayload, StateMachineUpdateRequest};
+use state_store::requests::{IngestTaskOutputsRequest, RequestPayload, StateMachineUpdateRequest};
 use tracing::{error, info};
 use utoipa::ToSchema;
 
@@ -224,7 +224,7 @@ pub async fn ingest_files_from_executor(
         node_outputs.push(node_output);
     }
 
-    let request = RequestPayload::FinalizeTask(FinalizeTaskRequest {
+    let request = RequestPayload::IngestTaskOuputs(IngestTaskOutputsRequest {
         namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
         compute_fn: task_result.compute_fn.to_string(),

@@ -21,7 +21,7 @@ use data_model::{
 use crate::{
     requests::{
         CreateOrUpdateComputeGraphRequest,
-        FinalizeTaskRequest,
+        IngestTaskOutputsRequest,
         InvokeComputeGraphRequest,
         RequestPayload,
         StateMachineUpdateRequest,
@@ -184,9 +184,8 @@ pub async fn finalize_task(
                 compute_fn_for_reducer.clone(),
             )
         })
-        .into_iter()
         .collect();
-    let request = FinalizeTaskRequest {
+    let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: task.compute_graph_name.to_string(),
         compute_fn: task.compute_fn_name.to_string(),
@@ -200,7 +199,7 @@ pub async fn finalize_task(
 
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::FinalizeTask(request),
+            payload: RequestPayload::IngestTaskOuputs(request),
             processed_state_changes: vec![],
         })
         .await
@@ -211,7 +210,7 @@ pub async fn finalize_task_graph_b(
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {
-    let request = FinalizeTaskRequest {
+    let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
         compute_fn: "fn_a".to_string(),
@@ -224,7 +223,7 @@ pub async fn finalize_task_graph_b(
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::FinalizeTask(request),
+            payload: RequestPayload::IngestTaskOuputs(request),
             processed_state_changes: vec![],
         })
         .await
@@ -235,7 +234,7 @@ pub async fn finalize_router_x(
     invocation_id: &str,
     task_id: &TaskId,
 ) -> Result<()> {
-    let request = FinalizeTaskRequest {
+    let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
         compute_fn: "router_x".to_string(),
@@ -248,7 +247,7 @@ pub async fn finalize_router_x(
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::FinalizeTask(request),
+            payload: RequestPayload::IngestTaskOuputs(request),
             processed_state_changes: vec![],
         })
         .await

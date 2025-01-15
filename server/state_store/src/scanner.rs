@@ -17,7 +17,7 @@ use data_model::{
     SystemTask,
     Task,
     TaskAnalytics,
-    TaskFinishedEvent,
+    TaskFinalizedEvent,
 };
 use metrics::Timer;
 use opentelemetry::KeyValue;
@@ -422,7 +422,7 @@ impl StateReader {
     }
 
     pub fn unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
-        let kvs = &[KeyValue::new("op", "get_next_state_change")];
+        let kvs = &[KeyValue::new("op", "unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let mut state_changes = Vec::new();
         let global_state_changes: Vec<StateChange> = self
@@ -592,7 +592,7 @@ impl StateReader {
         )
     }
 
-    pub fn get_task_from_finished_event(&self, req: &TaskFinishedEvent) -> Result<Option<Task>> {
+    pub fn get_task_from_finished_event(&self, req: &TaskFinalizedEvent) -> Result<Option<Task>> {
         return self.get_task(
             &req.namespace,
             &req.compute_graph,

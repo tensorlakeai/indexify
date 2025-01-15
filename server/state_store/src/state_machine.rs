@@ -21,6 +21,7 @@ use data_model::{
     SystemTask,
     Task,
     TaskAnalytics,
+    TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
@@ -34,12 +35,13 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
     DeleteInvocationRequest,
     FinalizeTaskRequest,
+    IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
     NamespaceRequest,
     ReductionTasks,
@@ -707,12 +709,12 @@ pub(crate) enum InvocationCompletion {
     System,
 }
 
-// returns true if system task has finished
-#[instrument(skip(db, txn, tasks, sm_metrics))]
+// returns whether the invocation was completed or not and whether it was a user
+// or system task invocation.
 pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    tasks: Vec<Task>,
+    tasks: &[Task],
     sm_metrics: Arc<StateStoreMetrics>,
     namespace: &str,
     compute_graph: &str,
@@ -740,7 +742,7 @@ pub(crate) fn create_tasks(
     if graph_ctx.completed {
         return Ok(None);
     }
-    for task in &tasks {
+    for task in tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
             &IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -762,8 +764,8 @@ pub(crate) fn create_tasks(
         ctx_key,
         serialized_graphctx,
     )?;
-    debug!("GraphInvocationCtx updated: {:?}", graph_ctx);
-    sm_metrics.task_unassigned(tasks.clone());
+    trace!("GraphInvocationCtx updated: {:?}", graph_ctx);
+    sm_metrics.task_unassigned(tasks);
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(
             db,
@@ -797,7 +799,7 @@ pub fn handle_task_allocation_update(
         )?;
 
         sm_metrics.task_assigned(
-            vec![task_placement.task.clone()],
+            &vec![task_placement.task.clone()],
             task_placement.executor.get(),
         );
     }
@@ -811,9 +813,94 @@ pub fn handle_task_allocation_update(
     Ok(())
 }
 
-/// Returns true if the task was marked as completed.
-/// If task was already completed, returns false.
-pub fn mark_task_completed(
+// returns true if task the task finishing state should be emitted.
+pub fn ingest_task_outputs(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    req: IngestTaskOutputsRequest,
+) -> Result<bool> {
+    // Check if the graph exists before proceeding since
+    // the graph might have been deleted before the task completes
+    let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
+    let graph = txn
+        .get_cf(
+            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
+            &graph_key,
+        )
+        .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
+    if graph.is_none() {
+        info!("Compute graph not found: {}", &req.compute_graph);
+        return Ok(false);
+    }
+
+    // Check if the invocation was deleted before the task completes
+    let invocation_id =
+        InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
+    let invocation = txn
+        .get_cf(
+            &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
+            &invocation_id,
+        )
+        .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
+    if invocation.is_none() {
+        info!("Invocation not found: {} ", &req.invocation_id);
+        return Ok(false);
+    }
+    let task_key = format!(
+        "{}|{}|{}|{}|{}",
+        req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
+    );
+    let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
+    if task.is_none() {
+        info!("Task not found: {}", &task_key);
+        return Ok(false);
+    }
+    let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
+
+    // idempotency check guaranteeing that we emit a finalizing state change only
+    // once.
+    if task.output_status == TaskOutputsIngestionStatus::Ingested {
+        warn!(
+            task_key = task.key(),
+            "Task outputs already uploaded, skipping setting outputs",
+        );
+        return Ok(false);
+    }
+
+    for output in req.node_outputs {
+        let serialized_output = JsonEncoder::encode(&output)?;
+        // Create an output key
+        let output_key = output.key(&req.invocation_id);
+        txn.put_cf(
+            &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+            &output_key,
+            serialized_output,
+        )?;
+
+        // Create a key to store the pointer to the node output to the task
+        // NS_TASK_ID_<OutputID> -> Output Key
+        let task_output_key = task.key_output(&output.id);
+        let node_output_id = JsonEncoder::encode(&output_key)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
+            task_output_key,
+            node_output_id,
+        )?;
+    }
+
+    task.output_status = TaskOutputsIngestionStatus::Ingested;
+    let task_bytes = JsonEncoder::encode(&task)?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::Tasks.cf_db(&db),
+        task.key(),
+        task_bytes,
+    )?;
+
+    Ok(true)
+}
+
+/// Returns true if the task was marked as finalized.
+pub fn mark_task_finalized(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: FinalizeTaskRequest,
@@ -829,10 +916,7 @@ pub fn mark_task_completed(
         )
         .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
     if graph.is_none() {
-        info!(
-            "Compute graph not found: {} for task completion update for task id: {}",
-            &req.compute_graph, &req.task_id
-        );
+        info!("Compute graph not found: {}", &req.compute_graph);
         return Ok(false);
     }
 
@@ -846,10 +930,7 @@ pub fn mark_task_completed(
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
     if invocation.is_none() {
-        info!(
-            "Invocation not found: {} for task completion update for task id: {}",
-            &req.invocation_id, &req.task_id
-        );
+        info!("Invocation not found: {}", &req.invocation_id);
         return Ok(false);
     }
     let task_key = format!(
@@ -858,51 +939,11 @@ pub fn mark_task_completed(
     );
     let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
     if task.is_none() {
-        info!(
-            "Task not found: {} for task completion update for task id: {}",
-            &task_key, &req.task_id
-        );
+        info!("Task not found: {}", &task_key);
         return Ok(false);
     }
     let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
-    if task.terminal_state() {
-        info!(
-            task_key = task.key(),
-            "Task already completed, skipping finalization",
-        );
-        // In some edge cases, an executor has been seen trying to finalize a task that
-        // has already been completed. So far this has always been related to a
-        // system error.
-        //
-        // This can result in a very aggressive retry loop where the executor finalizes
-        // a task only to get it back on its work queue. To avoid this, if the
-        // task is in terminal state, we make sure to delete its allocation for that
-        // executor.
-        //
-        // Note: Every time this code path is hit, an investigation should be done to
-        // understand why the task is in terminal state while the executor is
-        // trying to finalize it.
-        //
-        // TODO: Look if there are other objects that need to be deleted.
-        if txn
-            .get_cf(
-                &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-                &task.make_allocation_key(&req.executor_id),
-            )?
-            .is_some()
-        {
-            error!(
-                task_key = task.key(),
-                "Task already completed but allocation still exists, deleting allocation",
-            );
-            txn.delete_cf(
-                &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-                &task.make_allocation_key(&req.executor_id),
-            )?;
-        }
 
-        return Ok(false);
-    }
     let graph_ctx_key = format!(
         "{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id
@@ -925,26 +966,7 @@ pub fn mark_task_completed(
         "Graph context not found for task: {}",
         &req.task_id
     ))?)?;
-    for output in req.node_outputs {
-        let serialized_output = JsonEncoder::encode(&output)?;
-        // Create an output key
-        let output_key = output.key(&req.invocation_id);
-        txn.put_cf(
-            &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-            &output_key,
-            serialized_output,
-        )?;
 
-        // Create a key to store the pointer to the node output to the task
-        // NS_TASK_ID_<OutputID> -> Output Key
-        let task_output_key = task.key_output(&output.id);
-        let node_output_id = JsonEncoder::encode(&output_key)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-            task_output_key,
-            node_output_id,
-        )?;
-    }
     let analytics = graph_ctx
         .fn_task_analytics
         .entry(req.compute_fn.to_string())
@@ -954,16 +976,17 @@ pub fn mark_task_completed(
         data_model::TaskOutcome::Failure => analytics.fail(),
         _ => {}
     }
-    let serialized_analytics = JsonEncoder::encode(&graph_ctx)?;
+    let graph_ctx = JsonEncoder::encode(&graph_ctx)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         graph_ctx_key,
-        serialized_analytics,
+        graph_ctx,
     )?;
 
+    // Delete the task allocation since task is finished.
     txn.delete_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        &task.make_allocation_key(&req.executor_id),
+        task.make_allocation_key(&req.executor_id),
     )?;
 
     task.diagnostics = req.diagnostics.clone();
@@ -975,6 +998,7 @@ pub fn mark_task_completed(
         task.key(),
         task_bytes,
     )?;
+
     sm_metrics.update_task_completion(req.task_outcome, task.clone(), req.executor_id.get());
     Ok(true)
 }
@@ -982,7 +1006,7 @@ pub fn mark_task_completed(
 pub(crate) fn save_state_changes(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    state_changes: &Vec<StateChange>,
+    state_changes: &[StateChange],
 ) -> Result<()> {
     for state_change in state_changes {
         let key = &state_change.key();
@@ -999,10 +1023,13 @@ pub(crate) fn save_state_changes(
 pub(crate) fn mark_state_changes_processed(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    processed_state_changes: &Vec<StateChange>,
+    processed_state_changes: &[StateChange],
 ) -> Result<()> {
-    for state_change in processed_state_changes.iter() {
-        trace!("Marking state change processed: {:?}", state_change);
+    for state_change in processed_state_changes {
+        debug!(
+            "marking state change as processed: {}",
+            state_change.change_type
+        );
         let key = &state_change.key();
         txn.delete_cf(
             &IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&db),

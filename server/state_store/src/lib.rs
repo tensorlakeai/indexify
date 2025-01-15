@@ -238,18 +238,34 @@ impl IndexifyState {
                 }
                 state_changes
             }
+            RequestPayload::IngestTaskOuputs(task_outputs) => {
+                let ingested = state_machine::ingest_task_outputs(
+                    self.db.clone(),
+                    &txn,
+                    task_outputs.clone(),
+                )?;
+                if ingested {
+                    state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
+                } else {
+                    vec![]
+                }
+            }
             RequestPayload::FinalizeTask(finalize_task) => {
-                tasks_finalized
-                    .entry(finalize_task.executor_id.clone())
-                    .or_default()
-                    .push(finalize_task.task_id.clone());
-                state_machine::mark_task_completed(
+                let finalized = state_machine::mark_task_finalized(
                     self.db.clone(),
                     &txn,
                     finalize_task.clone(),
                     self.metrics.clone(),
                 )?;
-                state_changes::finalize_task(&self.last_state_change_id, &finalize_task)?
+                if finalized {
+                    tasks_finalized
+                        .entry(finalize_task.executor_id.clone())
+                        .or_default()
+                        .push(finalize_task.task_id.clone());
+                    state_changes::finalized_task(&self.last_state_change_id, &finalize_task)?
+                } else {
+                    vec![]
+                }
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::create_namespace(self.db.clone(), &namespace_request)?;
@@ -293,7 +309,7 @@ impl IndexifyState {
                 if let Some(completion) = state_machine::create_tasks(
                     self.db.clone(),
                     &txn,
-                    request.task_requests.clone(),
+                    &request.task_requests.clone(),
                     self.metrics.clone().clone(),
                     &request.namespace,
                     &request.compute_graph,
@@ -438,7 +454,7 @@ impl IndexifyState {
             return;
         }
         match &update_request.payload {
-            RequestPayload::FinalizeTask(task_finished_event) => {
+            RequestPayload::IngestTaskOuputs(task_finished_event) => {
                 let ev =
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 if let Err(err) = self.task_event_tx.send(ev) {
