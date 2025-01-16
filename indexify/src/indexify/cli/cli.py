@@ -16,7 +16,8 @@ import time
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated, List, Optional, Tuple
-
+import docker
+import json
 import nanoid
 import structlog
 import typer
@@ -278,14 +279,34 @@ def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[Functio
 
 def _create_image(image: Image, python_sdk_path):
     console.print(
-        Text("Creating container for ", style="cyan"),
+        Text("Creating image for ", style="cyan"),
         Text(f"`{image._image_name}`", style="cyan bold"),
     )
     _build_image(image=image, python_sdk_path=python_sdk_path)
 
-
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
-    built_image, output = image.build(python_sdk_path=python_sdk_path)
-    for line in output:
-        print(line)
-    print(f"built image: {built_image.tags[0]}")
+    docker_file = image._generate_dockerfile(python_sdk_path=python_sdk_path)
+    image_name = f"{image._image_name}:{image._tag}"
+
+    #low_level_client = docker.APIClient(base_url=docker_client.api.base_url)
+    docker_host = os.getenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+    low_level_client = docker.APIClient(base_url=docker_host)
+    docker.api.build.process_dockerfile = lambda dockerfile, path: (
+        "Dockerfile",
+        dockerfile,
+    )
+    generator = low_level_client.build(
+        dockerfile=docker_file,
+        rm=True,
+        path=".",
+        tag=image_name,
+    )
+
+    for output in generator:
+        for line in output.decode().splitlines():
+            json_line = json.loads(line)
+            if "stream" in json_line:
+                print(json_line["stream"], end="")
+
+            elif "errorDetail" in json_line:
+                print(json_line["errorDetail"]["message"])
