@@ -1,9 +1,8 @@
-version: "3"
 networks:
   server:
 services:
   indexify:
-    image: tensorlake/indexify-server
+    image: tensorlake/indexify-server:latest
     ports:
       - 8900:8900
     networks:
@@ -57,23 +56,10 @@ services:
       server:
     volumes:
       - data:/tmp/indexify-blob-storage
-  default-executor:
-    image: tensorlake/indexify-executor-default
-    command:
-      [
-        "indexify-cli",
-        "executor",
-        "--server-addr",
-        "indexify:8900"
-      ]
-    networks:
-      server:
-    volumes:
-      - data:/tmp/indexify-blob-storage
   pdf-parser-executor:
     # Use this for GPU support
-    image: tensorlake/pdf-blueprint-pdf-parser-gpu:latest
-    #image: tensorlake/pdf-blueprint-pdf-parser:latest
+    #image: tensorlake/pdf-blueprint-pdf-parser-gpu:latest
+    image: tensorlake/pdf-blueprint-pdf-parser
     command:
       [
         "indexify-cli",
@@ -89,12 +75,12 @@ services:
       mode: replicated
       replicas: 1
       # Uncomment this for GPU support
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      # resources:
+      #   reservations:
+      #     devices:
+      #       - driver: nvidia
+      #         count: 1
+      #         capabilities: [gpu]
 
   chromadb:
     image: chromadb/chroma
