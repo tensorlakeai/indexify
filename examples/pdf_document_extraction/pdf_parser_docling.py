@@ -1,15 +1,13 @@
 from common_objects import PDFParserDoclingOutput
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.functions import TensorlakeCompute
-
-from images import inkwell_image_gpu
-
+from images import parser_image
 
 class PDFParserDocling(TensorlakeCompute):
     name = "pdf-parse-docling"
     description = "Parser class that captures a pdf file"
     # Change to gpu_image to use GPU
-    image = inkwell_image_gpu
+    image = parser_image
 
     def __init__(self):
         super().__init__()

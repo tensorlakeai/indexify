@@ -10,12 +10,13 @@ import os
 import shutil
 import signal
 import subprocess
+import importlib
 import sys
 import threading
 import time
 from importlib.metadata import version
 from pathlib import Path
-from typing import Annotated, List, Optional, Tuple
+from typing import Annotated, List, Optional, Tuple, Dict
 import docker
 import json
 import nanoid
@@ -32,6 +33,8 @@ from indexify.executor.function_executor.server.subprocess_function_executor_ser
     SubprocessFunctionExecutorServerFactory,
 )
 
+from tensorlake import Graph
+
 logger = structlog.get_logger(module=__name__)
 
 custom_theme = Theme(
@@ -47,6 +50,20 @@ console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
 
+
+
+import importlib.util
+import sys
+
+def import_from_path(path: Path, name:str):
+    print(sys.path)
+    spec = importlib.util.spec_from_file_location(name, path.resolve(), submodule_search_locations=[str(path.parent.resolve())])
+    print(spec)
+    module = importlib.util.module_from_spec(spec)
+    print(module)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 @app.command(
     help="Run server and executor in dev mode (Not recommended for production.)"
@@ -132,6 +149,40 @@ def server_dev_mode():
 
     print("Script execution completed.")
 
+
+
+@app.command(help="Build images for workflow")
+def prepare(workflow_file: str):
+    seen_images: Dict[Image, str] = {}
+
+    # Read the graph file and build the images
+    # workflow_file = Path(workflow_file)
+    # workflow_module = import_from_path(workflow_file, "workflow")
+    # workflow_globals = workflow_module.__dict__
+
+    workflow_file = Path(workflow_file)
+    importlib.import_module(workflow_file.stem, workflow_file.parent.resolve())
+    workflow_globals = workflow_module.__dict__
+
+
+    # Read the graph file and build the images
+    # workflow_globals = {}
+    # with open(workflow_file, "r") as f:
+    #     exec(f.read(), workflow_globals)
+    
+    for name, obj in workflow_globals.items():
+        if isinstance(obj, Graph):
+            print(f"Found graph {name}")
+            for node_name, node_obj in obj.nodes.items():
+                image = node_obj.image
+                print(
+                    f"graph function {node_name} uses image '{image._image_name}'"
+                )
+                if image in seen_images:
+                    continue
+                seen_images[image] = image.hash()
+
+    print(f"Found {len(seen_images)} images in this workflow")
 
 @app.command(help="Build image for function names")
 def build_image(
@@ -285,7 +336,7 @@ def _create_image(image: Image, python_sdk_path):
     _build_image(image=image, python_sdk_path=python_sdk_path)
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
-    docker_file = image._generate_dockerfile(python_sdk_path=python_sdk_path)
+    docker_file = _generate_dockerfile(image, python_sdk_path=python_sdk_path)
     image_name = f"{image._image_name}:{image._tag}"
 
     #low_level_client = docker.APIClient(base_url=docker_client.api.base_url)
@@ -310,3 +361,32 @@ def _build_image(image: Image, python_sdk_path: Optional[str] = None):
 
             elif "errorDetail" in json_line:
                 print(json_line["errorDetail"]["message"])
+
+def _generate_dockerfile(image, python_sdk_path: Optional[str] = None):
+    docker_contents = [
+        f"FROM {image._base_image}",
+        "RUN mkdir -p ~/.indexify",
+        f"RUN echo {image._image_name} > ~/.indexify/image_name",  # TODO: Do we still use this in executors?
+        f"RUN echo {image.hash()} > ~/.indexify/image_hash",  # TODO: Do we still use this in executors?
+        "WORKDIR /app",
+    ]
+
+    for build_op in image._build_ops:
+        docker_contents.append(build_op.render())
+
+    if python_sdk_path is not None:
+        print(
+            f"Building image {image._image_name} with local version of the SDK"
+        )
+
+        if not os.path.exists(python_sdk_path):
+            print(f"error: {python_sdk_path} does not exist")
+            os.exit(1)
+        docker_contents.append(f"COPY {python_sdk_path} /app/python-sdk")
+        docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
+    else:
+        docker_contents.append(
+            f"RUN pip install indexify=={importlib.metadata.version('indexify')}")
+
+    docker_file = "\n".join(docker_contents)
+    return docker_file
