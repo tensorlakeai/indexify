@@ -8,26 +8,36 @@ license = "Apache 2.0"
 readme = "README.md"
 homepage = "https://github.com/tensorlakeai/indexify"
 repository = "https://github.com/tensorlakeai/indexify"
-packages = [
-    { include = "cli", from="src", format = ["sdist", "wheel"] },
-]
 
 [tool.poetry.scripts]
-indexify-cli = "cli.cli:app"
+indexify-cli = "indexify.cli.cli:app"
+function-executor = "indexify.function_executor.main:main"
 
 [tool.poetry.dependencies]
-# CLI dependencies
+# Common dependencies
 python = "^3.9"
+structlog = "^24.4.0"
+pyyaml = "^6"
+httpx = { version = "^0.28.1", extras = ["http2"] }
+grpcio = "1.68.1"
+
+# Function Executor only
+grpcio-tools = "1.68.1"
+tensorlake = { path = "../tensorlake", develop = true }
+
+# Executor only
+pydantic = "2.10.4"
+httpx-sse = "^0.4.0"
+
+# CLI only
 rich = "^13.9.2"
 typer = "^0.12"
 nanoid = "^2.0.0"
-structlog = "^24.4.0"
-tensorlake = { path = "../tensorlake", develop = true }
-executor = { path = "../executor", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
 pylint = "^2.4.0"
+parameterized = "^0.9.0"
 
 [build-system]
 requires = ["poetry==2.0.0"]

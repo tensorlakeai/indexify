@@ -10,10 +10,7 @@ on:
       - 'main'
     paths:
       - 'server/**'
-      - 'executor/**'
-      - 'function_executor/**'
       - 'indexify/**'
-      - 'python_utils/**'
       - '.github/workflows/tests.yaml'
 
 env:
@@ -80,14 +77,8 @@ jobs:
         with:
           python-version: 3.9
           cache: 'poetry'
-      - name: Build and lint executor
-        run: cd executor && make build && make check
-      - name: Build and lint function_executor
-        run: cd function_executor && make build && make check
       - name: Build and lint indexify
         run: cd indexify && make build && make check
-      - name: Build and lint python_utils
-        run: cd python_utils && make build && make check
 
   acceptance_tests:
     name: Run Acceptance Tests
@@ -125,6 +116,8 @@ jobs:
         with:
           python-version: 3.9
           cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
       - name: Build indexify
         run: cd indexify && make build
       - name: Start Background Indexify Executor
@@ -162,14 +155,8 @@ jobs:
                 sleep 5
             fi
           done
-      - name: Run executor tests
-        run: cd executor && make test
-      - name: Run function_executor tests
-        run: cd function_executor && make test
       - name: Run indexify tests
         run: cd indexify && make test
-      - name: Run python_utils tests
-        run: cd python_utils && make test
       - name: Run tensorlake SDK tests
         run: cd tensorlake && make test
       - name: Terminate processes
@@ -271,14 +258,8 @@ jobs:
                 sleep 5
             fi
           done
-      - name: Run executor tests
-        run: cd executor && make test
-      - name: Run function_executor tests
-        run: cd function_executor && make test
       - name: Run indexify tests
         run: cd indexify && make test
-      - name: Run python_utils tests
-        run: cd python_utils && make test
       - name: Run tensorlake tests
         run: cd tensorlake && make test
       - name: Terminate processes
