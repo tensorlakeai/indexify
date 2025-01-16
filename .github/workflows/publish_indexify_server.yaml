@@ -70,13 +70,11 @@ jobs:
           mv /tmp/release/indexify-server-deb-linux-aarch64/indexify-server_${{ needs.extract-version.outputs.version }}-1_arm64.deb /tmp/release/indexify-server-${{ needs.extract-version.outputs.version }}-linux-arm64.deb
       - name: Create GitHub Release
         id: create_release
-        uses: elgohr/Github-Release-Action@v5
+        uses: softprops/action-gh-release@v2
         with:
-          tag: "v${{ needs.extract-version.outputs.version }}"
+          tag_name: "v${{ needs.extract-version.outputs.version }}"
           prerelease: ${{ github.event.inputs.prerelease }}
-          title: ${{ github.event.inputs.release_message }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       #- name: Upload Windows Binary
       #  uses: actions/upload-release-asset@v1
       #  with:
