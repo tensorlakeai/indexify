@@ -655,7 +655,7 @@ async fn executor_tasks(
                 namespace: f.namespace.clone(),
                 compute_graph_name: f.compute_graph.clone(),
                 compute_fn_name: f.compute_fn.clone(),
-                version: f.version.clone().into(),
+                version: f.version.clone().map(|v| v.into()),
             })
             .collect()
     });

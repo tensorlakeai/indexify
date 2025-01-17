@@ -20,7 +20,7 @@ class FunctionURI(BaseModel):
     namespace: str
     compute_graph: str
     compute_fn: str
-    version: str
+    version: Optional[str] = None
 
 
 class ExecutorMetadata(BaseModel):
