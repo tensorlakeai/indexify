@@ -6,6 +6,8 @@ from indexify.utils.logging import (
 
 configure_logging_early()
 
+import importlib.metadata
+import json
 import os
 import shutil
 import signal
@@ -17,6 +19,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated, List, Optional, Tuple
 
+import docker
 import nanoid
 import structlog
 import typer
@@ -192,7 +195,7 @@ def executor(
             help="Function that the executor will run "
             "specified as <namespace>:<workflow>:<function>:<version>"
             "version is optional, not specifying it will make the server send any version"
-            "of the function"
+            "of the function",
         ),
     ] = None,
     config_path: Optional[str] = typer.Option(
@@ -264,7 +267,7 @@ def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[Functio
     for uri_str in uri_strs:
         tokens = uri_str.split(":")
         # FIXME bring this back when we have a dynamic scheduler
-        #if len(tokens) != 4:
+        # if len(tokens) != 4:
         if len(tokens) < 3 and len(tokens) > 4:
             raise typer.BadParameter(
                 "Function should be specified as <namespace>:<workflow>:<function>:<version> or"
@@ -294,7 +297,57 @@ def _create_image(image: Image, python_sdk_path):
 
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
-    built_image, output = image.build(python_sdk_path=python_sdk_path)
-    for line in output:
-        print(line)
-    print(f"built image: {built_image.tags[0]}")
+    docker_file = _generate_dockerfile(image, python_sdk_path=python_sdk_path)
+    image_name = f"{image._image_name}:{image._tag}"
+
+    # low_level_client = docker.APIClient(base_url=docker_client.api.base_url)
+    docker_host = os.getenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+    low_level_client = docker.APIClient(base_url=docker_host)
+    docker.api.build.process_dockerfile = lambda dockerfile, path: (
+        "Dockerfile",
+        dockerfile,
+    )
+    generator = low_level_client.build(
+        dockerfile=docker_file,
+        rm=True,
+        path=".",
+        tag=image_name,
+    )
+
+    for output in generator:
+        for line in output.decode().splitlines():
+            json_line = json.loads(line)
+            if "stream" in json_line:
+                print(json_line["stream"], end="")
+
+            elif "errorDetail" in json_line:
+                print(json_line["errorDetail"]["message"])
+
+
+def _generate_dockerfile(image, python_sdk_path: Optional[str] = None):
+    docker_contents = [
+        f"FROM {image._base_image}",
+        "RUN mkdir -p ~/.indexify",
+        f"RUN echo {image._image_name} > ~/.indexify/image_name",  # TODO: Do we still use this in executors?
+        f"RUN echo {image.hash()} > ~/.indexify/image_hash",  # TODO: Do we still use this in executors?
+        "WORKDIR /app",
+    ]
+
+    for build_op in image._build_ops:
+        docker_contents.append(build_op.render())
+
+    if python_sdk_path is not None:
+        print(f"Building image {image._image_name} with local version of the SDK")
+
+        if not os.path.exists(python_sdk_path):
+            print(f"error: {python_sdk_path} does not exist")
+            os.exit(1)
+        docker_contents.append(f"COPY {python_sdk_path} /app/python-sdk")
+        docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
+    else:
+        docker_contents.append(
+            f"RUN pip install indexify=={importlib.metadata.version('indexify')}"
+        )
+
+    docker_file = "\n".join(docker_contents)
+    return docker_file
