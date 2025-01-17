@@ -55,7 +55,7 @@ if __name__ == "__main__":
     file = File(data=resp.content, mime_type="application/pdf")
 
     # uncomment to run locally
-    #invocation_id = graph.run(file=file)
+    #invocation_id = graph.run(block_until_true=True, file=file)
     #exit(0)
 
     import common_objects
@@ -68,5 +68,7 @@ if __name__ == "__main__":
         server_url="http://localhost:8900",
     )
 
-    invocation_id = remote_graph.run(file=file)
+    invocation_id = remote_graph.run(
+        block_until_done=True, file=file,
+    )
     print(f"Invocation ID: {invocation_id}")

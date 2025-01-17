@@ -18,8 +18,6 @@ services:
       [
         "indexify-cli",
         "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:download_pdf:0.1",
         "--server-addr",
         "indexify:8900"
       ]
@@ -30,68 +28,12 @@ services:
     deploy:
       mode: replicated
       replicas: 1
-  image-embedding-executor:
+  embedding-executor:
     image: tensorlake/pdf-blueprint-st
     command:
       [
         "indexify-cli",
         "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:image-embedding-docling:0.1",
-        "--server-addr",
-        "indexify:8900"
-      ]
-    networks:
-      server:
-    volumes:
-      - data:/tmp/indexify-blob-storage
-    deploy:
-      mode: replicated
-      replicas: 1
-  elastic-writer:
-    image: tensorlake/pdf-blueprint-st
-    command:
-      [
-        "indexify-cli",
-        "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:elastic_search_writer:0.1",
-        "--server-addr",
-        "indexify:8900"
-      ]
-    networks:
-      server:
-    volumes:
-      - data:/tmp/indexify-blob-storage
-    deploy:
-      mode: replicated
-      replicas: 1
-  text-embedding-executor:
-    image: tensorlake/pdf-blueprint-st
-    command:
-      [
-        "indexify-cli",
-        "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:text-embedding-extractor:0.1",
-        "--server-addr",
-        "indexify:8900"
-      ]
-    networks:
-      server:
-    volumes:
-      - data:/tmp/indexify-blob-storage
-    deploy:
-      mode: replicated
-      replicas: 1
-  chunk-executor:
-    image: tensorlake/pdf-blueprint-st
-    command:
-      [
-        "indexify-cli",
-        "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:chunk_text_docling:0.1",
         "--server-addr",
         "indexify:8900"
       ]
@@ -116,13 +58,11 @@ services:
     volumes:
       - data:/tmp/indexify-blob-storage
   default-executor:
-    image: tensorlake/indexify-executor-default:3.13-0.3.0
+    image: tensorlake/indexify-executor-default
     command:
       [
         "indexify-cli",
         "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:default:0.1",
         "--server-addr",
         "indexify:8900"
       ]
@@ -138,8 +78,6 @@ services:
       [
         "indexify-cli",
         "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:pdf-parse-docling:0.1",
         "--server-addr",
         "indexify:8900"
       ]
