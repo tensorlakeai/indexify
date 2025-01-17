@@ -1,6 +1,8 @@
+from collections.abc import Awaitable, Callable
 from typing import Any, Optional
 
 import grpc
+from grpc.aio import AioRpcError
 
 from indexify.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
@@ -51,6 +53,12 @@ class SingleTaskRunner:
 
         if self._state.is_shutdown:
             raise RuntimeError("Function Executor state is shutting down.")
+
+        # If Function Executor is not healthy then recreate it.
+        if self._state.function_executor is not None:
+            if not await self._state.function_executor.health_checker().check():
+                self._logger.error("Health check failed, destroying FunctionExecutor.")
+                await self._state.destroy_function_executor()
 
         if self._state.function_executor is None:
             try:
@@ -110,12 +118,22 @@ class SingleTaskRunner:
         async with _RunningTaskContextManager(
             invocation_id=self._task_input.task.invocation_id,
             task_id=self._task_input.task.id,
+            health_check_failed_callback=self._health_check_failed_callback,
             function_executor_state=self._state,
         ):
+            # If this RPC failed due to customer code crashing the server we won't be
+            # able to detect this. We'll treat this as our own error for now and thus
+            # let the AioRpcError to be raised here.
             response: RunTaskResponse = await FunctionExecutorStub(channel).run_task(
                 request
             )
             return _task_output(task=self._task_input.task, response=response)
+
+    async def _health_check_failed_callback(self):
+        # The Function Executor needs to get recreated on next task run.
+        self._logger.error("Health check failed, destroying FunctionExecutor.")
+        async with self._state.lock:
+            await self._state.destroy_function_executor()
 
 
 class _RunningTaskContextManager:
@@ -125,10 +143,14 @@ class _RunningTaskContextManager:
         self,
         invocation_id: str,
         task_id: str,
+        health_check_failed_callback: Callable[[], Awaitable[None]],
         function_executor_state: FunctionExecutorState,
     ):
         self._invocation_id: str = invocation_id
         self._task_id: str = task_id
+        self._health_check_failed_callback: Callable[[], Awaitable[None]] = (
+            health_check_failed_callback
+        )
         self._state: FunctionExecutorState = function_executor_state
 
     async def __aenter__(self):
@@ -137,6 +159,9 @@ class _RunningTaskContextManager:
             task_id=self._task_id,
             invocation_id=self._invocation_id,
         )
+        self._state.function_executor.health_checker().start(
+            self._health_check_failed_callback
+        )
         # Unlock the state so other tasks can act depending on it.
         self._state.lock.release()
         return self
@@ -144,9 +169,12 @@ class _RunningTaskContextManager:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._state.lock.acquire()
         self._state.decrement_running_tasks()
-        self._state.function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
-            task_id=self._task_id
-        )
+        # Health check callback could destroy the FunctionExecutor.
+        if self._state.function_executor is not None:
+            self._state.function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
+                task_id=self._task_id
+            )
+            self._state.function_executor.health_checker().stop()
 
 
 def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
