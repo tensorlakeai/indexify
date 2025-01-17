@@ -768,7 +768,7 @@ async fn list_outputs(
         .reader()
         .invocation_ctx(&namespace, &compute_graph, &invocation_id)
         .map_err(IndexifyAPIError::internal_error)?
-        .ok_or(IndexifyAPIError::not_found("Compute Graph not found"))?;
+        .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
     if !invocation_ctx.completed {
         return Ok(Json(FnOutputs {
             status: "pending".to_string(),
