@@ -1,6 +1,7 @@
 import unittest
 from typing import List, Mapping
 
+from grpc import RpcError
 from pydantic import BaseModel
 from tensorlake import Graph
 from tensorlake.functions_sdk.data_objects import File
@@ -8,6 +9,7 @@ from tensorlake.functions_sdk.functions import tensorlake_function
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 from testing import (
     FunctionExecutorServerTestCase,
+    copy_and_modify_request,
     deserialized_function_output,
     run_task,
 )
@@ -15,6 +17,7 @@ from testing import (
 from indexify.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     InitializeResponse,
+    RunTaskRequest,
     RunTaskResponse,
     SerializedObject,
 )
@@ -142,6 +145,55 @@ class TestRunTask(FunctionExecutorServerTestCase):
             self.assertTrue(
                 "this extractor throws an exception." in run_task_response.stderr
             )
+
+    def test_wrong_task_routing(self):
+        with self._rpc_channel() as channel:
+            stub: FunctionExecutorStub = FunctionExecutorStub(channel)
+            initialize_response: InitializeResponse = stub.initialize(
+                InitializeRequest(
+                    namespace="test",
+                    graph_name="test",
+                    graph_version="1",
+                    function_name="extractor_b",
+                    graph=SerializedObject(
+                        bytes=CloudPickleSerializer.serialize(
+                            create_graph_a().serialize(
+                                additional_modules=[],
+                            )
+                        ),
+                        content_type=CloudPickleSerializer.content_type,
+                    ),
+                )
+            )
+            self.assertTrue(initialize_response.success)
+            valid_request: RunTaskRequest = RunTaskRequest(
+                namespace="test",
+                graph_name="test",
+                graph_version="1",
+                function_name="extractor_b",
+                graph_invocation_id="123",
+                task_id="test-task",
+                function_input=SerializedObject(
+                    bytes=CloudPickleSerializer.serialize(input),
+                    content_type=CloudPickleSerializer.content_type,
+                ),
+            )
+            wrong_requests: List[RunTaskRequest] = [
+                copy_and_modify_request(
+                    valid_request, {"namespace": "wrong-namespace"}
+                ),
+                copy_and_modify_request(
+                    valid_request, {"graph_name": "wrong-graph-name"}
+                ),
+                copy_and_modify_request(
+                    valid_request, {"graph_version": "wrong-graph-version"}
+                ),
+                copy_and_modify_request(
+                    valid_request, {"function_name": "wrong-function-name"}
+                ),
+            ]
+            for request in wrong_requests:
+                self.assertRaises(RpcError, stub.run_task, request)
 
 
 if __name__ == "__main__":

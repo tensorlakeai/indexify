@@ -1,6 +1,6 @@
 import subprocess
 import unittest
-from typing import Any, List
+from typing import Any, Dict, List
 
 import grpc
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
@@ -89,3 +89,13 @@ def deserialized_function_output(
         test_case.assertEqual(output.content_type, CloudPickleSerializer.content_type)
         outputs.append(CloudPickleSerializer.deserialize(output.bytes))
     return outputs
+
+
+def copy_and_modify_request(
+    src: RunTaskRequest, modifications: Dict[str, Any]
+) -> RunTaskRequest:
+    request = RunTaskRequest()
+    request.CopyFrom(src)
+    for key, value in modifications.items():
+        setattr(request, key, value)
+    return request
