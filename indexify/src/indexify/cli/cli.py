@@ -190,7 +190,9 @@ def executor(
             "--function",
             "-f",
             help="Function that the executor will run "
-            "specified as <namespace>:<workflow>:<function>:<version>",
+            "specified as <namespace>:<workflow>:<function>:<version>"
+            "version is optional, not specifying it will make the server send any version"
+            "of the function"
         ),
     ] = None,
     config_path: Optional[str] = typer.Option(
@@ -261,16 +263,23 @@ def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[Functio
     uris: List[FunctionURI] = []
     for uri_str in uri_strs:
         tokens = uri_str.split(":")
-        if len(tokens) != 4:
+        # FIXME bring this back when we have a dynamic scheduler
+        #if len(tokens) != 4:
+        if len(tokens) < 3 and len(tokens) > 4:
             raise typer.BadParameter(
-                "Function should be specified as <namespace>:<workflow>:<function>:<version>"
+                "Function should be specified as <namespace>:<workflow>:<function>:<version> or"
+                "<namespace>:<workflow>:<function>"
             )
+        try:
+            version = tokens[3]
+        except IndexError:
+            version = None
         uris.append(
             FunctionURI(
                 namespace=tokens[0],
                 compute_graph=tokens[1],
                 compute_fn=tokens[2],
-                version=tokens[3],
+                version=version,
             )
         )
     return uris

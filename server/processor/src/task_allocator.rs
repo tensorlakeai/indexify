@@ -177,6 +177,6 @@ fn func_matches(
         func_uri
             .compute_graph_name
             .eq(&compute_graph.compute_graph_name) &&
-        func_uri.version == compute_graph.version &&
+        func_uri.version.as_ref().unwrap_or(&compute_graph.version) == &compute_graph.version &&
         func_uri.namespace.eq(&compute_graph.namespace)
 }

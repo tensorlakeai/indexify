@@ -534,7 +534,13 @@ pub struct FunctionURI {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
-    pub version: GraphVersion,
+
+    // Temporary fix to enable internal migration
+    // to new executor version, we will bring this back
+    // when the scheduler can turn off containers of older
+    // versions after all the invocations into them have been
+    // completed, and turn on new versions of the executor.
+    pub version: Option<GraphVersion>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -555,7 +561,7 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
                     namespace: fn_uri.namespace.clone(),
                     compute_graph: fn_uri.compute_graph_name.clone(),
                     compute_fn: fn_uri.compute_fn_name.clone(),
-                    version: fn_uri.version.clone().into(),
+                    version: fn_uri.version.clone().map(|v| v.into()),
                 })
                 .collect()
         });
