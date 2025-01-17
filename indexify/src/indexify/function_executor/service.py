@@ -13,6 +13,8 @@ from .initialize_request_validator import InitializeRequestValidator
 from .invocation_state.invocation_state_proxy_server import InvocationStateProxyServer
 from .invocation_state.proxied_invocation_state import ProxiedInvocationState
 from .proto.function_executor_pb2 import (
+    HealthCheckRequest,
+    HealthCheckResponse,
     InitializeRequest,
     InitializeResponse,
     InvocationStateResponse,
@@ -120,3 +122,12 @@ class Service(FunctionExecutorServicer):
             raise ValueError(
                 f"This Function Executor is not initialized for this function_name {request.function_name}"
             )
+
+    def check_health(
+        self, request: HealthCheckRequest, context: grpc.ServicerContext
+    ) -> HealthCheckResponse:
+        # This health check validates that the Server:
+        # - Has its process alive (not exited).
+        # - Didn't exhaust its thread pool.
+        # - Is able to communicate over its server socket.
+        return HealthCheckResponse(healthy=True)

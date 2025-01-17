@@ -106,6 +106,12 @@ message RunTaskResponse {
     optional bool success = 7;
 }
 
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    optional bool healthy = 1;
+}
+
 service FunctionExecutor {
     // Initializes the Function Executor to run tasks
     // for a particular function. This method is called only
@@ -119,4 +125,6 @@ service FunctionExecutor {
     // Executes the task defined in the request.
     // Multiple tasks can be running in parallel.
     rpc run_task(RunTaskRequest) returns (RunTaskResponse);
+    // Health check method to check if the Function Executor is healthy.
+    rpc check_health(HealthCheckRequest) returns (HealthCheckResponse);
 }

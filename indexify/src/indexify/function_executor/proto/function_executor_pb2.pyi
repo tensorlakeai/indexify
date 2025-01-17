@@ -213,3 +213,13 @@ class RunTaskResponse(_message.Message):
         is_reducer: bool = ...,
         success: bool = ...,
     ) -> None: ...
+
+class HealthCheckRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class HealthCheckResponse(_message.Message):
+    __slots__ = ("healthy",)
+    HEALTHY_FIELD_NUMBER: _ClassVar[int]
+    healthy: bool
+    def __init__(self, healthy: bool = ...) -> None: ...
