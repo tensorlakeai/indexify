@@ -8,8 +8,10 @@ from tensorlake import Graph, tensorlake_function
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 from testing import (
-    FunctionExecutorServerTestCase,
+    DEFAULT_FUNCTION_EXECUTOR_PORT,
+    FunctionExecutorProcessContextManager,
     deserialized_function_output,
+    rpc_channel,
     run_task,
 )
 
@@ -66,7 +68,7 @@ def generate_max_output(x: int) -> File:
     return File(data=data, sha_256=hash(data))
 
 
-class TestMaxPayload(FunctionExecutorServerTestCase):
+class TestMaxPayload(unittest.TestCase):
     def test_max_function_input_size(self):
         graph = Graph(
             name="test_max_function_input_size",
@@ -76,35 +78,38 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
         max_input_data = random_bytes(MAX_FUNCTION_PAYLOAD_SIZE_BYTES)
         max_input = File(data=max_input_data, sha_256=hash(max_input_data))
 
-        with self._rpc_channel() as channel:
-            stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-            initialize_response: InitializeResponse = stub.initialize(
-                InitializeRequest(
-                    namespace="test",
-                    graph_name="test",
-                    graph_version="1",
-                    function_name="validate_max_input",
-                    graph=SerializedObject(
-                        bytes=CloudPickleSerializer.serialize(
-                            graph.serialize(additional_modules=[])
+        with FunctionExecutorProcessContextManager(
+            DEFAULT_FUNCTION_EXECUTOR_PORT
+        ) as process:
+            with rpc_channel(process) as channel:
+                stub: FunctionExecutorStub = FunctionExecutorStub(channel)
+                initialize_response: InitializeResponse = stub.initialize(
+                    InitializeRequest(
+                        namespace="test",
+                        graph_name="test",
+                        graph_version="1",
+                        function_name="validate_max_input",
+                        graph=SerializedObject(
+                            bytes=CloudPickleSerializer.serialize(
+                                graph.serialize(additional_modules=[])
+                            ),
+                            content_type=CloudPickleSerializer.content_type,
                         ),
-                        content_type=CloudPickleSerializer.content_type,
-                    ),
+                    )
                 )
-            )
-            self.assertTrue(initialize_response.success)
+                self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = run_task(
-                stub, function_name="validate_max_input", input=max_input
-            )
-            self.assertTrue(run_task_response.success)
-            self.assertFalse(run_task_response.is_reducer)
+                run_task_response: RunTaskResponse = run_task(
+                    stub, function_name="validate_max_input", input=max_input
+                )
+                self.assertTrue(run_task_response.success)
+                self.assertFalse(run_task_response.is_reducer)
 
-            fn_outputs = deserialized_function_output(
-                self, run_task_response.function_output
-            )
-            self.assertEqual(len(fn_outputs), 1)
-            self.assertEqual("success", fn_outputs[0])
+                fn_outputs = deserialized_function_output(
+                    self, run_task_response.function_output
+                )
+                self.assertEqual(len(fn_outputs), 1)
+                self.assertEqual("success", fn_outputs[0])
 
     def test_max_function_output_size(self):
         graph = Graph(
@@ -113,38 +118,41 @@ class TestMaxPayload(FunctionExecutorServerTestCase):
             start_node=generate_max_output,
         )
 
-        with self._rpc_channel() as channel:
-            stub: FunctionExecutorStub = FunctionExecutorStub(channel)
-            initialize_response: InitializeResponse = stub.initialize(
-                InitializeRequest(
-                    namespace="test",
-                    graph_name="test",
-                    graph_version="1",
-                    function_name="generate_max_output",
-                    graph=SerializedObject(
-                        bytes=CloudPickleSerializer.serialize(
-                            graph.serialize(additional_modules=[])
+        with FunctionExecutorProcessContextManager(
+            DEFAULT_FUNCTION_EXECUTOR_PORT + 1
+        ) as process:
+            with rpc_channel(process) as channel:
+                stub: FunctionExecutorStub = FunctionExecutorStub(channel)
+                initialize_response: InitializeResponse = stub.initialize(
+                    InitializeRequest(
+                        namespace="test",
+                        graph_name="test",
+                        graph_version="1",
+                        function_name="generate_max_output",
+                        graph=SerializedObject(
+                            bytes=CloudPickleSerializer.serialize(
+                                graph.serialize(additional_modules=[])
+                            ),
+                            content_type=CloudPickleSerializer.content_type,
                         ),
-                        content_type=CloudPickleSerializer.content_type,
-                    ),
+                    )
                 )
-            )
-            self.assertTrue(initialize_response.success)
+                self.assertTrue(initialize_response.success)
 
-            run_task_response: RunTaskResponse = run_task(
-                stub, function_name="generate_max_output", input=1
-            )
+                run_task_response: RunTaskResponse = run_task(
+                    stub, function_name="generate_max_output", input=1
+                )
 
-            self.assertTrue(run_task_response.success)
-            self.assertFalse(run_task_response.is_reducer)
+                self.assertTrue(run_task_response.success)
+                self.assertFalse(run_task_response.is_reducer)
 
-            fn_outputs = deserialized_function_output(
-                self, run_task_response.function_output
-            )
-            self.assertEqual(len(fn_outputs), 1)
-            output_file: File = fn_outputs[0]
-            self.assertEqual(MAX_FUNCTION_PAYLOAD_SIZE_BYTES, len(output_file.data))
-            self.assertEqual(hash(output_file.data), output_file.sha_256)
+                fn_outputs = deserialized_function_output(
+                    self, run_task_response.function_output
+                )
+                self.assertEqual(len(fn_outputs), 1)
+                output_file: File = fn_outputs[0]
+                self.assertEqual(MAX_FUNCTION_PAYLOAD_SIZE_BYTES, len(output_file.data))
+                self.assertEqual(hash(output_file.data), output_file.sha_256)
 
 
 if __name__ == "__main__":

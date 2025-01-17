@@ -19,3 +19,6 @@ GRPC_SERVER_OPTIONS = [
 ]
 
 GRPC_CHANNEL_OPTIONS = GRPC_SERVER_OPTIONS
+
+# If a health check takes more than this duration then the server is considered unhealthy.
+HEALTH_CHECK_TIMEOUT_SEC = 5
