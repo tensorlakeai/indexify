@@ -12,6 +12,7 @@ from indexify.function_executor.proto.function_executor_pb2_grpc import (
 )
 from indexify.utils.http_client import get_httpx_client
 
+from .health_checker import HealthChecker
 from .invocation_state_client import InvocationStateClient
 from .server.function_executor_server import (
     FUNCTION_EXECUTOR_SERVER_READY_TIMEOUT_SEC,
@@ -45,6 +46,7 @@ class FunctionExecutor:
         self._server: Optional[FunctionExecutorServer] = None
         self._channel: Optional[grpc.aio.Channel] = None
         self._invocation_state_client: Optional[InvocationStateClient] = None
+        self._health_checker: Optional[HealthChecker] = None
         self._initialized = False
 
     async def initialize(
@@ -78,6 +80,11 @@ class FunctionExecutor:
             )
             await self._invocation_state_client.start()
 
+            self._health_checker = HealthChecker(
+                stub=stub,
+                logger=self._logger,
+            )
+
             self._initialized = True
         except Exception:
             await self.destroy()
@@ -91,10 +98,21 @@ class FunctionExecutor:
         self._check_initialized()
         return self._invocation_state_client
 
+    def health_checker(self) -> HealthChecker:
+        self._check_initialized()
+        return self._health_checker
+
     async def destroy(self):
         """Destroys all resources owned by this FunctionExecutor.
 
         Never raises any exceptions but logs them."""
+        try:
+            if self._health_checker is not None:
+                self._health_checker.stop()
+                self._health_checker = None
+        except Exception as e:
+            self._logger.error("failed to stop HealthChecker", exc_info=e)
+
         try:
             if self._invocation_state_client is not None:
                 await self._invocation_state_client.destroy()
