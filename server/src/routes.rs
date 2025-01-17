@@ -53,7 +53,12 @@ use download::{
     download_invocation_payload,
 };
 use internal_ingest::ingest_files_from_executor;
-use invoke::{invoke_with_file, invoke_with_object, replay_compute_graph};
+use invoke::{
+    invoke_with_file,
+    invoke_with_object,
+    replay_compute_graph,
+    wait_until_invocation_completed,
+};
 use logs::download_task_logs;
 
 use crate::{
@@ -280,6 +285,10 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}",
             delete(delete_invocation).with_state(route_state.clone()),
+        )
+        .route(
+            "/compute_graphs/{compute_graph}/invocations/{invocation_id}/wait",
+            get(wait_until_invocation_completed).with_state(route_state.clone()),
         )
         .route(
             "/compute_graphs/{compute_graph}/notify",
@@ -604,11 +613,11 @@ async fn notify_on_change(
     let mut rx = state.indexify_state.task_event_stream();
     let invocation_event_stream = async_stream::stream! {
         loop {
-                if let Ok(ev)  =  rx.recv().await {
-                        yield Event::default().json_data(ev.clone());
-                        return;
-                    }
-                }
+            if let Ok(ev)  =  rx.recv().await {
+                    yield Event::default().json_data(ev.clone());
+                    return;
+            }
+        }
     };
 
     Ok(
