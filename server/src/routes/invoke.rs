@@ -10,7 +10,7 @@ use axum::{
 };
 use blob_store::PutResult;
 use data_model::InvocationPayloadBuilder;
-use futures::{stream, StreamExt};
+use futures::{stream, Stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
     requests::{
@@ -20,12 +20,106 @@ use state_store::{
         StateMachineUpdateRequest,
     },
 };
-use tokio::sync::broadcast::Receiver;
-use tracing::{error, info};
+use tokio::sync::broadcast::{error::RecvError, Receiver};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::RouteState;
 use crate::http_objects::{GraphInputFile, IndexifyAPIError, InvocationId, InvocationQueryParams};
+
+// New shared function for creating SSE streams
+async fn create_invocation_event_stream(
+    id: String,
+    rx: Option<Receiver<InvocationStateChangeEvent>>,
+    state: RouteState,
+    namespace: String,
+    compute_graph: String,
+) -> impl Stream<Item = Result<Event, axum::Error>> {
+    async_stream::stream! {
+        // For invoke endpoint without blocking
+        if rx.is_none() {
+            yield Event::default().json_data(InvocationId { id: id.clone() });
+            return;
+        }
+
+        // check completion when starting stream
+        match state
+            .indexify_state
+            .reader()
+            .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+        {
+            Ok(Some(invocation)) => {
+                if invocation.completed {
+                    yield Event::default().json_data(
+                        InvocationStateChangeEvent::InvocationFinished(
+                            InvocationFinishedEvent {
+                                id: id.clone()
+                            }
+                        )
+                    );
+                    return;
+                }
+            }
+            Ok(None) => {
+                info!("invocation not found, stopping stream");
+                return;
+            }
+            Err(e) => {
+                error!("failed to get invocation: {:?}", e);
+                return;
+            }
+        }
+
+        // Stream events
+        if let Some(mut rx) = rx {
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        if ev.invocation_id() == id {
+                            yield Event::default().json_data(ev.clone());
+
+                            if let InvocationStateChangeEvent::InvocationFinished(_) = ev {
+                                return;
+                            }
+                        }
+                    }
+                    Err(RecvError::Lagged(num)) => {
+                        warn!("lagging behind task event stream by {} events", num);
+
+                        // Check if completion happened during lag
+                        match state
+                            .indexify_state
+                            .reader()
+                            .invocation_ctx(namespace.as_str(), compute_graph.as_str(), &id)
+                        {
+                            Ok(Some(context)) => {
+                                if context.completed {
+                                    yield Event::default().json_data(
+                                        InvocationStateChangeEvent::InvocationFinished(
+                                            InvocationFinishedEvent {
+                                                id: id.clone()
+                                            }
+                                        )
+                                    );
+                                    return;
+                                }
+                            }
+                            Ok(None) => {
+                                error!("invocation not found");
+                                return;
+                            }
+                            Err(e) => {
+                                error!("failed to get invocation context: {:?}", e);
+                                return;
+                            }
+                        }
+                    }
+                    Err(RecvError::Closed) => return,
+                }
+            }
+        }
+    }
+}
 
 // #[allow(dead_code)]
 // #[derive(ToSchema)]
@@ -192,10 +286,14 @@ pub async fn invoke_with_object(
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
     let id = invocation_payload.id.clone();
+
+    // subscribing to task event stream before creation to not loose events once
+    // invocation is created.
     let mut rx: Option<Receiver<InvocationStateChangeEvent>> = None;
     if should_block {
         rx.replace(state.indexify_state.task_event_stream());
     }
+
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
         compute_graph_name: compute_graph.clone(),
@@ -211,27 +309,37 @@ pub async fn invoke_with_object(
         .map_err(|e| {
             IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
         })?;
-    let invocation_event_stream = async_stream::stream! {
-        if !should_block {
-            yield Event::default().json_data(InvocationId { id: id.clone() });
-            return;
-        }
-        if let Some(rx) = rx.as_mut() {
-            loop {
-                if let Ok(ev)  =  rx.recv().await {
-                    if ev.invocation_id() == id {
-                        yield Event::default().json_data(ev.clone());
 
-                        if let InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent{ id }) = ev {
-                            yield Event::default().json_data(InvocationId { id: id.clone() });
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-    };
+    let invocation_event_stream =
+        create_invocation_event_stream(id, rx, state, namespace, compute_graph).await;
+    Ok(
+        axum::response::Sse::new(invocation_event_stream).keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(1))
+                .text("keep-alive-text"),
+        ),
+    )
+}
 
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/wait",
+    tag = "operations",
+    responses(
+        (status = 200, description = "SSE events of an invocation"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+#[axum::debug_handler]
+pub async fn wait_until_invocation_completed(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let rx = state.indexify_state.task_event_stream();
+
+    let invocation_event_stream =
+        create_invocation_event_stream(invocation_id, Some(rx), state, namespace, compute_graph)
+            .await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()
