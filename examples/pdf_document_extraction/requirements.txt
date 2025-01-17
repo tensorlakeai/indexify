@@ -5,6 +5,5 @@ docling-core
 sentence-transformers
 chromadb
 elasticsearch
-py-inkwell[api]
 langchain-text-splitters
 elastic-transport
