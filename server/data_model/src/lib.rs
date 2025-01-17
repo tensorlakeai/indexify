@@ -889,9 +889,9 @@ pub struct FunctionURI {
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
-    // Temporary fix to enable internal migration 
+    // Temporary fix to enable internal migration
     // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older 
+    // when the scheduler can turn off containers of older
     // versions after all the invocations into them have been
     // completed, and turn on new versions of the executor.
     pub version: Option<GraphVersion>,

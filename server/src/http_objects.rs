@@ -535,9 +535,9 @@ pub struct FunctionURI {
     pub compute_graph: String,
     pub compute_fn: String,
 
-    // Temporary fix to enable internal migration 
+    // Temporary fix to enable internal migration
     // to new executor version, we will bring this back
-    // when the scheduler can turn off containers of older 
+    // when the scheduler can turn off containers of older
     // versions after all the invocations into them have been
     // completed, and turn on new versions of the executor.
     pub version: Option<GraphVersion>,
