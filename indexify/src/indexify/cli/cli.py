@@ -219,12 +219,13 @@ def executor(
             )
 
     id = nanoid.generate()
+    executor_version = version("indexify")
     logger.info(
         "starting executor",
         server_addr=server_addr,
         config_path=config_path,
         executor_id=id,
-        executor_version=version("indexify"),
+        executor_version=executor_version,
         executor_cache=executor_cache,
         ports=ports,
         functions=function_uris,
@@ -247,7 +248,8 @@ def executor(
         exit(1)
 
     Executor(
-        id,
+        id=id,
+        version=executor_version,
         server_addr=server_addr,
         config_path=config_path,
         code_path=executor_cache,

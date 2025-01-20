@@ -24,7 +24,8 @@ class TestExecutor(unittest.TestCase):
     def test_tls_configuration(self, mock_async_client, mock_sync_client, mock_file):
         # Create an instance of Executor with the mock config
         executor = Executor(
-            executor_id="unit-test",
+            id="unit-test",
+            version="0.1.0",
             code_path=Path("test"),
             function_allowlist=None,
             function_executor_server_factory=None,
@@ -56,7 +57,8 @@ class TestExecutor(unittest.TestCase):
     def test_no_tls_configuration(self):
         # Create an instance of Executor without TLS
         executor = Executor(
-            executor_id="unit-test",
+            id="unit-test",
+            version="0.1.0",
             code_path=Path("test"),
             function_allowlist=None,
             function_executor_server_factory=None,
