@@ -16,10 +16,11 @@ class TaskFetcher:
 
     def __init__(
         self,
+        executor_id: str,
+        executor_version: str,
+        function_allowlist: Optional[List[FunctionURI]],
         protocol: str,
         indexify_server_addr: str,
-        executor_id: str,
-        function_allowlist: Optional[List[FunctionURI]],
         config_path: Optional[str] = None,
     ):
         self._protocol: str = protocol
@@ -30,7 +31,7 @@ class TaskFetcher:
         probe_info: ProbeInfo = RuntimeProbes().probe()
         self._executor_metadata: ExecutorMetadata = ExecutorMetadata(
             id=executor_id,
-            executor_version=version("indexify"),
+            executor_version=executor_version,
             addr="",
             function_allowlist=function_allowlist,
             labels=probe_info.labels,

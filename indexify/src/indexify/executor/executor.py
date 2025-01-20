@@ -21,7 +21,8 @@ from .task_runner import TaskInput, TaskOutput, TaskRunner
 class Executor:
     def __init__(
         self,
-        executor_id: str,
+        id: str,
+        version: str,
         code_path: Path,
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_server_factory: FunctionExecutorServerFactory,
@@ -48,15 +49,16 @@ class Executor:
             code_path=code_path, base_url=self._base_url, config_path=config_path
         )
         self._task_fetcher = TaskFetcher(
+            executor_id=id,
+            executor_version=version,
+            function_allowlist=function_allowlist,
             protocol=protocol,
             indexify_server_addr=self._server_addr,
-            executor_id=executor_id,
-            function_allowlist=function_allowlist,
             config_path=config_path,
         )
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
-            executor_id=executor_id,
+            executor_id=id,
             config_path=self._config_path,
         )
 
