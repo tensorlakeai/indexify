@@ -97,10 +97,17 @@ export interface ComputeGraphCreateType {
   code: string
 }
 
+interface FunctionAllowlistEntry {
+  compute_fn: string
+  compute_graph: string
+  namespace: string
+  version: string | null
+}
+
 export interface ExecutorMetadata {
-  id: string
-  executor_version: string
   addr: string
-  image_name: string
-  labels: Record<string, any>
+  executor_version: string
+  function_allowlist: FunctionAllowlistEntry[]
+  id: string
+  labels: Record<string, string>
 }
