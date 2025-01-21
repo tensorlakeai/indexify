@@ -476,6 +476,7 @@ pub struct Task {
     pub outcome: TaskOutcome,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
+    pub image_uri: Option<String>,
 }
 
 impl From<data_model::Task> for Task {
@@ -490,6 +491,7 @@ impl From<data_model::Task> for Task {
             outcome: task.outcome.into(),
             reducer_output_id: task.reducer_output_id,
             graph_version: task.graph_version.into(),
+            image_uri: task.image_uri,
         }
     }
 }

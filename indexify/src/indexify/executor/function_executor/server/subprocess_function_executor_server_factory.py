@@ -22,11 +22,6 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
     async def create(
         self, config: FunctionExecutorServerConfiguration, logger: Any
     ) -> SubprocessFunctionExecutorServer:
-        if config.image_uri is not None:
-            raise ValueError(
-                "SubprocessFunctionExecutorServerFactory doesn't support container images"
-            )
-
         logger = logger.bind(module=__name__)
         port: Optional[int] = None
 
