@@ -219,7 +219,7 @@ class TestSetInvocationState(unittest.TestCase):
 class TestGetInvocationState(unittest.TestCase):
     def _create_graph_with_result_validation(self):
         @tensorlake_function(inject_ctx=True)
-        def get_invocation_state(ctx, x: int) -> str:
+        def get_invocation_state(ctx: GraphInvocationContext, x: int) -> str:
             got_state: StructuredState = ctx.invocation_state.get("test_state_key")
             expected_state: StructuredState = StructuredState(
                 string="hello",
