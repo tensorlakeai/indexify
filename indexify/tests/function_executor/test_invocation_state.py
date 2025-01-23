@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from pydantic import BaseModel
 from tensorlake import Graph
-from tensorlake.functions_sdk.functions import get_ctx, tensorlake_function
+from tensorlake.functions_sdk.functions import tensorlake_function, GraphInvocationContext
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 from testing import (
     DEFAULT_FUNCTION_EXECUTOR_PORT,
@@ -73,9 +73,9 @@ def invocation_state_client_stub(
 
 class TestSetInvocationState(unittest.TestCase):
     def _create_graph(self):
-        @tensorlake_function()
-        def set_invocation_state(x: int) -> str:
-            get_ctx().invocation_state.set(
+        @tensorlake_function(inject_ctx=True)
+        def set_invocation_state(ctx: GraphInvocationContext, x: int) -> str:
+            ctx.invocation_state.set(
                 "test_state_key",
                 StructuredState(
                     string="hello",
@@ -215,9 +215,9 @@ class TestSetInvocationState(unittest.TestCase):
 
 class TestGetInvocationState(unittest.TestCase):
     def _create_graph_with_result_validation(self):
-        @tensorlake_function()
-        def get_invocation_state(x: int) -> str:
-            got_state: StructuredState = get_ctx().invocation_state.get(
+        @tensorlake_function(inject_ctx=True)
+        def get_invocation_state(ctx, x: int) -> str:
+            got_state: StructuredState = ctx.invocation_state.get(
                 "test_state_key"
             )
             expected_state: StructuredState = StructuredState(
@@ -308,9 +308,9 @@ class TestGetInvocationState(unittest.TestCase):
                 client_thread.join()
 
     def test_success_none_value(self):
-        @tensorlake_function()
-        def get_invocation_state(x: int) -> str:
-            got_state: StructuredState = get_ctx().invocation_state.get(
+        @tensorlake_function(inject_ctx=True)
+        def get_invocation_state(ctx: GraphInvocationContext, x: int) -> str:
+            got_state: StructuredState = ctx.invocation_state.get(
                 "test_state_key"
             )
             return "success" if got_state is None else "failure"
