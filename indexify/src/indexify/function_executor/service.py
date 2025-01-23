@@ -2,7 +2,7 @@ from typing import Iterator, Optional, Union
 
 import grpc
 import structlog
-from tensorlake.functions_sdk.functions import TensorlakeCompute, TensorlakeFunctionWrapper
+from tensorlake.functions_sdk.functions import TensorlakeFunctionWrapper
 from tensorlake.functions_sdk.object_serializer import get_serializer
 
 from .handlers.run_function.handler import Handler as RunTaskHandler
@@ -31,7 +31,7 @@ class Service(FunctionExecutorServicer):
         self._graph_name: Optional[str] = None
         self._graph_version: Optional[str] = None
         self._function_name: Optional[str] = None
-        self._func_wrapper: Optional[TensorlakeCompute] = None
+        self._func_wrapper: Optional[TensorlakeFunctionWrapper] = None
         self._invocation_state_proxy_server: Optional[InvocationStateProxyServer] = None
 
     def initialize(
@@ -63,13 +63,11 @@ class Service(FunctionExecutorServicer):
             # internal platform errors.
             graph = graph_serializer.deserialize(request.graph.bytes)
             function = graph_serializer.deserialize(graph[request.function_name])
+            self._func_wrapper = TensorlakeFunctionWrapper(function)
         except Exception as e:
             return InitializeResponse(success=False, customer_error=str(e))
 
         self._logger.info("initialized function executor service")
-        self._logger.info(f"initializing tensorlake function: {function.name}")
-        self._func_wrapper = TensorlakeFunctionWrapper(function)
-        self._logger.info(f"finished initializing tensorlake function {function.name}")
         return InitializeResponse(success=True)
 
     def initialize_invocation_state_server(
