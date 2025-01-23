@@ -26,6 +26,7 @@ class Handler:
         graph_version: str,
         function_name: str,
         invocation_state: InvocationState,
+        function_wrapper: TensorlakeFunctionWrapper,
         logger: Any,
     ):
         self._invocation_id: str = request.graph_invocation_id
@@ -37,6 +38,7 @@ class Handler:
             graph_invocation_id=request.graph_invocation_id,
             task_id=request.task_id,
         )
+        self._func_wrapper = function_wrapper
         self._input_loader = FunctionInputsLoader(request)
         self._response_helper = ResponseHelper(task_id=request.task_id)
         # TODO: use files for stdout, stderr capturing. This puts a natural and thus reasonable
@@ -44,7 +46,7 @@ class Handler:
         self._func_stdout: io.StringIO = io.StringIO()
         self._func_stderr: io.StringIO = io.StringIO()
 
-    def run(self, func_wrapper: TensorlakeFunctionWrapper) -> RunTaskResponse:
+    def run(self) -> RunTaskResponse:
         """Runs the task.
 
         Raises an exception if our own code failed, customer function failure doesn't result in any exception.
@@ -53,9 +55,9 @@ class Handler:
         self._logger.info("running function")
         inputs: FunctionInputs = self._input_loader.load()
         self._flush_logs()
-        return self._run_func_safe_and_captured(func_wrapper, inputs)
+        return self._run_func_safe_and_captured(inputs)
 
-    def _run_func_safe_and_captured(self, func_wrapper: TensorlakeFunctionWrapper, inputs: FunctionInputs) -> RunTaskResponse:
+    def _run_func_safe_and_captured(self, inputs: FunctionInputs) -> RunTaskResponse:
         """Runs the customer function while capturing what happened in it.
 
         Function stdout and stderr are captured so they don't get into Function Executor process stdout
@@ -64,7 +66,7 @@ class Handler:
         """
         try:
             with redirect_stdout(self._func_stdout), redirect_stderr(self._func_stderr):
-                return self._run_func(func_wrapper, inputs)
+                return self._run_func(inputs)
         except Exception:
             return self._response_helper.failure_response(
                 message=traceback.format_exc(),
@@ -72,15 +74,15 @@ class Handler:
                 stderr=self._func_stderr.getvalue(),
             )
 
-    def _run_func(self, func_wrapper: TensorlakeFunctionWrapper, inputs: FunctionInputs) -> RunTaskResponse:
+    def _run_func(self, inputs: FunctionInputs) -> RunTaskResponse:
         ctx: GraphInvocationContext = GraphInvocationContext(
             invocation_id=self._invocation_id,
             graph_name=self._graph_name,
             graph_version=self._graph_version,
             invocation_state=self._invocation_state,
         )
-        if _is_router(func_wrapper):
-            result: RouterCallResult = func_wrapper.invoke_router(
+        if _is_router(self._func_wrapper):
+            result: RouterCallResult = self._func_wrapper.invoke_router(
                 ctx, self._function_name, inputs.input
             )
             return self._response_helper.router_response(
@@ -89,12 +91,12 @@ class Handler:
                 stderr=self._func_stderr.getvalue(),
             )
         else:
-            result: FunctionCallResult = func_wrapper.invoke_fn_ser(
+            result: FunctionCallResult = self._func_wrapper.invoke_fn_ser(
                 ctx, self._function_name, inputs.input, inputs.init_value
             )
             return self._response_helper.function_response(
                 result=result,
-                is_reducer=_func_is_reducer(func_wrapper),
+                is_reducer=_func_is_reducer(self._func_wrapper),
                 stdout=self._func_stdout.getvalue(),
                 stderr=self._func_stderr.getvalue(),
             )

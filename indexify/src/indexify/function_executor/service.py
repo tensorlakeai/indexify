@@ -101,8 +101,9 @@ class Service(FunctionExecutorServicer):
             invocation_state=ProxiedInvocationState(
                 request.task_id, self._invocation_state_proxy_server
             ),
+            function_wrapper=self._func_wrapper,
             logger=self._logger,
-        ).run(self._func_wrapper)
+        ).run()
 
     def _check_task_routed_correctly(self, request: RunTaskRequest):
         # Fail with internal error as this happened due to wrong task routing to this Server.
