@@ -2,7 +2,7 @@ from typing import Iterator, Optional, Union
 
 import grpc
 import structlog
-from tensorlake.functions_sdk.functions import TensorlakeCompute
+from tensorlake.functions_sdk.functions import TensorlakeCompute, TensorlakeFunctionWrapper
 from tensorlake.functions_sdk.object_serializer import get_serializer
 
 from .handlers.run_function.handler import Handler as RunTaskHandler
@@ -67,9 +67,9 @@ class Service(FunctionExecutorServicer):
             return InitializeResponse(success=False, customer_error=str(e))
 
         self._logger.info("initialized function executor service")
-        self._logger.info("initializing tensorlake function")
-        self._func_wrapper = function()
-        self._logger.info("finished initializing tensorlake function")
+        self._logger.info(f"initializing tensorlake function: {function.name}")
+        self._func_wrapper = TensorlakeFunctionWrapper(function)
+        self._logger.info(f"finished initializing tensorlake function {function.name}")
         return InitializeResponse(success=True)
 
     def initialize_invocation_state_server(

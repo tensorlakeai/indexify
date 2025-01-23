@@ -23,7 +23,7 @@ grpcio = "1.68.1"
 
 # Function Executor only
 grpcio-tools = "1.68.1"
-tensorlake = ">=0.1.9"
+tensorlake = ">=0.1.10"
 
 # Executor only
 pydantic = "2.10.4"
