@@ -64,6 +64,12 @@ class FunctionExecutorStub(object):
             response_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.HealthCheckResponse.FromString,
             _registered_method=True,
         )
+        self.get_info = channel.unary_unary(
+            "/function_executor_service.FunctionExecutor/get_info",
+            request_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InfoRequest.SerializeToString,
+            response_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InfoResponse.FromString,
+            _registered_method=True,
+        )
 
 
 class FunctionExecutorServicer(object):
@@ -102,6 +108,12 @@ class FunctionExecutorServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def get_info(self, request, context):
+        """Information about this Function Executor."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_FunctionExecutorServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -124,6 +136,11 @@ def add_FunctionExecutorServicer_to_server(servicer, server):
             servicer.check_health,
             request_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.HealthCheckRequest.FromString,
             response_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.HealthCheckResponse.SerializeToString,
+        ),
+        "get_info": grpc.unary_unary_rpc_method_handler(
+            servicer.get_info,
+            request_deserializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InfoRequest.FromString,
+            response_serializer=indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InfoResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -248,6 +265,36 @@ class FunctionExecutor(object):
             "/function_executor_service.FunctionExecutor/check_health",
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.HealthCheckRequest.SerializeToString,
             indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.HealthCheckResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def get_info(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/function_executor_service.FunctionExecutor/get_info",
+            indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InfoRequest.SerializeToString,
+            indexify_dot_function__executor_dot_proto_dot_function__executor__pb2.InfoResponse.FromString,
             options,
             channel_credentials,
             insecure,

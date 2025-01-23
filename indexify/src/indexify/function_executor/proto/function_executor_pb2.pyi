@@ -223,3 +223,25 @@ class HealthCheckResponse(_message.Message):
     HEALTHY_FIELD_NUMBER: _ClassVar[int]
     healthy: bool
     def __init__(self, healthy: bool = ...) -> None: ...
+
+class InfoRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class InfoResponse(_message.Message):
+    __slots__ = ("version", "sdk_version", "sdk_language", "sdk_language_version")
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
+    SDK_LANGUAGE_FIELD_NUMBER: _ClassVar[int]
+    SDK_LANGUAGE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    version: str
+    sdk_version: str
+    sdk_language: str
+    sdk_language_version: str
+    def __init__(
+        self,
+        version: _Optional[str] = ...,
+        sdk_version: _Optional[str] = ...,
+        sdk_language: _Optional[str] = ...,
+        sdk_language_version: _Optional[str] = ...,
+    ) -> None: ...
