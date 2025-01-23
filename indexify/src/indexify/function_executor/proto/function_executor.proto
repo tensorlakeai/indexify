@@ -112,6 +112,22 @@ message HealthCheckResponse {
     optional bool healthy = 1;
 }
 
+message InfoRequest {}
+
+message InfoResponse {
+    // Internal version of this Function Executor.
+    // Semantic versioning schema is used with format 0.0.0.
+    // Used to support migrations.
+    optional string version = 1;
+    // The version of the SDK used in this Function Executor to run customer code.
+    optional string sdk_version = 2;
+    // The language of the SDK. Currently supported values:
+    // - "python"
+    optional string sdk_language = 3;
+    // The version of the SDK language. The language's versioning format is used.
+    optional string sdk_language_version = 4;
+}
+
 service FunctionExecutor {
     // Initializes the Function Executor to run tasks
     // for a particular function. This method is called only
@@ -127,4 +143,6 @@ service FunctionExecutor {
     rpc run_task(RunTaskRequest) returns (RunTaskResponse);
     // Health check method to check if the Function Executor is healthy.
     rpc check_health(HealthCheckRequest) returns (HealthCheckResponse);
+    // Information about this Function Executor.
+    rpc get_info(InfoRequest) returns (InfoResponse);
 }

@@ -10,10 +10,11 @@ import argparse
 
 import structlog
 
+from .info import info_response_kv_args
 from .server import Server
 from .service import Service
 
-logger = structlog.get_logger(module=__name__)
+logger = structlog.get_logger(module=__name__).bind(**info_response_kv_args())
 
 
 def validate_args(args):

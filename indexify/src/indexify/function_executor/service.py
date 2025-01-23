@@ -9,12 +9,15 @@ from .handlers.run_function.handler import Handler as RunTaskHandler
 from .handlers.run_function.request_validator import (
     RequestValidator as RunTaskRequestValidator,
 )
+from .info import info_response_kv_args
 from .initialize_request_validator import InitializeRequestValidator
 from .invocation_state.invocation_state_proxy_server import InvocationStateProxyServer
 from .invocation_state.proxied_invocation_state import ProxiedInvocationState
 from .proto.function_executor_pb2 import (
     HealthCheckRequest,
     HealthCheckResponse,
+    InfoRequest,
+    InfoResponse,
     InitializeRequest,
     InitializeResponse,
     InvocationStateResponse,
@@ -26,7 +29,9 @@ from .proto.function_executor_pb2_grpc import FunctionExecutorServicer
 
 class Service(FunctionExecutorServicer):
     def __init__(self):
-        self._logger = structlog.get_logger(module=__name__)
+        self._logger = structlog.get_logger(module=__name__).bind(
+            **info_response_kv_args()
+        )
         self._namespace: Optional[str] = None
         self._graph_name: Optional[str] = None
         self._graph_version: Optional[str] = None
@@ -133,3 +138,8 @@ class Service(FunctionExecutorServicer):
         # - Didn't exhaust its thread pool.
         # - Is able to communicate over its server socket.
         return HealthCheckResponse(healthy=True)
+
+    def get_info(
+        self, request: InfoRequest, context: grpc.ServicerContext
+    ) -> InfoResponse:
+        return InfoResponse(**info_response_kv_args())
