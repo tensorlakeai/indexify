@@ -36,7 +36,7 @@ nanoid = "^2.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
-pylint = "^3.3.3"
+pylint = "^3.3.0"
 parameterized = "^0.9.0"
 
 [build-system]
