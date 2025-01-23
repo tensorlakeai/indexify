@@ -31,7 +31,7 @@ class Service(FunctionExecutorServicer):
         self._graph_name: Optional[str] = None
         self._graph_version: Optional[str] = None
         self._function_name: Optional[str] = None
-        self._function: Optional[Union[TensorlakeCompute, TensorlakeCompute]] = None
+        self._func_wrapper: Optional[TensorlakeCompute] = None
         self._invocation_state_proxy_server: Optional[InvocationStateProxyServer] = None
 
     def initialize(
@@ -62,11 +62,14 @@ class Service(FunctionExecutorServicer):
             # Process user controlled input in a try-except block to not treat errors here as our
             # internal platform errors.
             graph = graph_serializer.deserialize(request.graph.bytes)
-            self._function = graph_serializer.deserialize(graph[request.function_name])
+            function = graph_serializer.deserialize(graph[request.function_name])
         except Exception as e:
             return InitializeResponse(success=False, customer_error=str(e))
 
         self._logger.info("initialized function executor service")
+        self._logger.info("initializing tensorlake function")
+        self._func_wrapper = function()
+        self._logger.info("finished initializing tensorlake function")
         return InitializeResponse(success=True)
 
     def initialize_invocation_state_server(
@@ -95,12 +98,11 @@ class Service(FunctionExecutorServicer):
             graph_name=self._graph_name,
             graph_version=self._graph_version,
             function_name=self._function_name,
-            function=self._function,
             invocation_state=ProxiedInvocationState(
                 request.task_id, self._invocation_state_proxy_server
             ),
             logger=self._logger,
-        ).run()
+        ).run(self._func_wrapper)
 
     def _check_task_routed_correctly(self, request: RunTaskRequest):
         # Fail with internal error as this happened due to wrong task routing to this Server.
