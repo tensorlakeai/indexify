@@ -38,7 +38,7 @@ class Handler:
             graph_invocation_id=request.graph_invocation_id,
             task_id=request.task_id,
         )
-        self._func_wrapper = function_wrapper
+        self._function_wrapper = function_wrapper
         self._input_loader = FunctionInputsLoader(request)
         self._response_helper = ResponseHelper(task_id=request.task_id)
         # TODO: use files for stdout, stderr capturing. This puts a natural and thus reasonable
@@ -81,8 +81,8 @@ class Handler:
             graph_version=self._graph_version,
             invocation_state=self._invocation_state,
         )
-        if _is_router(self._func_wrapper):
-            result: RouterCallResult = self._func_wrapper.invoke_router(
+        if _is_router(self._function_wrapper):
+            result: RouterCallResult = self._function_wrapper.invoke_router(
                 ctx, self._function_name, inputs.input
             )
             return self._response_helper.router_response(
@@ -91,12 +91,12 @@ class Handler:
                 stderr=self._func_stderr.getvalue(),
             )
         else:
-            result: FunctionCallResult = self._func_wrapper.invoke_fn_ser(
+            result: FunctionCallResult = self._function_wrapper.invoke_fn_ser(
                 ctx, self._function_name, inputs.input, inputs.init_value
             )
             return self._response_helper.function_response(
                 result=result,
-                is_reducer=_func_is_reducer(self._func_wrapper),
+                is_reducer=_function_is_reducer(self._function_wrapper),
                 stdout=self._func_stdout.getvalue(),
                 stderr=self._func_stderr.getvalue(),
             )
@@ -122,5 +122,5 @@ def _is_router(func_wrapper: TensorlakeFunctionWrapper) -> bool:
     )
 
 
-def _func_is_reducer(func_wrapper: TensorlakeFunctionWrapper) -> bool:
+def _function_is_reducer(func_wrapper: TensorlakeFunctionWrapper) -> bool:
     return func_wrapper.indexify_function.accumulate is not None
