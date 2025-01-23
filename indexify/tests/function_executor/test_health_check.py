@@ -15,7 +15,6 @@ from testing import (
     run_task,
 )
 
-from indexify.function_executor.proto.configuration import HEALTH_CHECK_TIMEOUT_SEC
 from indexify.function_executor.proto.function_executor_pb2 import (
     HealthCheckRequest,
     HealthCheckResponse,
@@ -30,6 +29,7 @@ from indexify.function_executor.proto.function_executor_pb2_grpc import (
 
 # Lower - faster tests but more CPU usage.
 HEALTH_CHECK_POLL_PERIOD_SEC = 0.1
+HEALTH_CHECK_TIMEOUT_SEC = 5
 
 
 @tensorlake_function()

@@ -3,8 +3,7 @@ from typing import Any
 
 import grpc
 
-from indexify.function_executor.proto.configuration import GRPC_CHANNEL_OPTIONS
-
+from .client_configuration import GRPC_CHANNEL_OPTIONS
 from .function_executor_server import FunctionExecutorServer
 
 
