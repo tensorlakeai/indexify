@@ -2,13 +2,12 @@ import io
 import sys
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Any, Union
+from typing import Any
 
 from tensorlake.functions_sdk.functions import (
     FunctionCallResult,
     GraphInvocationContext,
     RouterCallResult,
-    TensorlakeCompute,
     TensorlakeFunctionWrapper,
     TensorlakeRouter,
 )
@@ -26,7 +25,6 @@ class Handler:
         graph_name: str,
         graph_version: str,
         function_name: str,
-        function: Union[TensorlakeCompute, TensorlakeCompute],
         invocation_state: InvocationState,
         logger: Any,
     ):
@@ -34,7 +32,6 @@ class Handler:
         self._graph_name: str = graph_name
         self._graph_version: str = graph_version
         self._function_name: str = function_name
-        self._function: Union[TensorlakeCompute, TensorlakeCompute] = function
         self._invocation_state: InvocationState = invocation_state
         self._logger = logger.bind(
             graph_invocation_id=request.graph_invocation_id,
@@ -47,7 +44,7 @@ class Handler:
         self._func_stdout: io.StringIO = io.StringIO()
         self._func_stderr: io.StringIO = io.StringIO()
 
-    def run(self) -> RunTaskResponse:
+    def run(self, func_wrapper: TensorlakeFunctionWrapper) -> RunTaskResponse:
         """Runs the task.
 
         Raises an exception if our own code failed, customer function failure doesn't result in any exception.
@@ -56,9 +53,9 @@ class Handler:
         self._logger.info("running function")
         inputs: FunctionInputs = self._input_loader.load()
         self._flush_logs()
-        return self._run_func_safe_and_captured(inputs)
+        return self._run_func_safe_and_captured(func_wrapper, inputs)
 
-    def _run_func_safe_and_captured(self, inputs: FunctionInputs) -> RunTaskResponse:
+    def _run_func_safe_and_captured(self, func_wrapper: TensorlakeFunctionWrapper, inputs: FunctionInputs) -> RunTaskResponse:
         """Runs the customer function while capturing what happened in it.
 
         Function stdout and stderr are captured so they don't get into Function Executor process stdout
@@ -67,7 +64,7 @@ class Handler:
         """
         try:
             with redirect_stdout(self._func_stdout), redirect_stderr(self._func_stderr):
-                return self._run_func(inputs)
+                return self._run_func(func_wrapper, inputs)
         except Exception:
             return self._response_helper.failure_response(
                 message=traceback.format_exc(),
@@ -75,20 +72,16 @@ class Handler:
                 stderr=self._func_stderr.getvalue(),
             )
 
-    def _run_func(self, inputs: FunctionInputs) -> RunTaskResponse:
-        func_wrapper = TensorlakeFunctionWrapper(
-            indexify_function=self._function,
-            context=GraphInvocationContext(
-                invocation_id=self._invocation_id,
-                graph_name=self._graph_name,
-                graph_version=self._graph_version,
-                invocation_state=self._invocation_state,
-            ),
+    def _run_func(self, func_wrapper: TensorlakeFunctionWrapper, inputs: FunctionInputs) -> RunTaskResponse:
+        ctx: GraphInvocationContext = GraphInvocationContext(
+            invocation_id=self._invocation_id,
+            graph_name=self._graph_name,
+            graph_version=self._graph_version,
+            invocation_state=self._invocation_state,
         )
-
         if _is_router(func_wrapper):
             result: RouterCallResult = func_wrapper.invoke_router(
-                self._function_name, inputs.input
+                ctx, self._function_name, inputs.input
             )
             return self._response_helper.router_response(
                 result=result,
@@ -97,7 +90,7 @@ class Handler:
             )
         else:
             result: FunctionCallResult = func_wrapper.invoke_fn_ser(
-                self._function_name, inputs.input, inputs.init_value
+                ctx, self._function_name, inputs.input, inputs.init_value
             )
             return self._response_helper.function_response(
                 result=result,
