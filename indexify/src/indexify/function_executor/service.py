@@ -1,4 +1,4 @@
-from typing import Iterator, Optional, Union
+from typing import Iterator, Optional
 
 import grpc
 import structlog
@@ -31,7 +31,7 @@ class Service(FunctionExecutorServicer):
         self._graph_name: Optional[str] = None
         self._graph_version: Optional[str] = None
         self._function_name: Optional[str] = None
-        self._func_wrapper: Optional[TensorlakeFunctionWrapper] = None
+        self._function_wrapper: Optional[TensorlakeFunctionWrapper] = None
         self._invocation_state_proxy_server: Optional[InvocationStateProxyServer] = None
 
     def initialize(
@@ -61,9 +61,10 @@ class Service(FunctionExecutorServicer):
         try:
             # Process user controlled input in a try-except block to not treat errors here as our
             # internal platform errors.
+            # TODO: capture stdout and stderr and report exceptions the same way as when we run a task.
             graph = graph_serializer.deserialize(request.graph.bytes)
             function = graph_serializer.deserialize(graph[request.function_name])
-            self._func_wrapper = TensorlakeFunctionWrapper(function)
+            self._function_wrapper = TensorlakeFunctionWrapper(function)
         except Exception as e:
             return InitializeResponse(success=False, customer_error=str(e))
 
@@ -99,7 +100,7 @@ class Service(FunctionExecutorServicer):
             invocation_state=ProxiedInvocationState(
                 request.task_id, self._invocation_state_proxy_server
             ),
-            function_wrapper=self._func_wrapper,
+            function_wrapper=self._function_wrapper,
             logger=self._logger,
         ).run()
 
