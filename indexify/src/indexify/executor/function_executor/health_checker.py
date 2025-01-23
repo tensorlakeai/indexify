@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from grpc.aio import AioRpcError
 
-from indexify.function_executor.proto.configuration import HEALTH_CHECK_TIMEOUT_SEC
 from indexify.function_executor.proto.function_executor_pb2 import (
     HealthCheckRequest,
     HealthCheckResponse,
@@ -12,6 +11,8 @@ from indexify.function_executor.proto.function_executor_pb2 import (
 from indexify.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
+
+from .server.client_configuration import HEALTH_CHECK_TIMEOUT_SEC
 
 HEALTH_CHECK_POLL_PERIOD_SEC = 10
 

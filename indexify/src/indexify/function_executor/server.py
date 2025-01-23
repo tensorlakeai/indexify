@@ -2,8 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 
-from .proto.configuration import GRPC_SERVER_OPTIONS
 from .proto.function_executor_pb2_grpc import add_FunctionExecutorServicer_to_server
+from .proto.server_configuration import GRPC_SERVER_OPTIONS
 from .service import Service
 
 # Temporary limit until we have a better way to control this.

@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 import grpc
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 
-from indexify.function_executor.proto.configuration import GRPC_CHANNEL_OPTIONS
 from indexify.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     RunTaskRequest,
@@ -15,6 +14,7 @@ from indexify.function_executor.proto.function_executor_pb2 import (
 from indexify.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
+from indexify.function_executor.proto.server_configuration import GRPC_SERVER_OPTIONS
 
 # Default Executor range is 50000:51000.
 # Use a value outside of this range to not conflict with other tests.
@@ -43,9 +43,10 @@ class FunctionExecutorProcessContextManager:
 
 
 def rpc_channel(context_manager: FunctionExecutorProcessContextManager) -> grpc.Channel:
+    # The GRPC_SERVER_OPTIONS include the maximum message size which we need to set in the client channel.
     channel: grpc.Channel = grpc.insecure_channel(
         f"localhost:{context_manager.port}",
-        options=GRPC_CHANNEL_OPTIONS,
+        options=GRPC_SERVER_OPTIONS,
     )
     try:
         SERVER_STARTUP_TIMEOUT_SEC = 5
