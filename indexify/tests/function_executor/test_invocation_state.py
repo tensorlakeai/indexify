@@ -4,7 +4,10 @@ from typing import Any, Dict, List
 
 from pydantic import BaseModel
 from tensorlake import Graph
-from tensorlake.functions_sdk.functions import tensorlake_function, GraphInvocationContext
+from tensorlake.functions_sdk.functions import (
+    tensorlake_function,
+    GraphInvocationContext,
+)
 from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
 from testing import (
     DEFAULT_FUNCTION_EXECUTOR_PORT,
@@ -217,9 +220,7 @@ class TestGetInvocationState(unittest.TestCase):
     def _create_graph_with_result_validation(self):
         @tensorlake_function(inject_ctx=True)
         def get_invocation_state(ctx, x: int) -> str:
-            got_state: StructuredState = ctx.invocation_state.get(
-                "test_state_key"
-            )
+            got_state: StructuredState = ctx.invocation_state.get("test_state_key")
             expected_state: StructuredState = StructuredState(
                 string="hello",
                 integer=x,
@@ -310,9 +311,7 @@ class TestGetInvocationState(unittest.TestCase):
     def test_success_none_value(self):
         @tensorlake_function(inject_ctx=True)
         def get_invocation_state(ctx: GraphInvocationContext, x: int) -> str:
-            got_state: StructuredState = ctx.invocation_state.get(
-                "test_state_key"
-            )
+            got_state: StructuredState = ctx.invocation_state.get("test_state_key")
             return "success" if got_state is None else "failure"
 
         graph = Graph(
