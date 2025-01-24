@@ -41,7 +41,10 @@ use tracing::{error, info};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::executors::{self, EXECUTOR_TIMEOUT};
+use crate::{
+    executors::{self, EXECUTOR_TIMEOUT},
+    http_objects::Invocation,
+};
 
 mod download;
 mod internal_ingest;
@@ -282,6 +285,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             "/compute_graphs/{compute_graph}/replay",
             post(replay_compute_graph).with_state(route_state.clone()),
         )
+        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}", get(find_invocation).with_state(route_state.clone()))
         .route(
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}",
             delete(delete_invocation).with_state(route_state.clone()),
@@ -802,6 +806,30 @@ async fn list_outputs(
         outputs,
         cursor,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
+    tag = "retrieve",
+    responses(
+        (status = 200, description = "Details about a given invocation", body = Invocation),
+        (status = NOT_FOUND, description = "Invocation not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn find_invocation(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+) -> Result<Json<Invocation>, IndexifyAPIError> {
+    let invocation_ctx = state
+        .indexify_state
+        .reader()
+        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
+
+    Ok(Json(invocation_ctx.into()))
 }
 
 /// Delete a specific invocation  
