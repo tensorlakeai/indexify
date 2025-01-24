@@ -8,8 +8,7 @@ use axum::{
     middleware::{self, Next},
     response::{sse::Event, Html, IntoResponse},
     routing::{delete, get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use axum_tracing_opentelemetry::{
     self,
@@ -27,12 +26,8 @@ use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},
     requests::{
-        CreateOrUpdateComputeGraphRequest,
-        DeleteComputeGraphRequest,
-        DeleteInvocationRequest,
-        NamespaceRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
+        CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, DeleteInvocationRequest,
+        NamespaceRequest, RequestPayload, StateMachineUpdateRequest,
     },
     IndexifyState,
 };
@@ -41,50 +36,31 @@ use tracing::{error, info};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::executors::{self, EXECUTOR_TIMEOUT};
+use crate::{
+    executors::{self, EXECUTOR_TIMEOUT},
+    http_objects::Invocation,
+};
 
 mod download;
 mod internal_ingest;
 mod invoke;
 mod logs;
 use download::{
-    download_fn_output_by_key,
-    download_fn_output_payload,
-    download_invocation_payload,
+    download_fn_output_by_key, download_fn_output_payload, download_invocation_payload,
 };
 use internal_ingest::ingest_files_from_executor;
 use invoke::{
-    invoke_with_file,
-    invoke_with_object,
-    replay_compute_graph,
-    wait_until_invocation_completed,
+    invoke_with_file, invoke_with_object, replay_compute_graph, wait_until_invocation_completed,
 };
 use logs::download_task_logs;
 
 use crate::{
     executors::ExecutorManager,
     http_objects::{
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphsList,
-        CreateNamespace,
-        DataObject,
-        DynamicRouter,
-        ExecutorMetadata,
-        FnOutputs,
-        GraphInvocations,
-        GraphVersion,
-        ImageInformation,
-        IndexifyAPIError,
-        InvocationResult,
-        ListParams,
-        Namespace,
-        NamespaceList,
-        Node,
-        RuntimeInformation,
-        Task,
-        TaskOutcome,
-        Tasks,
+        ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, DataObject, DynamicRouter,
+        ExecutorMetadata, FnOutputs, GraphInvocations, GraphVersion, ImageInformation,
+        IndexifyAPIError, InvocationResult, ListParams, Namespace, NamespaceList, Node,
+        RuntimeInformation, Task, TaskOutcome, Tasks,
     },
 };
 
@@ -282,6 +258,7 @@ pub fn namespace_routes(route_state: RouteState) -> Router {
             "/compute_graphs/{compute_graph}/replay",
             post(replay_compute_graph).with_state(route_state.clone()),
         )
+        .route("/compute_graphs/{compute_graph}/invocations/{invocation_id}", get(find_invocation).with_state(route_state.clone()))
         .route(
             "/compute_graphs/{compute_graph}/invocations/{invocation_id}",
             delete(delete_invocation).with_state(route_state.clone()),
@@ -802,6 +779,30 @@ async fn list_outputs(
         outputs,
         cursor,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",
+    tag = "retrieve",
+    responses(
+        (status = 200, description = "Details about a given invocation", body = Invocation),
+        (status = NOT_FOUND, description = "Invocation not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn find_invocation(
+    Path((namespace, compute_graph, invocation_id)): Path<(String, String, String)>,
+    State(state): State<RouteState>,
+) -> Result<Json<Invocation>, IndexifyAPIError> {
+    let invocation_ctx = state
+        .indexify_state
+        .reader()
+        .invocation_ctx(&namespace, &compute_graph, &invocation_id)
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
+
+    Ok(Json(invocation_ctx.into()))
 }
 
 /// Delete a specific invocation  

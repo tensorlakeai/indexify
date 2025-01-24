@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::ComputeGraphCode;
+use data_model::{ComputeGraphCode, GraphInvocationCtx};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -529,6 +529,45 @@ pub struct FnOutputs {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvocationId {
     pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Invocation {
+    pub id: String,
+    pub completed: bool,
+    pub outstanding_tasks: u64,
+    pub task_analytics: HashMap<String, TaskAnalytics>,
+    pub graph_version: String,
+}
+
+impl From<GraphInvocationCtx> for Invocation {
+    fn from(value: GraphInvocationCtx) -> Self {
+        let mut task_analytics = HashMap::new();
+        for (k, v) in value.fn_task_analytics {
+            task_analytics.insert(
+                k,
+                TaskAnalytics {
+                    pending_tasks: v.pending_tasks,
+                    successful_tasks: v.successful_tasks,
+                    failed_tasks: v.failed_tasks,
+                },
+            );
+        }
+        Self {
+            id: value.invocation_id.to_string(),
+            completed: value.completed,
+            outstanding_tasks: value.outstanding_tasks,
+            task_analytics,
+            graph_version: value.graph_version.0,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TaskAnalytics {
+    pub pending_tasks: u64,
+    pub successful_tasks: u64,
+    pub failed_tasks: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
