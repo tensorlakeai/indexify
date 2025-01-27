@@ -1,3 +1,5 @@
+import os
+import platform
 import unittest
 
 from tensorlake import Graph, RemoteGraph, tensorlake_function
@@ -5,9 +7,9 @@ from testing import test_graph_name
 
 
 def function_executor_id() -> str:
-    # We can't use PIDs as they are reused when a process exits.
-    # Use memory address of the function instead.
-    return str(id(function_executor_id))
+    # PIDs are good for Subprocess Function Executors.
+    # Hostnames are good for Function Executors running in VMs and containers.
+    return str(os.getpid()) + str(platform.node())
 
 
 @tensorlake_function()
