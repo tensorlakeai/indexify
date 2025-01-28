@@ -21,7 +21,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error, info, span};
+use tracing::{debug, info, span};
 
 pub mod invocation_events;
 pub mod kv;
@@ -315,16 +315,13 @@ impl IndexifyState {
                     &request.compute_graph,
                     &request.invocation_id,
                 )? {
-                    if let Err(err) =
+                    let _ =
                         self.task_event_tx
                             .send(InvocationStateChangeEvent::InvocationFinished(
                                 InvocationFinishedEvent {
                                     id: request.invocation_id.clone(),
                                 },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                            ));
                     if completion == InvocationCompletion::System {
                         // Notify the system task handler that it can start new tasks since
                         // a task was completed
@@ -457,54 +454,43 @@ impl IndexifyState {
             RequestPayload::IngestTaskOuputs(task_finished_event) => {
                 let ev =
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
-                if let Err(err) = self.task_event_tx.send(ev) {
-                    error!("failed to send invocation state change: {:?}", err);
-                }
+                let _ = self.task_event_tx.send(ev);
             }
             RequestPayload::NamespaceProcessorUpdate(sched_update) => {
                 for task in &sched_update.task_requests {
-                    if let Err(err) =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::TaskCreated(
-                                invocation_events::TaskCreated {
-                                    invocation_id: task.invocation_id.clone(),
-                                    fn_name: task.compute_fn_name.clone(),
-                                    task_id: task.id.to_string(),
-                                },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                    let _ = self
+                        .task_event_tx
+                        .send(InvocationStateChangeEvent::TaskCreated(
+                            invocation_events::TaskCreated {
+                                invocation_id: task.invocation_id.clone(),
+                                fn_name: task.compute_fn_name.clone(),
+                                task_id: task.id.to_string(),
+                            },
+                        ));
                 }
             }
             RequestPayload::TaskAllocationProcessorUpdate(sched_update) => {
                 for task_allocated in &sched_update.allocations {
-                    if let Err(err) =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::TaskAssigned(
-                                invocation_events::TaskAssigned {
-                                    invocation_id: task_allocated.task.invocation_id.clone(),
-                                    fn_name: task_allocated.task.compute_fn_name.clone(),
-                                    task_id: task_allocated.task.id.to_string(),
-                                    executor_id: task_allocated.executor.get().to_string(),
-                                },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                    let _ = self
+                        .task_event_tx
+                        .send(InvocationStateChangeEvent::TaskAssigned(
+                            invocation_events::TaskAssigned {
+                                invocation_id: task_allocated.task.invocation_id.clone(),
+                                fn_name: task_allocated.task.compute_fn_name.clone(),
+                                task_id: task_allocated.task.id.to_string(),
+                                executor_id: task_allocated.executor.get().to_string(),
+                            },
+                        ));
                 }
                 for diagnostic in &sched_update.placement_diagnostics {
-                    if let Err(err) =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::DiagnosticMessage(
-                                invocation_events::DiagnosticMessage {
-                                    invocation_id: diagnostic.task.invocation_id.clone(),
-                                    message: diagnostic.message.clone(),
-                                },
-                            ))
-                    {
-                        error!("failed to send invocation state change: {:?}", err);
-                    }
+                    let _ = self
+                        .task_event_tx
+                        .send(InvocationStateChangeEvent::DiagnosticMessage(
+                            invocation_events::DiagnosticMessage {
+                                invocation_id: diagnostic.task.invocation_id.clone(),
+                                message: diagnostic.message.clone(),
+                            },
+                        ));
                 }
             }
             _ => {}
