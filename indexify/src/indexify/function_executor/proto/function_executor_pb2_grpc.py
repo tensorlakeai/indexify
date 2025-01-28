@@ -8,7 +8,7 @@ from indexify.function_executor.proto import (
     function_executor_pb2 as indexify_dot_function__executor_dot_proto_dot_function__executor__pb2,
 )
 
-GRPC_GENERATED_VERSION = "1.68.1"
+GRPC_GENERATED_VERSION = "1.70.0"
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
