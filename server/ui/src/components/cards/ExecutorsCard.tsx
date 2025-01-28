@@ -68,14 +68,16 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 </TableCell>
                 <TableCell component="th" scope="row">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Setting4 size={16} variant="Outline" />
                     {executor.id}
                   </Box>
                 </TableCell>
                 <TableCell>{executor.addr}</TableCell>
-                <TableCell>{executor.function_allowlist.length} functions</TableCell>
                 <TableCell>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  <Typography noWrap>
+                    {executor.function_allowlist.length} functions
+                  </Typography>
+                </TableCell><TableCell>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                     {Object.entries(executor.labels).map(([key, value]) => (
                       <Chip
                         key={key}
@@ -83,6 +85,11 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                         variant="outlined"
                         size="small"
                         sx={{
+                          height: '20px',
+                          '& .MuiChip-label': {
+                            padding: '0 6px',
+                            fontSize: '0.75rem',
+                          },
                           backgroundColor: 'rgba(51, 132, 252, 0.1)',
                           color: 'rgb(51, 132, 252)',
                           borderColor: 'rgba(51, 132, 252, 0.3)',
