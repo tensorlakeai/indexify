@@ -59,12 +59,17 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
             <>
               <TableRow key={executor.id}>
                 <TableCell padding="checkbox">
-                  <IconButton size="small" onClick={() => toggleRow(executor.id)}>
-                    {expandedRows[executor.id] ? 
-                      <ArrowUp2 size={16} /> : 
-                      <ArrowDown2 size={16} />
-                    }
-                  </IconButton>
+                  {executor.function_allowlist.length > 0 ? (
+                    <IconButton 
+                      size="small" 
+                      onClick={() => toggleRow(executor.id)}
+                    >
+                      {expandedRows[executor.id] ? 
+                        <ArrowUp2 size={16} /> : 
+                        <ArrowDown2 size={16} />
+                      }
+                    </IconButton>
+                  ) : null}
                 </TableCell>
                 <TableCell component="th" scope="row">
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -76,7 +81,8 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                   <Typography noWrap>
                     {executor.function_allowlist.length} functions
                   </Typography>
-                </TableCell><TableCell>
+                </TableCell>
+                <TableCell>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                     {Object.entries(executor.labels).map(([key, value]) => (
                       <Chip
@@ -99,66 +105,68 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                   </Box>
                 </TableCell>
               </TableRow>
-              <TableRow>
-                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={5}>
-                  <Collapse in={expandedRows[executor.id]} timeout="auto" unmountOnExit>
-                    <Box sx={{ margin: 2 }}>
-                      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
-                        <TextField
-                          size="small"
-                          placeholder="Search functions..."
-                          value={searchTerms[executor.id] || ''}
-                          onChange={(e) => setSearchTerms(prev => ({ 
-                            ...prev, 
-                            [executor.id]: e.target.value 
-                          }))}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <SearchNormal1 size={20} />
-                              </InputAdornment>
-                            ),
+              {executor.function_allowlist.length > 0 && (
+                <TableRow>
+                  <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={5}>
+                    <Collapse in={expandedRows[executor.id]} timeout="auto" unmountOnExit>
+                      <Box sx={{ margin: 2 }}>
+                        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+                          <TextField
+                            size="small"
+                            placeholder="Search functions..."
+                            value={searchTerms[executor.id] || ''}
+                            onChange={(e) => setSearchTerms(prev => ({ 
+                              ...prev, 
+                              [executor.id]: e.target.value 
+                            }))}
+                            InputProps={{
+                              startAdornment: (
+                                <InputAdornment position="start">
+                                  <SearchNormal1 size={20} />
+                                </InputAdornment>
+                              ),
+                            }}
+                          />
+                        </Box>
+                        <Table 
+                          size="small" 
+                          sx={{
+                            border: 1,
+                            borderColor: 'divider',
+                            borderRadius: 10,
+                            '& td, & th': {
+                              borderBottom: 1,
+                              borderColor: 'divider'
+                            }
                           }}
-                        />
-                      </Box>
-                      <Table 
-                        size="small" 
-                        sx={{
-                          border: 1,
-                          borderColor: 'divider',
-                          borderRadius: 100,
-                          '& td, & th': {
-                            borderBottom: 1,
-                            borderColor: 'divider'
-                          }
-                        }}
-                      >
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Compute Function</TableCell>
-                            <TableCell>Compute Graph</TableCell>
-                            <TableCell>Namespace</TableCell>
-                            <TableCell>Version</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {filterFunctions(
-                            executor.function_allowlist, 
-                            searchTerms[executor.id] || ''
-                          ).map((fn, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell>{fn.compute_fn}</TableCell>
-                              <TableCell>{fn.compute_graph}</TableCell>
-                              <TableCell>{fn.namespace}</TableCell>
-                              <TableCell>{fn.version || '-'}</TableCell>
+                        >
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Compute Function</TableCell>
+                              <TableCell>Compute Graph</TableCell>
+                              <TableCell>Namespace</TableCell>
+                              <TableCell>Version</TableCell>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </Box>
-                  </Collapse>
-                </TableCell>
-              </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {filterFunctions(
+                              executor.function_allowlist, 
+                              searchTerms[executor.id] || ''
+                            ).map((fn, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell>{fn.compute_fn}</TableCell>
+                                <TableCell>{fn.compute_graph}</TableCell>
+                                <TableCell>{fn.namespace}</TableCell>
+                                <TableCell>{fn.version || '-'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              )}
             </>
           ))}
         </TableBody>
