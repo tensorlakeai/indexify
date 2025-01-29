@@ -4,9 +4,8 @@ from typing import Any, Optional
 
 import httpx
 import structlog
-
-from indexify.function_executor.proto.function_executor_pb2 import SerializedObject
-from indexify.utils.http_client import get_httpx_client
+from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
+from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import Task
 

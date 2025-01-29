@@ -4,9 +4,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 import structlog
-
-from indexify.function_executor.proto.function_executor_pb2 import SerializedObject
-from indexify.utils.logging import suppress as suppress_logging
+from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
+from tensorlake.utils.logging import suppress as suppress_logging
 
 from .api_objects import FunctionURI, Task
 from .downloader import Downloader

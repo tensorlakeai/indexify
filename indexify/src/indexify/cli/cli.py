@@ -1,4 +1,4 @@
-from indexify.utils.logging import (
+from tensorlake.utils.logging import (
     configure_development_mode_logging,
     configure_logging_early,
     configure_production_mode_logging,

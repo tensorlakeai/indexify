@@ -2,15 +2,14 @@ import asyncio
 from typing import Any, Optional
 
 import grpc
-
-from indexify.function_executor.proto.function_executor_pb2 import (
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     InitializeResponse,
 )
-from indexify.function_executor.proto.function_executor_pb2_grpc import (
+from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
-from indexify.utils.http_client import get_httpx_client
+from tensorlake.utils.http_client import get_httpx_client
 
 from .health_checker import HealthChecker
 from .invocation_state_client import InvocationStateClient
