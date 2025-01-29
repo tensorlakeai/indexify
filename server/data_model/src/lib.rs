@@ -1029,6 +1029,13 @@ impl Display for StateChangeId {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct UnprocessedStateChanges {
+    pub changes: Vec<StateChange>,
+    pub last_global_state_change_cursor: Option<Vec<u8>>,
+    pub last_namespace_state_change_cursor: Option<Vec<u8>>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,

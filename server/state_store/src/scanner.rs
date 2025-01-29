@@ -18,6 +18,7 @@ use data_model::{
     Task,
     TaskAnalytics,
     TaskFinalizedEvent,
+    UnprocessedStateChanges,
 };
 use metrics::Timer;
 use opentelemetry::KeyValue;
@@ -421,32 +422,42 @@ impl StateReader {
         Ok(urls)
     }
 
-    pub fn unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
+    pub fn unprocessed_state_changes(
+        &self,
+        global_index: &Option<Vec<u8>>,
+        ns_index: &Option<Vec<u8>>,
+    ) -> Result<UnprocessedStateChanges> {
         let kvs = &[KeyValue::new("op", "unprocessed_state_changes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let mut state_changes = Vec::new();
-        let global_state_changes: Vec<StateChange> = self
-            .get_rows_from_cf_with_limits(
+        let (global_state_changes, global_state_change_cursor) = self
+            .get_rows_from_cf_with_limits::<StateChange>(
                 "global".as_bytes(),
-                None,
+                global_index.as_deref(),
                 IndexifyObjectsColumns::UnprocessedStateChanges,
                 None,
-            )?
-            .0;
+            )?;
         state_changes.extend(global_state_changes);
         if state_changes.len() >= 100 {
-            return Ok(state_changes);
+            return Ok(UnprocessedStateChanges {
+                changes: state_changes,
+                last_global_state_change_cursor: global_state_change_cursor,
+                last_namespace_state_change_cursor: None,
+            });
         }
-        let ns_state_changes: Vec<StateChange> = self
-            .get_rows_from_cf_with_limits(
+        let (ns_state_changes, ns_state_change_cursor) = self
+            .get_rows_from_cf_with_limits::<StateChange>(
                 "ns".as_bytes(),
-                None,
+                ns_index.as_deref(),
                 IndexifyObjectsColumns::UnprocessedStateChanges,
                 Some(100 - state_changes.len()),
-            )?
-            .0;
+            )?;
         state_changes.extend(ns_state_changes);
-        Ok(state_changes)
+        return Ok(UnprocessedStateChanges {
+            changes: state_changes,
+            last_global_state_change_cursor: global_state_change_cursor,
+            last_namespace_state_change_cursor: ns_state_change_cursor,
+        });
     }
 
     pub fn get_all_rows_from_cf<V>(

@@ -56,10 +56,12 @@ mod tests {
             let invocation_id = test_state_store::with_simple_graph(&indexify_state).await;
 
             // Should have 1 unprocessed state - one task created event
-            let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
+            let unprocessed_state_changes = indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
             assert_eq!(
                 1,
-                unprocessed_state_changes.len(),
+                unprocessed_state_changes.changes.len(),
                 "{:?}",
                 unprocessed_state_changes
             );
@@ -74,9 +76,11 @@ mod tests {
             assert_eq!(tasks.len(), 1);
 
             // Should have 0 unprocessed state - one task it would be unallocated
-            let unprocessed_state_changes = indexify_state.reader().unprocessed_state_changes()?;
+            let unprocessed_state_changes = indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
             assert_eq!(
-                unprocessed_state_changes.len(),
+                unprocessed_state_changes.changes.len(),
                 0,
                 "{:#?}",
                 unprocessed_state_changes
@@ -356,12 +360,14 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(tasks.len(), 2);
-        let unprocessed_state_changes =
-            indexify_state.reader().unprocessed_state_changes().unwrap();
+        let unprocessed_state_changes = indexify_state
+            .reader()
+            .unprocessed_state_changes(&None, &None)
+            .unwrap();
 
         // has task created state change in it.
         assert_eq!(
-            unprocessed_state_changes.len(),
+            unprocessed_state_changes.changes.len(),
             0,
             "{:?}",
             unprocessed_state_changes
@@ -604,8 +610,10 @@ mod tests {
         }
 
         {
-            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
-            assert_eq!(state_changes.len(), 0);
+            let state_changes = indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
+            assert_eq!(state_changes.changes.len(), 0);
 
             let graph_ctx = indexify_state
                 .reader()
@@ -913,8 +921,10 @@ mod tests {
         }
 
         {
-            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
-            assert_eq!(state_changes.len(), 0);
+            let state_changes = indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
+            assert_eq!(state_changes.changes.len(), 0);
 
             let graph_ctx = indexify_state
                 .reader()
@@ -1186,8 +1196,10 @@ mod tests {
         }
 
         {
-            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
-            assert_eq!(state_changes.len(), 0);
+            let state_changes = indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
+            assert_eq!(state_changes.changes.len(), 0);
 
             let graph_ctx = indexify_state
                 .reader()
@@ -1409,8 +1421,10 @@ mod tests {
 
         // Expect no more tasks and a completed graph
         {
-            let state_changes = indexify_state.reader().unprocessed_state_changes()?;
-            assert_eq!(state_changes.len(), 0);
+            let state_changes = indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
+            assert_eq!(state_changes.changes.len(), 0);
 
             let graph_ctx = indexify_state
                 .reader()
