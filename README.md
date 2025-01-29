@@ -5,110 +5,234 @@
 
 ## Create and Deploy Durable, Data-Intensive Agentic Workflows
 
-*Indexify simplifies building and serving durable, multi-stage workflows as inter-connected Python functions and automagically deploys them as APIs.*
-
-A **workflow** encodes data ingestion and transformation stages that can be implemented using Python functions. Each of these functions is a logical compute unit that can be retried upon failure or assigned to specific hardware.
+**Indexify simplifies building and serving durable, multi-stage data-intensive workflows and exposes them as HTTP APIs or Python Remote APIs.**
 
 <br />
-
-<div align="center">
-    <img src="https://raw.githubusercontent.com/tensorlakeai/indexify/main/docs/images/PDF_Extraction_Demo-VEED.gif" 
-     alt="PDF Extraction Demo" 
-     style="width: 75%; height: auto;" 
-     loading="lazy" />
-</div>
-
-<br />
-
-*To give you a taste of the project, in the above video - Indexify running PDF Extraction on a cluster of 3 machines. </br>
-top left -    A GPU accelerated machine running document layout and OCR model on a PDF,</br>
-bottom left - chunking texts, embedding image and text using CLIP and a text embedding model. </br>
-top right - A function writing image and text embeddings to ChromaDB. </br>
-All three functions of the workflow are running in parallel and coordinated by the Indexify server.*
 
 > [!NOTE]  
 > Indexify is the Open-Source core compute engine that powers Tensorlake's Serverless Workflow Engine for processing unstructured data.
-
 
 ### 💡 Use Cases
 
 **Indexify** is a versatile data processing framework for all kinds of use cases, including:
 
-* [Scraping and Summarizing Websites](examples/website_audio_summary/)
 * [Extracting and Indexing PDF Documents](examples/pdf_document_extraction/)
+* [Scraping and Summarizing Websites](examples/website_audio_summary/)
 * [Transcribing and Summarizing Audio Files](examples/video_summarization/)
 * [Object Detection and Description](examples/object_detection/)
 * [Knowledge Graph RAG and Question Answering](examples/knowledge_graph/)
 
 ### ⭐ Key Features
 
-* **Dynamic Routing:** Route data to different specialized models based on conditional branching logic.
-* **Local Inference:** Execute LLMs directly within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers.
-* **Distributed Processing:** Run functions in parallel across machines so that results across functions can be combined as they complete.
-* **Workflow Versioning:** Version compute graphs to update previously processed data to reflect the latest functions and models.
+* **Multi-Cloud/Datacenter/Region:** Leverage Compute from other clouds with very little hassle and configuration.
+
+* **Dynamic Routing:** Route data to different specialized compute functions distributed on a cluster based on conditional branching logic.
+* **Local Inference:** Execute LLMs directly within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers in Python functions.
+* **Distributed Processing:** Run functions in parallel across machines for scaleouts use-cases.
 * **Resource Allocation:** Span workflows across GPU and CPU instances so that functions can be assigned to their optimal hardware.
-* **Request Optimization:** Maximize GPU utilization by automatically queuing and batching invocations in parallel.
 
 ## ⚙️ Installation
 
-Install Indexify's SDK and CLI into your development environment:
+Install the Tensorlake SDK for building workflows and the Indexify CLI.
 
 ```bash
-pip install indexify
+pip install indexify tensorlake
 ```
 
 ## 📚 A Minimal Example
 
-Define a workflow by implementing its data transformation as composable Python functions. Functions decorated with `@indexify_function()`. These functions form the edges of a `Graph`, which is the representation of a compute graph. <br></br>
-Functions serve as discrete units within a Graph, defining the boundaries for retry attempts and resource allocation. They separate computationally heavy tasks like LLM inference from lightweight ones like database writes. <br></br>
-The example below is a pipeline that calculates the sum of squares for the first consecutive whole numbers. 
+Functions decorated with `@tensorlake_function()` are units of compute in your Workflow APIs. These functions can have data dependencies on other functions. <br></br>
+Tensorlake functions are durable, i.e, if the function crashes or the node running the function is lost, it is going to be automatically retried on another running instance with the same input.
+ <br></br>
+You can run as many function instances on the cluster, inputs are going to be automatically load balanced across them when the workflow is called in parallel by other applications.
+
+The example below is a workflow API that accepts some text, embeds the file, and writes it to a local vector-db. Each function could be placed on different classes of machines(CPU-only machines for chunking and writing to databases, NVIDIA GPUs for embedding)
 
 ```python
 from pydantic import BaseModel
-from indexify import indexify_function, indexify_router, Graph
+from tensorlake import tensorlake_function, Graph, Image, TensorlakeCompute
 from typing import List, Union
 
-class Document(BaseModel):
-   pages: List[str]
 
-# Parse a pdf and extract text
-@indexify_function()
-def process_document(file: File) -> Document:
-    # Process a PDF and extract pages
+class Text(BaseModel):
+    text: str
+
 
 class TextChunk(BaseModel):
-   chunk: str
-   page_number: int
+    chunk: str
+    page_number: int
 
-# Chunk the pages for embedding and retreival
-@indexify_function()
-def chunk_document(document: Document) -> List[TextChunk]:
-    # Split the pages
+
+class ChunkEmbedding(BaseModel):
+    text: str
+    embedding: List[float]
+
+
+embedding_image = (
+    Image()
+    .name("text_embedding_image")
+    .run("pip install langchain")
+    .run("pip install sentence_transformer")
+    .run("pip install langchain-text-splitters")
+    .run("pip install chromadb")
+    .run("pip install uuid")
+)
+
+
+# Chunk the text for embedding and retrieval
+@tensorlake_function(input_encoder="json", image=embedding_image)
+def chunk_text(input: dict) -> List[TextChunk]:
+    text = Text.model_validate(input)
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=20,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    texts = text_splitter.create_documents([text.text])
+    return [
+        TextChunk(chunk=chunk.page_content, page_number=i)
+        for i, chunk in enumerate(texts)
+    ]
+
 
 # Embed a single chunk.
 # Note: (Automatic Map) Indexify automatically parallelize functions when they consume an element
 # from functions that produces a List
-@indexify_functions()
-def embed_and_write(chunk: TextChunk) -> ChunkEmbedding:
-    # run an embedding model on the chunk
-    # write_to_db
+class Embedder(TensorlakeCompute):
+    name = "embedder"
+    image = embedding_image
+
+    def __init__(self):
+        from sentence_transformers import SentenceTransformer
+
+        self._model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    def run(self, chunk: TextChunk) -> ChunkEmbedding:
+        embeddings = self._model.encode(chunk.chunk)
+        return ChunkEmbedding(text=chunk.chunk, embedding=embeddings)
+
+
+class EmbeddingWriter(TensorlakeCompute):
+    name = "embedding_writer"
+    image = embedding_image
+
+    def __init__(self):
+        import chromadb
+
+        self._chroma = chromadb.PersistentClient("./chromadb_tensorlake")
+        self._collection = collection = self._chroma.create_collection(
+            name="my_collection", get_or_create=True
+        )
+
+    def run(self, embedding: ChunkEmbedding) -> None:
+        import uuid
+
+        self._collection.upsert(
+            ids=[str(uuid.uuid4())],
+            embeddings=[embedding.embedding],
+            documents=[embedding.text],
+        )
+
 
 # Constructs a compute graph connecting the three functions defined above into a workflow that generates
 # runs them as a pipeline
-graph = Graph(name="document_ingestion_pipeline", start_node=process_document, description="...")
-graph.add_edge(process_document, chunk_document)
-graph.add_edge(chunk_document, embed_and_write)
+graph = Graph(
+    name="text_embedder",
+    start_node=chunk_text,
+    description="Splits, embeds and indexes text",
+)
+graph.add_edge(chunk_text, Embedder)
+graph.add_edge(Embedder, EmbeddingWriter)
 ```
 
-[Read the Docs](https://docs.tensorlake.ai/quick-start) to learn more about how to test, deploy and create API endpoints for Workflows.
+### Testing Locally 
+You can test the workflow locally with only the `tensorlake` package installed. 
 
-## 📖 Next Steps
+```python
+invocation_id = graph.run(input={"text": "This is a test text"})
+print(f"Invocation ID: {invocation_id}")
 
-* [Architecture of Indexify](https://docs.getindexify.ai/architecture)
-* [Packaging Dependencies of Functions](https://docs.getindexify.ai/packaging-dependencies)
-* [Programming Model](https://docs.getindexify.ai/key-concepts#programming-model)
-* [Deploying Compute Graph Endpoints using Docker Compose](https://docs.getindexify.ai/operations/deployment#docker-compose)
-* [Deploying Compute Graph Endpoints using Kubernetes](https://docs.getindexify.ai/operations/deployment#kubernetes)
+# You can get output from each function of the graph
+embedding = graph.output(invocation_id, "embedder")
+print(embedding)
+```
+
+## Deploying Workflows as APIs
+
+Big Picture, you will deploy Indexify Server on a machine and run containers for each of the function in a workflow separately.
+
+But first, we will show how to do this locally on a single machine.
+
+## Start the Server 
+
+Download a server release [from here](https://github.com/tensorlakeai/indexify/releases). Open a terminal and start the server.
+
+```bash
+./indexify-server -dev
+```
+
+## Start the Executors 
+
+Executor is the component which is responsible for running your functions. On a terminal, where all the dependencies are installed, start an executor in `development` mode.
+
+```bash
+indexify-cli executor --dev
+```
+
+Change the code in the workflow to the following -
+```python
+from tensorlake import RemoteGraph
+RemoteGraph.deploy(graph)
+```
+
+At this point, you now have a Graph endpoint on Indexify Server ready to be called as an API from any application.
+
+## Invoke the Graph 
+You can invoke the Graph as a REST API if the first function is configured to accept JSON payload. 
+
+```curl
+curl http://localhost:8900/namespaces/default/compute_graphs/text_embedder -d '{"text": "hello world"}'
+```
+
+You can invoke the Graph from Python too
+```python
+from tensorlake import RemoteGraph
+remote_graph = RemoteGraph.by_name("text_embedder")
+```
+
+## Deploying to Production Clusters 
+
+Deploying a workflow to production is a two step process -
+1. Run the server 
+2. Build and deploy containers to run the functions.
+
+### Building and Deploying Containers
+
+* First build and deploy container images that contains all the python and system dependencies of your code. They can be built using standard Docker build systems. For this example, we have a single image that can run all the functions. You can separate them to reduce the size of your images for more complex projects.
+
+* Next Deploy the Containers 
+
+```bash
+docker run -d <your container image> indexify-cli executor --function default:text_embedder:chunk_document
+docker run -d <your container image> indexify-cli executor --function default:text_embedder:embed_chunk
+docker run -d <your container image> indexify-cli executor --function default:text_embedder:write_to_db
+```
+
+> Containers are treated as ephemeral, only one type of function is ever scheduled on a single container. We are starting two containers for placing one function in each of them.
+
+## Scale To Zero
+Indexify won't complain if you shut down the containers at night. It will still accept new API calls from external systems even it can't find machines to run functions. It will simply queue them up, and wait for functions to come up. It emits telemetry of pending tasks, waiting to be placed on functions which can be used as inputs to Autoscalers.
+
+This is it! 
+
+## Production Ready Distributed and Always-On Data Workflows 
+* You have built a workflow API which is durable, capable of being distributed on many kinds of hardware and can handle limitless scale.
+* You can use any Python libraries under the sun, any system packages and can use your favorite tools to package them into a container image.
+* Deploying code is as simple as uploading code into the server, they get distributed and updated automatically. 
+
 
 ### 🗺️ Roadmap
 
@@ -125,19 +249,3 @@ graph.add_edge(chunk_document, embed_and_write)
 #### 🛠️ SDK
 
 * **TypeScript SDK:** Build an SDK for writing workflows in Typescript.
-
-### Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=tensorlakeai/indexify&type=Date)](https://star-history.com/#tensorlakeai/indexify&Date)
-
-### Contributors
-
-<a href="https://github.com/tensorlakeai/indexify/graphs/contributors">
-  <img alt="contributors" src="https://contrib.rocks/image?repo=tensorlakeai/indexify"/>
-</a>
-
-<p align="right" style="font-size: 14px; color: #555; margin-top: 20px;">
-    <a href="#readme-top" style="text-decoration: none; color: #007bff; font-weight: bold;">
-        ↑ Back to Top ↑
-    </a>
-</p>

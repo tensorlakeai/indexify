@@ -15,7 +15,7 @@ use data_model::{
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use state_store::requests::{IngestTaskOutputsRequest, RequestPayload, StateMachineUpdateRequest};
-use tracing::{error, info};
+use tracing::{debug, error};
 use utoipa::ToSchema;
 
 use super::RouteState;
@@ -258,7 +258,7 @@ async fn write_to_disk<'a>(
         .as_ref()
         .ok_or(IndexifyAPIError::bad_request("file name is required"))?
         .to_string();
-    info!("writing to blob store, file name = {:?}", file_name);
+    debug!("writing to blob store, file name = {:?}", file_name);
     let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
     blob_storage.put(file_name, stream).await.map_err(|e| {
         error!("failed to write to blob store: {:?}", e);
