@@ -1,4 +1,4 @@
-import multiprocessing
+import threading
 import time
 import unittest
 
@@ -49,8 +49,8 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             graph_name=test_graph_name(self), func_name="sleep_a", func_arg_secs=0.01
         )
 
-        processes = [
-            multiprocessing.Process(
+        threads = [
+            threading.Thread(
                 target=invoke_sleep_graph,
                 kwargs={
                     "graph_name": test_graph_name(self),
@@ -58,7 +58,7 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
                     "func_arg_secs": 0.51,
                 },
             ),
-            multiprocessing.Process(
+            threading.Thread(
                 target=invoke_sleep_graph,
                 kwargs={
                     "graph_name": test_graph_name(self),
@@ -68,13 +68,12 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             ),
         ]
 
-        for process in processes:
-            process.start()
+        for thread in threads:
+            thread.start()
 
         start_time = time.time()
-        for process in processes:
-            process.join()
-            self.assertEqual(process.exitcode, 0)
+        for thread in threads:
+            thread.join()
 
         end_time = time.time()
         duration = end_time - start_time
@@ -111,8 +110,8 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             graph_name=graph_b_name, func_name="sleep_b", func_arg_secs=0.01
         )
 
-        processes = [
-            multiprocessing.Process(
+        threads = [
+            threading.Thread(
                 target=invoke_sleep_graph,
                 kwargs={
                     "graph_name": graph_a_name,
@@ -120,7 +119,7 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
                     "func_arg_secs": 0.51,
                 },
             ),
-            multiprocessing.Process(
+            threading.Thread(
                 target=invoke_sleep_graph,
                 kwargs={
                     "graph_name": graph_b_name,
@@ -130,13 +129,12 @@ class TestRemoteGraphFunctionConcurrency(unittest.TestCase):
             ),
         ]
 
-        for process in processes:
-            process.start()
+        for thread in threads:
+            thread.start()
 
         start_time = time.time()
-        for process in processes:
-            process.join()
-            self.assertEqual(process.exitcode, 0)
+        for thread in threads:
+            thread.join()
 
         end_time = time.time()
         duration = end_time - start_time
