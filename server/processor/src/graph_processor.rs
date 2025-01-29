@@ -103,7 +103,8 @@ impl GraphProcessor {
                 }
                 None => {}
             };
-            let state_changes = unprocessed_state_changes.changes;
+            let mut state_changes = unprocessed_state_changes.changes;
+            state_changes.reverse();
             cached_state_changes.extend(state_changes);
         }
         // 2. If there are no state changes to process, return
