@@ -2,14 +2,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Optional
 
 import grpc
-from grpc.aio import AioRpcError
-
-from indexify.function_executor.proto.function_executor_pb2 import (
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     InitializeRequest,
     RunTaskRequest,
     RunTaskResponse,
 )
-from indexify.function_executor.proto.function_executor_pb2_grpc import (
+from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
 

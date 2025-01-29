@@ -3,18 +3,17 @@ from typing import Any, AsyncGenerator, Optional, Union
 
 import grpc
 import httpx
-
-from indexify.function_executor.proto.function_executor_pb2 import (
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     GetInvocationStateResponse,
     InvocationStateRequest,
     InvocationStateResponse,
     SerializedObject,
     SetInvocationStateResponse,
 )
-from indexify.function_executor.proto.function_executor_pb2_grpc import (
+from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
-from indexify.function_executor.proto.message_validator import MessageValidator
+from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from ..downloader import serialized_object_from_http_response
 

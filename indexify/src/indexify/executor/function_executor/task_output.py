@@ -1,6 +1,6 @@
 from typing import Optional
 
-from indexify.function_executor.proto.function_executor_pb2 import (
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     RouterOutput,
 )

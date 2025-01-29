@@ -3,12 +3,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Optional
 
 from grpc.aio import AioRpcError
-
-from indexify.function_executor.proto.function_executor_pb2 import (
+from tensorlake.function_executor.proto.function_executor_pb2 import (
     HealthCheckRequest,
     HealthCheckResponse,
 )
-from indexify.function_executor.proto.function_executor_pb2_grpc import (
+from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
 

@@ -3,11 +3,10 @@ from typing import Any, List, Optional, Tuple
 
 import nanoid
 from httpx import Timeout
+from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOutput
+from tensorlake.utils.http_client import get_httpx_client
 
-from indexify.function_executor.proto.function_executor_pb2 import FunctionOutput
-from indexify.utils.http_client import get_httpx_client
-
-from .api_objects import RouterOutput, Task, TaskResult
+from .api_objects import RouterOutput, TaskResult
 from .task_runner import TaskOutput
 
 
