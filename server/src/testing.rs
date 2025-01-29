@@ -6,7 +6,6 @@ use data_model::{
     test_objects::tests::{mock_executor, mock_node_fn_output},
     ExecutorId,
     ExecutorMetadata,
-    StateChange,
     Task,
     TaskOutcome,
 };
@@ -62,7 +61,8 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes()?
+            .unprocessed_state_changes(&None, &None)?
+            .changes
             .is_empty()
         {
             self.process_graph_processor().await?;
@@ -72,15 +72,16 @@ impl TestService {
 
     pub async fn process_graph_processor(&self) -> Result<()> {
         let notify = Arc::new(tokio::sync::Notify::new());
-        let mut cached_state_changes: Vec<StateChange> = self
+        let mut cached_state_changes = self
             .service
             .indexify_state
             .reader()
-            .unprocessed_state_changes()?;
+            .unprocessed_state_changes(&None, &None)?
+            .changes;
         while !cached_state_changes.is_empty() {
             self.service
                 .graph_processor
-                .write_sm_update(&mut cached_state_changes, &notify)
+                .write_sm_update(&mut cached_state_changes, &mut None, &mut None, &notify)
                 .await?;
         }
         Ok(())

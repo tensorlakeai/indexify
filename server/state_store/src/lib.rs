@@ -695,14 +695,17 @@ mod tests {
         .unwrap();
         state_machine::save_state_changes(indexify_state.db.clone(), &tx, &state_change_3).unwrap();
         tx.commit().unwrap();
-        let state_changes = indexify_state.reader().unprocessed_state_changes().unwrap();
-        assert_eq!(state_changes.len(), 3);
+        let state_changes = indexify_state
+            .reader()
+            .unprocessed_state_changes(&None, &None)
+            .unwrap();
+        assert_eq!(state_changes.changes.len(), 3);
         // global state_change_2
-        assert_eq!(state_changes[0].id, StateChangeId::new(1));
+        assert_eq!(state_changes.changes[0].id, StateChangeId::new(1));
         // state_change_1
-        assert_eq!(state_changes[1].id, StateChangeId::new(0));
+        assert_eq!(state_changes.changes[1].id, StateChangeId::new(0));
         // state_change_3
-        assert_eq!(state_changes[2].id, StateChangeId::new(2));
+        assert_eq!(state_changes.changes[2].id, StateChangeId::new(2));
         Ok(())
     }
 

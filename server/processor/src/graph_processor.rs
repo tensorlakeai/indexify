@@ -46,6 +46,8 @@ impl GraphProcessor {
     pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
         let mut cached_state_changes: Vec<StateChange> = vec![];
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
+        let mut last_global_state_change_cursor: Option<Vec<u8>> = None;
+        let mut last_namespace_state_change_cursor: Option<Vec<u8>> = None;
         // Used to run the loop when there are more than 1 change events queued up
         // The watch from the state store only notifies that there are N number of state
         // changes but if we only process one event from the queue then the
@@ -55,13 +57,13 @@ impl GraphProcessor {
             tokio::select! {
                 _ = change_events_rx.changed() => {
                     change_events_rx.borrow_and_update();
-                    if let Err(err) = self.write_sm_update(&mut cached_state_changes, &notify).await {
+                    if let Err(err) = self.write_sm_update(&mut cached_state_changes, &mut last_global_state_change_cursor, &mut last_namespace_state_change_cursor, &notify).await {
                         error!("error processing state change: {:?}", err);
                         continue
                     }
                 },
                 _ = notify.notified() => {
-                    if let Err(err) = self.write_sm_update(&mut cached_state_changes, &notify).await {
+                    if let Err(err) = self.write_sm_update(&mut cached_state_changes, &mut last_global_state_change_cursor, &mut last_namespace_state_change_cursor, &notify).await {
                         error!("error processing state change: {:?}", err);
                         continue
                     }
@@ -77,19 +79,32 @@ impl GraphProcessor {
     pub async fn write_sm_update(
         &self,
         cached_state_changes: &mut Vec<StateChange>,
+        last_global_state_change_cursor: &mut Option<Vec<u8>>,
+        last_namespace_state_change_cursor: &mut Option<Vec<u8>>,
         notify: &Arc<Notify>,
     ) -> Result<()> {
         // 1. First load 100 state changes. Process the `global` state changes first
         // and then the `ns_` state changes
         if cached_state_changes.is_empty() {
-            cached_state_changes.extend(
-                self.indexify_state
-                    .reader()
-                    .unprocessed_state_changes()?
-                    // reversing the vec to process the oldest state changes first when using pop.
-                    .into_iter()
-                    .rev(),
-            );
+            let unprocessed_state_changes =
+                self.indexify_state.reader().unprocessed_state_changes(
+                    &last_global_state_change_cursor,
+                    &last_namespace_state_change_cursor,
+                )?;
+            let _ = match unprocessed_state_changes.last_global_state_change_cursor {
+                Some(cursor) => {
+                    last_global_state_change_cursor.replace(cursor);
+                }
+                None => {}
+            };
+            let _ = match unprocessed_state_changes.last_namespace_state_change_cursor {
+                Some(cursor) => {
+                    last_namespace_state_change_cursor.replace(cursor);
+                }
+                None => {}
+            };
+            let state_changes = unprocessed_state_changes.changes;
+            cached_state_changes.extend(state_changes);
         }
         // 2. If there are no state changes to process, return
         // and wait for the scheduler to wake us up again when there are state changes
