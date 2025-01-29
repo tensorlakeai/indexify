@@ -5,7 +5,7 @@
 
 ## Create and Deploy Durable, Data-Intensive Agentic Workflows
 
-**Indexify simplifies building and serving durable, multi-stage data-intensive workflows and exposes them as HTTP APIs or Python Remote APIs.**
+Indexify simplifies building and serving durable, multi-stage data-intensive workflows and exposes them as HTTP APIs or Python Remote APIs.
 
 <br />
 
@@ -14,7 +14,7 @@
 
 ### 💡 Use Cases
 
-**Indexify** is a versatile data processing framework for all kinds of use cases, including:
+Indexify is a versatile data processing framework for all kinds of use cases, including:
 
 * [Extracting and Indexing PDF Documents](examples/pdf_document_extraction/)
 * [Scraping and Summarizing Websites](examples/website_audio_summary/)
@@ -24,7 +24,7 @@
 
 ### ⭐ Key Features
 
-* **Multi-Cloud/Datacenter/Region:** Leverage Compute from other clouds with very little hassle and configuration.
+* **Multi-Cloud/Datacenter/Region:** Leverage Compute in your workflows from other clouds with very little hassle and configuration.
 
 * **Dynamic Routing:** Route data to different specialized compute functions distributed on a cluster based on conditional branching logic.
 * **Local Inference:** Execute LLMs directly within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers in Python functions.
@@ -53,7 +53,7 @@ from pydantic import BaseModel
 from tensorlake import tensorlake_function, Graph, Image, TensorlakeCompute
 from typing import List, Union
 
-
+# Define Input and Outputs of various functions in your workflow
 class Text(BaseModel):
     text: str
 
@@ -67,7 +67,8 @@ class ChunkEmbedding(BaseModel):
     text: str
     embedding: List[float]
 
-
+# Define an image capable of running the functions. Each image
+# can have their own image
 embedding_image = (
     Image()
     .name("text_embedding_image")
@@ -99,15 +100,17 @@ def chunk_text(input: dict) -> List[TextChunk]:
 
 
 # Embed a single chunk.
-# Note: (Automatic Map) Indexify automatically parallelize functions when they consume an element
-# from functions that produces a List
+# Note: (Automatic Map) Indexify automatically parallelize functions when they consume an
+# element from functions that produces a List. In this case each text chunk is processed
+# in parallel by an Embedder function
 class Embedder(TensorlakeCompute):
     name = "embedder"
     image = embedding_image
 
+    # TensorlakeCompute function allows initializing resources in the constructors
+    # and they are not unloaded again until the compute object is destroyed.  
     def __init__(self):
         from sentence_transformers import SentenceTransformer
-
         self._model = SentenceTransformer("all-MiniLM-L6-v2")
 
     def run(self, chunk: TextChunk) -> ChunkEmbedding:
@@ -182,6 +185,11 @@ Executor is the component which is responsible for running your functions. On a 
 indexify-cli executor --dev
 ```
 
+Set the environment variable - 
+```bash
+export INDEXIFY_URL=http://localhost:8900
+```
+
 Change the code in the workflow to the following -
 ```python
 from tensorlake import RemoteGraph
@@ -194,7 +202,24 @@ At this point, you now have a Graph endpoint on Indexify Server ready to be call
 You can invoke the Graph as a REST API if the first function is configured to accept JSON payload. 
 
 ```curl
-curl http://localhost:8900/namespaces/default/compute_graphs/text_embedder -d '{"text": "hello world"}'
+curl -X 'POST' http://localhost:8900/namespaces/default/compute_graphs/text_embedder/invoke_object -H 'Content-Type: application/json' -d '{"input": {"text": "hello world"}}'
+```
+
+This returns you an invocation id - `{"id":"55df51b4a84ffc69"}`. An Invocation Id can be used to get the status of the workflow as it processes that input, and getting any outputs off the graph.
+
+Get the outputs of the Embedding function -
+```bash
+curl -X GET http://localhost:8900/namespaces/default/compute_graphs/text_embedder/invocations/55df51b4a84ffc69/outputs
+```
+This returns all the outputs of the function - 
+```json
+{"status":"finalized","outputs":[{"compute_fn":"chunk_text","id":"89de2063abadf5d3","created_at":1738110077424},{"compute_fn":"embedder","id":"4908f00d711c4cd1","created_at":1738110081015}],"cursor":null}
+```
+
+You can now retrieve one of the outputs -
+
+```bash
+curl -X GET http://localhost:8900/namespaces/default/compute_graphs/text_embedder/invocations/55df51b4a84ffc69/fn/embedder/output/4908f00d711c4cd1 
 ```
 
 You can invoke the Graph from Python too
@@ -203,22 +228,30 @@ from tensorlake import RemoteGraph
 remote_graph = RemoteGraph.by_name("text_embedder")
 ```
 
+
 ## Deploying to Production Clusters 
 
 Deploying a workflow to production is a two step process -
-1. Run the server 
-2. Build and deploy containers to run the functions.
+#### 1. Run the server 
+```bash
+docker run -it --net host tensorlake/indexify-server 
+```
 
-### Building and Deploying Containers
+### 2. Building and Deploying Function Containers
 
 * First build and deploy container images that contains all the python and system dependencies of your code. They can be built using standard Docker build systems. For this example, we have a single image that can run all the functions. You can separate them to reduce the size of your images for more complex projects.
+
+```bash
+indexify-cli build-image workflow.py
+```
+This builds the following image, as defined in the workflow code above - `text_embedding_image`
 
 * Next Deploy the Containers 
 
 ```bash
-docker run -d <your container image> indexify-cli executor --function default:text_embedder:chunk_document
-docker run -d <your container image> indexify-cli executor --function default:text_embedder:embed_chunk
-docker run -d <your container image> indexify-cli executor --function default:text_embedder:write_to_db
+docker run --it --net host text_embedding_image indexify-cli executor --function default:text_embedder:chunk_document
+docker run --it --net host text_embedding_image indexify-cli executor --function default:text_embedder:embed_chunk
+docker run --it --net host text_embedding_image indexify-cli executor --function default:text_embedder:write_to_db
 ```
 
 > Containers are treated as ephemeral, only one type of function is ever scheduled on a single container. We are starting two containers for placing one function in each of them.

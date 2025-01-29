@@ -98,7 +98,9 @@ graph.add_edge(Embedder, EmbeddingWriter)
 
 
 if __name__ == "__main__":
-    invocation_id = graph.run(input={"text": "This is a test text"})
+    from tensorlake import RemoteGraph
+    graph = RemoteGraph.deploy(graph)   
+    invocation_id = graph.run(block_until_done=True, input={"text": "This is a test text"})
     print(f"Invocation ID: {invocation_id}")
     embedding = graph.output(invocation_id, "embedder")
     print(embedding)

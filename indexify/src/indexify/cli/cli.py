@@ -292,7 +292,7 @@ def _parse_function_uris(uri_strs: Optional[List[str]]) -> Optional[List[Functio
 
 def _create_image(image: Image, python_sdk_path):
     console.print(
-        Text("Creating container for ", style="cyan"),
+        Text("Creating image for ", style="cyan"),
         Text(f"`{image._image_name}`", style="cyan bold"),
     )
     _build_image(image=image, python_sdk_path=python_sdk_path)
