@@ -21,10 +21,14 @@ class TaskRunner:
         function_executor_server_factory: FunctionExecutorServerFactory,
         base_url: str,
         config_path: Optional[str],
+        disable_automatic_function_executor_management: bool,
     ):
         self._factory: FunctionExecutorServerFactory = function_executor_server_factory
         self._base_url: str = base_url
         self._config_path: Optional[str] = config_path
+        self._disable_automatic_function_executor_management: bool = (
+            disable_automatic_function_executor_management
+        )
         # The fields below are protected by the lock.
         self._lock: asyncio.Lock = asyncio.Lock()
         self._is_shutdown: bool = False
@@ -70,6 +74,9 @@ class TaskRunner:
         #       destroying each other's Function Executors.
         #   - Each Function Executor rans at most 1 task concurrently.
         await state.wait_running_tasks_less(1)
+
+        if self._disable_automatic_function_executor_management:
+            return  # Disable Function Executor destroy in manual management mode.
 
         if state.function_id_with_version != _function_id_with_version(task):
             await state.destroy_function_executor()

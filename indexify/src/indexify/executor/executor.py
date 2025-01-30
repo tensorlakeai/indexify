@@ -27,6 +27,7 @@ class Executor:
         function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: str = "localhost:8900",
         config_path: Optional[str] = None,
+        disable_automatic_function_executor_management: bool = False,
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._is_shutdown: bool = False
@@ -43,6 +44,7 @@ class Executor:
             function_executor_server_factory=function_executor_server_factory,
             base_url=self._base_url,
             config_path=config_path,
+            disable_automatic_function_executor_management=disable_automatic_function_executor_management,
         )
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=config_path
