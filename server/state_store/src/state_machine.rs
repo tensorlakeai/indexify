@@ -457,10 +457,49 @@ pub(crate) fn delete_invocation(
     Ok(())
 }
 
+fn update_task_versions_for_cg(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    compute_graph: &ComputeGraph,
+) -> Result<()> {
+    let tasks_prefix = Task::keys_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(10_194_304);
+    let iter = db.iterator_cf_opt(
+        &IndexifyObjectsColumns::Tasks.cf_db(&db),
+        read_options,
+        IteratorMode::From(&tasks_prefix.as_bytes(), Direction::Forward),
+    );
+
+    let mut tasks_to_update = HashMap::new();
+    for kv in iter {
+        let (key, val) = kv?;
+        let mut task: Task = JsonEncoder::decode(&val)?;
+        if (task.graph_version != compute_graph.version) && !task.outcome.is_terminal() {
+            info!(
+                "updating task: {} from version: {} to version: {}",
+                task.id, task.graph_version.0, compute_graph.version.0
+            );
+            task.graph_version = compute_graph.version.clone();
+        }
+        tasks_to_update.insert(key, task);
+    }
+    for (task_id, task) in tasks_to_update {
+        let serialized_task = JsonEncoder::encode(&task)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            &task_id,
+            &serialized_task,
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     compute_graph: ComputeGraph,
+    upgrade_existing_tasks_to_current_version: bool,
 ) -> Result<()> {
     let existing_compute_graph = txn
         .get_for_update_cf(
@@ -496,6 +535,9 @@ pub(crate) fn create_or_update_compute_graph(
         compute_graph.key(),
         &serialized_compute_graph,
     )?;
+    if upgrade_existing_tasks_to_current_version {
+        update_task_versions_for_cg(db, txn, &compute_graph)?;
+    }
     Ok(())
 }
 

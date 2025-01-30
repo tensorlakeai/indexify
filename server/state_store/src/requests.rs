@@ -116,6 +116,7 @@ pub struct NamespaceRequest {
 pub struct CreateOrUpdateComputeGraphRequest {
     pub namespace: String,
     pub compute_graph: ComputeGraph,
+    pub upgrade_tasks_to_current_version: bool,
 }
 
 #[derive(Debug, Clone)]
