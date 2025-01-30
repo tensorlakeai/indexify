@@ -626,6 +626,10 @@ impl GraphInvocationCtx {
     pub fn get_task_analytics(&self, compute_fn: &str) -> Option<&TaskAnalytics> {
         self.fn_task_analytics.get(compute_fn)
     }
+
+    pub fn key_prefix_for_cg(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}", namespace, compute_graph)
+    }
 }
 
 impl GraphInvocationCtxBuilder {
