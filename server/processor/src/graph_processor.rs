@@ -1,3 +1,4 @@
+use core::error;
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
@@ -227,8 +228,16 @@ impl GraphProcessor {
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     error!("error refreshing executors: {:?}", err);
                 }
-                let result = self.task_allocator.schedule_unplaced_tasks()?;
-                Ok(task_placement_result_to_sm_update(result, &state_change))
+                let result = self.task_allocator.schedule_unplaced_tasks();
+                if let Ok(result) = result {
+                    Ok(task_placement_result_to_sm_update(result, &state_change))
+                } else {
+                    error!("error scheduling unplaced tasks: {:?}", result.err());
+                    Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::Noop,
+                        processed_state_changes: vec![state_change.clone()],
+                    })
+                }
             }
             ChangeType::ExecutorRemoved(event) => {
                 info!("de-registering executor {:?}", event);
