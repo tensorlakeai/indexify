@@ -495,6 +495,47 @@ fn update_task_versions_for_cg(
     Ok(())
 }
 
+fn update_graph_invocations_for_cg(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    compute_graph: &ComputeGraph,
+) -> Result<()> {
+    let cg_prefix =
+        GraphInvocationCtx::key_prefix_for_cg(&compute_graph.namespace, &compute_graph.name);
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(10_194_304);
+    let iter = db.iterator_cf_opt(
+        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        read_options,
+        IteratorMode::From(&cg_prefix.as_bytes(), Direction::Forward),
+    );
+
+    let mut graph_invocation_ctx_to_update = HashMap::new();
+    for kv in iter {
+        let (key, val) = kv?;
+        let mut graph_invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
+        if (graph_invocation_ctx.graph_version != compute_graph.version) &&
+            !graph_invocation_ctx.completed
+        {
+            info!(
+                "updating graph_invocation_ctx for invocation id: {} from version: {} to version: {}",
+                graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
+            );
+            graph_invocation_ctx.graph_version = compute_graph.version.clone();
+        }
+        graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
+    }
+    for (invocation_id, graph_invocation_ctx) in graph_invocation_ctx_to_update {
+        let serialized_task = JsonEncoder::encode(&graph_invocation_ctx)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &invocation_id,
+            &serialized_task,
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn create_or_update_compute_graph(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
@@ -536,7 +577,8 @@ pub(crate) fn create_or_update_compute_graph(
         &serialized_compute_graph,
     )?;
     if upgrade_existing_tasks_to_current_version {
-        update_task_versions_for_cg(db, txn, &compute_graph)?;
+        update_task_versions_for_cg(db.clone(), txn, &compute_graph)?;
+        update_graph_invocations_for_cg(db.clone(), txn, &compute_graph)?;
     }
     Ok(())
 }
