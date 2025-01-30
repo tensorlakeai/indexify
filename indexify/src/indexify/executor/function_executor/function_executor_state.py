@@ -12,11 +12,17 @@ class FunctionExecutorState:
     under the lock.
     """
 
-    def __init__(self, function_id_with_version: str, function_id_without_version: str):
+    def __init__(
+        self,
+        function_id_with_version: str,
+        function_id_without_version: str,
+        function_version: str,
+    ):
         self.function_id_with_version: str = function_id_with_version
         self.function_id_without_version: str = function_id_without_version
         # All the fields below are protected by the lock.
         self.lock: asyncio.Lock = asyncio.Lock()
+        self.function_version: str = function_version
         self.is_shutdown: bool = False
         self.function_executor: Optional[FunctionExecutor] = None
         self.running_tasks: int = 0
