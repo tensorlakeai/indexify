@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Any, List, Optional, Tuple
 
 import nanoid
@@ -74,9 +75,17 @@ class TaskReporter:
             ),
             "files": output_files if len(output_files) > 0 else FORCE_MULTIPART,
         }
+
+        start_time = time.time()
         # Run in a separate thread to not block the main event loop.
         response = await asyncio.to_thread(
             self._client.post, url=f"{self._base_url}/internal/ingest_files", **kwargs
+        )
+        end_time = time.time()
+        logger.info(
+            "task_outcome_reported",
+            response_time=end_time - start_time,
+            response_code=response.status_code,
         )
 
         try:

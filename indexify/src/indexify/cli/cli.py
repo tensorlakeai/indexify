@@ -34,8 +34,6 @@ from indexify.executor.function_executor.server.subprocess_function_executor_ser
     SubprocessFunctionExecutorServerFactory,
 )
 
-logger = structlog.get_logger(module=__name__)
-
 custom_theme = Theme(
     {
         "info": "cyan",
@@ -208,6 +206,13 @@ def executor(
     ports: Tuple[int, int] = typer.Option(
         (50000, 51000), help="Range of localhost TCP ports to be used by the executor"
     ),
+    disable_automatic_function_executor_management: Annotated[
+        bool,
+        typer.Option(
+            "--disable-automatic-function-executor-management",
+            help="Disable automatic Function Executor management by Executor",
+        ),
+    ] = False,
 ):
     if dev:
         configure_development_mode_logging()
@@ -218,6 +223,7 @@ def executor(
                 "At least one function must be specified when not running in development mode"
             )
 
+    logger = structlog.get_logger(module=__name__)
     id = nanoid.generate()
     executor_version = version("indexify")
     logger.info(
@@ -230,6 +236,7 @@ def executor(
         ports=ports,
         functions=function_uris,
         dev_mode=dev,
+        disable_automatic_function_executor_management=disable_automatic_function_executor_management,
     )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
@@ -258,6 +265,7 @@ def executor(
             development_mode=dev,
             server_ports=range(ports[0], ports[1]),
         ),
+        disable_automatic_function_executor_management=disable_automatic_function_executor_management,
     ).run()
 
 
