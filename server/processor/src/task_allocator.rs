@@ -71,7 +71,7 @@ impl TaskAllocationProcessor {
             );
             let _enter = span.enter();
 
-            info!("allocate task {:?}", task.id);
+            info!("allocate task {:?} ", task.id);
             match self.allocate_task(task.clone()) {
                 Ok(schedule_task_results) => {
                     task_placements.extend(schedule_task_results.task_placements);

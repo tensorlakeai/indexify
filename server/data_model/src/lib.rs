@@ -711,6 +711,12 @@ pub enum TaskOutcome {
     Failure,
 }
 
+impl TaskOutcome {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Success | Self::Failure)
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct Task {
@@ -732,6 +738,10 @@ pub struct Task {
 }
 
 impl Task {
+    pub fn keys_for_compute_graph(namespace: &str, compute_graph_name: &str) -> String {
+        format!("{}|{}", namespace, compute_graph_name)
+    }
+
     pub fn key_prefix_for_fn(
         namespace: &str,
         compute_graph: &str,

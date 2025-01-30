@@ -276,6 +276,7 @@ impl IndexifyState {
                     self.db.clone(),
                     &txn,
                     req.compute_graph.clone(),
+                    req.upgrade_tasks_to_current_version,
                 )?;
                 vec![]
             }
@@ -732,6 +733,7 @@ mod tests {
                     CreateOrUpdateComputeGraphRequest {
                         namespace: TEST_NAMESPACE.to_string(),
                         compute_graph: compute_graph.clone(),
+                        upgrade_tasks_to_current_version: false,
                     },
                 ),
                 processed_state_changes: vec![],

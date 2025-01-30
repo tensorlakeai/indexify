@@ -82,6 +82,7 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_a("image_hash".to_string()),
+        upgrade_tasks_to_current_version: true,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -110,6 +111,7 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_b(),
+        upgrade_tasks_to_current_version: false,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -139,6 +141,7 @@ pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
     let cg_request = CreateOrUpdateComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: tests::mock_graph_with_reducer(),
+        upgrade_tasks_to_current_version: false,
     };
     indexify_state
         .write(StateMachineUpdateRequest {

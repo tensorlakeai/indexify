@@ -442,6 +442,7 @@ mod tests {
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
+            upgrade_tasks_to_current_version: false,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -685,6 +686,7 @@ mod tests {
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
+            upgrade_tasks_to_current_version: false,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -996,6 +998,7 @@ mod tests {
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
+            upgrade_tasks_to_current_version: false,
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -1258,6 +1261,7 @@ mod tests {
         let cg_request = CreateOrUpdateComputeGraphRequest {
             namespace: graph.namespace.clone(),
             compute_graph: graph.clone(),
+            upgrade_tasks_to_current_version: false,
         };
         indexify_state
             .write(StateMachineUpdateRequest {

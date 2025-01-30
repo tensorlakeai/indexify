@@ -424,6 +424,7 @@ async fn create_or_update_compute_graph(
 ) -> Result<(), IndexifyAPIError> {
     let mut compute_graph_definition: Option<ComputeGraph> = Option::None;
     let mut put_result: Option<PutResult> = None;
+    let mut upgrade_tasks_to_current_version: Option<bool> = None;
     while let Some(field) = compute_graph_code
         .next_field()
         .await
@@ -448,6 +449,12 @@ async fn create_or_update_compute_graph(
                 let mut json_value: serde_json::Value = serde_json::from_str(&text)?;
                 json_value["namespace"] = serde_json::Value::String(namespace.clone());
                 compute_graph_definition = Some(serde_json::from_value(json_value)?);
+            } else if name == "upgrade_tasks_to_latest_version" {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                upgrade_tasks_to_current_version = Some(serde_json::from_str::<bool>(&text)?);
             }
         }
     }
@@ -467,6 +474,7 @@ async fn create_or_update_compute_graph(
     let request = RequestPayload::CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest {
         namespace,
         compute_graph,
+        upgrade_tasks_to_current_version: upgrade_tasks_to_current_version.unwrap_or(false),
     });
     let result = state
         .indexify_state
