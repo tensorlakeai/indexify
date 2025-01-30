@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "indexify"
 # Incremented if any of the components provided in this packages are updated.
-version = "0.3.6"
+version = "0.3.7"
 description = "Open Source Indexify components and helper tools"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache 2.0"
@@ -24,7 +24,7 @@ grpcio = "1.70.0"
 pydantic = "2.10.4"
 httpx-sse = "^0.4.0"
 # Adds function-executor binary and utils lib.
-tensorlake = ">=0.1.13"
+tensorlake = ">=0.1.14"
 
 # CLI only
 rich = "^13.9.2"
