@@ -5,7 +5,7 @@ use blob_store::BlobStorage;
 use bytes::Bytes;
 use metrics::{kv_storage::Metrics, Timer};
 use opentelemetry::KeyValue;
-use slatedb::{config::DbOptions, db::Db};
+use slatedb::{config::DbOptions, Db};
 
 pub struct WriteContextData {
     pub namespace: String,
@@ -33,7 +33,7 @@ impl KVS {
         let kv_store = Db::open_with_opts(
             blob_store.get_path().child(prefix),
             options,
-            Arc::new(blob_store.get_object_store()),
+            blob_store.get_object_store(),
         )
         .await
         .context("error opening kv store")?;
