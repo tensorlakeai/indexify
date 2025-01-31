@@ -913,21 +913,22 @@ pub fn handle_task_allocation_update(
     request: &TaskAllocationUpdateRequest,
 ) -> Result<()> {
     for task_placement in &request.allocations {
-        info!("task allocation: ns: {}, compute_graph: {}, invocation id: {}, task id: {}, executor: {}",
+        let allocation_key = task_placement
+            .task
+            .make_allocation_key(&task_placement.executor);
+        info!("task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}, allocation_key: {}",
             task_placement.task.namespace,
             task_placement.task.compute_graph_name,
             task_placement.task.invocation_id,
             task_placement.task.id,
-            task_placement.executor.get()
+            allocation_key,
         );
         txn.put_cf(
             &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-            task_placement
-                .task
-                .make_allocation_key(&task_placement.executor),
+            allocation_key,
             &[],
         )?;
-        info!("unallocated task: addition: ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
+        info!("unallocated task: deleting : ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
             task_placement.task.namespace,
             task_placement.task.compute_graph_name,
             task_placement.task.invocation_id,
@@ -944,7 +945,7 @@ pub fn handle_task_allocation_update(
         );
     }
     for unplaced_task_key in &request.unplaced_task_keys {
-        info!("unallocated task: removing task key: {}", unplaced_task_key);
+        info!("unallocated task: adding task key: {}", unplaced_task_key);
         txn.put_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
             unplaced_task_key.as_bytes(),
