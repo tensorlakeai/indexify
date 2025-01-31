@@ -1,4 +1,3 @@
-use core::error;
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
@@ -168,8 +167,10 @@ impl GraphProcessor {
         &self,
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
+        info!("processing state change: {}", state_change.change_type);
         match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
+                info!("invoking compute graph: {:?}", event);
                 let task_creation_result = self
                     .task_creator
                     .handle_invoke_compute_graph(event.clone())
@@ -223,8 +224,7 @@ impl GraphProcessor {
                 }),
                 processed_state_changes: vec![state_change.clone()],
             }),
-            ChangeType::ExecutorAdded(event) => {
-                info!("registering executor: {:?}", event);
+            ChangeType::ExecutorAdded(_event) => {
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     error!("error refreshing executors: {:?}", err);
                 }
@@ -239,8 +239,7 @@ impl GraphProcessor {
                     })
                 }
             }
-            ChangeType::ExecutorRemoved(event) => {
-                info!("de-registering executor {:?}", event);
+            ChangeType::ExecutorRemoved(_event) => {
                 if let Err(err) = self.task_allocator.refresh_executors() {
                     error!("error refreshing executors: {:?}", err);
                 }
