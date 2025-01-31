@@ -857,7 +857,7 @@ impl TaskBuilder {
             namespace,
             output_status: TaskOutputsIngestionStatus::Pending,
             outcome: TaskOutcome::Unknown,
-            creation_time: SystemTime::now(),
+            creation_time: current_time,
             diagnostics: None,
             reducer_output_id,
             graph_version,
