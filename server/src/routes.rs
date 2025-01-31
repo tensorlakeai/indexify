@@ -471,6 +471,11 @@ async fn create_or_update_compute_graph(
         put_result.size_bytes,
     )?;
     let name = compute_graph.name.clone();
+    info!(
+        "creating compute graph {}, upgrade existing tasks and invocations: {}",
+        name,
+        upgrade_tasks_to_current_version.unwrap_or(false)
+    );
     let request = RequestPayload::CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest {
         namespace,
         compute_graph,
