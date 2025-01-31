@@ -17,19 +17,3 @@ def test_graph_name(test_case: unittest.TestCase) -> str:
     ...         # test_graph_reduce_test_simple
     """
     return unittest.TestCase.id(test_case).replace(".", "_")
-
-
-class ExecutorProcessContextManager:
-    def __init__(self, args: List[str]):
-        self._args = ["indexify-cli", "executor"]
-        self._args.extend(args)
-        self._process: Optional[subprocess.Popen] = None
-
-    def __enter__(self) -> subprocess.Popen:
-        self._process = subprocess.Popen(self._args)
-        return self._process
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self._process:
-            self._process.terminate()
-            self._process.wait()
