@@ -316,7 +316,7 @@ pub struct RuntimeInformation {
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
-    pub tombstoned: bool,
+    pub tomb_stoned: bool,
     pub description: String,
     #[serde(default)]
     pub tags: HashMap<String, String>,
@@ -735,6 +735,7 @@ pub struct Task {
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
+    pub creation_time_ns: u128,
     pub diagnostics: Option<TaskDiagnostics>,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
@@ -788,11 +789,7 @@ impl Task {
     }
 
     pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
-        let duration = self.creation_time.duration_since(UNIX_EPOCH).unwrap();
-        let secs = duration.as_secs() as u128;
-        let nsecs = duration.subsec_nanos() as u128;
-        let nsecs = secs * 1_000_000_000 + nsecs;
-        format!("{}|{}|{}", executor_id, nsecs, self.key())
+        format!("{}|{}|{}", executor_id, self.creation_time_ns, self.key())
     }
 
     pub fn key_from_allocation_key(allocation_key: &[u8]) -> Result<Vec<u8>> {
@@ -845,6 +842,11 @@ impl TaskBuilder {
             .clone()
             .ok_or(anyhow!("graph version is not present"))?;
         let reducer_output_id = self.reducer_output_id.clone().flatten();
+        let current_time = SystemTime::now();
+        let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
+        let secs = duration.as_secs() as u128;
+        let nsecs = duration.subsec_nanos() as u128;
+        let creation_time_ns = secs * 1_000_000_000 + nsecs;
         let id = uuid::Uuid::new_v4().to_string();
         let task = Task {
             id: TaskId(id),
@@ -860,6 +862,7 @@ impl TaskBuilder {
             reducer_output_id,
             graph_version,
             image_uri: self.image_uri.clone().flatten(),
+            creation_time_ns,
         };
         Ok(task)
     }
@@ -1009,15 +1012,47 @@ pub enum ChangeType {
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ChangeType::InvokeComputeGraph(_) => write!(f, "InvokeComputeGraph"),
-            ChangeType::TaskFinalized(_) => write!(f, "TaskFinalized"),
-            ChangeType::TaskOutputsIngested(_) => write!(f, "TaskOutputsIngested"),
-            ChangeType::TombstoneComputeGraph(_) => write!(f, "TombstoneComputeGraph"),
-            ChangeType::ExecutorAdded(_) => write!(f, "ExecutorAdded"),
-            ChangeType::TombStoneExecutor(_) => write!(f, "TombStoneExecutor"),
-            ChangeType::ExecutorRemoved(_) => write!(f, "ExecutorRemoved"),
-            ChangeType::TaskCreated(_) => write!(f, "TaskCreated"),
-            ChangeType::TombstoneInvocation(_) => write!(f, "TombstoneInvocation"),
+            ChangeType::InvokeComputeGraph(ev) => {
+                write!(
+                    f,
+                    "InvokeComputeGraph ns: {}, invocation: {}, compute_graph: {}",
+                    ev.namespace, ev.invocation_id, ev.compute_graph
+                )
+            }
+            ChangeType::TaskFinalized(ev) => write!(
+                f,
+                "TaskFinalized ns: {}, invocation: {}, compute_graph: {}, task: {}",
+                ev.namespace, ev.invocation_id, ev.compute_graph, ev.task_id,
+            ),
+            ChangeType::TaskOutputsIngested(ev) => write!(
+                f,
+                "TaskOutputsIngested ns: {}, invocation: {}, compute_graph: {}, task: {}",
+                ev.namespace, ev.invocation_id, ev.compute_graph, ev.task_id,
+            ),
+            ChangeType::TombstoneComputeGraph(ev) => write!(
+                f,
+                "TombstoneComputeGraph ns: {}, compute_graph: {}",
+                ev.namespace, ev.compute_graph
+            ),
+            ChangeType::ExecutorAdded(e) => {
+                write!(f, "ExecutorAdded, executor_id: {}", e.executor_id)
+            }
+            ChangeType::TombStoneExecutor(ev) => {
+                write!(f, "TombStoneExecutor, executor_id: {}", ev.executor_id)
+            }
+            ChangeType::ExecutorRemoved(ev) => {
+                write!(f, "ExecutorRemoved, executor_id: {}", ev.executor_id)
+            }
+            ChangeType::TaskCreated(ev) => write!(
+                f,
+                "TaskCreated ns: {}, invocation: {}, compute_graph: {}, task: {}",
+                ev.task.namespace, ev.task.invocation_id, ev.task.compute_graph_name, ev.task.id,
+            ),
+            ChangeType::TombstoneInvocation(ev) => write!(
+                f,
+                "TombstoneInvocation, ns: {}, compute_graph: {}, invocation_id: {}",
+                ev.namespace, ev.compute_graph, ev.invocation_id
+            ),
         }
     }
 }
@@ -1104,7 +1139,7 @@ mod tests {
         let original_graph: ComputeGraph = ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
-            tombstoned: false,
+            tomb_stoned: false,
             description: "description1".to_string(),
             tags: HashMap::new(),
             nodes: HashMap::from([

@@ -188,7 +188,7 @@ impl IndexifyState {
                     &self.last_state_change_id,
                     &invoke_compute_graph_request,
                 )?;
-                state_machine::create_graph_input(
+                state_machine::create_invocation(
                     self.db.clone(),
                     &txn,
                     &invoke_compute_graph_request,

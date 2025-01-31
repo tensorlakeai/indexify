@@ -70,7 +70,10 @@ impl TaskAllocationProcessor {
                 compute_fn = task.compute_fn_name,
             );
             let _enter = span.enter();
-
+            if task.outcome.is_terminal() {
+                error!("task: {} already completed, skipping", task.id);
+                continue;
+            }
             info!("allocate task {:?} ", task.id);
             match self.allocate_task(task.clone()) {
                 Ok(schedule_task_results) => {

@@ -35,7 +35,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -112,6 +112,7 @@ pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -
         &ns.name,
         serialized_namespace,
     )?;
+    info!("created namespace: {}", ns.name);
     Ok(())
 }
 
@@ -344,11 +345,15 @@ pub fn replay_invocations(
     Ok(state_changes)
 }
 
-pub fn create_graph_input(
+pub fn create_invocation(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
+    info!(
+        "create invocation: namespace: {}, compute_graph: {}",
+        req.namespace, req.compute_graph_name
+    );
     let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let cg = txn
         .get_for_update_cf(
@@ -358,8 +363,8 @@ pub fn create_graph_input(
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
-    if cg.tombstoned {
-        return Err(anyhow::anyhow!("Compute graph is tombstoned"));
+    if cg.tomb_stoned {
+        return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }
     let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
     txn.put_cf(
@@ -383,7 +388,6 @@ pub fn create_graph_input(
     Ok(())
 }
 
-// TODO: Do this in a transaction.
 pub(crate) fn delete_invocation(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
@@ -475,10 +479,7 @@ fn update_task_versions_for_cg(
     for kv in iter {
         let (key, val) = kv?;
         let mut task: Task = JsonEncoder::decode(&val)?;
-        // FIXME - We should check if the task was terminal and then upgrade it.
-        // In production at the moment looks like some invocations are finalized
-        // and tasks are finalized but they are still getting allocated to executors.
-        if task.graph_version != compute_graph.version {
+        if task.graph_version != compute_graph.version && !task.outcome.is_terminal() {
             info!(
                 "updating task: {} from version: {} to version: {}",
                 task.id, task.graph_version.0, compute_graph.version.0
@@ -487,7 +488,10 @@ fn update_task_versions_for_cg(
         }
         tasks_to_update.insert(key, task);
     }
-    info!("upgrading {} tasks", tasks_to_update.len());
+    info!(
+        "upgrading tasks to latest version: {}",
+        tasks_to_update.len()
+    );
     for (task_id, task) in tasks_to_update {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
@@ -518,10 +522,9 @@ fn update_graph_invocations_for_cg(
     for kv in iter {
         let (key, val) = kv?;
         let mut graph_invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
-        // FIXME - We should check if the task was terminal and then upgrade it.
-        // In production at the moment looks like some invocations are finalized
-        // and tasks are finalized but they are still getting allocated to executors.
-        if graph_invocation_ctx.graph_version != compute_graph.version {
+        if graph_invocation_ctx.graph_version != compute_graph.version &&
+            !graph_invocation_ctx.completed
+        {
             info!(
                 "updating graph_invocation_ctx for invocation id: {} from version: {} to version: {}",
                 graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
@@ -531,7 +534,7 @@ fn update_graph_invocations_for_cg(
         graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
     }
     info!(
-        "upgrading {} graph invocation ctxs",
+        "upgrading graph invocation ctxs: {}",
         graph_invocation_ctx_to_update.len()
     );
     for (invocation_id, graph_invocation_ctx) in graph_invocation_ctx_to_update {
@@ -551,6 +554,10 @@ pub(crate) fn create_or_update_compute_graph(
     compute_graph: ComputeGraph,
     upgrade_existing_tasks_to_current_version: bool,
 ) -> Result<()> {
+    info!(
+        "creating compute graph: ns: {} name: {}, upgrade invocations: {}",
+        compute_graph.namespace, compute_graph.name, upgrade_existing_tasks_to_current_version
+    );
     let existing_compute_graph = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -572,6 +579,10 @@ pub(crate) fn create_or_update_compute_graph(
         }
         None => Ok(compute_graph.into_version()),
     }?;
+    info!(
+        "new compute graph version: {}",
+        &new_compute_graph_version.version.0
+    );
     let serialized_compute_graph_version = JsonEncoder::encode(&new_compute_graph_version)?;
     txn.put_cf(
         &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
@@ -589,6 +600,10 @@ pub(crate) fn create_or_update_compute_graph(
         update_task_versions_for_cg(db.clone(), txn, &compute_graph)?;
         update_graph_invocations_for_cg(db.clone(), txn, &compute_graph)?;
     }
+    info!(
+        "finished creating compute graph namespace: {} name: {}, version: {}",
+        compute_graph.namespace, compute_graph.name, compute_graph.version.0
+    );
     Ok(())
 }
 
@@ -617,6 +632,10 @@ pub fn tombstone_compute_graph(
     namespace: &str,
     name: &str,
 ) -> Result<()> {
+    info!(
+        "tombstoning compute graph: namespace: {}, name: {}",
+        namespace, name
+    );
     let mut existing_compute_graph = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -631,7 +650,7 @@ pub fn tombstone_compute_graph(
         ))?
         .map_err(|e| anyhow!("failed to decode existing compute graph: {}", e))?;
 
-    existing_compute_graph.tombstoned = true;
+    existing_compute_graph.tomb_stoned = true;
     Ok(())
 }
 
@@ -641,6 +660,10 @@ pub fn delete_compute_graph(
     namespace: &str,
     name: &str,
 ) -> Result<()> {
+    info!(
+        "deleting compute graph: namespace: {}, name: {}",
+        namespace, name
+    );
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
         format!("{}|{}", namespace, name),
@@ -837,6 +860,14 @@ pub(crate) fn create_tasks(
     }
     for task in tasks {
         let serialized_task = JsonEncoder::encode(&task)?;
+        info!(
+            "creating task: ns: {}, compute graph: {}, invocation id: {},  task: {}, outcome: {:?}",
+            task.namespace,
+            task.compute_graph_name,
+            task.invocation_id,
+            task.key(),
+            task.outcome
+        );
         txn.put_cf(
             &IndexifyObjectsColumns::Tasks.cf_db(&db),
             task.key(),
@@ -857,7 +888,10 @@ pub(crate) fn create_tasks(
         ctx_key,
         serialized_graphctx,
     )?;
-    trace!("GraphInvocationCtx updated: {:?}", graph_ctx);
+    info!(
+        "invocation ctx for invocation : {}, {:?}",
+        invocation_id, graph_ctx
+    );
     sm_metrics.task_unassigned(tasks);
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(
@@ -879,6 +913,13 @@ pub fn handle_task_allocation_update(
     request: &TaskAllocationUpdateRequest,
 ) -> Result<()> {
     for task_placement in &request.allocations {
+        info!("task allocation: ns: {}, compute_graph: {}, invocation id: {}, task id: {}, executor: {}",
+            task_placement.task.namespace,
+            task_placement.task.compute_graph_name,
+            task_placement.task.invocation_id,
+            task_placement.task.id,
+            task_placement.executor.get()
+        );
         txn.put_cf(
             &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
             task_placement
@@ -886,6 +927,12 @@ pub fn handle_task_allocation_update(
                 .make_allocation_key(&task_placement.executor),
             &[],
         )?;
+        info!("unallocated task: addition: ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
+            task_placement.task.namespace,
+            task_placement.task.compute_graph_name,
+            task_placement.task.invocation_id,
+            task_placement.task.key(),
+        );
         txn.delete_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
             task_placement.task.key(),
@@ -897,6 +944,7 @@ pub fn handle_task_allocation_update(
         );
     }
     for unplaced_task_key in &request.unplaced_task_keys {
+        info!("unallocated task: removing task key: {}", unplaced_task_key);
         txn.put_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
             unplaced_task_key.as_bytes(),
@@ -1000,8 +1048,8 @@ pub fn mark_task_finalized(
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<bool> {
     info!(
-        "starting to mark task as finalized: {}, outcome: {:?}",
-        req.task_id, req.task_outcome
+        "task finalization begin: ns: {}, compute graph: {}, invocation_id: {}, task: {}, outcome: {:?}",
+        req.namespace, req.compute_graph, req.invocation_id, req.task_id, req.task_outcome
     );
     // Check if the graph exists before proceeding since
     // the graph might have been deleted before the task completes
@@ -1013,7 +1061,10 @@ pub fn mark_task_finalized(
         )
         .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
     if graph.is_none() {
-        info!("Compute graph not found: {}", &req.compute_graph);
+        error!(
+            "task finalization end: task: {}, Compute graph not found: {}",
+            &req.task_id, &req.compute_graph
+        );
         return Ok(false);
     }
 
@@ -1027,7 +1078,10 @@ pub fn mark_task_finalized(
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
     if invocation.is_none() {
-        info!("Invocation not found: {}", &req.invocation_id);
+        error!(
+            "task finalization end: Invocation not found: {}",
+            &req.invocation_id
+        );
         return Ok(false);
     }
     let task_key = format!(
@@ -1036,7 +1090,7 @@ pub fn mark_task_finalized(
     );
     let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
     if task.is_none() {
-        info!("Task not found: {}", &task_key);
+        error!("task finalization end: Task not found: {}", &task_key);
         return Ok(false);
     }
     let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
@@ -1054,13 +1108,13 @@ pub fn mark_task_finalized(
         .map_err(|e| anyhow!("failed to get graph context: {}", e))?;
     if graph_ctx.is_none() {
         error!(
-            "Graph context for graph {} and invocation {} not found for task: {}",
-            &req.compute_graph, &req.invocation_id, &req.task_id
+            "task finalization end: Graph context not found, ns: {} compute graph: {} invocation id: {} task: {}",
+            &req.namespace, &req.compute_graph, &req.invocation_id, &req.task_id
         );
         return Ok(false);
     }
     let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.ok_or(anyhow!(
-        "Graph context not found for task: {}",
+        "unable to deserialize graph context for task: {}",
         &req.task_id
     ))?)?;
 
@@ -1073,6 +1127,11 @@ pub fn mark_task_finalized(
         data_model::TaskOutcome::Failure => analytics.fail(),
         _ => {}
     }
+    info!(
+        "task finalization graph ctx updated: task: {}, graph ctx: {:?}",
+        task.key(),
+        graph_ctx
+    );
     let graph_ctx = JsonEncoder::encode(&graph_ctx)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
@@ -1081,6 +1140,13 @@ pub fn mark_task_finalized(
     )?;
 
     // Delete the task allocation since task is finished.
+    info!("task finalization deleting task allocation: ns: {}, compute_graph: {}, invocation id: {}, task key: {}, allocation key: {}",
+        req.namespace,
+        req.compute_graph,
+        req.invocation_id,
+        task.key(),
+        task.make_allocation_key(&req.executor_id)
+    );
     txn.delete_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
         task.make_allocation_key(&req.executor_id),
@@ -1150,7 +1216,7 @@ fn mark_invocation_finished(
     invocation_id: &str,
 ) -> Result<InvocationCompletion> {
     info!(
-        "Marking invocation finished: {} {} {}",
+        "marking invocation finished: {} {} {}",
         namespace, compute_graph, invocation_id
     );
     let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
@@ -1241,14 +1307,28 @@ pub(crate) fn deregister_executor(
     );
     for key in iter {
         let (key, _) = key?;
+        info!(
+            "deregister executor: executor id: {}, removing task allocation: {}",
+            executor_id,
+            String::from_utf8(key.to_vec())?
+        );
         txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key)?;
         let task_key = Task::key_from_allocation_key(&key)?;
+        info!(
+            "deregister executor id: {}, adding to unallocated tasks: {}",
+            executor_id,
+            String::from_utf8(task_key.clone())?
+        );
         txn.put_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
             &task_key,
             &[],
         )?;
     }
+    info!(
+        "deregister executor: executor id: {}, removing executor metadata",
+        executor_id
+    );
     txn.delete_cf(
         &IndexifyObjectsColumns::Executors.cf_db(&db),
         executor_id.to_string(),
