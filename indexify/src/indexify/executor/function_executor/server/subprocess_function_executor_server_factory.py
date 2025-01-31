@@ -28,6 +28,8 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
         try:
             port = self._allocate_port()
             args = [
+                "--executor-id",
+                config.executor_id,
                 "--address",
                 _server_address(port),
             ]

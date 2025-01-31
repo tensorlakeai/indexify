@@ -18,11 +18,13 @@ class TaskRunner:
 
     def __init__(
         self,
+        executor_id: str,
         function_executor_server_factory: FunctionExecutorServerFactory,
         base_url: str,
         config_path: Optional[str],
         disable_automatic_function_executor_management: bool,
     ):
+        self._executor_id: str = executor_id
         self._factory: FunctionExecutorServerFactory = function_executor_server_factory
         self._base_url: str = base_url
         self._config_path: Optional[str] = config_path
@@ -88,6 +90,7 @@ class TaskRunner:
         self, state: FunctionExecutorState, task_input: TaskInput, logger: Any
     ) -> TaskOutput:
         runner: SingleTaskRunner = SingleTaskRunner(
+            executor_id=self._executor_id,
             function_executor_state=state,
             task_input=task_input,
             function_executor_server_factory=self._factory,

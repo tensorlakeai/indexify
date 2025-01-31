@@ -25,6 +25,7 @@ from .task_output import TaskOutput
 class SingleTaskRunner:
     def __init__(
         self,
+        executor_id: str,
         function_executor_state: FunctionExecutorState,
         task_input: TaskInput,
         function_executor_server_factory: FunctionExecutorServerFactory,
@@ -32,6 +33,7 @@ class SingleTaskRunner:
         config_path: Optional[str],
         logger: Any,
     ):
+        self._executor_id: str = executor_id
         self._state: FunctionExecutorState = function_executor_state
         self._task_input: TaskInput = task_input
         self._factory: FunctionExecutorServerFactory = function_executor_server_factory
@@ -76,6 +78,7 @@ class SingleTaskRunner:
         )
         config: FunctionExecutorServerConfiguration = (
             FunctionExecutorServerConfiguration(
+                executor_id=self._executor_id,
                 image_uri=self._task_input.task.image_uri,
             )
         )

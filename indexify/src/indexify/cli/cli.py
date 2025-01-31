@@ -223,14 +223,14 @@ def executor(
                 "At least one function must be specified when not running in development mode"
             )
 
-    logger = structlog.get_logger(module=__name__)
-    id = nanoid.generate()
     executor_version = version("indexify")
+    id = nanoid.generate()
+    logger = structlog.get_logger(module=__name__, executor_id=id)
+
     logger.info(
         "starting executor",
         server_addr=server_addr,
         config_path=config_path,
-        executor_id=id,
         executor_version=executor_version,
         executor_cache=executor_cache,
         ports=ports,

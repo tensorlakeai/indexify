@@ -1116,14 +1116,14 @@ typing = ["mypy (>=1.4)", "rich", "twisted"]
 
 [[package]]
 name = "tensorlake"
-version = "0.1.14"
+version = "0.1.16"
 description = "Petabyte scale data framework for unstructured data of any modality"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 files = [
-    {file = "tensorlake-0.1.14-py3-none-any.whl", hash = "sha256:22cd2871a5170f2846ba292158825d3ee9b05ada086076eba8816cedcf7f4e5d"},
-    {file = "tensorlake-0.1.14.tar.gz", hash = "sha256:cd9c9773de8f5049126ecc78387a99ab16f076b72b7282631a5c51e752d60313"},
+    {file = "tensorlake-0.1.16-py3-none-any.whl", hash = "sha256:8c6263c536e1ff0b4b7e82779a3fb9d59518a768a54140d214b99b2b98fb5e2e"},
+    {file = "tensorlake-0.1.16.tar.gz", hash = "sha256:e7b01dff1899634d38b88f827e3e046ab0321098450b48e991483493c2083932"},
 ]
 
 [package.dependencies]
@@ -1247,4 +1247,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "d14d5902868d233ceca5dc11395e564e272fdc6483be306ca3d5569dce66678f"
+content-hash = "064495e9c3f4680d618ca83707fe387596d571d12f52692ecddd553864459189"
