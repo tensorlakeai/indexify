@@ -51,15 +51,18 @@ class TestDisabledAutomaticContainerManagement(unittest.TestCase):
 
             # As invocations might land on dev Executor, we need to run the graph multiple times
             # to ensure that we catch function executor getting destroyed on Executor A if it ever happens.
-            fe_ids_v1 = []
+            fe_ids_v1 = set()
             for _ in range(10):
                 invocation_id = graph_v1.run(block_until_done=True)
                 output = graph_v1.output(invocation_id, "get_function_executor_id")
                 self.assertEqual(len(output), 1)
-                if output[0] not in fe_ids_v1:
-                    fe_ids_v1.append(output[0])
+                fe_ids_v1.add(output[0])
 
-            self.assertGreaterEqual(len(fe_ids_v1), 1)
+            not_destroyable_fe_id = None
+            self.assertLessEqual(len(fe_ids_v1), 2)
+            if len(fe_ids_v1) == 2:
+                self.assertIn(destroyable_fe_id, fe_ids_v1)
+                not_destroyable_fe_id = fe_ids_v1.difference([destroyable_fe_id]).pop()
 
             graph_v2 = Graph(
                 name=test_graph_name(self),
@@ -69,16 +72,17 @@ class TestDisabledAutomaticContainerManagement(unittest.TestCase):
             )
             graph_v2 = RemoteGraph.deploy(graph_v2)
 
-            success_fe_ids_v2 = []
+            fe_ids_v2 = set()
             for _ in range(10):
                 invocation_id = graph_v2.run(block_until_done=True)
                 output = graph_v2.output(invocation_id, "get_function_executor_id")
-                if len(output) == 1 and output[0] not in success_fe_ids_v2:
-                    success_fe_ids_v2.append(output[0])
+                self.assertEqual(len(output), 1)
+                fe_ids_v2.add(output[0])
 
-            # Executor A should fail in all v2 invokes because it won't destroy its function executor and
-            # the function executor will raise an error because the task version must be v1 not v2.
-            self.assertEqual(len(success_fe_ids_v2), 1)
+            self.assertLessEqual(len(fe_ids_v2), 2)
+            self.assertTrue(destroyable_fe_id not in fe_ids_v2)
+            if len(fe_ids_v2) == 2 and not_destroyable_fe_id is not None:
+                self.assertIn(not_destroyable_fe_id, fe_ids_v2)
 
 
 if __name__ == "__main__":

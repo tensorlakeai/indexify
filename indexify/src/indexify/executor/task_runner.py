@@ -61,6 +61,7 @@ class TaskRunner:
                 state = FunctionExecutorState(
                     function_id_with_version=_function_id_with_version(task),
                     function_id_without_version=id,
+                    function_version=task.graph_version,
                 )
                 self._function_executor_states[id] = state
             return self._function_executor_states[id]
@@ -76,6 +77,8 @@ class TaskRunner:
         await state.wait_running_tasks_less(1)
 
         if self._disable_automatic_function_executor_management:
+            # Hack: lie to task executor about the function version so it won't raise errors.
+            task.graph_version = state.function_version
             return  # Disable Function Executor destroy in manual management mode.
 
         if state.function_id_with_version != _function_id_with_version(task):
