@@ -316,7 +316,7 @@ pub struct RuntimeInformation {
 pub struct ComputeGraph {
     pub namespace: String,
     pub name: String,
-    pub tomb_stoned: bool,
+    pub tombstoned: bool,
     pub description: String,
     #[serde(default)]
     pub tags: HashMap<String, String>,
@@ -1139,7 +1139,7 @@ mod tests {
         let original_graph: ComputeGraph = ComputeGraph {
             namespace: TEST_NAMESPACE.to_string(),
             name: "graph1".to_string(),
-            tomb_stoned: false,
+            tombstoned: false,
             description: "description1".to_string(),
             tags: HashMap::new(),
             nodes: HashMap::from([

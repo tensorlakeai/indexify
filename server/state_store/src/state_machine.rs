@@ -363,7 +363,7 @@ pub fn create_invocation(
         )?
         .ok_or(anyhow::anyhow!("Compute graph not found"))?;
     let cg: ComputeGraph = JsonEncoder::decode(&cg)?;
-    if cg.tomb_stoned {
+    if cg.tombstoned {
         return Err(anyhow::anyhow!("Compute graph is tomb-stoned"));
     }
     let serialized_data_object = JsonEncoder::encode(&req.invocation_payload)?;
@@ -650,7 +650,7 @@ pub fn tombstone_compute_graph(
         ))?
         .map_err(|e| anyhow!("failed to decode existing compute graph: {}", e))?;
 
-    existing_compute_graph.tomb_stoned = true;
+    existing_compute_graph.tombstoned = true;
     Ok(())
 }
 

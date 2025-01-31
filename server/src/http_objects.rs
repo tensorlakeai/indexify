@@ -336,7 +336,7 @@ impl ComputeGraph {
             created_at: 0,
             runtime_information: self.runtime_information.into(),
             replaying: false,
-            tomb_stoned: self.tombstoned,
+            tombstoned: self.tombstoned,
         };
         Ok(compute_graph)
     }
@@ -364,7 +364,7 @@ impl From<data_model::ComputeGraph> for ComputeGraph {
             created_at: compute_graph.created_at,
             runtime_information: compute_graph.runtime_information.into(),
             replaying: compute_graph.replaying,
-            tombstoned: compute_graph.tomb_stoned,
+            tombstoned: compute_graph.tombstoned,
         }
     }
 }

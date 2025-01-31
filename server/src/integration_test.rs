@@ -410,7 +410,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
-                tomb_stoned: false,
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -654,7 +654,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
-                tomb_stoned: false,
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -966,7 +966,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
-                tomb_stoned: false,
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
@@ -1229,7 +1229,7 @@ mod tests {
                 namespace: TEST_NAMESPACE.to_string(),
                 name: "graph_R".to_string(),
                 tags: HashMap::new(),
-                tomb_stoned: false,
+                tombstoned: false,
                 nodes: HashMap::from([
                     ("fn_gen".to_string(), Node::Compute(fn_gen.clone())),
                     ("fn_map".to_string(), Node::Compute(fn_map)),
