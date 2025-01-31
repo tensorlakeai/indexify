@@ -475,7 +475,10 @@ fn update_task_versions_for_cg(
     for kv in iter {
         let (key, val) = kv?;
         let mut task: Task = JsonEncoder::decode(&val)?;
-        if (task.graph_version != compute_graph.version) && !task.outcome.is_terminal() {
+        // FIXME - We should check if the task was terminal and then upgrade it.
+        // In production at the moment looks like some invocations are finalized
+        // and tasks are finalized but they are still getting allocated to executors.
+        if task.graph_version != compute_graph.version {
             info!(
                 "updating task: {} from version: {} to version: {}",
                 task.id, task.graph_version.0, compute_graph.version.0
@@ -484,6 +487,7 @@ fn update_task_versions_for_cg(
         }
         tasks_to_update.insert(key, task);
     }
+    info!("upgrading {} tasks", tasks_to_update.len());
     for (task_id, task) in tasks_to_update {
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
@@ -514,9 +518,10 @@ fn update_graph_invocations_for_cg(
     for kv in iter {
         let (key, val) = kv?;
         let mut graph_invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
-        if (graph_invocation_ctx.graph_version != compute_graph.version) &&
-            !graph_invocation_ctx.completed
-        {
+        // FIXME - We should check if the task was terminal and then upgrade it.
+        // In production at the moment looks like some invocations are finalized
+        // and tasks are finalized but they are still getting allocated to executors.
+        if graph_invocation_ctx.graph_version != compute_graph.version {
             info!(
                 "updating graph_invocation_ctx for invocation id: {} from version: {} to version: {}",
                 graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
@@ -525,6 +530,10 @@ fn update_graph_invocations_for_cg(
         }
         graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
     }
+    info!(
+        "upgrading {} graph invocation ctxs",
+        graph_invocation_ctx_to_update.len()
+    );
     for (invocation_id, graph_invocation_ctx) in graph_invocation_ctx_to_update {
         let serialized_task = JsonEncoder::encode(&graph_invocation_ctx)?;
         txn.put_cf(
@@ -990,6 +999,10 @@ pub fn mark_task_finalized(
     req: FinalizeTaskRequest,
     sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<bool> {
+    info!(
+        "starting to mark task as finalized: {}, outcome: {:?}",
+        req.task_id, req.task_outcome
+    );
     // Check if the graph exists before proceeding since
     // the graph might have been deleted before the task completes
     let graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph);
@@ -1077,6 +1090,11 @@ pub fn mark_task_finalized(
 
     task.outcome = req.task_outcome.clone();
     let task_bytes = JsonEncoder::encode(&task)?;
+    info!(
+        "marking task as finalized: {}, outcome: {:?}",
+        task.key(),
+        task.outcome
+    );
     txn.put_cf(
         &IndexifyObjectsColumns::Tasks.cf_db(&db),
         task.key(),
