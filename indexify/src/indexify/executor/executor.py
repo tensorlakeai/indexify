@@ -41,6 +41,7 @@ class Executor:
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
         self._task_runner = TaskRunner(
+            executor_id=id,
             function_executor_server_factory=function_executor_server_factory,
             base_url=self._base_url,
             config_path=config_path,
