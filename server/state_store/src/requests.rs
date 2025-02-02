@@ -29,7 +29,7 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
-    NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
+    TaskCreatorUpdate(NamespaceProcessorUpdateRequest),
     TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),

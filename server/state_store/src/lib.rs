@@ -23,6 +23,7 @@ use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info, span};
 
+pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
 pub mod requests;
@@ -92,6 +93,7 @@ pub struct IndexifyState {
     pub change_events_tx: tokio::sync::watch::Sender<()>,
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
+    pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     // state_metrics: Arc<StateMetrics>,
 }
 
@@ -118,8 +120,11 @@ impl IndexifyState {
         StateMetrics::new(state_store_metrics.clone());
         // let state_metrics = Arc::new(StateMetrics::new(state_store_metrics.clone()));
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
+        let db = Arc::new(db);
+        let reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
+        let in_memory_state = Arc::new(RwLock::new(in_memory_state::InMemoryState::new(&reader)?));
         let s = Arc::new(Self {
-            db: Arc::new(db),
+            db,
             last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
             task_event_tx,
@@ -130,6 +135,7 @@ impl IndexifyState {
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
+            in_memory_state,
             // state_metrics,
         });
 
@@ -301,7 +307,7 @@ impl IndexifyState {
                 self.gc_tx.send(()).unwrap();
                 vec![]
             }
-            RequestPayload::NamespaceProcessorUpdate(request) => {
+            RequestPayload::TaskCreatorUpdate(request) => {
                 let new_state_changes =
                     state_changes::change_events_for_namespace_processor_update(
                         &self.last_state_change_id,
@@ -420,6 +426,7 @@ impl IndexifyState {
             },
         )?;
         txn.commit()?;
+        self.in_memory_state.write().await.update_state(&request)?;
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
                 .write()
@@ -457,7 +464,7 @@ impl IndexifyState {
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 let _ = self.task_event_tx.send(ev);
             }
-            RequestPayload::NamespaceProcessorUpdate(sched_update) => {
+            RequestPayload::TaskCreatorUpdate(sched_update) => {
                 for task in &sched_update.task_requests {
                     let _ = self
                         .task_event_tx

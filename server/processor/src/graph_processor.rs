@@ -283,7 +283,7 @@ fn task_creation_result_to_sm_update(
     state_change: &StateChange,
 ) -> StateMachineUpdateRequest {
     StateMachineUpdateRequest {
-        payload: RequestPayload::NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest {
+        payload: RequestPayload::TaskCreatorUpdate(NamespaceProcessorUpdateRequest {
             namespace: ns.to_string(),
             compute_graph: compute_graph.to_string(),
             invocation_id: invocation_id.to_string(),
