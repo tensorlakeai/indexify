@@ -24,6 +24,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import CopyText from '../CopyText';
+import CopyTextPopover from '../CopyTextPopover';
 
 interface Task {
   id: string;
@@ -181,7 +182,9 @@ export function InvocationTasksTable({ indexifyServiceURL, invocationId, namespa
             id={`panel${index}-header`}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'space-between' }}>
-              <Typography>{computeFn} ({tasks.length} tasks)</Typography>
+              <CopyTextPopover text={computeFn}>
+                <Typography>{computeFn} ({tasks.length} tasks)</Typography>
+              </CopyTextPopover>
               <Box 
                 sx={{ display: 'flex', alignItems: 'center' }}
                 onClick={(e) => e.stopPropagation()}
