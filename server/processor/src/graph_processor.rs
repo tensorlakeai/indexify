@@ -1,7 +1,13 @@
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
-use data_model::{ChangeType, StateChange};
+use data_model::{
+    ChangeType,
+    GraphInvocationCtx,
+    StateChange,
+    TaskOutcome,
+    TaskOutputsIngestedEvent,
+};
 use state_store::{
     requests::{
         DeleteComputeGraphRequest,
@@ -13,8 +19,7 @@ use state_store::{
         RequestPayload,
         StateMachineUpdateRequest,
         TaskAllocationUpdateRequest,
-    },
-    IndexifyState,
+    }, IndexifyState
 };
 use tokio::sync::Notify;
 use tracing::{error, info};
@@ -173,7 +178,10 @@ impl GraphProcessor {
                 info!("invoking compute graph: {:?}", event);
                 let task_creation_result = self
                     .task_creator
-                    .handle_invoke_compute_graph(event.clone())
+                    .handle_invoke_compute_graph(
+                        event.clone(),
+                        &self.indexify_state.in_memory_state().await,
+                    )
                     .await?;
                 Ok(task_creation_result_to_sm_update(
                     &event.namespace,
@@ -183,24 +191,33 @@ impl GraphProcessor {
                     &state_change,
                 ))
             }
-            ChangeType::TaskOutputsIngested(event) => Ok(StateMachineUpdateRequest {
-                payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
-                    namespace: event.namespace.clone(),
-                    compute_graph: event.compute_graph.clone(),
-                    compute_fn: event.compute_fn.clone(),
-                    invocation_id: event.invocation_id.clone(),
-                    task_id: event.task_id.clone(),
-                    task_outcome: event.outcome.clone(),
-                    executor_id: event.executor_id.clone(),
-                    diagnostics: event.diagnostic.clone(),
-                }),
-                processed_state_changes: vec![state_change.clone()],
-            }),
+            ChangeType::TaskOutputsIngested(event) => {
+                let graph_ctx =
+                    update_graph_ctx_finalize_task(event, self.indexify_state.clone()).await;
+                if let None = graph_ctx {
+                    return Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::Noop,
+                        processed_state_changes: vec![state_change.clone()],
+                    });
+                }
+                Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
+                        namespace: event.namespace.clone(),
+                        compute_graph: event.compute_graph.clone(),
+                        compute_fn: event.compute_fn.clone(),
+                        invocation_id: event.invocation_id.clone(),
+                        task_id: event.task_id.clone(),
+                        task_outcome: event.outcome.clone(),
+                        executor_id: event.executor_id.clone(),
+                        diagnostics: event.diagnostic.clone(),
+                        invocation_ctx: graph_ctx,
+                    }),
+                    processed_state_changes: vec![state_change.clone()],
+                })
+            }
             ChangeType::TaskFinalized(event) => {
-                let task_creation_result = self
-                    .task_creator
-                    .handle_task_finished_inner(self.indexify_state.clone(), event)
-                    .await?;
+                let task_creation_result =
+                    self.task_creator.handle_task_finished_inner(event).await?;
                 Ok(task_creation_result_to_sm_update(
                     &event.namespace,
                     &event.compute_graph,
@@ -292,6 +309,7 @@ fn task_creation_result_to_sm_update(
                 new_reduction_tasks: task_creation_result.new_reduction_tasks,
                 processed_reduction_tasks: task_creation_result.processed_reduction_tasks,
             },
+            invocation_ctx: task_creation_result.invocation_ctx,
         }),
         processed_state_changes: vec![state_change.clone()],
     }
@@ -309,4 +327,36 @@ fn task_placement_result_to_sm_update(
         }),
         processed_state_changes: vec![state_change.clone()],
     }
+}
+
+async fn update_graph_ctx_finalize_task(
+    event: &TaskOutputsIngestedEvent,
+    indexify_state: Arc<IndexifyState>,
+) -> Option<GraphInvocationCtx> {
+    let in_memory_state = indexify_state.in_memory_state().await;
+    let invocation_ctx_map= in_memory_state
+        .invocation_ctx
+        .clone();
+
+    let may_be_invocation_ctx = invocation_ctx_map
+        .get(&format!(
+            "{}|{}|{}",
+            event.namespace, event.compute_graph, event.invocation_id
+        ));
+    if may_be_invocation_ctx.is_none() {
+        error!("namespace: {}, invocation: {}, cg: {}, fn: {}, task: {} no invocation ctx found for task outputs ingested event",
+    event.namespace, event.invocation_id, event.compute_graph, event.compute_fn, event.task_id);
+        return None;
+    }
+    let mut invocation_ctx = may_be_invocation_ctx.unwrap().clone();
+    invocation_ctx.outstanding_tasks -= 1;
+    invocation_ctx
+        .fn_task_analytics
+        .entry(event.compute_fn.clone())
+        .and_modify(|e| match event.outcome {
+            TaskOutcome::Success => e.success(),
+            TaskOutcome::Failure => e.fail(),
+            _ => {}
+        });
+    Some(invocation_ctx)
 }

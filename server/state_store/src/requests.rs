@@ -2,6 +2,7 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
+    GraphInvocationCtx,
     GraphVersion,
     InvocationPayload,
     NodeOutput,
@@ -92,6 +93,7 @@ pub struct FinalizeTaskRequest {
     pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
     pub executor_id: ExecutorId,
+    pub invocation_ctx: Option<GraphInvocationCtx>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +157,7 @@ pub struct NamespaceProcessorUpdateRequest {
     pub invocation_id: String,
     pub task_requests: Vec<Task>,
     pub reduction_tasks: ReductionTasks,
+    pub invocation_ctx: Option<GraphInvocationCtx>,
 }
 
 #[derive(Debug, Clone)]

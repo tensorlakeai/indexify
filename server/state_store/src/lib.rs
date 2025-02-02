@@ -257,17 +257,35 @@ impl IndexifyState {
                 }
             }
             RequestPayload::FinalizeTask(finalize_task) => {
-                let finalized = state_machine::mark_task_finalized(
+                tasks_finalized
+                        .entry(finalize_task.executor_id.clone())
+                        .or_default()
+                        .push(finalize_task.task_id.clone());
+                let finalized_task_result = state_machine::mark_task_finalized(
                     self.db.clone(),
                     &txn,
                     finalize_task.clone(),
                     self.metrics.clone(),
+                    finalize_task.invocation_ctx.clone(),
                 )?;
-                if finalized {
-                    tasks_finalized
-                        .entry(finalize_task.executor_id.clone())
-                        .or_default()
-                        .push(finalize_task.task_id.clone());
+                if let Some(invocation_completion) = finalized_task_result.invocation_completion {
+                    match invocation_completion {
+                        InvocationCompletion::System => {
+                            // Notify the system task handler that it can start new tasks since
+                            // a task was completed
+                            let _ = self.system_tasks_tx.send(());
+                        }
+                        InvocationCompletion::User => {
+                            let _ = self.task_event_tx
+                            .send(InvocationStateChangeEvent::InvocationFinished(
+                                InvocationFinishedEvent {
+                                    id: finalize_task.invocation_id.clone(),
+                                },
+                            ));
+                        }
+                    }
+                }
+                if finalized_task_result.should_notify_graph_processor { 
                     state_changes::finalized_task(&self.last_state_change_id, &finalize_task)?
                 } else {
                     vec![]
@@ -308,33 +326,17 @@ impl IndexifyState {
                 vec![]
             }
             RequestPayload::TaskCreatorUpdate(request) => {
-                let new_state_changes =
+                let mut new_state_changes = vec![];
+                if request.task_requests.len() > 0 {
+                let state_changes =
                     state_changes::change_events_for_namespace_processor_update(
                         &self.last_state_change_id,
                         &request,
                     )?;
-                if let Some(completion) = state_machine::create_tasks(
-                    self.db.clone(),
-                    &txn,
-                    &request.task_requests.clone(),
-                    self.metrics.clone().clone(),
-                    &request.namespace,
-                    &request.compute_graph,
-                    &request.invocation_id,
-                )? {
-                    let _ =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::InvocationFinished(
-                                InvocationFinishedEvent {
-                                    id: request.invocation_id.clone(),
-                                },
-                            ));
-                    if completion == InvocationCompletion::System {
-                        // Notify the system task handler that it can start new tasks since
-                        // a task was completed
-                        let _ = self.system_tasks_tx.send(());
-                    }
-                };
+                new_state_changes.extend(state_changes);
+                    state_machine::create_tasks(self.db.clone(), &txn, &request.task_requests.clone(), request.invocation_ctx.clone())?;
+                }
+
                 state_machine::processed_reduction_tasks(
                     self.db.clone(),
                     &txn,
@@ -507,6 +509,10 @@ impl IndexifyState {
 
     pub fn reader(&self) -> scanner::StateReader {
         scanner::StateReader::new(self.db.clone(), self.metrics.clone())
+    }
+
+    pub async fn in_memory_state(&self) -> in_memory_state::InMemoryState {
+        self.in_memory_state.read().await.get_in_memory_state()
     }
 
     pub fn task_event_stream(&self) -> broadcast::Receiver<InvocationStateChangeEvent> {
