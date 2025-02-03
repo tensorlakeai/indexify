@@ -40,7 +40,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
-          uv pip install --system 'indexify==${{ inputs.indexify_version }}' -U
+          uv pip install --system 'indexify==${{ inputs.indexify_version }}' tensorlake -U
           indexify-cli build-image examples/pdf_document_extraction/images.py
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
           indexify-cli build-image examples/pdf_structured_extraction/document_ai_api_version_workflow.py
