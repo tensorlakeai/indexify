@@ -158,25 +158,6 @@ def build_image(
                 _create_image(obj, python_sdk_path)
 
 
-@app.command(help="Build default image for indexify")
-def build_default_image(
-    python_version: Optional[str] = typer.Option(
-        f"{sys.version_info.major}.{sys.version_info.minor}",
-        help="Python version to use in the base image",
-    )
-):
-    image = GetDefaultPythonImage(python_version)
-
-    _build_image(image=image)
-
-    console.print(
-        Text(f"Built default indexify image with hash {image.hash()}\n", style="cyan"),
-        Text(
-            f"Don't forget to update your executors to run this image!", style="yellow"
-        ),
-    )
-
-
 @app.command(
     help="Runs Executor that connects to the Indexify server and starts running its tasks"
 )
@@ -307,57 +288,7 @@ def _create_image(image: Image, python_sdk_path):
 
 
 def _build_image(image: Image, python_sdk_path: Optional[str] = None):
-    docker_file = _generate_dockerfile(image, python_sdk_path=python_sdk_path)
-    image_name = f"{image._image_name}:{image._tag}"
-
-    # low_level_client = docker.APIClient(base_url=docker_client.api.base_url)
-    docker_host = os.getenv("DOCKER_HOST", "unix:///var/run/docker.sock")
-    low_level_client = docker.APIClient(base_url=docker_host)
-    docker.api.build.process_dockerfile = lambda dockerfile, path: (
-        "Dockerfile",
-        dockerfile,
-    )
-    generator = low_level_client.build(
-        dockerfile=docker_file,
-        rm=True,
-        path=".",
-        tag=image_name,
-    )
-
+    built_image, generator = image.build(python_sdk_path=python_sdk_path)
     for output in generator:
-        for line in output.decode().splitlines():
-            json_line = json.loads(line)
-            if "stream" in json_line:
-                print(json_line["stream"], end="")
-
-            elif "errorDetail" in json_line:
-                print(json_line["errorDetail"]["message"])
-
-
-def _generate_dockerfile(image, python_sdk_path: Optional[str] = None):
-    docker_contents = [
-        f"FROM {image._base_image}",
-        "RUN mkdir -p ~/.indexify",
-        f"RUN echo {image._image_name} > ~/.indexify/image_name",  # TODO: Do we still use this in executors?
-        f"RUN echo {image.hash()} > ~/.indexify/image_hash",  # TODO: Do we still use this in executors?
-        "WORKDIR /app",
-    ]
-
-    for build_op in image._build_ops:
-        docker_contents.append(build_op.render())
-
-    if python_sdk_path is not None:
-        print(f"Building image {image._image_name} with local version of the SDK")
-
-        if not os.path.exists(python_sdk_path):
-            print(f"error: {python_sdk_path} does not exist")
-            os.exit(1)
-        docker_contents.append(f"COPY {python_sdk_path} /app/python-sdk")
-        docker_contents.append("RUN (cd /app/python-sdk && pip install .)")
-    else:
-        docker_contents.append(
-            f"RUN pip install indexify=={importlib.metadata.version('indexify')}"
-        )
-
-    docker_file = "\n".join(docker_contents)
-    return docker_file
+        print(output)
+    print(f"built image: {built_image.tags[0]}")
