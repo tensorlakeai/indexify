@@ -19,7 +19,7 @@ services:
         "indexify-cli",
         "executor",
         "-f",
-        "default:Extract_pages_tables_images_pdf_docling:download_pdf:0.1",
+        "default:Extract_pages_tables_images_pdf_docling:download_pdf",
         "--server-addr",
         "indexify:8900"
       ]
@@ -37,7 +37,7 @@ services:
         "indexify-cli",
         "executor",
         "-f",
-        "default:Extract_pages_tables_images_pdf_docling:image-embedding-docling:0.1",
+        "default:Extract_pages_tables_images_pdf_docling:image-embedding-docling",
         "--server-addr",
         "indexify:8900"
       ]
@@ -55,7 +55,7 @@ services:
         "indexify-cli",
         "executor",
         "-f",
-        "default:Extract_pages_tables_images_pdf_docling:elastic_search_writer:0.1",
+        "default:Extract_pages_tables_images_pdf_docling:elastic_search_writer",
         "--server-addr",
         "indexify:8900"
       ]
@@ -73,7 +73,7 @@ services:
         "indexify-cli",
         "executor",
         "-f",
-        "default:Extract_pages_tables_images_pdf_docling:text-embedding-extractor:0.1",
+        "default:Extract_pages_tables_images_pdf_docling:text-embedding-extractor",
         "--server-addr",
         "indexify:8900"
       ]
@@ -91,7 +91,7 @@ services:
         "indexify-cli",
         "executor",
         "-f",
-        "default:Extract_pages_tables_images_pdf_docling:chunk_text_docling:0.1",
+        "default:Extract_pages_tables_images_pdf_docling:chunk_text_docling",
         "--server-addr",
         "indexify:8900"
       ]
@@ -115,21 +115,6 @@ services:
       server:
     volumes:
       - data:/tmp/indexify-blob-storage
-  default-executor:
-    image: tensorlake/indexify-executor-default:3.13-0.3.0
-    command:
-      [
-        "indexify-cli",
-        "executor",
-        "-f",
-        "default:Extract_pages_tables_images_pdf_docling:default:0.1",
-        "--server-addr",
-        "indexify:8900"
-      ]
-    networks:
-      server:
-    volumes:
-      - data:/tmp/indexify-blob-storage
   pdf-parser-executor:
     # Use this for GPU support
     image: tensorlake/pdf-blueprint-pdf-parser-gpu:latest
@@ -139,7 +124,7 @@ services:
         "indexify-cli",
         "executor",
         "-f",
-        "default:Extract_pages_tables_images_pdf_docling:pdf-parse-docling:0.1",
+        "default:Extract_pages_tables_images_pdf_docling:pdf-parse-docling",
         "--server-addr",
         "indexify:8900"
       ]

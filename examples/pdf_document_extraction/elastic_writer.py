@@ -1,5 +1,3 @@
-from elastic_transport import ApiError
-from elasticsearch import Elasticsearch
 from typing import Union
 import base64
 import uuid
@@ -17,6 +15,8 @@ class ElasticSearchWriter(TensorlakeCompute):
     def __init__(self):
         super().__init__()
         # Connect to Elasticsearch
+        from elastic_transport import ApiError
+        from elasticsearch import Elasticsearch
         self._client = Elasticsearch(
             hosts=["http://elasticsearch:9200"],  # <User Change>: default is service name in the docker compose file.
             verify_certs=False,
@@ -31,6 +31,7 @@ class ElasticSearchWriter(TensorlakeCompute):
         self._create_indices_if_not_exists()
 
     def _create_indices_if_not_exists(self):
+        from elastic_transport import ApiError
         # Text index mapping
         text_mapping = {
             "mappings": {
@@ -98,6 +99,8 @@ class ElasticSearchWriter(TensorlakeCompute):
                 raise e
 
     def run(self, input: Union[ImageWithEmbedding, TextChunk]) -> bool:
+        from elastic_transport import ApiError
+        from elasticsearch import Elasticsearch
         try:
             if isinstance(input, ImageWithEmbedding):
                 # Convert image bytes to base64 for storage

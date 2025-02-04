@@ -1,12 +1,5 @@
 from tensorlake import Image
 
-http_client_image = (
-    Image()
-    .name("tensorlake/pdf-blueprint-download")
-    .base_image(f"python:3.11-slim-bookworm")
-    .run("pip install httpx")
-)
-
 chroma_image = (
     Image()
     .name("tensorlake/blueprints-chromadb")
@@ -37,7 +30,7 @@ lance_image = (
 inkwell_image_gpu = (
     Image()
     .name("tensorlake/pdf-blueprint-pdf-parser-gpu")
-    .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime")
+    .base_image("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime")
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx")
     .run('pip install docling')

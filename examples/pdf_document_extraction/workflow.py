@@ -1,21 +1,9 @@
+from tensorlake import RemoteGraph
 from elastic_writer import ElasticSearchWriter
 from embedding import chunk_text_docling, ImageEmbeddingDoclingExtractor
-from tensorlake import RemoteGraph
 from tensorlake.functions_sdk.data_objects import File
 from tensorlake.functions_sdk.graph import Graph
 from tensorlake.functions_sdk.functions import tensorlake_function
-from images import http_client_image
-
-
-@tensorlake_function(image=http_client_image)
-def download_pdf(url: str) -> File:
-    """
-    Download pdf from url
-    """
-    import httpx
-    resp = httpx.get(url=url, follow_redirects=True)
-    resp.raise_for_status()
-    return File(data=resp.content, mime_type="application/pdf")
 
 
 # This graph is the alternate approach.
@@ -60,11 +48,10 @@ if __name__ == "__main__":
 
     import common_objects
     import images
-    import elasticsearch  # this additional module is needed if you're using the second graph
 
     remote_graph = RemoteGraph.deploy(
         graph,
-        additional_modules=[common_objects, elasticsearch, images],
+        additional_modules=[common_objects, images],
         server_url="http://localhost:8900",
     )
 
