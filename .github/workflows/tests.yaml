@@ -11,6 +11,7 @@ on:
     paths:
       - 'server/**'
       - 'indexify/**'
+      - 'tensorlake'
       - '.github/workflows/tests.yaml'
 
 env:
