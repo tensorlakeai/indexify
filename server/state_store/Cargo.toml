@@ -19,7 +19,8 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 futures.workspace = true
-async-stream = "0.3.5"
+async-stream = {workspace = true }
+im = { workspace = true }
 tempfile = { workspace = true }
 object_store.workspace = true
 blob_store = { version = "0.1.0", path = "../blob_store" }
