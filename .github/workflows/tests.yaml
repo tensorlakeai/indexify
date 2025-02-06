@@ -130,7 +130,7 @@ jobs:
             echo $! > /tmp/indexify-executor.pid &
 
           wait-on: |
-            tcp:localhost:8900
+            tcp:localhost:7000
 
           tail: true
           wait-for: 10s
@@ -231,7 +231,7 @@ jobs:
             echo $! > /tmp/indexify-executor.pid &
 
           wait-on: |
-            tcp:localhost:8900
+            tcp:localhost:7000
 
           tail: true
           wait-for: 10s

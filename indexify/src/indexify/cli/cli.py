@@ -192,7 +192,8 @@ def executor(
     ),
     # Registred ports range ends at 49151.
     ports: Tuple[int, int] = typer.Option(
-        (50000, 51000), help="Range of localhost TCP ports to be used by the executor"
+        (50000, 51000),
+        help="Range of localhost TCP ports to be used by Function Executors",
     ),
     disable_automatic_function_executor_management: Annotated[
         bool,

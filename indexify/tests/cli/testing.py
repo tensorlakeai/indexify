@@ -42,17 +42,17 @@ def wait_executor_startup(port: int):
 
     import httpx
 
-    print(f"Waiting 5 secs for Executors to start at port {port}")
+    print(f"Waiting 5 secs for Executor to start at port {port}")
     attempts_left: int = 5
     while attempts_left > 0:
         try:
-            response = httpx.get(f"http://localhost:{port}/probe/startup")
+            response = httpx.post(f"http://localhost:{port}/probe/startup")
             if response.status_code == 200:
                 print(f"Executor startup check successful at port {port}")
                 return
-        except httpx.RequestError as e:
+        except Exception:
             if attempts_left == 1:
                 raise
 
         attempts_left -= 1
-        time.sleep(1)
+        time.sleep(0.1)
