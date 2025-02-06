@@ -50,9 +50,7 @@ class Executor:
         self._server_addr = server_addr
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
-        self._startup_probe_handler: ExecutorStartupProbeHandler = (
-            ExecutorStartupProbeHandler()
-        )
+        self._startup_probe_handler = ExecutorStartupProbeHandler()
         self._api_server = APIServer(
             api_host=api_host,
             api_port=api_port,

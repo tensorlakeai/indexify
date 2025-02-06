@@ -1,7 +1,6 @@
 import os
 import platform
 import subprocess
-import time
 import unittest
 
 from tensorlake import Graph, tensorlake_function

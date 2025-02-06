@@ -54,12 +54,12 @@ class SingleTaskRunner:
         if self._state.is_shutdown:
             raise RuntimeError("Function Executor state is shutting down.")
 
-        # If Function Executor is not healthy then recreate it.
+        # If Function Executor became unhealthy while was idle then destroy it.
         if self._state.function_executor is not None:
             if not await self._state.function_executor.health_checker().check():
-                self._logger.error("Health check failed, destroying FunctionExecutor.")
-                await self._state.destroy_function_executor()
+                await self._destroy_function_executor_on_failed_health_check()
 
+        # Create Function Executor if it doesn't exist.
         if self._state.function_executor is None:
             try:
                 await self._create_function_executor()
@@ -70,7 +70,15 @@ class SingleTaskRunner:
                     success=False,
                 )
 
-        return await self._run()
+        output: TaskOutput = await self._run()
+
+        # If Function Executor became unhealthy while running the task then destroy it.
+        # The periodic health checker might not notice this as it does only periodic checks.
+        if self._state.function_executor is not None:
+            if not await self._state.function_executor.health_checker().check():
+                await self._destroy_function_executor_on_failed_health_check()
+
+        return output
 
     async def _create_function_executor(self) -> FunctionExecutor:
         function_executor: FunctionExecutor = FunctionExecutor(
@@ -131,10 +139,17 @@ class SingleTaskRunner:
             return _task_output(task=self._task_input.task, response=response)
 
     async def _health_check_failed_callback(self):
-        # The Function Executor needs to get recreated on next task run.
-        self._logger.error("Health check failed, destroying FunctionExecutor.")
+        # Function Executor destroy due to the periodic health check failure ensures that
+        # a running task RPC stuck in unhealthy Function Executor fails immidiately.
         async with self._state.lock:
-            await self._state.destroy_function_executor()
+            if self._state.function_executor is not None:
+                await self._destroy_function_executor_on_failed_health_check()
+
+    async def _destroy_function_executor_on_failed_health_check(self):
+        self._state.check_locked()
+        self._logger.error("Health check failed, destroying FunctionExecutor.")
+        self._state.health_check_failed = True
+        await self._state.destroy_function_executor()
 
 
 class _RunningTaskContextManager:

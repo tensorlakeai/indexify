@@ -18,6 +18,8 @@ class FunctionExecutorState:
         # All the fields below are protected by the lock.
         self.lock: asyncio.Lock = asyncio.Lock()
         self.is_shutdown: bool = False
+        # Set to True if a Function Executor health check ever failed.
+        self.health_check_failed: bool = False
         self.function_executor: Optional[FunctionExecutor] = None
         self.running_tasks: int = 0
         self.running_tasks_change_notifier: asyncio.Condition = asyncio.Condition(
