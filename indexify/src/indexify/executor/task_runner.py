@@ -1,8 +1,12 @@
-import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from .api_objects import Task
 from .function_executor.function_executor_state import FunctionExecutorState
+from .function_executor.function_executor_states_container import (
+    FunctionExecutorStatesContainer,
+    function_id_with_version,
+    function_id_without_version,
+)
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
@@ -21,8 +25,9 @@ class TaskRunner:
         executor_id: str,
         function_executor_server_factory: FunctionExecutorServerFactory,
         base_url: str,
-        config_path: Optional[str],
         disable_automatic_function_executor_management: bool,
+        function_executor_states: FunctionExecutorStatesContainer,
+        config_path: Optional[str],
     ):
         self._executor_id: str = executor_id
         self._factory: FunctionExecutorServerFactory = function_executor_server_factory
@@ -31,10 +36,9 @@ class TaskRunner:
         self._disable_automatic_function_executor_management: bool = (
             disable_automatic_function_executor_management
         )
-        # The fields below are protected by the lock.
-        self._lock: asyncio.Lock = asyncio.Lock()
-        self._is_shutdown: bool = False
-        self._function_executor_states: Dict[str, FunctionExecutorState] = {}
+        self._function_executor_states: FunctionExecutorStatesContainer = (
+            function_executor_states
+        )
 
     async def run(self, task_input: TaskInput, logger: Any) -> TaskOutput:
         logger = logger.bind(module=__name__)
@@ -48,24 +52,12 @@ class TaskRunner:
             return TaskOutput.internal_error(task_input.task)
 
     async def _run(self, task_input: TaskInput, logger: Any) -> TaskOutput:
-        state = await self._get_or_create_state(task_input.task)
+        state = await self._function_executor_states.get_or_create_state(
+            task_input.task
+        )
         async with state.lock:
             await self._run_task_policy(state, task_input.task)
             return await self._run_task(state, task_input, logger)
-
-    async def _get_or_create_state(self, task: Task) -> FunctionExecutorState:
-        async with self._lock:
-            if self._is_shutdown:
-                raise RuntimeError("Task runner is shutting down.")
-
-            id = _function_id_without_version(task)
-            if id not in self._function_executor_states:
-                state = FunctionExecutorState(
-                    function_id_with_version=_function_id_with_version(task),
-                    function_id_without_version=id,
-                )
-                self._function_executor_states[id] = state
-            return self._function_executor_states[id]
 
     async def _run_task_policy(self, state: FunctionExecutorState, task: Task) -> None:
         # Current policy for running tasks:
@@ -80,9 +72,9 @@ class TaskRunner:
         if self._disable_automatic_function_executor_management:
             return  # Disable Function Executor destroy in manual management mode.
 
-        if state.function_id_with_version != _function_id_with_version(task):
+        if state.function_id_with_version != function_id_with_version(task):
             await state.destroy_function_executor()
-            state.function_id_with_version = _function_id_with_version(task)
+            state.function_id_with_version = function_id_with_version(task)
             # At this point the state belongs to the version of the function from the task
             # and there are no running tasks in the Function Executor.
 
@@ -101,21 +93,4 @@ class TaskRunner:
         return await runner.run()
 
     async def shutdown(self) -> None:
-        # Function Executors are outside the Executor process
-        # so they need to get cleaned up explicitly and reliably.
-        async with self._lock:
-            self._is_shutdown = True  # No new Function Executor States can be created.
-            while self._function_executor_states:
-                id, state = self._function_executor_states.popitem()
-                # Only ongoing tasks who have a reference to the state already can see it.
-                async with state.lock:
-                    await state.shutdown()
-                    # The task running inside the Function Executor will fail because it's destroyed.
-
-
-def _function_id_with_version(task: Task) -> str:
-    return f"versioned/{task.namespace}/{task.compute_graph}/{task.graph_version}/{task.compute_fn}"
-
-
-def _function_id_without_version(task: Task) -> str:
-    return f"not_versioned/{task.namespace}/{task.compute_graph}/{task.compute_fn}"
+        pass
