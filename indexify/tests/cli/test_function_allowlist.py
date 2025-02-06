@@ -6,7 +6,12 @@ from typing import List, Optional
 
 from tensorlake import Graph, tensorlake_function
 from tensorlake.remote_graph import RemoteGraph
-from testing import ExecutorProcessContextManager, function_uri, test_graph_name
+from testing import (
+    ExecutorProcessContextManager,
+    function_uri,
+    test_graph_name,
+    wait_executor_startup,
+)
 
 # There's a dev mode executor already running in the testing environment.
 # It's used for all other tests that don't check the function allowlist.
@@ -98,12 +103,15 @@ class TestFunctionAllowlist(unittest.TestCase):
                 "--ports",
                 "60000",
                 "60001",
+                "--api-port",
+                "7001",
             ]
         ) as executor_a:
             executor_a: subprocess.Popen
             global function_a_executor_pid
             function_a_executor_pid = executor_a.pid
             print(f"Started Executor A with PID: {function_a_executor_pid}")
+            wait_executor_startup(7001)
 
             with ExecutorProcessContextManager(
                 [
@@ -117,17 +125,15 @@ class TestFunctionAllowlist(unittest.TestCase):
                     "--ports",
                     "60001",
                     "60002",
+                    "--api-port",
+                    "7002",
                 ]
             ) as executor_b:
                 executor_b: subprocess.Popen
                 global function_b_executor_pid
                 function_b_executor_pid = executor_b.pid
                 print(f"Started Executor B with PID: {function_b_executor_pid}")
-
-                print(
-                    "Waiting 5 secs for Executors A and B to start and join the Server."
-                )
-                time.sleep(5)
+                wait_executor_startup(7002)
 
                 graph = Graph(
                     name=test_graph_name(self),

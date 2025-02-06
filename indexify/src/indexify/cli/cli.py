@@ -6,8 +6,6 @@ from tensorlake.utils.logging import (
 
 configure_logging_early()
 
-import importlib.metadata
-import json
 import os
 import shutil
 import signal
@@ -19,7 +17,6 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated, List, Optional, Tuple
 
-import docker
 import nanoid
 import structlog
 import typer
@@ -33,6 +30,7 @@ from indexify.executor.executor import Executor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
 )
+from indexify.executor.health_checker.generic_health_checker import GenericHealthChecker
 
 custom_theme = Theme(
     {
@@ -162,6 +160,15 @@ def build_image(
     help="Runs Executor that connects to the Indexify server and starts running its tasks"
 )
 def executor(
+    api_host: Annotated[
+        str,
+        typer.Option(
+            "--api-host", help="IP address or hostname where to run Executor API"
+        ),
+    ] = "localhost",
+    api_port: Annotated[
+        int, typer.Option("--api-port", help="Port where to run Executor API")
+    ] = 7000,
     server_addr: str = "localhost:8900",
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
@@ -210,6 +217,8 @@ def executor(
 
     logger.info(
         "starting executor",
+        api_host=api_host,
+        api_port=api_port,
         server_addr=server_addr,
         config_path=config_path,
         executor_version=executor_version,
@@ -238,14 +247,17 @@ def executor(
     Executor(
         id=id,
         version=executor_version,
-        server_addr=server_addr,
-        config_path=config_path,
+        api_host=api_host,
+        api_port=api_port,
+        health_checker=GenericHealthChecker(),
         code_path=executor_cache,
         function_allowlist=_parse_function_uris(function_uris),
         function_executor_server_factory=SubprocessFunctionExecutorServerFactory(
             development_mode=dev,
             server_ports=range(ports[0], ports[1]),
         ),
+        server_addr=server_addr,
+        config_path=config_path,
         disable_automatic_function_executor_management=disable_automatic_function_executor_management,
     ).run()
 

@@ -5,6 +5,22 @@ from unittest.mock import mock_open, patch
 from constants import ca_bundle_path, cert_path, config_path, key_path, service_url
 
 from indexify.executor.executor import Executor
+from indexify.executor.health_checker.health_checker import (
+    HealthChecker,
+    HealthCheckResult,
+)
+
+
+class StubHealthChecker(HealthChecker):
+    def set_function_executor_states_container(self, _):
+        pass
+
+    async def check(self) -> HealthCheckResult:
+        return HealthCheckResult(
+            is_success=True,
+            status_message="Stub health checker",
+            checker_name="StubHealthChecker",
+        )
 
 
 class TestExecutor(unittest.TestCase):
@@ -27,6 +43,9 @@ class TestExecutor(unittest.TestCase):
             id="unit-test",
             version="0.1.0",
             code_path=Path("test"),
+            api_host="localhost",
+            api_port=7000,
+            health_checker=StubHealthChecker(),
             function_allowlist=None,
             function_executor_server_factory=None,
             server_addr=service_url,
@@ -60,6 +79,9 @@ class TestExecutor(unittest.TestCase):
             id="unit-test",
             version="0.1.0",
             code_path=Path("test"),
+            api_host="localhost",
+            api_port=7000,
+            health_checker=StubHealthChecker(),
             function_allowlist=None,
             function_executor_server_factory=None,
             server_addr="localhost:8900",

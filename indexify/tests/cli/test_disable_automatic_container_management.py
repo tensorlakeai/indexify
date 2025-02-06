@@ -6,7 +6,11 @@ import unittest
 
 from tensorlake import Graph, tensorlake_function
 from tensorlake.remote_graph import RemoteGraph
-from testing import ExecutorProcessContextManager, test_graph_name
+from testing import (
+    ExecutorProcessContextManager,
+    test_graph_name,
+    wait_executor_startup,
+)
 
 
 def function_executor_id() -> str:
@@ -42,12 +46,13 @@ class TestDisabledAutomaticContainerManagement(unittest.TestCase):
                 "--ports",
                 "60000",
                 "60001",
+                "--api-port",
+                "7001",
             ]
         ) as executor_a:
             executor_a: subprocess.Popen
             print(f"Started Executor A with PID: {executor_a.pid}")
-            print("Waiting 5 secs for Executors A to start and join the Server.")
-            time.sleep(5)
+            wait_executor_startup(7001)
 
             # As invocations might land on dev Executor, we need to run the graph multiple times
             # to ensure that we catch function executor getting destroyed on Executor A if it ever happens.

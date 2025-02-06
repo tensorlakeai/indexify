@@ -7,11 +7,18 @@ import structlog
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 from tensorlake.utils.logging import suppress as suppress_logging
 
+from .api.handlers.probe.health_check import HealthCheckHandler
+from .api.handlers.probe.startup import ExecutorStartupProbeHandler
+from .api.server import APIServer
 from .api_objects import FunctionURI, Task
 from .downloader import Downloader
+from .function_executor.function_executor_states_container import (
+    FunctionExecutorStatesContainer,
+)
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
+from .health_checker.health_checker import HealthChecker
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
@@ -23,6 +30,9 @@ class Executor:
         id: str,
         version: str,
         code_path: Path,
+        api_host: str,
+        api_port: int,
+        health_checker: HealthChecker,
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: str = "localhost:8900",
@@ -40,12 +50,26 @@ class Executor:
         self._server_addr = server_addr
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
+        self._startup_probe_handler: ExecutorStartupProbeHandler = (
+            ExecutorStartupProbeHandler()
+        )
+        self._api_server = APIServer(
+            api_host=api_host,
+            api_port=api_port,
+            startup_probe_handler=self._startup_probe_handler,
+            health_probe_handler=HealthCheckHandler(health_checker),
+        )
+        self._function_executor_states = FunctionExecutorStatesContainer()
+        health_checker.set_function_executor_states_container(
+            self._function_executor_states
+        )
         self._task_runner = TaskRunner(
             executor_id=id,
             function_executor_server_factory=function_executor_server_factory,
             base_url=self._base_url,
-            config_path=config_path,
             disable_automatic_function_executor_management=disable_automatic_function_executor_management,
+            function_executor_states=self._function_executor_states,
+            config_path=config_path,
         )
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=config_path
@@ -65,6 +89,7 @@ class Executor:
         )
 
     def run(self):
+        asyncio.new_event_loop()
         for signum in [
             signal.SIGABRT,
             signal.SIGINT,
@@ -76,12 +101,15 @@ class Executor:
                 signum, self.shutdown, asyncio.get_event_loop()
             )
 
+        asyncio.get_event_loop().create_task(self._api_server.run())
+
         try:
-            asyncio.get_event_loop().run_until_complete(self._run_async())
+            asyncio.get_event_loop().run_until_complete(self._run_tasks_loop())
         except asyncio.CancelledError:
             pass  # Suppress this expected exception and return without error (normally).
 
-    async def _run_async(self):
+    async def _run_tasks_loop(self):
+        self._startup_probe_handler.set_ready()
         while not self._is_shutdown:
             try:
                 async for task in self._task_fetcher.run():
@@ -147,8 +175,10 @@ class Executor:
         suppress_logging()
 
         self._is_shutdown = True
+        await self._api_server.shutdown()
         await self._task_runner.shutdown()
-        # We mainly need to cancel the task that runs _run_async() loop.
+        await self._function_executor_states.shutdown()
+        # We mainly need to cancel the task that runs _run_tasks_loop().
         for task in asyncio.all_tasks(loop):
             task.cancel()
 
