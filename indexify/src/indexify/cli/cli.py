@@ -15,9 +15,11 @@ import threading
 import time
 from importlib.metadata import version
 from pathlib import Path
+from socket import gethostname
 from typing import Annotated, List, Optional, Tuple
 
 import nanoid
+import prometheus_client
 import structlog
 import typer
 from rich.console import Console
@@ -225,6 +227,7 @@ def executor(
 
     logger.info(
         "starting executor",
+        hostname=gethostname(),
         server_addr=server_addr,
         config_path=config_path,
         executor_version=executor_version,
@@ -251,6 +254,12 @@ def executor(
             ),
         )
         exit(1)
+
+    prometheus_client.Info("cli", "CLI information").info(
+        {
+            "package": "indexify",
+        }
+    )
 
     Executor(
         id=id,

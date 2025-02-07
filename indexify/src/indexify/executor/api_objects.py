@@ -45,3 +45,7 @@ class TaskResult(BaseModel):
     executor_id: str
     task_id: str
     reducer: bool = False
+
+
+TASK_OUTCOME_SUCCESS = "success"
+TASK_OUCOME_FAILURE = "failure"

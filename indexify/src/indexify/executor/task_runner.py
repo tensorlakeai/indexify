@@ -1,11 +1,12 @@
 from typing import Any, Optional
 
+import prometheus_client
+
 from .api_objects import Task
 from .function_executor.function_executor_state import FunctionExecutorState
 from .function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
     function_id_with_version,
-    function_id_without_version,
 )
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
@@ -13,6 +14,15 @@ from .function_executor.server.function_executor_server_factory import (
 from .function_executor.single_task_runner import SingleTaskRunner
 from .function_executor.task_input import TaskInput
 from .function_executor.task_output import TaskOutput
+
+metric_tasks_runnable: prometheus_client.Gauge = prometheus_client.Gauge(
+    "tasks_runnable",
+    "Number of tasks that are ready for execution on a Function Executor",
+)
+metric_tasks_running: prometheus_client.Gauge = prometheus_client.Gauge(
+    "tasks_running",
+    "Number of tasks that are currently executing on a Function Executor",
+)
 
 
 class TaskRunner:
@@ -52,12 +62,16 @@ class TaskRunner:
             return TaskOutput.internal_error(task_input.task)
 
     async def _run(self, task_input: TaskInput, logger: Any) -> TaskOutput:
+        metric_tasks_runnable.inc()
         state = await self._function_executor_states.get_or_create_state(
             task_input.task
         )
         async with state.lock:
             await self._run_task_policy(state, task_input.task)
-            return await self._run_task(state, task_input, logger)
+            metric_tasks_runnable.dec()
+            logger.info("task execution started")
+            with metric_tasks_running.track_inprogress():
+                return await self._run_task(state, task_input, logger)
 
     async def _run_task_policy(self, state: FunctionExecutorState, task: Task) -> None:
         # Current policy for running tasks:

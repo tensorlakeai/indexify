@@ -7,7 +7,12 @@ from httpx import Timeout
 from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOutput
 from tensorlake.utils.http_client import get_httpx_client
 
-from .api_objects import RouterOutput, TaskResult
+from .api_objects import (
+    TASK_OUCOME_FAILURE,
+    TASK_OUTCOME_SUCCESS,
+    RouterOutput,
+    TaskResult,
+)
 from .task_runner import TaskOutput
 
 
@@ -115,7 +120,9 @@ class TaskReporter:
         if output is None:
             return task_result, output_files, summary
 
-        task_result.outcome = "success" if output.success else "failure"
+        task_result.outcome = (
+            TASK_OUTCOME_SUCCESS if output.success else TASK_OUCOME_FAILURE
+        )
         task_result.reducer = output.reducer
 
         _process_function_output(

@@ -24,6 +24,7 @@ grpcio = "1.70.0"
 pydantic = "2.10.4"
 httpx-sse = "^0.4.0"
 aiohttp = "^3.11.0"
+prometheus-client = "^0.21.1"
 # Adds function-executor binary and utils lib.
 tensorlake = ">=0.1.16"
 
