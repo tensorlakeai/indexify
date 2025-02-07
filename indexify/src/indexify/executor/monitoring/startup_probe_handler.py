@@ -1,9 +1,9 @@
 from aiohttp import web
 
-from ..handler import Handler
+from .handler import Handler
 
 
-class ExecutorStartupProbeHandler(Handler):
+class StartupProbeHandler(Handler):
     def __init__(self):
         self._ready = False
 

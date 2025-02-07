@@ -7,7 +7,7 @@ from constants import (
     code_path,
     config_path,
     key_path,
-    service_url,
+    server_address,
 )
 
 from indexify.executor.downloader import Downloader
@@ -29,7 +29,7 @@ class TestDownloaderBehaviour(unittest.TestCase):
     def test_creates_httpx_client_with_mTLS(self, mock_file, mock_client):
         downloader = Downloader(
             code_path=code_path,
-            base_url=service_url,
+            base_url=f"https://{server_address}",
             config_path=config_path,
         )
 
@@ -48,7 +48,7 @@ class TestDownloaderBehaviour(unittest.TestCase):
     def test_creates_httpx_client_without_mTLS(self, mock_file, mock_client):
         downloader = Downloader(
             code_path=code_path,
-            base_url=service_url,
+            base_url=f"http://{server_address}",
             config_path=config_path,
         )
         mock_file.assert_called()

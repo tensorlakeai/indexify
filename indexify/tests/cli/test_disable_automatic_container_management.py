@@ -45,7 +45,7 @@ class TestDisabledAutomaticContainerManagement(unittest.TestCase):
                 "--ports",
                 "60000",
                 "60001",
-                "--api-port",
+                "--monitoring-server-port",
                 "7001",
             ]
         ) as executor_a:
