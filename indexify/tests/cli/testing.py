@@ -46,7 +46,7 @@ def wait_executor_startup(port: int):
     attempts_left: int = 5
     while attempts_left > 0:
         try:
-            response = httpx.post(f"http://localhost:{port}/monitoring/startup")
+            response = httpx.get(f"http://localhost:{port}/monitoring/startup")
             if response.status_code == 200:
                 print(f"Executor startup check successful at port {port}")
                 return
