@@ -7,9 +7,6 @@ import structlog
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 from tensorlake.utils.logging import suppress as suppress_logging
 
-from .api.handlers.probe.health_check import HealthCheckHandler
-from .api.handlers.probe.startup import ExecutorStartupProbeHandler
-from .api.server import APIServer
 from .api_objects import FunctionURI, Task
 from .downloader import Downloader
 from .function_executor.function_executor_states_container import (
@@ -18,7 +15,10 @@ from .function_executor.function_executor_states_container import (
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
-from .health_checker.health_checker import HealthChecker
+from .monitoring.health_check_handler import HealthCheckHandler
+from .monitoring.health_checker.health_checker import HealthChecker
+from .monitoring.server import MonitoringServer
+from .monitoring.startup_probe_handler import StartupProbeHandler
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
@@ -30,14 +30,14 @@ class Executor:
         id: str,
         version: str,
         code_path: Path,
-        api_host: str,
-        api_port: int,
         health_checker: HealthChecker,
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_server_factory: FunctionExecutorServerFactory,
-        server_addr: str = "localhost:8900",
-        config_path: Optional[str] = None,
-        disable_automatic_function_executor_management: bool = False,
+        server_addr: str,
+        config_path: Optional[str],
+        monitoring_server_host: str,
+        monitoring_server_port: int,
+        disable_automatic_function_executor_management: bool,
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._is_shutdown: bool = False
@@ -50,10 +50,10 @@ class Executor:
         self._server_addr = server_addr
         self._base_url = f"{protocol}://{self._server_addr}"
         self._code_path = code_path
-        self._startup_probe_handler = ExecutorStartupProbeHandler()
-        self._api_server = APIServer(
-            api_host=api_host,
-            api_port=api_port,
+        self._startup_probe_handler = StartupProbeHandler()
+        self._monitoring_server = MonitoringServer(
+            host=monitoring_server_host,
+            port=monitoring_server_port,
             startup_probe_handler=self._startup_probe_handler,
             health_probe_handler=HealthCheckHandler(health_checker),
         )
@@ -99,7 +99,7 @@ class Executor:
                 signum, self.shutdown, asyncio.get_event_loop()
             )
 
-        asyncio.get_event_loop().create_task(self._api_server.run())
+        asyncio.get_event_loop().create_task(self._monitoring_server.run())
 
         try:
             asyncio.get_event_loop().run_until_complete(self._run_tasks_loop())
@@ -173,7 +173,7 @@ class Executor:
         suppress_logging()
 
         self._is_shutdown = True
-        await self._api_server.shutdown()
+        await self._monitoring_server.shutdown()
         await self._task_runner.shutdown()
         await self._function_executor_states.shutdown()
         # We mainly need to cancel the task that runs _run_tasks_loop().

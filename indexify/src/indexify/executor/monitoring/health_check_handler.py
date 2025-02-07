@@ -1,7 +1,7 @@
 from aiohttp import web
 
-from ....health_checker.health_checker import HealthChecker, HealthCheckResult
-from ..handler import Handler
+from .handler import Handler
+from .health_checker.health_checker import HealthChecker, HealthCheckResult
 
 
 class HealthCheckHandler(Handler):

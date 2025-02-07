@@ -2,10 +2,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import mock_open, patch
 
-from constants import ca_bundle_path, cert_path, config_path, key_path, service_url
+from constants import ca_bundle_path, cert_path, config_path, key_path, server_address
 
 from indexify.executor.executor import Executor
-from indexify.executor.health_checker.health_checker import (
+from indexify.executor.monitoring.health_checker.health_checker import (
     HealthChecker,
     HealthCheckResult,
 )
@@ -43,13 +43,14 @@ class TestExecutor(unittest.TestCase):
             id="unit-test",
             version="0.1.0",
             code_path=Path("test"),
-            api_host="localhost",
-            api_port=7000,
             health_checker=StubHealthChecker(),
             function_allowlist=None,
             function_executor_server_factory=None,
-            server_addr=service_url,
+            server_addr=server_address,
             config_path=config_path,
+            monitoring_server_host="localhost",
+            monitoring_server_port=7000,
+            disable_automatic_function_executor_management=False,
         )
 
         # Verify that the correct file was loaded from the config_path
@@ -70,7 +71,7 @@ class TestExecutor(unittest.TestCase):
         )
 
         # Verify TLS config in Executor
-        self.assertEqual(executor._server_addr, service_url)
+        self.assertEqual(executor._server_addr, server_address)
         self.assertTrue(executor._base_url.startswith("https://"))
 
     def test_no_tls_configuration(self):
@@ -79,12 +80,14 @@ class TestExecutor(unittest.TestCase):
             id="unit-test",
             version="0.1.0",
             code_path=Path("test"),
-            api_host="localhost",
-            api_port=7000,
             health_checker=StubHealthChecker(),
             function_allowlist=None,
             function_executor_server_factory=None,
-            server_addr="localhost:8900",
+            server_addr=server_address,
+            config_path=None,
+            monitoring_server_host="localhost",
+            monitoring_server_port=7000,
+            disable_automatic_function_executor_management=False,
         )
 
         # Verify the protocol is set to "http"

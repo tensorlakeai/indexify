@@ -1,6 +1,5 @@
 import os
 import subprocess
-import time
 import unittest
 from typing import List, Optional
 
@@ -103,7 +102,7 @@ class TestFunctionAllowlist(unittest.TestCase):
                 "--ports",
                 "60000",
                 "60001",
-                "--api-port",
+                "--monitoring-server-port",
                 "7001",
             ]
         ) as executor_a:
@@ -125,7 +124,7 @@ class TestFunctionAllowlist(unittest.TestCase):
                     "--ports",
                     "60001",
                     "60002",
-                    "--api-port",
+                    "--monitoring-server-port",
                     "7002",
                 ]
             ) as executor_b:

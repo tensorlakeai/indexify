@@ -10,6 +10,6 @@ tls_config = {
 cert_path = tls_config["tls_config"]["cert_path"]
 key_path = tls_config["tls_config"]["key_path"]
 ca_bundle_path = tls_config["tls_config"]["ca_bundle_path"]
-service_url = "localhost:8900"
+server_address = "localhost:8900"
 config_path = "test/config/path"
 code_path = "test/code_path"

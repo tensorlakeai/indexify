@@ -55,11 +55,10 @@ class SingleTaskRunner:
             raise RuntimeError("Function Executor state is shutting down.")
 
         # If Function Executor became unhealthy while was idle then destroy it.
-        if self._state.function_executor is not None:
-            if not await self._state.function_executor.health_checker().check():
-                await self._destroy_function_executor_on_failed_health_check()
+        # It'll be recreated below.
+        await self._destroy_existing_function_executor_if_unhealthy()
 
-        # Create Function Executor if it doesn't exist.
+        # Create Function Executor if it doesn't exist yet.
         if self._state.function_executor is None:
             try:
                 await self._create_function_executor()
@@ -70,15 +69,12 @@ class SingleTaskRunner:
                     success=False,
                 )
 
-        output: TaskOutput = await self._run()
-
-        # If Function Executor became unhealthy while running the task then destroy it.
-        # The periodic health checker might not notice this as it does only periodic checks.
-        if self._state.function_executor is not None:
-            if not await self._state.function_executor.health_checker().check():
-                await self._destroy_function_executor_on_failed_health_check()
-
-        return output
+        try:
+            return await self._run()
+        finally:
+            # If Function Executor became unhealthy while running the task then destroy it.
+            # The periodic health checker might not notice this as it does only periodic checks.
+            await self._destroy_existing_function_executor_if_unhealthy()
 
     async def _create_function_executor(self) -> FunctionExecutor:
         function_executor: FunctionExecutor = FunctionExecutor(
@@ -144,6 +140,14 @@ class SingleTaskRunner:
         async with self._state.lock:
             if self._state.function_executor is not None:
                 await self._destroy_function_executor_on_failed_health_check()
+
+    async def _destroy_existing_function_executor_if_unhealthy(self):
+        self._state.check_locked()
+        if self._state.function_executor is None:
+            return
+        if await self._state.function_executor.health_checker().check():
+            return
+        await self._destroy_function_executor_on_failed_health_check()
 
     async def _destroy_function_executor_on_failed_health_check(self):
         self._state.check_locked()
