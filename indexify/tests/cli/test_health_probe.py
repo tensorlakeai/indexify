@@ -40,7 +40,7 @@ class TestHealthProbe(unittest.TestCase):
             print(f"Started Executor A with PID: {executor_a.pid}")
             wait_executor_startup(7001)
 
-            response = httpx.post("http://localhost:7001/monitoring/health")
+            response = httpx.get("http://localhost:7001/monitoring/health")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(
                 response.json(),
@@ -67,7 +67,7 @@ class TestHealthProbe(unittest.TestCase):
         self.assertEqual(len(output), 0)
 
         # Verify that the default Executor health check fails after the Function Executor crashed.
-        response = httpx.post("http://localhost:7000/monitoring/health")
+        response = httpx.get("http://localhost:7000/monitoring/health")
         self.assertEqual(response.status_code, 503)
         self.assertEqual(
             response.json(),

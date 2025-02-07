@@ -16,8 +16,8 @@ class MonitoringServer:
         self._app: web.Application = web.Application()
         self._app.add_routes(
             [
-                web.post("/monitoring/startup", startup_probe_handler.handle),
-                web.post("/monitoring/health", health_probe_handler.handle),
+                web.get("/monitoring/startup", startup_probe_handler.handle),
+                web.get("/monitoring/health", health_probe_handler.handle),
             ]
         )
         self._app_runner: web.AppRunner = web.AppRunner(self._app)

@@ -20,7 +20,7 @@ class TestStartupProbe(unittest.TestCase):
             executor_a: subprocess.Popen
             print(f"Started Executor A with PID: {executor_a.pid}")
             wait_executor_startup(7001)
-            response = httpx.post(f"http://localhost:7001/monitoring/startup")
+            response = httpx.get(f"http://localhost:7001/monitoring/startup")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), {"status": "ok"})
 
