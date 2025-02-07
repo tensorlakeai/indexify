@@ -57,6 +57,8 @@ metric_tasks_reporting_outcome: prometheus_client.Gauge = prometheus_client.Gaug
     "tasks_reporting_outcome",
     "Number of tasks currently reporting their outcomes to the Server",
 )
+# TODO: Add duration distribution metrics
+# TODO: Add Platform errors metric
 
 
 class Executor:

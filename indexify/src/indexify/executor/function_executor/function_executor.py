@@ -27,6 +27,10 @@ class CustomerError(RuntimeError):
     pass
 
 
+# TODO: Add function executor creations number metrics
+# TODO: Add function executor creations duration metrics overall and for every stage.
+
+
 class FunctionExecutor:
     """Executor side class supporting a running FunctionExecutorServer.
 
