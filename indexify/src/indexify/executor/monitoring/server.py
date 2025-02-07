@@ -10,6 +10,7 @@ class MonitoringServer:
         port: int,
         startup_probe_handler: Handler,
         health_probe_handler: Handler,
+        metrics_handler: Handler,
     ):
         self._host = host
         self._port = port
@@ -18,6 +19,7 @@ class MonitoringServer:
             [
                 web.get("/monitoring/startup", startup_probe_handler.handle),
                 web.get("/monitoring/health", health_probe_handler.handle),
+                web.get("/monitoring/metrics", metrics_handler.handle),
             ]
         )
         self._app_runner: web.AppRunner = web.AppRunner(self._app)
