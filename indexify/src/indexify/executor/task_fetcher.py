@@ -1,4 +1,5 @@
 import json
+import time
 from typing import AsyncGenerator, List, Optional
 
 import structlog
@@ -6,7 +7,11 @@ from httpx_sse import aconnect_sse
 from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import ExecutorMetadata, FunctionURI, Task
-from .metrics.task_fetcher import metric_server_registration_errors
+from .metrics.task_fetcher import (
+    metric_server_registration_errors,
+    metric_server_registration_latency,
+    metric_server_registrations,
+)
 from .runtime_probes import ProbeInfo, RuntimeProbes
 
 
@@ -48,6 +53,9 @@ class TaskFetcher:
             url=url,
             executor_version=self._executor_metadata.executor_version,
         )
+        metric_server_registrations.inc()
+        registration_start_time: float = time.monotonic()
+
         async with get_httpx_client(
             config_path=self.config_path, make_async=True
         ) as client:
@@ -68,6 +76,10 @@ class TaskFetcher:
                         f"Response code: {event_source.response.status_code}. "
                         f"Response text: '{event_source.response.text}'."
                     ) from e
+                finally:
+                    metric_server_registration_latency.observe(
+                        time.monotonic() - registration_start_time
+                    )
 
                 self._logger.info(
                     "executor_registered", executor_id=self._executor_metadata.id
