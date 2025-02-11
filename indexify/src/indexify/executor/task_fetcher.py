@@ -1,5 +1,4 @@
 import json
-from importlib.metadata import version
 from typing import AsyncGenerator, List, Optional
 
 import structlog
@@ -7,6 +6,7 @@ from httpx_sse import aconnect_sse
 from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import ExecutorMetadata, FunctionURI, Task
+from .metrics.task_fetcher import metric_server_registration_errors
 from .runtime_probes import ProbeInfo, RuntimeProbes
 
 
@@ -61,6 +61,7 @@ class TaskFetcher:
                 try:
                     event_source.response.raise_for_status()
                 except Exception as e:
+                    metric_server_registration_errors.inc()
                     await event_source.response.aread()
                     raise Exception(
                         "failed to register at server. "
@@ -71,6 +72,7 @@ class TaskFetcher:
                 self._logger.info(
                     "executor_registered", executor_id=self._executor_metadata.id
                 )
+
                 async for sse in event_source.aiter_sse():
                     task_dicts = json.loads(sse.data)
                     for task_dict in task_dicts:

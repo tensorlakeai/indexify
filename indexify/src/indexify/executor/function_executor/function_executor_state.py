@@ -2,6 +2,9 @@ import asyncio
 from typing import Optional
 
 from .function_executor import FunctionExecutor
+from .metrics.function_executor_state import (
+    metric_function_executor_state_not_locked_errors,
+)
 
 
 class FunctionExecutorState:
@@ -77,4 +80,5 @@ class FunctionExecutorState:
     def check_locked(self) -> None:
         """Raises an exception if the lock is not held."""
         if not self.lock.locked():
+            metric_function_executor_state_not_locked_errors.inc()
             raise RuntimeError("The FunctionExecutorState lock must be held.")

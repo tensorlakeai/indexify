@@ -1,7 +1,5 @@
 from typing import Any, Optional
 
-import prometheus_client
-
 from .api_objects import Task
 from .function_executor.function_executor_state import FunctionExecutorState
 from .function_executor.function_executor_states_container import (
@@ -14,16 +12,16 @@ from .function_executor.server.function_executor_server_factory import (
 from .function_executor.single_task_runner import SingleTaskRunner
 from .function_executor.task_input import TaskInput
 from .function_executor.task_output import TaskOutput
-
-metric_tasks_runnable: prometheus_client.Gauge = prometheus_client.Gauge(
-    "tasks_runnable",
-    "Number of tasks that are ready for execution on a Function Executor",
+from .metrics.task_runner import (
+    metric_task_policy_errors,
+    metric_task_policy_latency,
+    metric_task_policy_runs,
+    metric_task_run_latency,
+    metric_task_run_platform_errors,
+    metric_task_runs,
+    metric_tasks_blocked_by_policy,
+    metric_tasks_running,
 )
-metric_tasks_running: prometheus_client.Gauge = prometheus_client.Gauge(
-    "tasks_running",
-    "Number of tasks that are currently executing on a Function Executor",
-)
-# TODO: Add duration distribution metrics
 
 
 class TaskRunner:
@@ -53,26 +51,55 @@ class TaskRunner:
 
     async def run(self, task_input: TaskInput, logger: Any) -> TaskOutput:
         logger = logger.bind(module=__name__)
+        state: Optional[FunctionExecutorState] = None
+
         try:
-            return await self._run(task_input, logger)
+            with (
+                metric_task_policy_errors.count_exceptions(),
+                metric_tasks_blocked_by_policy.track_inprogress(),
+                metric_task_policy_latency.time(),
+            ):
+                metric_task_policy_runs.inc()
+                state = await self._acquire_function_executor_for_task_execution(
+                    task_input, logger
+                )
+
+            with (
+                metric_task_run_platform_errors.count_exceptions(),
+                metric_tasks_running.track_inprogress(),
+                metric_task_run_latency.time(),
+            ):
+                metric_task_runs.inc()
+                return await self._run_task(state, task_input, logger)
         except Exception as e:
             logger.error(
                 "failed running the task:",
                 exc_info=e,
             )
             return TaskOutput.internal_error(task_input.task)
+        finally:
+            if state is not None:
+                state.lock.release()
 
-    async def _run(self, task_input: TaskInput, logger: Any) -> TaskOutput:
-        metric_tasks_runnable.inc()
+    async def _acquire_function_executor_for_task_execution(
+        self, task_input: TaskInput, logger: Any
+    ) -> FunctionExecutorState:
+        """Waits untils the task acquires a Function Executor state where the task can run.
+
+        The returned Function Executor state is locked and the caller is responsible for releasing the lock.
+        """
+        logger.info("task is blocked by policy")
         state = await self._function_executor_states.get_or_create_state(
             task_input.task
         )
-        async with state.lock:
+        await state.lock.acquire()
+
+        try:
             await self._run_task_policy(state, task_input.task)
-            metric_tasks_runnable.dec()
-            logger.info("task execution started")
-            with metric_tasks_running.track_inprogress():
-                return await self._run_task(state, task_input, logger)
+            return state
+        except Exception:
+            state.lock.release()
+            raise
 
     async def _run_task_policy(self, state: FunctionExecutorState, task: Task) -> None:
         # Current policy for running tasks:
@@ -96,6 +123,7 @@ class TaskRunner:
     async def _run_task(
         self, state: FunctionExecutorState, task_input: TaskInput, logger: Any
     ) -> TaskOutput:
+        logger.info("task execution started")
         runner: SingleTaskRunner = SingleTaskRunner(
             executor_id=self._executor_id,
             function_executor_state=state,

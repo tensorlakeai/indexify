@@ -14,6 +14,11 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 from ..api_objects import Task
 from .function_executor import CustomerError, FunctionExecutor
 from .function_executor_state import FunctionExecutorState
+from .metrics.single_task_runner import (
+    metric_function_executor_run_task_rpc_errors,
+    metric_function_executor_run_task_rpc_latency,
+    metric_function_executor_run_task_rpcs,
+)
 from .server.function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
     FunctionExecutorServerFactory,
@@ -126,12 +131,17 @@ class SingleTaskRunner:
             health_check_failed_callback=self._health_check_failed_callback,
             function_executor_state=self._state,
         ):
-            # If this RPC failed due to customer code crashing the server we won't be
-            # able to detect this. We'll treat this as our own error for now and thus
-            # let the AioRpcError to be raised here.
-            response: RunTaskResponse = await FunctionExecutorStub(channel).run_task(
-                request
-            )
+            with (
+                metric_function_executor_run_task_rpc_errors.count_exceptions(),
+                metric_function_executor_run_task_rpc_latency.time(),
+            ):
+                metric_function_executor_run_task_rpcs.inc()
+                # If this RPC failed due to customer code crashing the server we won't be
+                # able to detect this. We'll treat this as our own error for now and thus
+                # let the AioRpcError to be raised here.
+                response: RunTaskResponse = await FunctionExecutorStub(
+                    channel
+                ).run_task(request)
             return _task_output(task=self._task_input.task, response=response)
 
     async def _health_check_failed_callback(self):

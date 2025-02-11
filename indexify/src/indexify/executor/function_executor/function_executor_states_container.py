@@ -3,6 +3,9 @@ from typing import AsyncGenerator, Dict
 
 from ..api_objects import Task
 from .function_executor_state import FunctionExecutorState
+from .metrics.function_executor_state_container import (
+    metric_function_executor_states_count,
+)
 
 
 class FunctionExecutorStatesContainer:
@@ -29,6 +32,8 @@ class FunctionExecutorStatesContainer:
                     function_id_without_version=id,
                 )
                 self._states[id] = state
+                metric_function_executor_states_count.set(len(self._states))
+
             return self._states[id]
 
     async def __aiter__(self) -> AsyncGenerator[FunctionExecutorState, None]:
@@ -43,6 +48,7 @@ class FunctionExecutorStatesContainer:
             self._is_shutdown = True  # No new Function Executor States can be created.
             while self._states:
                 id, state = self._states.popitem()
+                metric_function_executor_states_count.set(len(self._states))
                 # Only ongoing tasks who have a reference to the state already can see it.
                 # The state is unlocked while a task is running inside Function Executor.
                 async with state.lock:

@@ -11,6 +11,10 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
 
+from .metrics.health_checker import (
+    metric_failed_health_checks,
+    metric_health_check_latency,
+)
 from .server.client_configuration import HEALTH_CHECK_TIMEOUT_SEC
 
 HEALTH_CHECK_POLL_PERIOD_SEC = 10
@@ -29,16 +33,22 @@ class HealthChecker:
         """Runs the health check once and returns the result.
 
         Does not raise any exceptions."""
-        try:
-            response: HealthCheckResponse = await self._stub.check_health(
-                HealthCheckRequest(), timeout=HEALTH_CHECK_TIMEOUT_SEC
-            )
-            return response.healthy
-        except AioRpcError:
-            return False
-        except Exception as e:
-            self._logger.warning("Got unexpected exception, ignoring", exc_info=e)
-            return False
+        with metric_health_check_latency.time():
+            try:
+                response: HealthCheckResponse = await self._stub.check_health(
+                    HealthCheckRequest(), timeout=HEALTH_CHECK_TIMEOUT_SEC
+                )
+                if not response.healthy:
+                    metric_failed_health_checks.inc()
+                return response.healthy
+            except AioRpcError:
+                metric_failed_health_checks.inc()
+                # Expected exception when there are problems with communication because e.g. the server is unhealthy.
+                return False
+            except Exception as e:
+                metric_failed_health_checks.inc()
+                self._logger.warning("Got unexpected exception, ignoring", exc_info=e)
+                return False
 
     def start(self, callback: Callable[[], Awaitable[None]]) -> None:
         """Starts periodic health checks.

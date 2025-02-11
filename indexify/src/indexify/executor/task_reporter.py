@@ -8,10 +8,15 @@ from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOut
 from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import (
-    TASK_OUCOME_FAILURE,
+    TASK_OUTCOME_FAILURE,
     TASK_OUTCOME_SUCCESS,
     RouterOutput,
     TaskResult,
+)
+from .metrics.task_reporter import (
+    metric_server_ingest_files_errors,
+    metric_server_ingest_files_latency,
+    metric_server_ingest_files_requests,
 )
 from .task_runner import TaskOutput
 
@@ -82,13 +87,17 @@ class TaskReporter:
         }
 
         start_time = time.time()
-        # Run in a separate thread to not block the main event loop.
-        response = await asyncio.to_thread(
-            self._client.post, url=f"{self._base_url}/internal/ingest_files", **kwargs
-        )
+        with metric_server_ingest_files_latency.time():
+            metric_server_ingest_files_requests.inc()
+            # Run in a separate thread to not block the main event loop.
+            response = await asyncio.to_thread(
+                self._client.post,
+                url=f"{self._base_url}/internal/ingest_files",
+                **kwargs,
+            )
         end_time = time.time()
         logger.info(
-            "task_outcome_reported",
+            "task outcome reported",
             response_time=end_time - start_time,
             response_code=response.status_code,
         )
@@ -96,6 +105,7 @@ class TaskReporter:
         try:
             response.raise_for_status()
         except Exception as e:
+            metric_server_ingest_files_errors.inc()
             # Caller catches and logs the exception.
             raise Exception(
                 "failed to report task outcome. "
@@ -121,7 +131,7 @@ class TaskReporter:
             return task_result, output_files, summary
 
         task_result.outcome = (
-            TASK_OUTCOME_SUCCESS if output.success else TASK_OUCOME_FAILURE
+            TASK_OUTCOME_SUCCESS if output.success else TASK_OUTCOME_FAILURE
         )
         task_result.reducer = output.reducer
 
