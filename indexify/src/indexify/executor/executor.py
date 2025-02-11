@@ -4,18 +4,31 @@ from pathlib import Path
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
-import prometheus_client
 import structlog
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 from tensorlake.utils.logging import suppress as suppress_logging
 
-from .api_objects import TASK_OUCOME_FAILURE, TASK_OUTCOME_SUCCESS, FunctionURI, Task
+from .api_objects import FunctionURI, Task
 from .downloader import Downloader
 from .function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
+)
+from .metrics.executor import (
+    METRIC_TASKS_COMPLETED_OUTCOME_ALL,
+    METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
+    METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM,
+    METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS,
+    metric_executor_info,
+    metric_executor_state,
+    metric_task_outcome_report_latency,
+    metric_task_outcome_report_retries,
+    metric_task_outcome_reports,
+    metric_tasks_completed,
+    metric_tasks_fetched,
+    metric_tasks_reporting_outcome,
 )
 from .monitoring.function_allowlist import function_allowlist_to_info_dict
 from .monitoring.health_check_handler import HealthCheckHandler
@@ -27,38 +40,7 @@ from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
 
-# Executor metrics
-metric_executor_info: prometheus_client.Info = prometheus_client.Info(
-    "executor", "Executor information"
-)
-metric_executor_state: prometheus_client.Enum = prometheus_client.Enum(
-    "executor_state",
-    "Current Executor state",
-    states=["starting", "running", "shutting_down"],
-)
 metric_executor_state.state("starting")
-# Task metrics
-metric_tasks_started: prometheus_client.Counter = prometheus_client.Counter(
-    "tasks_started", "Number of tasks that were started"
-)
-metric_tasks_completed: prometheus_client.Counter = prometheus_client.Counter(
-    "tasks_completed", "Number of tasks that were completed", ["outcome"]
-)
-metric_tasks_completed.labels(outcome=TASK_OUTCOME_SUCCESS)
-metric_tasks_completed.labels(outcome=TASK_OUCOME_FAILURE)
-# Lifecycle metrics
-metric_tasks_downloading_graph: prometheus_client.Gauge = prometheus_client.Gauge(
-    "tasks_downloading_graph", "Number of tasks currently downloading their graphs"
-)
-metric_tasks_downloading_inputs: prometheus_client.Gauge = prometheus_client.Gauge(
-    "tasks_downloading_inputs", "Number of tasks currently downloading their inputs"
-)
-metric_tasks_reporting_outcome: prometheus_client.Gauge = prometheus_client.Gauge(
-    "tasks_reporting_outcome",
-    "Number of tasks currently reporting their outcomes to the Server",
-)
-# TODO: Add duration distribution metrics
-# TODO: Add Platform errors metric
 
 
 class Executor:
@@ -163,6 +145,7 @@ class Executor:
         while not self._is_shutdown:
             try:
                 async for task in self._task_fetcher.run():
+                    metric_tasks_fetched.inc()
                     asyncio.create_task(self._run_task(task))
             except Exception as e:
                 self._logger.error(
@@ -176,19 +159,15 @@ class Executor:
         Doesn't raise any Exceptions. All errors are reported to the server."""
         logger = self._task_logger(task)
         output: Optional[TaskOutput] = None
-        metric_tasks_started.inc()
 
         try:
-            with metric_tasks_downloading_graph.track_inprogress():
-                graph: SerializedObject = await self._downloader.download_graph(task)
-
-            with metric_tasks_downloading_inputs.track_inprogress():
-                input: SerializedObject = await self._downloader.download_input(task)
-                init_value: Optional[SerializedObject] = (
-                    await self._downloader.download_init_value(task)
-                )
-
-            logger.info("task_is_runnable")
+            graph: SerializedObject = await self._downloader.download_graph(task)
+            input: SerializedObject = await self._downloader.download_input(task)
+            init_value: Optional[SerializedObject] = (
+                None
+                if task.reducer_output_id is None
+                else (await self._downloader.download_init_value(task))
+            )
             output: TaskOutput = await self._task_runner.run(
                 TaskInput(
                     task=task,
@@ -198,16 +177,17 @@ class Executor:
                 ),
                 logger=logger,
             )
-            logger.info("task_execution_finished", success=output.success)
+            logger.info("task execution finished", success=output.success)
         except Exception as e:
             output = TaskOutput.internal_error(task)
-            logger.error("task_execution_failed", exc_info=e)
+            logger.error("task execution failed", exc_info=e)
 
-        with metric_tasks_reporting_outcome.track_inprogress():
+        with (
+            metric_tasks_reporting_outcome.track_inprogress(),
+            metric_task_outcome_report_latency.time(),
+        ):
+            metric_task_outcome_reports.inc()
             await self._report_task_outcome(output=output, logger=logger)
-
-        outcome: str = TASK_OUTCOME_SUCCESS if output.success else TASK_OUCOME_FAILURE
-        metric_tasks_completed.labels(outcome=outcome).inc()
 
     async def _report_task_outcome(self, output: TaskOutput, logger: Any) -> None:
         """Reports the task with the given output to the server.
@@ -222,14 +202,29 @@ class Executor:
                 break
             except Exception as e:
                 logger.error(
-                    "failed_to_report_task",
+                    "failed to report task",
                     exc_info=e,
                 )
                 reporting_retries += 1
+                metric_task_outcome_report_retries.inc()
                 await asyncio.sleep(5)
 
+        metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ALL).inc()
+        if output.is_internal_error:
+            metric_tasks_completed.labels(
+                outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM
+            ).inc()
+        elif output.success:
+            metric_tasks_completed.labels(
+                outcome=METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS
+            ).inc()
+        else:
+            metric_tasks_completed.labels(
+                outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE
+            ).inc()
+
     async def _shutdown(self, loop):
-        self._logger.info("shutting_down")
+        self._logger.info("shutting down")
         metric_executor_state.state("shutting_down")
         # There will be lots of task cancellation exceptions and "X is shutting down"
         # exceptions logged during Executor shutdown. Suppress their logs as they are

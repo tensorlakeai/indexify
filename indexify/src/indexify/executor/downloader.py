@@ -8,6 +8,21 @@ from tensorlake.function_executor.proto.function_executor_pb2 import SerializedO
 from tensorlake.utils.http_client import get_httpx_client
 
 from .api_objects import Task
+from .metrics.downloader import (
+    metric_graph_download_errors,
+    metric_graph_download_latency,
+    metric_graph_downloads,
+    metric_graphs_from_cache,
+    metric_reducer_init_value_download_errors,
+    metric_reducer_init_value_download_latency,
+    metric_reducer_init_value_downloads,
+    metric_task_input_download_errors,
+    metric_task_input_download_latency,
+    metric_task_input_downloads,
+    metric_tasks_downloading_graphs,
+    metric_tasks_downloading_inputs,
+    metric_tasks_downloading_reducer_init_value,
+)
 
 
 class Downloader:
@@ -19,6 +34,33 @@ class Downloader:
         self._client = get_httpx_client(config_path, make_async=True)
 
     async def download_graph(self, task: Task) -> SerializedObject:
+        with (
+            metric_graph_download_errors.count_exceptions(),
+            metric_tasks_downloading_graphs.track_inprogress(),
+            metric_graph_download_latency.time(),
+        ):
+            metric_graph_downloads.inc()
+            return await self._download_graph(task)
+
+    async def download_input(self, task: Task) -> SerializedObject:
+        with (
+            metric_task_input_download_errors.count_exceptions(),
+            metric_tasks_downloading_inputs.track_inprogress(),
+            metric_task_input_download_latency.time(),
+        ):
+            metric_task_input_downloads.inc()
+            return await self._download_input(task)
+
+    async def download_init_value(self, task: Task) -> SerializedObject:
+        with (
+            metric_reducer_init_value_download_errors.count_exceptions(),
+            metric_tasks_downloading_reducer_init_value.track_inprogress(),
+            metric_reducer_init_value_download_latency.time(),
+        ):
+            metric_reducer_init_value_downloads.inc()
+            return await self._download_init_value(task)
+
+    async def _download_graph(self, task: Task) -> SerializedObject:
         # Cache graph to reduce load on the server.
         graph_path = os.path.join(
             self.code_path,
@@ -33,6 +75,7 @@ class Downloader:
             self._read_cached_graph, graph_path
         )
         if graph is not None:
+            metric_graphs_from_cache.inc()
             return graph
 
         logger = self._task_logger(task)
@@ -71,7 +114,7 @@ class Downloader:
         # This also allows to share the same cache between multiple Executors.
         os.replace(tmp_path, path)
 
-    async def download_input(self, task: Task) -> SerializedObject:
+    async def _download_input(self, task: Task) -> SerializedObject:
         logger = self._task_logger(task)
 
         first_function_in_graph = task.invocation_id == task.input_key.split("|")[-1]
@@ -81,10 +124,7 @@ class Downloader:
         else:
             return await self._fetch_function_input(task, logger)
 
-    async def download_init_value(self, task: Task) -> Optional[SerializedObject]:
-        if task.reducer_output_id is None:
-            return None
-
+    async def _download_init_value(self, task: Task) -> SerializedObject:
         logger = self._task_logger(task)
         return await self._fetch_function_init_value(task, logger)
 

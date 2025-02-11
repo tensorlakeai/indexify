@@ -20,6 +20,7 @@ class TaskOutput:
         stderr: Optional[str] = None,
         reducer: bool = False,
         success: bool = False,
+        is_internal_error: bool = False,
     ):
         self.task = task
         self.function_output = function_output
@@ -28,9 +29,14 @@ class TaskOutput:
         self.stderr = stderr
         self.reducer = reducer
         self.success = success
+        self.is_internal_error = is_internal_error
 
     @classmethod
     def internal_error(cls, task: Task) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
         # We are not sharing internal error messages with the customer.
-        return TaskOutput(task=task, stderr="Platform failed to execute the function.")
+        return TaskOutput(
+            task=task,
+            stderr="Platform failed to execute the function.",
+            is_internal_error=True,
+        )

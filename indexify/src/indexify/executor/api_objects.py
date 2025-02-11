@@ -48,4 +48,4 @@ class TaskResult(BaseModel):
 
 
 TASK_OUTCOME_SUCCESS = "success"
-TASK_OUCOME_FAILURE = "failure"
+TASK_OUTCOME_FAILURE = "failure"

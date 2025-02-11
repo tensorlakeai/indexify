@@ -16,6 +16,15 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from ..downloader import serialized_object_from_http_response
+from .metrics.invocation_state_client import (
+    metric_request_read_errors,
+    metric_server_get_state_request_errors,
+    metric_server_get_state_request_latency,
+    metric_server_get_state_requests,
+    metric_server_set_state_request_errors,
+    metric_server_set_state_request_latency,
+    metric_server_set_state_requests,
+)
 
 
 class InvocationStateClient:
@@ -92,6 +101,12 @@ class InvocationStateClient:
         except asyncio.CancelledError:
             # This async task was cancelled by destroy(). Normal situation too.
             pass
+        except Exception as e:
+            metric_request_read_errors.inc()
+            self._logger.error(
+                "failed to read request from server, shutting down invocation state client",
+                exc_info=e,
+            )
 
     async def _process_request_no_raise(self, request: InvocationStateRequest) -> None:
         try:
@@ -122,9 +137,14 @@ class InvocationStateClient:
         # a privelege escalation attempt.
         invocation_id: str = self._task_id_to_invocation_id[request.task_id]
         if request.HasField("get"):
-            value: Optional[SerializedObject] = await self._get_server_state(
-                invocation_id, request.get.key
-            )
+            with (
+                metric_server_get_state_request_errors.count_exceptions(),
+                metric_server_get_state_request_latency.time(),
+            ):
+                metric_server_get_state_requests.inc()
+                value: Optional[SerializedObject] = await self._get_server_state(
+                    invocation_id, request.get.key
+                )
             await self._client_response_queue.put(
                 InvocationStateResponse(
                     request_id=request.request_id,
@@ -136,9 +156,14 @@ class InvocationStateClient:
                 )
             )
         elif request.HasField("set"):
-            await self._set_server_state(
-                invocation_id, request.set.key, request.set.value
-            )
+            with (
+                metric_server_set_state_request_errors.count_exceptions(),
+                metric_server_set_state_request_latency.time(),
+            ):
+                metric_server_set_state_requests.inc()
+                await self._set_server_state(
+                    invocation_id, request.set.key, request.set.value
+                )
             await self._client_response_queue.put(
                 InvocationStateResponse(
                     request_id=request.request_id,
