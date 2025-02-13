@@ -20,7 +20,7 @@ on:
 
 jobs:
   build-and-push-docker-images:
-    name: Build and Push Docker Executor 
+    name: Build and Push example Executor Docker images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,8 +29,6 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to Docker Hub
@@ -45,9 +43,4 @@ jobs:
           indexify-cli build-image examples/pdf_structured_extraction/workflow.py
           indexify-cli build-image examples/pdf_structured_extraction/document_ai_api_version_workflow.py
 
-          docker push tensorlake/pdf-blueprint-st
-          docker push tensorlake/pdf-blueprint-lancdb
-          docker push tensorlake/pdf-blueprint-pdf-parser-gpu
-          docker push tensorlake/blueprints-chromadb
-          docker push tensorlake/blueprint-pdf-structured-extraction
-          docker push tensorlake/pdf-structured-extraction-inkwell-example
+          docker image list --format json | jq '.Repository+":"+.Tag' | grep 'tensorlake/' | xargs -I {} docker image push {}
