@@ -25,7 +25,7 @@ import typer
 from rich.console import Console
 from rich.text import Text
 from rich.theme import Theme
-from tensorlake.functions_sdk.image import GetDefaultPythonImage, Image
+from tensorlake.functions_sdk.image import Image
 
 from indexify.executor.api_objects import FunctionURI
 from indexify.executor.executor import Executor
