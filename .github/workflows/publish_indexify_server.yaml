@@ -1,4 +1,4 @@
-name: Publish Indexify Binaries
+name: Release Indexify Server
 
 on:
   workflow_dispatch:

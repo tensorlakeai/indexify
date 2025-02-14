@@ -1,4 +1,4 @@
-name: Publish Indexify to PyPI
+name: Release Indexify SDK
 
 on:
   workflow_dispatch:
