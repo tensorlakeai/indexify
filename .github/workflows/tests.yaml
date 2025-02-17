@@ -279,8 +279,3 @@ jobs:
             echo "Error: Some Indexify processes are still running."
             exit 1
           fi
-
-  build_release_packages:
-    name: Test Building Release Packages
-    needs: [build_server]
-    uses: ./.github/workflows/wf_build_indexify_server_release_packages.yaml
