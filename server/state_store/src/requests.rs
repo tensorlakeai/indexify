@@ -29,7 +29,7 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
-    NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
+    TaskCreationProcessorUpdate(TaskCreationUpdateRequest),
     TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
@@ -149,7 +149,7 @@ pub struct ReductionTasks {
     pub processed_reduction_tasks: Vec<String>,
 }
 #[derive(Debug, Clone)]
-pub struct NamespaceProcessorUpdateRequest {
+pub struct TaskCreationUpdateRequest {
     pub namespace: String,
     pub compute_graph: String,
     pub invocation_id: String,

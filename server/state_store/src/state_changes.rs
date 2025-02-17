@@ -28,8 +28,8 @@ use crate::requests::{
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
     MutateClusterTopologyRequest,
-    NamespaceProcessorUpdateRequest,
     RegisterExecutorRequest,
+    TaskCreationUpdateRequest,
 };
 
 pub fn invoke_compute_graph(
@@ -152,7 +152,7 @@ pub fn finalized_task(
 
 pub fn change_events_for_namespace_processor_update(
     last_state_change_id: &AtomicU64,
-    req: &NamespaceProcessorUpdateRequest,
+    req: &TaskCreationUpdateRequest,
 ) -> Result<Vec<StateChange>> {
     let mut state_changes = Vec::new();
     for task in &req.task_requests {

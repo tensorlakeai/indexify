@@ -43,7 +43,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     executors::{self, EXECUTOR_TIMEOUT},
-    http_objects::Invocation,
+    http_objects::{Invocation, InvocationStatus},
 };
 
 mod download;
@@ -795,13 +795,7 @@ async fn list_outputs(
         .invocation_ctx(&namespace, &compute_graph, &invocation_id)
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
-    if !invocation_ctx.completed {
-        return Ok(Json(FnOutputs {
-            status: "pending".to_string(),
-            outputs: vec![],
-            cursor: None,
-        }));
-    }
+
     let (outputs, cursor) = state
         .indexify_state
         .reader()
@@ -814,8 +808,15 @@ async fn list_outputs(
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let outputs = outputs.into_iter().map(Into::into).collect();
+
+    // We return the outputs of finalized and pending invocations to allow getting
+    // partial results.
     Ok(Json(FnOutputs {
-        status: "finalized".to_string(),
+        status: match invocation_ctx.completed {
+            true => InvocationStatus::Finalized,
+            false => InvocationStatus::Pending,
+        },
+        outcome: invocation_ctx.outcome.into(),
         outputs,
         cursor,
     }))

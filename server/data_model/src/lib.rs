@@ -598,6 +598,29 @@ impl InvocationPayloadBuilder {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum GraphInvocationOutcome {
+    Unknown,
+    Success,
+    Failure,
+}
+
+impl Default for GraphInvocationOutcome {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl From<TaskOutcome> for GraphInvocationOutcome {
+    fn from(outcome: TaskOutcome) -> Self {
+        match outcome {
+            TaskOutcome::Success => GraphInvocationOutcome::Success,
+            TaskOutcome::Failure => GraphInvocationOutcome::Failure,
+            TaskOutcome::Unknown => GraphInvocationOutcome::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct GraphInvocationCtx {
@@ -606,6 +629,8 @@ pub struct GraphInvocationCtx {
     pub graph_version: GraphVersion,
     pub invocation_id: String,
     pub completed: bool,
+    #[serde(default)]
+    pub outcome: GraphInvocationOutcome,
     pub outstanding_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     pub is_system_task: bool,
@@ -661,6 +686,7 @@ impl GraphInvocationCtxBuilder {
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
+            outcome: GraphInvocationOutcome::Unknown,
             fn_task_analytics,
             outstanding_tasks: 1, // Starts with 1 for the initial state change event
             is_system_task,

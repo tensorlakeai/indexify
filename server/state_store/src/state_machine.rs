@@ -9,6 +9,7 @@ use data_model::{
     ExecutorId,
     GraphInvocationCtx,
     GraphInvocationCtxBuilder,
+    GraphInvocationOutcome,
     InvocationPayload,
     InvokeComputeGraphEvent,
     Namespace,
@@ -894,14 +895,14 @@ pub(crate) fn create_tasks(
     );
     sm_metrics.task_unassigned(tasks);
     if graph_ctx.outstanding_tasks == 0 {
-        Ok(Some(mark_invocation_finished(
-            db,
-            txn,
-            &namespace,
-            &compute_graph,
-            &invocation_id,
-        )?))
+        Ok(Some(mark_invocation_finished(db, txn, graph_ctx)?))
     } else {
+        let serialized_graphctx = JsonEncoder::encode(&graph_ctx)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            ctx_key,
+            serialized_graphctx,
+        )?;
         Ok(None)
     }
 }
@@ -1123,6 +1124,12 @@ pub fn mark_task_finalized(
         .fn_task_analytics
         .entry(req.compute_fn.to_string())
         .or_insert_with(|| TaskAnalytics::default());
+
+    // only update the outcome if it is not already set to failure, first failure
+    // marks the invocation as failed
+    if graph_ctx.outcome != GraphInvocationOutcome::Failure {
+        graph_ctx.outcome = req.task_outcome.clone().into();
+    }
     match req.task_outcome {
         data_model::TaskOutcome::Success => analytics.success(),
         data_model::TaskOutcome::Failure => analytics.fail(),
@@ -1212,28 +1219,15 @@ pub(crate) fn mark_state_changes_processed(
 fn mark_invocation_finished(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    namespace: &str,
-    compute_graph: &str,
-    invocation_id: &str,
+    mut graph_ctx: GraphInvocationCtx,
 ) -> Result<InvocationCompletion> {
     info!(
-        "marking invocation finished: {} {} {}",
-        namespace, compute_graph, invocation_id
+        "Marking invocation finished: {} {} {}",
+        graph_ctx.namespace, graph_ctx.compute_graph_name, graph_ctx.invocation_id,
     );
-    let key = GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id);
-    let graph_ctx = txn
-        .get_for_update_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-            &key,
-            true,
-        )?
-        .ok_or(anyhow!(
-            "Graph context not found for invocation: {}",
-            &invocation_id
-        ))?;
-    let mut graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
     graph_ctx.completed = true;
     let serialized_graph_ctx = JsonEncoder::encode(&graph_ctx)?;
+    let key = graph_ctx.key();
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         key,
@@ -1258,7 +1252,7 @@ fn mark_invocation_finished(
 
         // Decrement the number of running invocations on the system task to allow
         // determining when the system task has finished.
-        let key = SystemTask::key_from(namespace, compute_graph);
+        let key = SystemTask::key_from(&graph_ctx.namespace, &graph_ctx.compute_graph_name);
         do_cf_update::<SystemTask>(
             txn,
             &key,

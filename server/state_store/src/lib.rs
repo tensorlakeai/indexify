@@ -301,7 +301,7 @@ impl IndexifyState {
                 self.gc_tx.send(()).unwrap();
                 vec![]
             }
-            RequestPayload::NamespaceProcessorUpdate(request) => {
+            RequestPayload::TaskCreationProcessorUpdate(request) => {
                 let new_state_changes =
                     state_changes::change_events_for_namespace_processor_update(
                         &self.last_state_change_id,
@@ -457,7 +457,7 @@ impl IndexifyState {
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 let _ = self.task_event_tx.send(ev);
             }
-            RequestPayload::NamespaceProcessorUpdate(sched_update) => {
+            RequestPayload::TaskCreationProcessorUpdate(sched_update) => {
                 for task in &sched_update.task_requests {
                     let _ = self
                         .task_event_tx

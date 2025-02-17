@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode, GraphInvocationCtx};
+use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -520,8 +520,32 @@ impl From<data_model::NodeOutput> for FnOutput {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum InvocationStatus {
+    Pending,
+    Finalized,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum InvocationOutcome {
+    Unknown,
+    Success,
+    Failure,
+}
+
+impl From<GraphInvocationOutcome> for InvocationOutcome {
+    fn from(outcome: GraphInvocationOutcome) -> Self {
+        match outcome {
+            GraphInvocationOutcome::Unknown => InvocationOutcome::Unknown,
+            GraphInvocationOutcome::Success => InvocationOutcome::Success,
+            GraphInvocationOutcome::Failure => InvocationOutcome::Failure,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnOutputs {
-    pub status: String,
+    pub status: InvocationStatus,
+    pub outcome: InvocationOutcome,
     pub outputs: Vec<FnOutput>,
     pub cursor: Option<Vec<u8>>,
 }
