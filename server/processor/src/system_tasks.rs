@@ -104,7 +104,10 @@ impl SystemTasksExecutor {
             namespace: task.namespace.clone(),
             compute_graph_name: task.compute_graph_name.clone(),
             graph_version: task.graph_version.clone(),
-            invocation_ids: invocations.iter().map(|i| i.id.clone()).collect(),
+            invocation_ids: invocations
+                .iter()
+                .map(|i| i.invocation_id.clone())
+                .collect(),
             restart_key: restart_key.clone(),
         };
         self.state

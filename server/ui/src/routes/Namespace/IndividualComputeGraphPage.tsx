@@ -3,7 +3,7 @@ import { TableDocument } from 'iconsax-react'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData } from 'react-router-dom'
 import { useState, useCallback } from 'react'
-import type { DataObject } from '../../types'
+import type { Invocation } from '../../types'
 import type { IndividualComputeGraphLoaderData } from './types'
 import ComputeGraphTable from '../../components/tables/ComputeGraphTable'
 import CopyText from '../../components/CopyText'
@@ -14,13 +14,13 @@ const IndividualComputeGraphPage = () => {
   const { invocationsList, computeGraph, namespace } =
     useLoaderData() as IndividualComputeGraphLoaderData
 
-  const [invocations, setInvocations] = useState<DataObject[]>(
+  const [invocations, setInvocations] = useState<Invocation[]>(
     [...invocationsList].sort(
       (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
     )
   )
 
-  const handleDelete = useCallback((updatedList: DataObject[]) => {
+  const handleDelete = useCallback((updatedList: Invocation[]) => {
     const sortedList = [...updatedList].sort(
       (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
     )

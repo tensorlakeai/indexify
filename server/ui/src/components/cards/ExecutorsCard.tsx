@@ -1,11 +1,28 @@
 import { useState } from 'react'
-import { 
-  Alert, IconButton, Typography, Table, TableBody, TableCell, 
-  TableContainer, TableHead, TableRow, Paper, Chip,
-  Collapse, TextField, InputAdornment 
+import {
+  Alert,
+  IconButton,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Chip,
+  Collapse,
+  TextField,
+  InputAdornment,
 } from '@mui/material'
 import { Box, Stack } from '@mui/system'
-import { Setting4, InfoCircle, ArrowDown2, ArrowUp2, SearchNormal1 } from 'iconsax-react'
+import {
+  Setting4,
+  InfoCircle,
+  ArrowDown2,
+  ArrowUp2,
+  SearchNormal1,
+} from 'iconsax-react'
 import { ExecutorMetadata } from '../../types'
 
 interface ExecutorsCardProps {
@@ -23,17 +40,20 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
   const [searchTerms, setSearchTerms] = useState<Record<string, string>>({})
 
-  const toggleRow = (id: string) => 
-    setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }))
+  const toggleRow = (id: string) =>
+    setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }))
 
-  const filterFunctions = (functions: FunctionAllowlistEntry[], searchTerm: string) =>
-    functions.filter(fn => 
-      Object.values(fn).some(val => 
+  const filterFunctions = (
+    functions: FunctionAllowlistEntry[],
+    searchTerm: string
+  ) =>
+    functions.filter((fn) =>
+      Object.values(fn).some((val) =>
         val?.toString().toLowerCase().includes(searchTerm.toLowerCase())
       )
     )
 
-  if (!executors?.length) 
+  if (!executors?.length)
     return (
       <Box mt={2} mb={2}>
         <Alert variant="outlined" severity="info">
@@ -59,15 +79,17 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
             <>
               <TableRow key={executor.id}>
                 <TableCell padding="checkbox">
-                  {executor.function_allowlist.length > 0 ? (
-                    <IconButton 
-                      size="small" 
+                  {executor.function_allowlist &&
+                  executor.function_allowlist.length > 0 ? (
+                    <IconButton
+                      size="small"
                       onClick={() => toggleRow(executor.id)}
                     >
-                      {expandedRows[executor.id] ? 
-                        <ArrowUp2 size={16} /> : 
+                      {expandedRows[executor.id] ? (
+                        <ArrowUp2 size={16} />
+                      ) : (
                         <ArrowDown2 size={16} />
-                      }
+                      )}
                     </IconButton>
                   ) : null}
                 </TableCell>
@@ -79,7 +101,10 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 <TableCell>{executor.addr}</TableCell>
                 <TableCell>
                   <Typography noWrap>
-                    {executor.function_allowlist.length} functions
+                    {executor.function_allowlist
+                      ? executor.function_allowlist.length
+                      : 0}{' '}
+                    functions
                   </Typography>
                 </TableCell>
                 <TableCell>
@@ -105,68 +130,84 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                   </Box>
                 </TableCell>
               </TableRow>
-              {executor.function_allowlist.length > 0 && (
-                <TableRow>
-                  <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={5}>
-                    <Collapse in={expandedRows[executor.id]} timeout="auto" unmountOnExit>
-                      <Box sx={{ margin: 2 }}>
-                        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
-                          <TextField
-                            size="small"
-                            placeholder="Search functions..."
-                            value={searchTerms[executor.id] || ''}
-                            onChange={(e) => setSearchTerms(prev => ({ 
-                              ...prev, 
-                              [executor.id]: e.target.value 
-                            }))}
-                            InputProps={{
-                              startAdornment: (
-                                <InputAdornment position="start">
-                                  <SearchNormal1 size={20} />
-                                </InputAdornment>
-                              ),
+              {executor.function_allowlist &&
+                executor.function_allowlist.length > 0 && (
+                  <TableRow>
+                    <TableCell
+                      style={{ paddingBottom: 0, paddingTop: 0 }}
+                      colSpan={5}
+                    >
+                      <Collapse
+                        in={expandedRows[executor.id]}
+                        timeout="auto"
+                        unmountOnExit
+                      >
+                        <Box sx={{ margin: 2 }}>
+                          <Box
+                            sx={{
+                              mb: 2,
+                              display: 'flex',
+                              justifyContent: 'flex-end',
                             }}
-                          />
-                        </Box>
-                        <Table 
-                          size="small" 
-                          sx={{
-                            border: 1,
-                            borderColor: 'divider',
-                            borderRadius: 10,
-                            '& td, & th': {
-                              borderBottom: 1,
-                              borderColor: 'divider'
-                            }
-                          }}
-                        >
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Compute Function</TableCell>
-                              <TableCell>Compute Graph</TableCell>
-                              <TableCell>Namespace</TableCell>
-                              <TableCell>Version</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {filterFunctions(
-                              executor.function_allowlist, 
-                              searchTerms[executor.id] || ''
-                            ).map((fn, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell>{fn.compute_fn}</TableCell>
-                                <TableCell>{fn.compute_graph}</TableCell>
-                                <TableCell>{fn.namespace}</TableCell>
-                                <TableCell>{fn.version || '-'}</TableCell>
+                          >
+                            <TextField
+                              size="small"
+                              placeholder="Search functions..."
+                              value={searchTerms[executor.id] || ''}
+                              onChange={(e) =>
+                                setSearchTerms((prev) => ({
+                                  ...prev,
+                                  [executor.id]: e.target.value,
+                                }))
+                              }
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <SearchNormal1 size={20} />
+                                  </InputAdornment>
+                                ),
+                              }}
+                            />
+                          </Box>
+                          <Table
+                            size="small"
+                            sx={{
+                              border: 1,
+                              borderColor: 'divider',
+                              borderRadius: 10,
+                              '& td, & th': {
+                                borderBottom: 1,
+                                borderColor: 'divider',
+                              },
+                            }}
+                          >
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Compute Function</TableCell>
+                                <TableCell>Compute Graph</TableCell>
+                                <TableCell>Namespace</TableCell>
+                                <TableCell>Version</TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </Box>
-                    </Collapse>
-                  </TableCell>
-                </TableRow>
-              )}
+                            </TableHead>
+                            <TableBody>
+                              {filterFunctions(
+                                executor.function_allowlist,
+                                searchTerms[executor.id] || ''
+                              ).map((fn, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell>{fn.compute_fn}</TableCell>
+                                  <TableCell>{fn.compute_graph}</TableCell>
+                                  <TableCell>{fn.namespace}</TableCell>
+                                  <TableCell>{fn.version || '-'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                )}
             </>
           ))}
         </TableBody>
@@ -184,8 +225,8 @@ export function ExecutorsCard({ executors }: ExecutorsCardProps) {
         </div>
         <Typography variant="h4">
           Executors
-          <IconButton 
-            href="https://docs.tensorlake.ai/architecture#executors" 
+          <IconButton
+            href="https://docs.tensorlake.ai/architecture#executors"
             target="_blank"
             rel="noopener noreferrer"
             sx={{ ml: 1 }}

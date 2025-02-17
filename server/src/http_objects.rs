@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use data_model::{ComputeGraphCode, GraphInvocationCtx};
+use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -380,14 +380,6 @@ pub struct ComputeGraphsList {
     pub cursor: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct DataObject {
-    pub id: String,
-    pub payload_size: u64,
-    pub payload_sha_256: String,
-    pub created_at: u64,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueryParams {
     pub input_id: Option<String>,
@@ -408,7 +400,7 @@ pub struct CreateNamespaceResponse {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GraphInvocations {
-    pub invocations: Vec<DataObject>,
+    pub invocations: Vec<Invocation>,
     pub cursor: Option<Vec<u8>>,
 }
 
@@ -428,14 +420,8 @@ pub struct GraphInputFile {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct InvocationResult {
-    pub outputs: HashMap<String, Vec<DataObject>>,
-    pub cursor: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub enum TaskOutcome {
-    Unknown,
+    Undefined,
     Success,
     Failure,
 }
@@ -443,7 +429,7 @@ pub enum TaskOutcome {
 impl From<data_model::TaskOutcome> for TaskOutcome {
     fn from(outcome: data_model::TaskOutcome) -> Self {
         match outcome {
-            data_model::TaskOutcome::Unknown => TaskOutcome::Unknown,
+            data_model::TaskOutcome::Unknown => TaskOutcome::Undefined,
             data_model::TaskOutcome::Success => TaskOutcome::Success,
             data_model::TaskOutcome::Failure => TaskOutcome::Failure,
         }
@@ -465,6 +451,23 @@ impl From<GraphVersion> for data_model::GraphVersion {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub enum TaskStatus {
+    Pending,
+    Running,
+    Completed,
+}
+
+impl From<data_model::TaskStatus> for TaskStatus {
+    fn from(status: data_model::TaskStatus) -> Self {
+        match status {
+            data_model::TaskStatus::Pending => TaskStatus::Pending,
+            data_model::TaskStatus::Running => TaskStatus::Running,
+            data_model::TaskStatus::Completed => TaskStatus::Completed,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Task {
     pub id: String,
@@ -473,6 +476,7 @@ pub struct Task {
     pub compute_graph: String,
     pub invocation_id: String,
     pub input_key: String,
+    pub status: TaskStatus,
     pub outcome: TaskOutcome,
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
@@ -489,6 +493,7 @@ impl From<data_model::Task> for Task {
             invocation_id: task.invocation_id,
             input_key: task.input_node_output_key,
             outcome: task.outcome.into(),
+            status: task.status.into(),
             reducer_output_id: task.reducer_output_id,
             graph_version: task.graph_version.into(),
             image_uri: task.image_uri,
@@ -520,8 +525,33 @@ impl From<data_model::NodeOutput> for FnOutput {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum InvocationStatus {
+    Pending,
+    Running,
+    Finalized,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum InvocationOutcome {
+    Undefined,
+    Success,
+    Failure,
+}
+
+impl From<GraphInvocationOutcome> for InvocationOutcome {
+    fn from(outcome: GraphInvocationOutcome) -> Self {
+        match outcome {
+            GraphInvocationOutcome::Undefined => InvocationOutcome::Undefined,
+            GraphInvocationOutcome::Success => InvocationOutcome::Success,
+            GraphInvocationOutcome::Failure => InvocationOutcome::Failure,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnOutputs {
-    pub status: String,
+    pub status: InvocationStatus,
+    pub outcome: InvocationOutcome,
     pub outputs: Vec<FnOutput>,
     pub cursor: Option<Vec<u8>>,
 }
@@ -535,9 +565,12 @@ pub struct InvocationId {
 pub struct Invocation {
     pub id: String,
     pub completed: bool,
+    pub status: InvocationStatus,
+    pub outcome: InvocationOutcome,
     pub outstanding_tasks: u64,
     pub task_analytics: HashMap<String, TaskAnalytics>,
     pub graph_version: String,
+    pub created_at: u64,
 }
 
 impl From<GraphInvocationCtx> for Invocation {
@@ -553,12 +586,22 @@ impl From<GraphInvocationCtx> for Invocation {
                 },
             );
         }
+        let status = if value.completed {
+            InvocationStatus::Finalized
+        } else if value.outstanding_tasks > 0 {
+            InvocationStatus::Running
+        } else {
+            InvocationStatus::Pending
+        };
         Self {
             id: value.invocation_id.to_string(),
             completed: value.completed,
+            outcome: value.outcome.into(),
+            status,
             outstanding_tasks: value.outstanding_tasks,
             task_analytics,
             graph_version: value.graph_version.0,
+            created_at: value.created_at,
         }
     }
 }

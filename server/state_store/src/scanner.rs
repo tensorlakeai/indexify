@@ -522,15 +522,15 @@ impl StateReader {
         compute_graph: &str,
         cursor: Option<&[u8]>,
         limit: Option<usize>,
-    ) -> Result<(Vec<InvocationPayload>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
         let key = format!("{}|{}|", namespace, compute_graph);
-        self.get_rows_from_cf_with_limits::<InvocationPayload>(
+        self.get_rows_from_cf_with_limits::<GraphInvocationCtx>(
             key.as_bytes(),
             cursor,
-            IndexifyObjectsColumns::GraphInvocations,
+            IndexifyObjectsColumns::GraphInvocationCtx,
             limit,
         )
     }

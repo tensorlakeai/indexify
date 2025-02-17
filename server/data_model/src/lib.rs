@@ -598,6 +598,29 @@ impl InvocationPayloadBuilder {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum GraphInvocationOutcome {
+    Undefined,
+    Success,
+    Failure,
+}
+
+impl Default for GraphInvocationOutcome {
+    fn default() -> Self {
+        Self::Undefined
+    }
+}
+
+impl From<TaskOutcome> for GraphInvocationOutcome {
+    fn from(outcome: TaskOutcome) -> Self {
+        match outcome {
+            TaskOutcome::Success => GraphInvocationOutcome::Success,
+            TaskOutcome::Failure => GraphInvocationOutcome::Failure,
+            TaskOutcome::Unknown => GraphInvocationOutcome::Undefined,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct GraphInvocationCtx {
@@ -606,9 +629,13 @@ pub struct GraphInvocationCtx {
     pub graph_version: GraphVersion,
     pub invocation_id: String,
     pub completed: bool,
+    #[serde(default)]
+    pub outcome: GraphInvocationOutcome,
     pub outstanding_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
     pub is_system_task: bool,
+    #[serde(default = "get_epoch_time_in_ms")]
+    pub created_at: u64,
 }
 
 impl GraphInvocationCtx {
@@ -655,15 +682,18 @@ impl GraphInvocationCtxBuilder {
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
         let is_system_task = self.is_system_task.unwrap_or(false);
+        let created_at = self.created_at.unwrap_or_else(|| get_epoch_time_in_ms());
         Ok(GraphInvocationCtx {
             namespace,
             graph_version,
             compute_graph_name: cg_name,
             invocation_id,
             completed: false,
+            outcome: GraphInvocationOutcome::Undefined,
             fn_task_analytics,
             outstanding_tasks: 1, // Starts with 1 for the initial state change event
             is_system_task,
+            created_at,
         })
     }
 }
@@ -721,6 +751,22 @@ impl TaskOutcome {
     }
 }
 
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+pub enum TaskStatus {
+    /// Task is waiting for execution
+    Pending,
+    /// Task is running
+    Running,
+    /// Task is completed
+    Completed,
+}
+
+impl TaskStatus {
+    pub fn completed() -> Self {
+        Self::Completed
+    }
+}
+
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct Task {
@@ -732,6 +778,8 @@ pub struct Task {
     pub input_node_output_key: String,
     #[serde(default = "TaskOutputsIngestionStatus::pending")]
     pub output_status: TaskOutputsIngestionStatus,
+    #[serde(default = "TaskStatus::completed")]
+    pub status: TaskStatus,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
@@ -856,6 +904,7 @@ impl TaskBuilder {
             invocation_id,
             namespace,
             output_status: TaskOutputsIngestionStatus::Pending,
+            status: TaskStatus::Pending,
             outcome: TaskOutcome::Unknown,
             creation_time: current_time,
             diagnostics: None,
