@@ -24,7 +24,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -49,7 +49,7 @@ impl StateReader {
         &self,
         keys: Vec<&[u8]>,
         column: IndexifyObjectsColumns,
-    ) -> Result<Vec<V>>
+    ) -> Result<Vec<Option<V>>>
     where
         V: DeserializeOwned,
     {
@@ -62,12 +62,18 @@ impl StateReader {
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
         let mut items = Vec::new();
         for key in keys {
-            let value = self.db.get_cf(&cf_handle, key)?.ok_or(anyhow::anyhow!(
-                "Key not found {}",
-                String::from_utf8(key.to_vec()).unwrap_or_default()
-            ))?;
-            let value = JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            items.push(value);
+            let value = self.db.get_cf(&cf_handle, key)?;
+            let val: Option<V> = if let Some(value) = value {
+                Some(JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?)
+            } else {
+                warn!(
+                    "Key not found: {}, column family: {}",
+                    String::from_utf8(key.to_vec()).unwrap_or_default(),
+                    column.to_string()
+                );
+                None
+            };
+            items.push(val);
         }
         Ok(items)
     }
@@ -697,8 +703,11 @@ impl StateReader {
             None,
         )?;
         let keys = node_output_keys.iter().map(|key| key.as_bytes()).collect();
-        let data_objects =
-            self.get_rows_from_cf_multi_key::<NodeOutput>(keys, IndexifyObjectsColumns::FnOutputs)?;
+        let data_objects = self
+            .get_rows_from_cf_multi_key::<NodeOutput>(keys, IndexifyObjectsColumns::FnOutputs)?
+            .into_iter()
+            .filter_map(|v| v)
+            .collect();
         Ok(data_objects)
     }
 
@@ -817,7 +826,11 @@ impl StateReader {
             let k: &[u8] = &key;
             keys.push(k);
         }
-        let tasks = self.get_rows_from_cf_multi_key(keys, IndexifyObjectsColumns::Tasks)?;
+        let tasks = self
+            .get_rows_from_cf_multi_key(keys, IndexifyObjectsColumns::Tasks)?
+            .into_iter()
+            .filter_map(|v| v)
+            .collect();
         Ok(tasks)
     }
 
