@@ -19,7 +19,6 @@ image = (
     .run("pip install git+https://github.com/facebookresearch/detectron2.git@v0.6")
     .run("apt install -y tesseract-ocr")
     .run("apt install -y libtesseract-dev")
-    .run('pip install "py-inkwell[inference]"')
 )
 class BillSchema(BaseModel):
     account_no: str = Field(..., description="Account number of the customer")
