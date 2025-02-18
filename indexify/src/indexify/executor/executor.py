@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import time
 from pathlib import Path
 from socket import gethostname
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,7 @@ from .metrics.executor import (
     METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS,
     metric_executor_info,
     metric_executor_state,
+    metric_task_completion_latency,
     metric_task_outcome_report_latency,
     metric_task_outcome_report_retries,
     metric_task_outcome_reports,
@@ -157,26 +159,12 @@ class Executor:
         """Runs the supplied task.
 
         Doesn't raise any Exceptions. All errors are reported to the server."""
+        start_time: float = time.monotonic()
         logger = self._task_logger(task)
         output: Optional[TaskOutput] = None
 
         try:
-            graph: SerializedObject = await self._downloader.download_graph(task)
-            input: SerializedObject = await self._downloader.download_input(task)
-            init_value: Optional[SerializedObject] = (
-                None
-                if task.reducer_output_id is None
-                else (await self._downloader.download_init_value(task))
-            )
-            output: TaskOutput = await self._task_runner.run(
-                TaskInput(
-                    task=task,
-                    graph=graph,
-                    input=input,
-                    init_value=init_value,
-                ),
-                logger=logger,
-            )
+            output = await self._run_task_and_get_output(task, logger)
             logger.info("task execution finished", success=output.success)
         except Exception as e:
             output = TaskOutput.internal_error(task)
@@ -188,6 +176,26 @@ class Executor:
         ):
             metric_task_outcome_reports.inc()
             await self._report_task_outcome(output=output, logger=logger)
+
+        metric_task_completion_latency.observe(time.monotonic() - start_time)
+
+    async def _run_task_and_get_output(self, task: Task, logger: Any) -> TaskOutput:
+        graph: SerializedObject = await self._downloader.download_graph(task)
+        input: SerializedObject = await self._downloader.download_input(task)
+        init_value: Optional[SerializedObject] = (
+            None
+            if task.reducer_output_id is None
+            else (await self._downloader.download_init_value(task))
+        )
+        return await self._task_runner.run(
+            TaskInput(
+                task=task,
+                graph=graph,
+                input=input,
+                init_value=init_value,
+            ),
+            logger=logger,
+        )
 
     async def _report_task_outcome(self, output: TaskOutput, logger: Any) -> None:
         """Reports the task with the given output to the server.

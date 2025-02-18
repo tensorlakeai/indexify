@@ -180,6 +180,8 @@ class TestMetrics(unittest.TestCase):
             # Task lifecycle steps
             "tasks_fetched_total",
             "tasks_completed_total",
+            "task_completion_latency_seconds_count",
+            "task_completion_latency_seconds_sum",
             # Task outcome reporting
             "task_outcome_reports_total",
             "tasks_reporting_outcome",
@@ -375,6 +377,7 @@ class TestMetrics(unittest.TestCase):
             SampleDiff(
                 "tasks_completed_total", {"outcome": "error_customer_code"}, 0.0
             ),
+            SampleDiff("task_completion_latency_seconds_count", {}, 1.0),
             # Task outcome reporting
             SampleDiff("task_outcome_reports_total", {}, 1.0),
             SampleDiff("tasks_reporting_outcome", {}, 0.0),
