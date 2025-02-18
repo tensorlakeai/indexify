@@ -1,6 +1,9 @@
 import prometheus_client
 
-from ..monitoring.metrics import latency_metric_for_fast_operation
+from ..monitoring.metrics import (
+    latency_metric_for_customer_controlled_operation,
+    latency_metric_for_fast_operation,
+)
 
 # This file contains all metrics used by Executor.
 
@@ -31,6 +34,12 @@ metric_tasks_completed.labels(
     outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE
 )
 metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM)
+metric_task_completion_latency: prometheus_client.Histogram = (
+    latency_metric_for_customer_controlled_operation(
+        "task_completion",
+        "task completion from the moment it got fetched until its outcome got reported",
+    )
+)
 
 # Task outcome reporting metrics.
 metric_task_outcome_reports: prometheus_client.Counter = prometheus_client.Counter(
