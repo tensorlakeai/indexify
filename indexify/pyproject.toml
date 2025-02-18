@@ -15,23 +15,23 @@ indexify-cli = "indexify.cli.cli:app"
 [tool.poetry.dependencies]
 # Common dependencies
 python = "^3.9"
-structlog = "^24.4.0"
-pyyaml = "^6"
-httpx = { version = "^0.27", extras = ["http2"] }
-grpcio = "1.70.0"
+# structlog is provided by tensorlake
+# pyyaml is provided by tensorlake
+# httpx is provided by tensorlake
+# grpcio is provided by tensorlake
 
 # Executor only
-pydantic = "2.10.4"
-httpx-sse = "^0.4.0"
 aiohttp = "^3.11.0"
 prometheus-client = "^0.21.1"
 # Adds function-executor binary and utils lib.
-tensorlake = ">=0.1.20"
+tensorlake = ">=0.1"
+# pydantic is provided by tensorlake
+# httpx-sse is provided by tensorlake
 
 # CLI only
 rich = "^13.9.2"
 typer = "^0.12"
-nanoid = "^2.0.0"
+# nanoid is provided by tensorlake
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
