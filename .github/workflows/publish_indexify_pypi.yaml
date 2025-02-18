@@ -1,4 +1,4 @@
-name: Release Indexify SDK
+name: Release Indexify python package
 
 on:
   workflow_dispatch:
