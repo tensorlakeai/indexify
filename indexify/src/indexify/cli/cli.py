@@ -7,6 +7,7 @@ from tensorlake.utils.logging import (
 configure_logging_early()
 
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -185,6 +186,9 @@ def executor(
     executor_cache: Optional[str] = typer.Option(
         "~/.indexify/executor_cache", help="Path to the executor cache directory"
     ),
+    executor_id: Optional[str] = typer.Option(
+        None, help="ID of the executor, if not provided, a random ID will be generated"
+    ),
     # Registred ports range ends at 49151.
     ports: Tuple[int, int] = typer.Option(
         (50000, 51000),
@@ -221,9 +225,15 @@ def executor(
                 "At least one function must be specified when not running in development mode"
             )
 
+    if executor_id is None:
+        executor_id = nanoid.generate()
+    elif not re.compile(r"^[a-zA-Z0-9_-]{10,}$").match(executor_id):
+        raise typer.BadParameter(
+            "--executor-id should be at least 10 characters long and only include characters _-[0-9][a-z][A-Z]"
+        )
+
     executor_version = version("indexify")
-    id = nanoid.generate()
-    logger = structlog.get_logger(module=__name__, executor_id=id)
+    logger = structlog.get_logger(module=__name__, executor_id=executor_id)
 
     logger.info(
         "starting executor",
@@ -262,7 +272,7 @@ def executor(
     )
 
     Executor(
-        id=id,
+        id=executor_id,
         version=executor_version,
         health_checker=GenericHealthChecker(),
         code_path=executor_cache,
