@@ -78,6 +78,22 @@ metric_destroy_channel_errors: prometheus_client.Counter = prometheus_client.Cou
     "Number of Function Executor channel destruction errors",
 )
 
+# FE get_info RPC metrics.
+metric_get_info_rpc_latency: prometheus_client.Histogram = (
+    latency_metric_for_fast_operation(
+        "function_executor_get_info_rpc", "Function Executor get_info RPC"
+    )
+)
+metric_get_info_rpc_errors: prometheus_client.Counter = prometheus_client.Counter(
+    "function_executor_get_info_rpc_errors",
+    "Number of Function Executor get_info RPC errors",
+)
+metric_function_executor_infos: prometheus_client.Counter = prometheus_client.Counter(
+    "function_executor_infos",
+    "Number of Function Executors with particular info",
+    ["version", "sdk_version", "sdk_language", "sdk_language_version"],
+)
+
 # FE initialization RPC metrics.
 metric_initialize_rpc_latency: prometheus_client.Histogram = (
     latency_metric_for_customer_controlled_operation(
