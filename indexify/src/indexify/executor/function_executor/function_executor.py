@@ -3,12 +3,15 @@ from typing import Any, Optional
 
 import grpc
 from tensorlake.function_executor.proto.function_executor_pb2 import (
+    InfoRequest,
+    InfoResponse,
     InitializeRequest,
     InitializeResponse,
 )
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
+from tensorlake.function_executor.proto.message_validator import MessageValidator
 from tensorlake.utils.http_client import get_httpx_client
 
 from .health_checker import HealthChecker
@@ -36,7 +39,10 @@ from .metrics.function_executor import (
     metric_destroys,
     metric_establish_channel_errors,
     metric_establish_channel_latency,
+    metric_function_executor_infos,
     metric_function_executors_count,
+    metric_get_info_rpc_errors,
+    metric_get_info_rpc_latency,
     metric_initialize_rpc_errors,
     metric_initialize_rpc_latency,
 )
@@ -96,6 +102,7 @@ class FunctionExecutor:
                 await self._create_server(config)
                 await self._establish_channel()
                 stub: FunctionExecutorStub = FunctionExecutorStub(self._channel)
+                await _collect_server_info(stub)
                 await _initialize_server(stub, initialize_request)
                 await self._create_invocation_state_client(
                     stub=stub,
@@ -262,9 +269,29 @@ class FunctionExecutor:
             self._health_checker = None
 
 
+async def _collect_server_info(stub: FunctionExecutorStub) -> None:
+    with (
+        metric_get_info_rpc_errors.count_exceptions(),
+        metric_get_info_rpc_latency.time(),
+    ):
+        info: InfoResponse = await stub.get_info(InfoRequest())
+        validator = MessageValidator(info)
+        validator.required_field("version")
+        validator.required_field("sdk_version")
+        validator.required_field("sdk_language")
+        validator.required_field("sdk_language_version")
+
+        metric_function_executor_infos.labels(
+            version=info.version,
+            sdk_version=info.sdk_version,
+            sdk_language=info.sdk_language,
+            sdk_language_version=info.sdk_language_version,
+        ).inc()
+
+
 async def _initialize_server(
     stub: FunctionExecutorStub, initialize_request: InitializeRequest
-):
+) -> None:
     with (
         metric_initialize_rpc_errors.count_exceptions(),
         metric_initialize_rpc_latency.time(),
