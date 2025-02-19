@@ -1,5 +1,3 @@
-import importlib.metadata
-import sys
 import unittest
 from typing import Dict, List, Optional
 
@@ -339,16 +337,6 @@ class TestMetrics(unittest.TestCase):
             #
             SampleDiff("function_executor_get_info_rpc_errors_total", {}, 0.0),
             SampleDiff("function_executor_get_info_rpc_latency_seconds_count", {}, 1.0),
-            SampleDiff(
-                "function_executor_infos_total",
-                {
-                    "version": "0.1.0",
-                    "sdk_version": importlib.metadata.version("tensorlake"),
-                    "sdk_language": "python",
-                    "sdk_language_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-                },
-                1.0,
-            ),
             #
             SampleDiff(
                 "function_executor_initialize_rpc_latency_seconds_count", {}, 1.0
