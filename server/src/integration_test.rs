@@ -348,7 +348,7 @@ mod tests {
         test_state_store::finalize_task_graph_b(
             &indexify_state,
             &mock_invocation_payload_graph_b().id,
-            task_id,
+            &tasks[0],
         )
         .await
         .unwrap();
@@ -380,7 +380,7 @@ mod tests {
         test_state_store::finalize_router_x(
             &indexify_state,
             &mock_invocation_payload_graph_b().id,
-            task_id,
+            &tasks[1],
         )
         .await
         .unwrap();
@@ -462,33 +462,31 @@ mod tests {
             .encoding("application/octet-stream".to_string())
             .build()?;
 
-        let make_finalize_request = |compute_fn_name: &str,
-                                     task_id: &TaskId,
-                                     num_outputs: usize|
-         -> IngestTaskOutputsRequest {
-            // let invocation_payload_clone = invocation_payload.clone();
-            let node_outputs = (0..num_outputs)
-                .map(|_| {
-                    mock_node_fn_output(
-                        invocation_payload.id.as_str(),
-                        invocation_payload.compute_graph_name.as_str(),
-                        compute_fn_name,
-                        None,
-                    )
-                })
-                .collect();
-            IngestTaskOutputsRequest {
-                namespace: invocation_payload.namespace.clone(),
-                compute_graph: invocation_payload.compute_graph_name.clone(),
-                compute_fn: compute_fn_name.to_string(),
-                invocation_id: invocation_payload.id.clone(),
-                task_id: task_id.clone(),
-                node_outputs,
-                task_outcome: TaskOutcome::Success,
-                executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-                diagnostics: None,
-            }
-        };
+        let make_finalize_request =
+            |compute_fn_name: &str, task: &Task, num_outputs: usize| -> IngestTaskOutputsRequest {
+                // let invocation_payload_clone = invocation_payload.clone();
+                let node_outputs = (0..num_outputs)
+                    .map(|_| {
+                        mock_node_fn_output(
+                            invocation_payload.id.as_str(),
+                            invocation_payload.compute_graph_name.as_str(),
+                            compute_fn_name,
+                            None,
+                        )
+                    })
+                    .collect();
+                IngestTaskOutputsRequest {
+                    namespace: invocation_payload.namespace.clone(),
+                    compute_graph: invocation_payload.compute_graph_name.clone(),
+                    compute_fn: compute_fn_name.to_string(),
+                    invocation_id: invocation_payload.id.clone(),
+                    task: task.clone(),
+                    node_outputs,
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }
+            };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
             let tasks = indexify_state
@@ -560,7 +558,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task.id, 3);
+            let request = make_finalize_request("fn_gen", &task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -576,7 +574,7 @@ mod tests {
 
             // Completing all fn_map tasks
             for task in pending_tasks {
-                let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
+                let request = make_finalize_request(&task.compute_fn_name, &task, 1);
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::IngestTaskOutputs(request),
@@ -593,7 +591,7 @@ mod tests {
             let pending_task = pending_tasks.first().unwrap();
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
+            let request = make_finalize_request("fn_reduce", &pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -608,7 +606,7 @@ mod tests {
             let pending_tasks = check_pending_tasks(1, "fn_convert")?;
             let pending_task = pending_tasks.first().unwrap();
 
-            let request = make_finalize_request("fn_convert", &pending_task.id, 1);
+            let request = make_finalize_request("fn_convert", &pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -715,33 +713,31 @@ mod tests {
             .encoding("application/octet-stream".to_string())
             .build()?;
 
-        let make_finalize_request = |compute_fn_name: &str,
-                                     task_id: &TaskId,
-                                     num_outputs: usize|
-         -> IngestTaskOutputsRequest {
-            // let invocation_payload_clone = invocation_payload.clone();
-            let node_outputs = (0..num_outputs)
-                .map(|_| {
-                    mock_node_fn_output(
-                        invocation_payload.id.as_str(),
-                        invocation_payload.compute_graph_name.as_str(),
-                        compute_fn_name,
-                        None,
-                    )
-                })
-                .collect();
-            IngestTaskOutputsRequest {
-                namespace: invocation_payload.namespace.clone(),
-                compute_graph: invocation_payload.compute_graph_name.clone(),
-                compute_fn: compute_fn_name.to_string(),
-                invocation_id: invocation_payload.id.clone(),
-                task_id: task_id.clone(),
-                node_outputs,
-                task_outcome: TaskOutcome::Success,
-                executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-                diagnostics: None,
-            }
-        };
+        let make_finalize_request =
+            |compute_fn_name: &str, task: &Task, num_outputs: usize| -> IngestTaskOutputsRequest {
+                // let invocation_payload_clone = invocation_payload.clone();
+                let node_outputs = (0..num_outputs)
+                    .map(|_| {
+                        mock_node_fn_output(
+                            invocation_payload.id.as_str(),
+                            invocation_payload.compute_graph_name.as_str(),
+                            compute_fn_name,
+                            None,
+                        )
+                    })
+                    .collect();
+                IngestTaskOutputsRequest {
+                    namespace: invocation_payload.namespace.clone(),
+                    compute_graph: invocation_payload.compute_graph_name.clone(),
+                    compute_fn: compute_fn_name.to_string(),
+                    invocation_id: invocation_payload.id.clone(),
+                    task: task.clone(),
+                    node_outputs,
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }
+            };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
             let tasks = indexify_state
@@ -813,7 +809,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task.id, 3);
+            let request = make_finalize_request("fn_gen", &task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -828,7 +824,7 @@ mod tests {
             let pending_map_tasks = check_pending_tasks(3, "fn_map")?;
 
             let task = pending_map_tasks[0].clone();
-            let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
+            let request = make_finalize_request(&task.compute_fn_name, &task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -865,7 +861,7 @@ mod tests {
                 .unwrap();
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_reduce", &reduce_task.id, 1);
+            let request = make_finalize_request("fn_reduce", &reduce_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -881,7 +877,7 @@ mod tests {
 
             // Completing all fn_map tasks
             for task in pending_tasks {
-                let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
+                let request = make_finalize_request(&task.compute_fn_name, &task, 1);
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::IngestTaskOutputs(request),
@@ -899,7 +895,7 @@ mod tests {
             let pending_task = pending_tasks.first().unwrap();
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
+            let request = make_finalize_request("fn_reduce", &pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -914,7 +910,7 @@ mod tests {
             let pending_tasks = check_pending_tasks(1, "fn_convert")?;
             let pending_task = pending_tasks.first().unwrap();
 
-            let request = make_finalize_request("fn_convert", &pending_task.id, 1);
+            let request = make_finalize_request("fn_convert", &pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -928,7 +924,7 @@ mod tests {
             assert_eq!(pending_task.compute_fn_name, "fn_convert");
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_convert", &pending_task.id, 1);
+            let request = make_finalize_request("fn_convert", &pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1034,33 +1030,31 @@ mod tests {
             .encoding("application/octet-stream".to_string())
             .build()?;
 
-        let make_finalize_request = |compute_fn_name: &str,
-                                     task_id: &TaskId,
-                                     num_outputs: usize|
-         -> IngestTaskOutputsRequest {
-            // let invocation_payload_clone = invocation_payload.clone();
-            let node_outputs = (0..num_outputs)
-                .map(|_| {
-                    mock_node_fn_output(
-                        invocation_payload.id.as_str(),
-                        invocation_payload.compute_graph_name.as_str(),
-                        compute_fn_name,
-                        None,
-                    )
-                })
-                .collect();
-            IngestTaskOutputsRequest {
-                namespace: invocation_payload.namespace.clone(),
-                compute_graph: invocation_payload.compute_graph_name.clone(),
-                compute_fn: compute_fn_name.to_string(),
-                invocation_id: invocation_payload.id.clone(),
-                task_id: task_id.clone(),
-                node_outputs,
-                task_outcome: TaskOutcome::Success,
-                executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-                diagnostics: None,
-            }
-        };
+        let make_finalize_request =
+            |compute_fn_name: &str, task: &Task, num_outputs: usize| -> IngestTaskOutputsRequest {
+                // let invocation_payload_clone = invocation_payload.clone();
+                let node_outputs = (0..num_outputs)
+                    .map(|_| {
+                        mock_node_fn_output(
+                            invocation_payload.id.as_str(),
+                            invocation_payload.compute_graph_name.as_str(),
+                            compute_fn_name,
+                            None,
+                        )
+                    })
+                    .collect();
+                IngestTaskOutputsRequest {
+                    namespace: invocation_payload.namespace.clone(),
+                    compute_graph: invocation_payload.compute_graph_name.clone(),
+                    compute_fn: compute_fn_name.to_string(),
+                    invocation_id: invocation_payload.id.clone(),
+                    task: task.clone(),
+                    node_outputs,
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }
+            };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
             let tasks = indexify_state
@@ -1132,7 +1126,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task.id, 3);
+            let request = make_finalize_request("fn_gen", &task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1147,7 +1141,7 @@ mod tests {
             let pending_map_tasks = check_pending_tasks(3, "fn_map")?;
 
             let task = pending_map_tasks[0].clone();
-            let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
+            let request = make_finalize_request(&task.compute_fn_name, &task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1189,7 +1183,7 @@ mod tests {
                 compute_graph: invocation_payload.compute_graph_name.clone(),
                 compute_fn: "fn_reduce".to_string(),
                 invocation_id: invocation_payload.id.clone(),
-                task_id: reduce_task.id.clone(),
+                task: reduce_task.clone(),
                 node_outputs: vec![],
                 task_outcome: TaskOutcome::Failure, // Failure!
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
@@ -1210,7 +1204,7 @@ mod tests {
 
             // Completing all fn_map tasks
             for task in pending_tasks {
-                let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
+                let request = make_finalize_request(&task.compute_fn_name, &task, 1);
                 indexify_state
                     .write(StateMachineUpdateRequest {
                         payload: RequestPayload::IngestTaskOutputs(request),
@@ -1305,32 +1299,30 @@ mod tests {
             .encoding("application/octet-stream".to_string())
             .build()?;
 
-        let make_finalize_request = |compute_fn_name: &str,
-                                     task_id: &TaskId,
-                                     num_outputs: usize|
-         -> IngestTaskOutputsRequest {
-            let node_outputs = (0..num_outputs)
-                .map(|_| {
-                    mock_node_fn_output(
-                        invocation_payload.id.as_str(),
-                        invocation_payload.compute_graph_name.as_str(),
-                        compute_fn_name,
-                        None,
-                    )
-                })
-                .collect();
-            IngestTaskOutputsRequest {
-                namespace: invocation_payload.namespace.clone(),
-                compute_graph: invocation_payload.compute_graph_name.clone(),
-                compute_fn: compute_fn_name.to_string(),
-                invocation_id: invocation_payload.id.clone(),
-                task_id: task_id.clone(),
-                node_outputs,
-                task_outcome: TaskOutcome::Success,
-                executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-                diagnostics: None,
-            }
-        };
+        let make_finalize_request =
+            |compute_fn_name: &str, task: &Task, num_outputs: usize| -> IngestTaskOutputsRequest {
+                let node_outputs = (0..num_outputs)
+                    .map(|_| {
+                        mock_node_fn_output(
+                            invocation_payload.id.as_str(),
+                            invocation_payload.compute_graph_name.as_str(),
+                            compute_fn_name,
+                            None,
+                        )
+                    })
+                    .collect();
+                IngestTaskOutputsRequest {
+                    namespace: invocation_payload.namespace.clone(),
+                    compute_graph: invocation_payload.compute_graph_name.clone(),
+                    compute_fn: compute_fn_name.to_string(),
+                    invocation_id: invocation_payload.id.clone(),
+                    task: task.clone(),
+                    node_outputs,
+                    task_outcome: TaskOutcome::Success,
+                    executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
+                    diagnostics: None,
+                }
+            };
 
         let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
             let tasks = indexify_state
@@ -1402,7 +1394,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task.id, 3);
+            let request = make_finalize_request("fn_gen", &task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1417,7 +1409,7 @@ mod tests {
             let pending_tasks = check_pending_tasks(3, "fn_map")?;
 
             let request =
-                make_finalize_request(&pending_tasks[0].compute_fn_name, &pending_tasks[0].id, 1);
+                make_finalize_request(&pending_tasks[0].compute_fn_name, &pending_tasks[0], 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1431,7 +1423,7 @@ mod tests {
                 compute_graph: invocation_payload.compute_graph_name.clone(),
                 compute_fn: "fn_map".to_string(),
                 invocation_id: invocation_payload.id.clone(),
-                task_id: pending_tasks[1].id.clone(),
+                task: pending_tasks[1].clone(),
                 node_outputs: vec![],
                 task_outcome: TaskOutcome::Failure, // Failure!
                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
@@ -1445,7 +1437,7 @@ mod tests {
                 .await?;
 
             let request =
-                make_finalize_request(&pending_tasks[2].compute_fn_name, &pending_tasks[2].id, 1);
+                make_finalize_request(&pending_tasks[2].compute_fn_name, &pending_tasks[2], 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1552,7 +1544,7 @@ mod tests {
                     compute_graph: "graph_A".to_string(),
                     compute_fn: "fn_a".to_string(),
                     invocation_id: invocation_id.clone(),
-                    task_id: res[0].id.clone(),
+                    task: res[0].clone(),
                     node_outputs: vec![mock_node_fn_output(
                         invocation_id.as_str(),
                         "graph_A",

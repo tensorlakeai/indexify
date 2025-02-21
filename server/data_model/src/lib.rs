@@ -644,9 +644,8 @@ impl GraphInvocationCtx {
             let fn_name = task.compute_fn_name.clone();
             self.fn_task_analytics
                 .entry(fn_name.clone())
-                .or_insert_with(|| {
-                    TaskAnalytics::default()
-                }).pending();
+                .or_insert_with(|| TaskAnalytics::default())
+                .pending();
         }
         self.outstanding_tasks += tasks.len() as u64;
     }

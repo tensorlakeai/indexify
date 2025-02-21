@@ -180,7 +180,7 @@ impl TestExecutor<'_> {
                     compute_graph: task.compute_graph_name.clone(),
                     compute_fn: task.compute_fn_name.clone(),
                     invocation_id: task.invocation_id.clone(),
-                    task_id: task.id.clone(),
+                    task: task.clone(),
                     node_outputs,
                     task_outcome: args.task_outcome,
                     executor_id: self.executor.id.clone(),

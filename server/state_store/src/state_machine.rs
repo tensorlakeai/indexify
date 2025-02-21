@@ -33,7 +33,14 @@ use tracing::{debug, error, info, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    DeleteInvocationRequest, IngestTaskOutputsRequest, InvokeComputeGraphRequest, NamespaceProcessorUpdateRequest, NamespaceRequest, ReductionTasks, RegisterExecutorRequest, TaskAllocationUpdateRequest
+    DeleteInvocationRequest,
+    IngestTaskOutputsRequest,
+    InvokeComputeGraphRequest,
+    NamespaceProcessorUpdateRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    RegisterExecutorRequest,
+    TaskAllocationUpdateRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -709,7 +716,7 @@ pub fn ingest_task_outputs(
     }
     let task_key = format!(
         "{}|{}|{}|{}|{}",
-        req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task_id
+        req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task.id
     );
     let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
     if task.is_none() {
@@ -759,7 +766,6 @@ pub fn ingest_task_outputs(
         task.key(),
         task_bytes,
     )?;
-
 
     txn.delete_cf(
         &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),

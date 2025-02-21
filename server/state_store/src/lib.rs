@@ -205,7 +205,7 @@ impl IndexifyState {
                     tasks_finalized
                         .entry(task_outputs.executor_id.clone())
                         .or_default()
-                        .push(task_outputs.task_id.clone());
+                        .push(task_outputs.task.id.clone());
                     state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
                 } else {
                     vec![]

@@ -48,7 +48,7 @@ pub struct IngestTaskOutputsRequest {
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    pub task_id: TaskId,
+    pub task: Task,
     pub node_outputs: Vec<NodeOutput>,
     pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
