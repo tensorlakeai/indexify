@@ -666,8 +666,8 @@ impl GraphInvocationCtx {
 
     pub fn complete_invocation(&mut self, force_complete: bool) {
         if self.outstanding_tasks == 0 || force_complete {
-        self.completed = true;
-    }
+            self.completed = true;
+        }
     }
 
     pub fn key(&self) -> String {

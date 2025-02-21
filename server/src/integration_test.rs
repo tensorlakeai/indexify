@@ -391,8 +391,8 @@ mod tests {
     // //         let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
     // //         let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
     // //         let fn_reduce = reducer_fn("fn_reduce");
-    // //         let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
-    // //         ComputeGraph {
+    // //         let fn_convert = test_compute_fn("fn_convert",
+    // "image_hash".to_string()); //         ComputeGraph {
     // //             namespace: TEST_NAMESPACE.to_string(),
     // //             name: "graph_R".to_string(),
     // //             tags: HashMap::new(),
@@ -432,9 +432,9 @@ mod tests {
     // //     };
     // //     indexify_state
     // //         .write(StateMachineUpdateRequest {
-    // //             payload: RequestPayload::CreateOrUpdateComputeGraph(cg_request),
-    // //             processed_state_changes: vec![],
-    // //         })
+    // //             payload:
+    // RequestPayload::CreateOrUpdateComputeGraph(cg_request), //
+    // processed_state_changes: vec![], //         })
     // //         .await?;
     // //     let invocation_payload = InvocationPayloadBuilder::default()
     // //         .namespace(TEST_NAMESPACE.to_string())
@@ -448,10 +448,10 @@ mod tests {
     // //         .build()?;
 
     // //     let make_finalize_request =
-    // //         |compute_fn_name: &str, task: &Task, num_outputs: usize| -> IngestTaskOutputsRequest {
-    // //             // let invocation_payload_clone = invocation_payload.clone();
-    // //             let node_outputs = (0..num_outputs)
-    // //                 .map(|_| {
+    // //         |compute_fn_name: &str, task: &Task, num_outputs: usize| ->
+    // IngestTaskOutputsRequest { //             // let invocation_payload_clone
+    // = invocation_payload.clone(); //             let node_outputs =
+    // (0..num_outputs) //                 .map(|_| {
     // //                     mock_node_fn_output(
     // //                         invocation_payload.id.as_str(),
     // //                         invocation_payload.compute_graph_name.as_str(),
@@ -462,19 +462,19 @@ mod tests {
     // //                 .collect();
     // //             IngestTaskOutputsRequest {
     // //                 namespace: invocation_payload.namespace.clone(),
-    // //                 compute_graph: invocation_payload.compute_graph_name.clone(),
-    // //                 compute_fn: compute_fn_name.to_string(),
-    // //                 invocation_id: invocation_payload.id.clone(),
-    // //                 task: task.clone(),
-    // //                 node_outputs,
+    // //                 compute_graph:
+    // invocation_payload.compute_graph_name.clone(), //
+    // compute_fn: compute_fn_name.to_string(), //
+    // invocation_id: invocation_payload.id.clone(), //                 task:
+    // task.clone(), //                 node_outputs,
     // //                 task_outcome: TaskOutcome::Success,
-    // //                 executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-    // //                 diagnostics: None,
-    // //             }
+    // //                 executor_id:
+    // ExecutorId::new(TEST_EXECUTOR_ID.to_string()), //
+    // diagnostics: None, //             }
     // //         };
 
-    // //     let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-    // //         let tasks = indexify_state
+    // //     let check_pending_tasks = |expected_num, expected_fn_name| ->
+    // Result<Vec<Task>> { //         let tasks = indexify_state
     // //             .reader()
     // //             .list_tasks_by_compute_graph(
     // //                 &graph.namespace,
@@ -559,8 +559,8 @@ mod tests {
 
     // //         // Completing all fn_map tasks
     // //         for task in pending_tasks {
-    // //             let request = make_finalize_request(&task.compute_fn_name, &task, 1);
-    // //             indexify_state
+    // //             let request = make_finalize_request(&task.compute_fn_name,
+    // &task, 1); //             indexify_state
     // //                 .write(StateMachineUpdateRequest {
     // //                     payload: RequestPayload::IngestTaskOutputs(request),
     // //                     processed_state_changes: vec![],
@@ -591,8 +591,8 @@ mod tests {
     // //         let pending_tasks = check_pending_tasks(1, "fn_convert")?;
     // //         let pending_task = pending_tasks.first().unwrap();
 
-    // //         let request = make_finalize_request("fn_convert", pending_task, 1);
-    // //         indexify_state
+    // //         let request = make_finalize_request("fn_convert", pending_task,
+    // 1); //         indexify_state
     // //             .write(StateMachineUpdateRequest {
     // //                 payload: RequestPayload::IngestTaskOutputs(request),
     // //                 processed_state_changes: vec![],
@@ -610,8 +610,8 @@ mod tests {
 
     // //         let graph_ctx = indexify_state
     // //             .reader()
-    // //             .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
-    // //             .unwrap();
+    // //             .invocation_ctx(&graph.namespace, &graph.name,
+    // &invocation_payload.id)? //             .unwrap();
     // //         assert_eq!(graph_ctx.outstanding_tasks, 0);
     // //         assert!(graph_ctx.completed);
     // //     }
@@ -633,16 +633,16 @@ mod tests {
     // fn_convert -> end
     //
     //#[tokio::test]
-    // async fn test_reducer_graph_first_reducer_finish_before_parent_finish() -> Result<()> {
-    //     let test_srv = testing::TestService::new().await?;
+    // async fn test_reducer_graph_first_reducer_finish_before_parent_finish() ->
+    // Result<()> {     let test_srv = testing::TestService::new().await?;
     //     let Service { indexify_state, .. } = test_srv.service.clone();
 
     //     let graph = {
     //         let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
     //         let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
     //         let fn_reduce = reducer_fn("fn_reduce");
-    //         let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
-    //         ComputeGraph {
+    //         let fn_convert = test_compute_fn("fn_convert",
+    // "image_hash".to_string());         ComputeGraph {
     //             namespace: TEST_NAMESPACE.to_string(),
     //             name: "graph_R".to_string(),
     //             tags: HashMap::new(),
@@ -724,8 +724,8 @@ mod tests {
     //             }
     //         };
 
-    //     let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-    //         let tasks = indexify_state
+    //     let check_pending_tasks = |expected_num, expected_fn_name| ->
+    // Result<Vec<Task>> {         let tasks = indexify_state
     //             .reader()
     //             .list_tasks_by_compute_graph(
     //                 &graph.namespace,
@@ -842,7 +842,8 @@ mod tests {
     //             .filter(|t| t.outcome == TaskOutcome::Unknown)
     //             .collect();
 
-    //         assert_eq!(pending_tasks.len(), 3, "pending tasks: {:?}", pending_tasks);
+    //         assert_eq!(pending_tasks.len(), 3, "pending tasks: {:?}",
+    // pending_tasks);
 
     //         let reduce_task = pending_tasks
     //             .iter()
@@ -866,8 +867,8 @@ mod tests {
 
     //         // Completing all fn_map tasks
     //         for task in pending_tasks {
-    //             let request = make_finalize_request(&task.compute_fn_name, &task, 1);
-    //             indexify_state
+    //             let request = make_finalize_request(&task.compute_fn_name, &task,
+    // 1);             indexify_state
     //                 .write(StateMachineUpdateRequest {
     //                     payload: RequestPayload::IngestTaskOutputs(request),
     //                     processed_state_changes: vec![],
@@ -932,8 +933,8 @@ mod tests {
 
     //         let graph_ctx = indexify_state
     //             .reader()
-    //             .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
-    //             .unwrap();
+    //             .invocation_ctx(&graph.namespace, &graph.name,
+    // &invocation_payload.id)?             .unwrap();
     //         assert_eq!(graph_ctx.outstanding_tasks, 0);
     //         assert!(graph_ctx.completed);
     //     }
@@ -955,16 +956,16 @@ mod tests {
     // // fn_convert -> end
     // //
     // #[tokio::test]
-    // async fn test_reducer_graph_first_reducer_error_before_parent_finish() -> Result<()> {
-    //     let test_srv = testing::TestService::new().await?;
+    // async fn test_reducer_graph_first_reducer_error_before_parent_finish() ->
+    // Result<()> {     let test_srv = testing::TestService::new().await?;
     //     let Service { indexify_state, .. } = test_srv.service.clone();
 
     //     let graph = {
     //         let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
     //         let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
     //         let fn_reduce = reducer_fn("fn_reduce");
-    //         let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
-    //         ComputeGraph {
+    //         let fn_convert = test_compute_fn("fn_convert",
+    // "image_hash".to_string());         ComputeGraph {
     //             namespace: TEST_NAMESPACE.to_string(),
     //             name: "graph_R".to_string(),
     //             tags: HashMap::new(),
@@ -1045,8 +1046,8 @@ mod tests {
     //             }
     //         };
 
-    //     let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-    //         let tasks = indexify_state
+    //     let check_pending_tasks = |expected_num, expected_fn_name| ->
+    // Result<Vec<Task>> {         let tasks = indexify_state
     //             .reader()
     //             .list_tasks_by_compute_graph(
     //                 &graph.namespace,
@@ -1159,7 +1160,8 @@ mod tests {
     //             .filter(|t| t.outcome == TaskOutcome::Unknown)
     //             .collect();
 
-    //         assert_eq!(pending_tasks.len(), 3, "pending tasks: {:?}", pending_tasks);
+    //         assert_eq!(pending_tasks.len(), 3, "pending tasks: {:?}",
+    // pending_tasks);
 
     //         let reduce_task = pending_tasks
     //             .iter()
@@ -1193,8 +1195,8 @@ mod tests {
 
     //         // Completing all fn_map tasks
     //         for task in pending_tasks {
-    //             let request = make_finalize_request(&task.compute_fn_name, &task, 1);
-    //             indexify_state
+    //             let request = make_finalize_request(&task.compute_fn_name, &task,
+    // 1);             indexify_state
     //                 .write(StateMachineUpdateRequest {
     //                     payload: RequestPayload::IngestTaskOutputs(request),
     //                     processed_state_changes: vec![],
@@ -1214,8 +1216,8 @@ mod tests {
 
     //         let graph_ctx = indexify_state
     //             .reader()
-    //             .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
-    //             .unwrap();
+    //             .invocation_ctx(&graph.namespace, &graph.name,
+    // &invocation_payload.id)?             .unwrap();
     //         assert_eq!(graph_ctx.outstanding_tasks, 0);
     //         assert!(graph_ctx.completed);
     //     }
@@ -1232,8 +1234,8 @@ mod tests {
     //         let fn_gen = test_compute_fn("fn_gen", "image_hash".to_string());
     //         let fn_map = test_compute_fn("fn_map", "image_hash".to_string());
     //         let fn_reduce = reducer_fn("fn_reduce");
-    //         let fn_convert = test_compute_fn("fn_convert", "image_hash".to_string());
-    //         ComputeGraph {
+    //         let fn_convert = test_compute_fn("fn_convert",
+    // "image_hash".to_string());         ComputeGraph {
     //             namespace: TEST_NAMESPACE.to_string(),
     //             name: "graph_R".to_string(),
     //             tags: HashMap::new(),
@@ -1313,8 +1315,8 @@ mod tests {
     //             }
     //         };
 
-    //     let check_pending_tasks = |expected_num, expected_fn_name| -> Result<Vec<Task>> {
-    //         let tasks = indexify_state
+    //     let check_pending_tasks = |expected_num, expected_fn_name| ->
+    // Result<Vec<Task>> {         let tasks = indexify_state
     //             .reader()
     //             .list_tasks_by_compute_graph(
     //                 &graph.namespace,
@@ -1398,8 +1400,8 @@ mod tests {
     //         let pending_tasks = check_pending_tasks(3, "fn_map")?;
 
     //         let request =
-    //             make_finalize_request(&pending_tasks[0].compute_fn_name, &pending_tasks[0], 1);
-    //         indexify_state
+    //             make_finalize_request(&pending_tasks[0].compute_fn_name,
+    // &pending_tasks[0], 1);         indexify_state
     //             .write(StateMachineUpdateRequest {
     //                 payload: RequestPayload::IngestTaskOutputs(request),
     //                 processed_state_changes: vec![],
@@ -1426,8 +1428,8 @@ mod tests {
     //             .await?;
 
     //         let request =
-    //             make_finalize_request(&pending_tasks[2].compute_fn_name, &pending_tasks[2], 1);
-    //         indexify_state
+    //             make_finalize_request(&pending_tasks[2].compute_fn_name,
+    // &pending_tasks[2], 1);         indexify_state
     //             .write(StateMachineUpdateRequest {
     //                 payload: RequestPayload::IngestTaskOutputs(request),
     //                 processed_state_changes: vec![],
@@ -1446,8 +1448,8 @@ mod tests {
 
     //         let graph_ctx = indexify_state
     //             .reader()
-    //             .invocation_ctx(&graph.namespace, &graph.name, &invocation_payload.id)?
-    //             .unwrap();
+    //             .invocation_ctx(&graph.namespace, &graph.name,
+    // &invocation_payload.id)?             .unwrap();
     //         assert_eq!(graph_ctx.outstanding_tasks, 0);
     //         assert!(graph_ctx.completed);
     //     }
