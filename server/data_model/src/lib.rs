@@ -664,8 +664,11 @@ impl GraphInvocationCtx {
         self.outstanding_tasks -= 1;
     }
 
-    pub fn complete_invocation(&mut self) {
+    pub fn complete_invocation(&mut self, force_complete: bool) {
+        println!("DIPTANU COMPLETE INVOCATION: {:?}", self);
+        if self.outstanding_tasks == 0 || force_complete {
         self.completed = true;
+    }
     }
 
     pub fn key(&self) -> String {
@@ -719,7 +722,7 @@ impl GraphInvocationCtxBuilder {
             completed: false,
             outcome: GraphInvocationOutcome::Undefined,
             fn_task_analytics,
-            outstanding_tasks: 1, // Starts with 1 for the initial state change event
+            outstanding_tasks: 0,
             created_at,
         })
     }

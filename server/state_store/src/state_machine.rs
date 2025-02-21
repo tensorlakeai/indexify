@@ -610,6 +610,11 @@ pub(crate) fn create_tasks(
             &serialized_graphctx,
         )?;
         if invocation_ctx.completed {
+            info!("invocation completed: ns: {}, compute graph: {}, invocation id: {}",
+                invocation_ctx.namespace,
+                invocation_ctx.compute_graph_name,
+                invocation_ctx.invocation_id
+            );
             return Ok(Some(InvocationCompletion::User));
         }
     }
