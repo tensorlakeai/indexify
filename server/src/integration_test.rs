@@ -24,7 +24,6 @@ mod tests {
         Node,
         RuntimeInformation,
         Task,
-        TaskId,
         TaskOutcome,
     };
     use futures::StreamExt;
@@ -342,7 +341,6 @@ mod tests {
             .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_B", &invocation_id, None, None)?
             .0;
         assert_eq!(tasks.len(), 1);
-        let task_id = &tasks[0].id;
 
         // Finish the task and check if new tasks are created
         test_state_store::finalize_task_graph_b(
@@ -376,7 +374,6 @@ mod tests {
 
         // Now finish the router task and we should have 3 tasks
         // The last one would be for the edge which the router picks
-        let task_id = &tasks[1].id;
         test_state_store::finalize_router_x(
             &indexify_state,
             &mock_invocation_payload_graph_b().id,
@@ -558,7 +555,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task, 3);
+            let request = make_finalize_request("fn_gen", task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -591,7 +588,7 @@ mod tests {
             let pending_task = pending_tasks.first().unwrap();
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_reduce", &pending_task, 1);
+            let request = make_finalize_request("fn_reduce", pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -606,7 +603,7 @@ mod tests {
             let pending_tasks = check_pending_tasks(1, "fn_convert")?;
             let pending_task = pending_tasks.first().unwrap();
 
-            let request = make_finalize_request("fn_convert", &pending_task, 1);
+            let request = make_finalize_request("fn_convert", pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -809,7 +806,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task, 3);
+            let request = make_finalize_request("fn_gen", task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -861,7 +858,7 @@ mod tests {
                 .unwrap();
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_reduce", &reduce_task, 1);
+            let request = make_finalize_request("fn_reduce", reduce_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -895,7 +892,7 @@ mod tests {
             let pending_task = pending_tasks.first().unwrap();
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_reduce", &pending_task, 1);
+            let request = make_finalize_request("fn_reduce", pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -910,7 +907,7 @@ mod tests {
             let pending_tasks = check_pending_tasks(1, "fn_convert")?;
             let pending_task = pending_tasks.first().unwrap();
 
-            let request = make_finalize_request("fn_convert", &pending_task, 1);
+            let request = make_finalize_request("fn_convert", pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -924,7 +921,7 @@ mod tests {
             assert_eq!(pending_task.compute_fn_name, "fn_convert");
 
             // Completing all fn_map tasks
-            let request = make_finalize_request("fn_convert", &pending_task, 1);
+            let request = make_finalize_request("fn_convert", pending_task, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1126,7 +1123,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task, 3);
+            let request = make_finalize_request("fn_gen", task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
@@ -1394,7 +1391,7 @@ mod tests {
             let task = &tasks.first().unwrap();
             assert_eq!(task.compute_fn_name, "fn_gen");
 
-            let request = make_finalize_request("fn_gen", &task, 3);
+            let request = make_finalize_request("fn_gen", task, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::IngestTaskOutputs(request),
