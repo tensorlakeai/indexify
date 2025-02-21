@@ -13,12 +13,7 @@ use data_model::InvocationPayloadBuilder;
 use futures::{stream, Stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
-    requests::{
-        InvokeComputeGraphRequest,
-        ReplayComputeGraphRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-    },
+    requests::{InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest},
 };
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tracing::{error, info, warn};
@@ -347,34 +342,4 @@ pub async fn wait_until_invocation_completed(
                 .text("keep-alive-text"),
         ),
     )
-}
-
-/// Replay compute graph with all previous invocation payloads
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/replay",
-    request_body(content_type = "application/json", content = inline(serde_json::Value)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "invocation successful"),
-        (status = 400, description = "bad request"),
-        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
-    ),
-)]
-pub async fn replay_compute_graph(
-    Path((namespace, compute_graph)): Path<(String, String)>,
-    State(state): State<RouteState>,
-) -> Result<(), IndexifyAPIError> {
-    let request = RequestPayload::ReplayComputeGraph(ReplayComputeGraphRequest {
-        namespace: namespace.clone(),
-        compute_graph_name: compute_graph.clone(),
-    });
-    let sm_req = StateMachineUpdateRequest {
-        payload: request,
-        processed_state_changes: vec![],
-    };
-    state.indexify_state.write(sm_req).await.map_err(|e| {
-        IndexifyAPIError::internal_error(anyhow!("failed to create graph replay task: {}", e))
-    })?;
-    Ok(())
 }

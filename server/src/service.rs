@@ -4,13 +4,7 @@ use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::init_provider;
-use processor::{
-    gc::Gc,
-    graph_processor::GraphProcessor,
-    system_tasks::SystemTasksExecutor,
-    task_allocator,
-    task_creator,
-};
+use processor::{gc::Gc, graph_processor::GraphProcessor, task_allocator, task_creator};
 use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
@@ -33,7 +27,6 @@ pub struct Service {
     pub indexify_state: Arc<IndexifyState>,
     pub executor_manager: Arc<ExecutorManager>,
     pub kvs: Arc<KVS>,
-    pub system_tasks_executor: Arc<Mutex<SystemTasksExecutor>>,
     pub gc_executor: Arc<Mutex<Gc>>,
     pub metrics_registry: Arc<Registry>,
     pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
@@ -53,11 +46,6 @@ impl Service {
 
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
         let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
-
-        let system_tasks_executor = Arc::new(Mutex::new(SystemTasksExecutor::new(
-            indexify_state.clone(),
-            shutdown_rx.clone(),
-        )));
 
         let gc_executor = Arc::new(Mutex::new(Gc::new(
             indexify_state.clone(),
@@ -87,7 +75,6 @@ impl Service {
             indexify_state,
             executor_manager,
             kvs,
-            system_tasks_executor,
             gc_executor,
             metrics_registry,
             task_allocator,
@@ -117,12 +104,6 @@ impl Service {
             registry: self.metrics_registry.clone(),
             metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
         };
-        let system_tasks_executor = self.system_tasks_executor.clone();
-        tokio::spawn(async move {
-            let system_tasks_executor_guard = system_tasks_executor.lock().await;
-            system_tasks_executor_guard.start().await;
-        });
-
         let gc_executor = self.gc_executor.clone();
         tokio::spawn(async move {
             let gc_executor_guard = gc_executor.lock().await;

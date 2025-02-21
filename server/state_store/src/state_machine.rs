@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ChangeType,
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
@@ -11,13 +10,10 @@ use data_model::{
     GraphInvocationCtxBuilder,
     GraphInvocationOutcome,
     InvocationPayload,
-    InvokeComputeGraphEvent,
     Namespace,
     NodeOutput,
     OutputPayload,
     StateChange,
-    StateChangeBuilder,
-    StateChangeId,
     StateMachineMetadata,
     SystemTask,
     Task,
@@ -48,11 +44,7 @@ use crate::requests::{
     NamespaceRequest,
     ReductionTasks,
     RegisterExecutorRequest,
-    RemoveSystemTaskRequest,
-    ReplayComputeGraphRequest,
-    ReplayInvocationsRequest,
     TaskAllocationUpdateRequest,
-    UpdateSystemTaskRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -116,235 +108,6 @@ pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -
     )?;
     info!("created namespace: {}", ns.name);
     Ok(())
-}
-
-pub fn remove_system_task(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: RemoveSystemTaskRequest,
-) -> Result<()> {
-    let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
-    txn.delete_cf(&IndexifyObjectsColumns::SystemTasks.cf_db(&db), &task_key)?;
-    do_cf_update::<ComputeGraph>(
-        txn,
-        &task_key,
-        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        |o| {
-            o.replaying = false;
-        },
-        true,
-    )?;
-    Ok(())
-}
-
-pub fn update_system_task(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: UpdateSystemTaskRequest,
-) -> Result<()> {
-    let key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
-    do_cf_update::<SystemTask>(
-        txn,
-        &key,
-        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
-        |task| {
-            task.waiting_for_running_invocations = req.waiting_for_running_invocations;
-        },
-        true,
-    )
-}
-
-pub fn replay_compute_graph(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: ReplayComputeGraphRequest,
-) -> Result<()> {
-    let key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
-    let graph = txn
-        .get_for_update_cf(
-            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-            &key,
-            true,
-        )?
-        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let graph: ComputeGraph = JsonEncoder::decode(&graph)?;
-    let task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
-    let existing_task = txn.get_for_update_cf(
-        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
-        &task_key,
-        true,
-    )?;
-    if let Some(existing_task) = existing_task {
-        let existing_task: SystemTask = JsonEncoder::decode(&existing_task)?;
-        if existing_task.graph_version >= graph.version {
-            return Err(anyhow::anyhow!("Task already exists"));
-        }
-    }
-    let task = SystemTask::new(
-        req.namespace.clone(),
-        req.compute_graph_name.clone(),
-        graph.version,
-    );
-    let serialized_task = JsonEncoder::encode(&task)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
-        &task_key,
-        &serialized_task,
-    )?;
-
-    // Mark the compute graph as replaying since a system task was created.
-    do_cf_update::<ComputeGraph>(
-        txn,
-        &task_key,
-        &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        |graph| {
-            graph.replaying = true;
-        },
-        true, // reintrant lock
-    )?;
-
-    Ok(())
-}
-
-pub fn replay_invocations(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: ReplayInvocationsRequest,
-) -> Result<Vec<StateChange>> {
-    let compute_graph_key =
-        ComputeGraph::key_from(req.namespace.as_str(), req.compute_graph_name.as_str());
-    let graph = txn
-        .get_for_update_cf(
-            &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-            &compute_graph_key,
-            false,
-        )?
-        .ok_or(anyhow::anyhow!("Compute graph not found"))?;
-    let graph = JsonEncoder::decode::<ComputeGraph>(&graph)?;
-    if graph.version != req.graph_version {
-        // Graph was updated after replay task was created, stopping replay.
-        return Ok(Vec::new());
-    }
-    let system_task_key = SystemTask::key_from(&req.namespace, &req.compute_graph_name);
-
-    let state_changes_res = req
-        .invocation_ids
-        .iter()
-        .map(|invocation_id| {
-            let graph_ctx_key = GraphInvocationCtx::key_from(
-                &req.namespace,
-                &req.compute_graph_name,
-                &invocation_id,
-            );
-
-            let graph_ctx = txn
-                .get_for_update_cf(
-                    &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-                    &graph_ctx_key,
-                    true,
-                )?
-                .ok_or(anyhow::anyhow!("Graph context not found"))?;
-            let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx)?;
-            if graph_ctx.graph_version == req.graph_version {
-                info!(
-                "skipping replay of invocation: {}, it has the same version in invocation context",
-                invocation_id
-            );
-                return Ok(None);
-            }
-            let output_key = format!(
-                "{}|{}|{}|",
-                req.namespace, req.compute_graph_name, invocation_id
-            );
-
-            // Delete any previous outputs and any in progress context.
-            // The tasks will abort when they fail to find the context.
-            let outputs = make_prefix_iterator(
-                &txn,
-                &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-                output_key.as_bytes(),
-                &None,
-            );
-            for output in outputs {
-                let (key, _) = output?;
-                txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), key)?;
-            }
-            txn.delete_cf(
-                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-                graph_ctx_key,
-            )?;
-
-            // Create a new invocation context after all checks passed
-            let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
-                .namespace(req.namespace.to_string())
-                .compute_graph_name(req.compute_graph_name.to_string())
-                .graph_version(graph.version.clone())
-                .invocation_id(invocation_id.clone())
-                .fn_task_analytics(HashMap::new())
-                .is_system_task(true)
-                .build(graph.clone())?;
-
-            txn.put_cf(
-                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-                graph_invocation_ctx.key(),
-                &JsonEncoder::encode(&graph_invocation_ctx)?,
-            )?;
-
-            let state_change = StateChangeBuilder::default()
-                .change_type(ChangeType::InvokeComputeGraph(InvokeComputeGraphEvent {
-                    namespace: req.namespace.clone(),
-                    invocation_id: invocation_id.clone(),
-                    compute_graph: req.compute_graph_name.clone(),
-                }))
-                .created_at(get_epoch_time_in_ms())
-                .object_id(invocation_id.clone())
-                .id(StateChangeId::new(0)) // updated with correct id by the caller
-                .processed_at(None)
-                .namespace(Some(req.namespace.clone()))
-                .compute_graph(Some(req.compute_graph_name.clone()))
-                .invocation(Some(invocation_id.clone()))
-                .build()?;
-
-            Ok(Some(state_change))
-        })
-        .collect::<Result<Vec<Option<StateChange>>>>()?;
-
-    let state_changes = state_changes_res
-        .into_iter()
-        .flatten()
-        .collect::<Vec<StateChange>>();
-
-    // Increment number of outstanding tasks
-    let cf = IndexifyObjectsColumns::Stats.cf_db(&db);
-    let key = b"pending_system_tasks";
-    let value = txn.get_for_update_cf(&cf, key, true)?;
-    let mut pending_system_tasks = match value {
-        Some(value) => {
-            let bytes: [u8; 8] = value
-                .as_slice()
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Invalid length for usize conversion"))?;
-            usize::from_be_bytes(bytes)
-        }
-        None => 0,
-    };
-    pending_system_tasks += state_changes.len();
-    txn.put_cf(&cf, key, &pending_system_tasks.to_be_bytes())?;
-
-    do_cf_update::<SystemTask>(
-        txn,
-        &system_task_key,
-        &IndexifyObjectsColumns::SystemTasks.cf_db(&db),
-        |task| {
-            // Increment the number of running invocations on the system task to allow
-            // determining when the system task has finished.
-            task.num_running_invocations += state_changes.len();
-            // Persist the restart key needing to be used for the next replay.
-            task.restart_key = req.restart_key.clone();
-        },
-        true,
-    )?;
-    Ok(state_changes)
 }
 
 pub fn create_invocation(
