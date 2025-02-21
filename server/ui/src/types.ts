@@ -47,8 +47,18 @@ export interface DataObject {
   created_at?: number
 }
 
+export type InvocationStatus = 'Pending' | 'Running' | 'Completed'
+export type InvocationOutcome = 'Pending' | 'Success' | 'Failure'
+
+export interface Invocation {
+  id: string
+  status: InvocationStatus
+  outcome: InvocationOutcome
+  created_at?: number
+}
+
 export interface GraphInvocations {
-  invocations: DataObject[]
+  invocations: Invocation[]
   cursor?: string | null
 }
 
@@ -72,6 +82,7 @@ export interface NamespaceList {
 }
 
 export type TaskOutcome = 'Unknown' | 'Success' | 'Failure'
+export type TaskStatus = 'Pending' | 'Running' | 'Completed'
 
 export type GraphVersion = string
 
@@ -83,6 +94,7 @@ export interface Task {
   invocation_id: string
   input_key: string
   outcome: TaskOutcome
+  status: TaskStatus
   graph_version: GraphVersion
   reducer_output_id?: string | null
 }
@@ -107,7 +119,7 @@ interface FunctionAllowlistEntry {
 export interface ExecutorMetadata {
   addr: string
   executor_version: string
-  function_allowlist: FunctionAllowlistEntry[]
+  function_allowlist: FunctionAllowlistEntry[] | null
   id: string
   labels: Record<string, string>
 }

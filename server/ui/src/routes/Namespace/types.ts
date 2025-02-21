@@ -1,30 +1,36 @@
-import { IndexifyClient } from 'getindexify';
-import { ComputeGraph, DataObject, Namespace, ExecutorMetadata, ComputeGraphsList } from '../../types';
+import { IndexifyClient } from 'getindexify'
+import {
+  ComputeGraph,
+  Namespace,
+  ExecutorMetadata,
+  ComputeGraphsList,
+  Invocation,
+} from '../../types'
 
 export interface NamespaceLoaderData {
-  namespace: string;
-  client?: IndexifyClient;
+  namespace: string
+  client?: IndexifyClient
 }
 
 export interface ComputeGraphLoaderData extends NamespaceLoaderData {
-  computeGraphs: ComputeGraphsList;
+  computeGraphs: ComputeGraphsList
 }
 
 export interface IndividualComputeGraphLoaderData extends NamespaceLoaderData {
-  invocationsList: DataObject[];
-  computeGraph: ComputeGraph;
+  invocationsList: Invocation[]
+  computeGraph: ComputeGraph
 }
 
 export interface IndividualInvocationLoaderData extends NamespaceLoaderData {
-  indexifyServiceURL: string;
-  invocationId: string;
-  computeGraph: string;
+  indexifyServiceURL: string
+  invocationId: string
+  computeGraph: string
 }
 
 export interface ExecutorsLoaderData {
-  executors: ExecutorMetadata[];
+  executors: ExecutorMetadata[]
 }
 
 export interface NamespacesLoaderData {
-  namespaces: Namespace[];
+  namespaces: Namespace[]
 }

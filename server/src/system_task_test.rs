@@ -593,11 +593,7 @@ mod tests {
             .reader()
             .list_invocations(&graph.namespace, &graph.name, None, None)?
             .0;
-        for invocation in invocations {
-            let invocation_ctx = indexify_state
-                .reader()
-                .invocation_ctx(&graph.namespace, &graph.name, &invocation.id)?
-                .unwrap();
+        for invocation_ctx in invocations {
             assert!(invocation_ctx.graph_version == graph.version);
         }
 

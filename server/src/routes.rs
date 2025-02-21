@@ -43,7 +43,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     executors::{self, EXECUTOR_TIMEOUT},
-    http_objects::Invocation,
+    http_objects::{Invocation, InvocationStatus},
 };
 
 mod download;
@@ -71,7 +71,6 @@ use crate::{
         ComputeGraph,
         ComputeGraphsList,
         CreateNamespace,
-        DataObject,
         DynamicRouter,
         ExecutorMetadata,
         FnOutputs,
@@ -79,7 +78,6 @@ use crate::{
         GraphVersion,
         ImageInformation,
         IndexifyAPIError,
-        InvocationResult,
         ListParams,
         Namespace,
         NamespaceList,
@@ -98,6 +96,7 @@ use crate::{
             namespaces,
             invoke::invoke_with_object,
             graph_invocations,
+            find_invocation,
             create_or_update_compute_graph,
             list_compute_graphs,
             get_compute_graph,
@@ -122,7 +121,6 @@ use crate::{
                 ComputeGraphCreateType,
                 ComputeGraphsList,
                 ImageInformation,
-                InvocationResult,
                 ExecutorMetadata,
                 RuntimeInformation,
                 Task,
@@ -130,7 +128,6 @@ use crate::{
                 Tasks,
                 GraphInvocations,
                 GraphVersion,
-                DataObject,
             )
         ),
         tags(
@@ -598,7 +595,7 @@ async fn graph_invocations(
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<GraphInvocations>, IndexifyAPIError> {
-    let (data_objects, cursor) = state
+    let (invocation_ctxs, cursor) = state
         .indexify_state
         .reader()
         .list_invocations(
@@ -609,13 +606,8 @@ async fn graph_invocations(
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let mut invocations = vec![];
-    for data_object in data_objects {
-        invocations.push(DataObject {
-            id: data_object.id,
-            payload_size: data_object.payload.size,
-            payload_sha_256: data_object.payload.sha256_hash,
-            created_at: data_object.created_at,
-        });
+    for invocation_ctx in invocation_ctxs {
+        invocations.push(invocation_ctx.into());
     }
     Ok(Json(GraphInvocations {
         invocations,
@@ -795,13 +787,7 @@ async fn list_outputs(
         .invocation_ctx(&namespace, &compute_graph, &invocation_id)
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or(IndexifyAPIError::not_found("invocation not found"))?;
-    if !invocation_ctx.completed {
-        return Ok(Json(FnOutputs {
-            status: "pending".to_string(),
-            outputs: vec![],
-            cursor: None,
-        }));
-    }
+
     let (outputs, cursor) = state
         .indexify_state
         .reader()
@@ -814,8 +800,20 @@ async fn list_outputs(
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let outputs = outputs.into_iter().map(Into::into).collect();
+
+    let status = if invocation_ctx.completed {
+        InvocationStatus::Finalized
+    } else if invocation_ctx.outstanding_tasks > 0 {
+        InvocationStatus::Running
+    } else {
+        InvocationStatus::Pending
+    };
+
+    // We return the outputs of finalized and pending invocations to allow getting
+    // partial results.
     Ok(Json(FnOutputs {
-        status: "finalized".to_string(),
+        status,
+        outcome: invocation_ctx.outcome.into(),
         outputs,
         cursor,
     }))
