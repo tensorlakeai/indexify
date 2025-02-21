@@ -4,6 +4,7 @@ use anyhow::Result;
 use data_model::{
     test_objects::tests::{
         self,
+        mock_invocation_ctx,
         mock_invocation_payload,
         mock_invocation_payload_graph_b,
         mock_node_fn_output_fn_a,
@@ -92,10 +93,16 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
         .await
         .unwrap();
     let invocation_payload = mock_invocation_payload();
+    let ctx = mock_invocation_ctx(
+        TEST_NAMESPACE,
+        &tests::mock_graph_a("image_hash".to_string()),
+        &invocation_payload,
+    );
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_A".to_string(),
         invocation_payload: invocation_payload.clone(),
+        ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -122,10 +129,12 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
         .unwrap();
 
     let invocation_payload = mock_invocation_payload_graph_b();
+    let ctx = mock_invocation_ctx(TEST_NAMESPACE, &tests::mock_graph_b(), &invocation_payload);
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_B".to_string(),
         invocation_payload: invocation_payload.clone(),
+        ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -152,10 +161,16 @@ pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
         .unwrap();
 
     let invocation_payload = mock_invocation_payload_graph_b();
+    let ctx = mock_invocation_ctx(
+        TEST_NAMESPACE,
+        &tests::mock_graph_with_reducer(),
+        &invocation_payload,
+    );
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_R".to_string(),
         invocation_payload: invocation_payload.clone(),
+        ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {

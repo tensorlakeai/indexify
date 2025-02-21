@@ -18,6 +18,7 @@ mod tests {
         ComputeGraphCode,
         DataPayload,
         ExecutorId,
+        GraphInvocationCtxBuilder,
         GraphVersion,
         InvocationPayloadBuilder,
         Node,
@@ -521,10 +522,18 @@ mod tests {
         };
 
         {
+            let compute_graph = indexify_state
+                .reader()
+                .get_compute_graph(&graph.namespace, &graph.name)?
+                .unwrap();
+            let ctx = GraphInvocationCtxBuilder::default()
+                .build(compute_graph)
+                .unwrap();
             let request = InvokeComputeGraphRequest {
                 namespace: graph.namespace.clone(),
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
+                ctx,
             };
             indexify_state
                 .write(StateMachineUpdateRequest {
@@ -766,10 +775,18 @@ mod tests {
         };
 
         {
+            let compute_graph = indexify_state
+                .reader()
+                .get_compute_graph(&graph.namespace, &graph.name)?
+                .unwrap();
+            let ctx = GraphInvocationCtxBuilder::default()
+                .build(compute_graph)
+                .unwrap();
             let request = InvokeComputeGraphRequest {
                 namespace: graph.namespace.clone(),
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
+                ctx,
             };
             indexify_state
                 .write(StateMachineUpdateRequest {
@@ -1077,10 +1094,18 @@ mod tests {
         };
 
         {
+            let compute_graph = indexify_state
+                .reader()
+                .get_compute_graph(&graph.namespace, &graph.name)?
+                .unwrap();
+            let ctx = GraphInvocationCtxBuilder::default()
+                .build(compute_graph)
+                .unwrap();
             let request = InvokeComputeGraphRequest {
                 namespace: graph.namespace.clone(),
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
+                ctx,
             };
             indexify_state
                 .write(StateMachineUpdateRequest {
@@ -1339,10 +1364,18 @@ mod tests {
         };
 
         {
+            let compute_graph = indexify_state
+                .reader()
+                .get_compute_graph(&graph.namespace, &graph.name)?
+                .unwrap();
+            let ctx = GraphInvocationCtxBuilder::default()
+                .build(compute_graph)
+                .unwrap();
             let request = InvokeComputeGraphRequest {
                 namespace: graph.namespace.clone(),
                 compute_graph_name: graph.name.clone(),
                 invocation_payload: invocation_payload.clone(),
+                ctx,
             };
             indexify_state
                 .write(StateMachineUpdateRequest {

@@ -7,7 +7,6 @@ use data_model::{
     ComputeGraphVersion,
     ExecutorId,
     GraphInvocationCtx,
-    GraphInvocationCtxBuilder,
     GraphInvocationOutcome,
     InvocationPayload,
     Namespace,
@@ -137,19 +136,10 @@ pub fn create_invocation(
         req.invocation_payload.key(),
         &serialized_data_object,
     )?;
-
-    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
-        .namespace(req.namespace.to_string())
-        .compute_graph_name(req.compute_graph_name.to_string())
-        .graph_version(cg.version.clone())
-        .invocation_id(req.invocation_payload.id.clone())
-        .fn_task_analytics(HashMap::new())
-        .created_at(req.invocation_payload.created_at)
-        .build(cg)?;
     txn.put_cf(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        graph_invocation_ctx.key(),
-        &JsonEncoder::encode(&graph_invocation_ctx)?,
+        req.ctx.key(),
+        &JsonEncoder::encode(&req.ctx)?,
     )?;
     Ok(())
 }

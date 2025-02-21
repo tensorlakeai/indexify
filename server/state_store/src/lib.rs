@@ -520,8 +520,10 @@ mod tests {
             TEST_NAMESPACE,
         },
         ComputeGraph,
+        GraphInvocationCtxBuilder,
         GraphVersion,
         Namespace,
+        StateChangeId,
     };
     use requests::{
         CreateOrUpdateComputeGraphRequest,
@@ -626,6 +628,8 @@ mod tests {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
                 invocation_payload: mock_invocation_payload(),
+                ctx: GraphInvocationCtxBuilder::default()
+                    .build(tests::mock_graph_a("image_hash".to_string()))?,
             },
         )
         .unwrap();
@@ -648,6 +652,8 @@ mod tests {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
                 invocation_payload: mock_invocation_payload(),
+                ctx: GraphInvocationCtxBuilder::default()
+                    .build(tests::mock_graph_a("image_hash".to_string()))?,
             },
         )
         .unwrap();

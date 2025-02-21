@@ -2,6 +2,7 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
+    GraphInvocationCtx,
     InvocationPayload,
     NodeOutput,
     ReduceTask,
@@ -72,6 +73,7 @@ pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub invocation_payload: InvocationPayload,
+    pub ctx: GraphInvocationCtx,
 }
 
 #[derive(Debug, Clone)]

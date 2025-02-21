@@ -17,6 +17,9 @@ pub mod tests {
         DynamicEdgeRouter,
         ExecutorId,
         ExecutorMetadata,
+        GraphInvocationCtx,
+        GraphInvocationCtxBuilder,
+        GraphVersion,
         ImageInformation,
         InvocationPayload,
         InvocationPayloadBuilder,
@@ -129,6 +132,22 @@ pub mod tests {
             })
             .encoding("application/octet-stream".to_string())
             .build()
+            .unwrap()
+    }
+
+    pub fn mock_invocation_ctx(
+        namespace: &str,
+        compute_graph: &ComputeGraph,
+        invocation_payload: &InvocationPayload,
+    ) -> GraphInvocationCtx {
+        GraphInvocationCtxBuilder::default()
+            .namespace(namespace.to_string())
+            .compute_graph_name(compute_graph.name.clone())
+            .graph_version(GraphVersion::default())
+            .invocation_id(invocation_payload.id.clone())
+            .fn_task_analytics(HashMap::new())
+            .created_at(invocation_payload.created_at)
+            .build(compute_graph.clone())
             .unwrap()
     }
 
