@@ -24,7 +24,6 @@ mod http_objects;
 mod integration_test;
 mod routes;
 mod service;
-mod system_task_test;
 #[cfg(test)]
 mod testing;
 
