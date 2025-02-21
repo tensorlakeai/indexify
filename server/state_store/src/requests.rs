@@ -2,6 +2,7 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
+    GraphInvocationCtx,
     InvocationPayload,
     NodeOutput,
     ReduceTask,
@@ -20,8 +21,7 @@ pub struct StateMachineUpdateRequest {
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
-    IngestTaskOuputs(IngestTaskOutputsRequest),
-    FinalizeTask(FinalizeTaskRequest),
+    IngestTaskOutputs(IngestTaskOutputsRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
@@ -48,7 +48,7 @@ pub struct IngestTaskOutputsRequest {
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
-    pub task_id: TaskId,
+    pub task: Task,
     pub node_outputs: Vec<NodeOutput>,
     pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
@@ -65,6 +65,7 @@ pub struct FinalizeTaskRequest {
     pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
     pub executor_id: ExecutorId,
+    pub invocation_ctx: GraphInvocationCtx,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,7 @@ pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub invocation_payload: InvocationPayload,
+    pub ctx: GraphInvocationCtx,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +129,7 @@ pub struct NamespaceProcessorUpdateRequest {
     pub compute_graph: String,
     pub invocation_id: String,
     pub task_requests: Vec<Task>,
+    pub invocation_ctx: Option<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
 }
 

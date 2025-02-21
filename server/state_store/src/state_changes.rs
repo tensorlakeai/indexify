@@ -13,7 +13,6 @@ use data_model::{
     StateChangeBuilder,
     StateChangeId,
     TaskCreatedEvent,
-    TaskFinalizedEvent,
     TaskOutputsIngestedEvent,
     TombstoneComputeGraphEvent,
     TombstoneInvocationEvent,
@@ -24,7 +23,6 @@ use crate::requests::{
     DeleteComputeGraphRequest,
     DeleteInvocationRequest,
     DeregisterExecutorRequest,
-    FinalizeTaskRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
     MutateClusterTopologyRequest,
@@ -113,37 +111,11 @@ pub fn task_outputs_ingested(
             compute_graph: request.compute_graph.clone(),
             compute_fn: request.compute_fn.clone(),
             invocation_id: request.invocation_id.clone(),
-            task_id: request.task_id.clone(),
-            outcome: request.task_outcome.clone(),
-            diagnostic: request.diagnostics.clone(),
+            task_id: request.task.id.clone(),
             executor_id: request.executor_id.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
-        .object_id(request.task_id.clone().to_string())
-        .id(StateChangeId::new(last_change_id))
-        .processed_at(None)
-        .build()?;
-    Ok(vec![state_change])
-}
-
-pub fn finalized_task(
-    last_change_id: &AtomicU64,
-    request: &FinalizeTaskRequest,
-) -> Result<Vec<StateChange>> {
-    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-    let state_change = StateChangeBuilder::default()
-        .namespace(Some(request.namespace.clone()))
-        .compute_graph(Some(request.compute_graph.clone()))
-        .invocation(Some(request.invocation_id.clone()))
-        .change_type(ChangeType::TaskFinalized(TaskFinalizedEvent {
-            namespace: request.namespace.clone(),
-            compute_graph: request.compute_graph.clone(),
-            compute_fn: request.compute_fn.clone(),
-            invocation_id: request.invocation_id.clone(),
-            task_id: request.task_id.clone(),
-        }))
-        .created_at(get_epoch_time_in_ms())
-        .object_id(request.task_id.clone().to_string())
+        .object_id(request.task.id.clone().to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;

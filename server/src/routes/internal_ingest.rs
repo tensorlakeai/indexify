@@ -10,12 +10,11 @@ use data_model::{
     NodeOutputBuilder,
     OutputPayload,
     TaskDiagnostics,
-    TaskId,
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use state_store::requests::{IngestTaskOutputsRequest, RequestPayload, StateMachineUpdateRequest};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 use utoipa::ToSchema;
 
 use super::RouteState;
@@ -224,12 +223,34 @@ pub async fn ingest_files_from_executor(
         node_outputs.push(node_output);
     }
 
-    let request = RequestPayload::IngestTaskOuputs(IngestTaskOutputsRequest {
+    let task = state
+        .indexify_state
+        .reader()
+        .get_task(
+            &task_result.namespace,
+            &task_result.compute_graph,
+            &task_result.invocation_id,
+            &task_result.compute_fn,
+            &task_result.task_id,
+        )
+        .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get task: {}", e)))?;
+    if task.is_none() {
+        warn!(
+            "task not found in state store, task_id = {}",
+            task_result.task_id
+        );
+        return Ok(());
+    }
+    let mut task = task.unwrap();
+    task.outcome = task_result.outcome.clone().into();
+    task.diagnostics = Some(task_diagnostic.clone());
+
+    let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
         namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
         compute_fn: task_result.compute_fn.to_string(),
         invocation_id: task_result.invocation_id.to_string(),
-        task_id: TaskId::new(task_result.task_id.to_string()),
+        task: task.clone(),
         node_outputs,
         task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),

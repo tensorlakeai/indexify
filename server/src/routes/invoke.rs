@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -9,7 +9,7 @@ use axum::{
     Json,
 };
 use blob_store::PutResult;
-use data_model::InvocationPayloadBuilder;
+use data_model::{GraphInvocationCtxBuilder, InvocationPayloadBuilder};
 use futures::{stream, Stream, StreamExt};
 use state_store::{
     invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent},
@@ -211,10 +211,30 @@ pub async fn invoke_with_file(
         })?;
 
     let id = invocation_payload.id.clone();
+    let compute_graph = state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&namespace, &compute_graph)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {}", e))
+        })?
+        .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
+    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        .namespace(namespace.to_string())
+        .compute_graph_name(compute_graph.name.to_string())
+        .graph_version(compute_graph.version.clone())
+        .invocation_id(invocation_payload.id.clone())
+        .fn_task_analytics(HashMap::new())
+        .created_at(invocation_payload.created_at)
+        .build(compute_graph.clone())
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
-        compute_graph_name: compute_graph.clone(),
+        compute_graph_name: compute_graph.name.clone(),
         invocation_payload,
+        ctx: graph_invocation_ctx,
     });
     let sm_req = StateMachineUpdateRequest {
         payload: request,
@@ -288,11 +308,30 @@ pub async fn invoke_with_object(
     if should_block {
         rx.replace(state.indexify_state.task_event_stream());
     }
-
+    let compute_graph = state
+        .indexify_state
+        .reader()
+        .get_compute_graph(&namespace, &compute_graph)
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get compute graph: {}", e))
+        })?
+        .ok_or(IndexifyAPIError::not_found("compute graph not found"))?;
+    let graph_invocation_ctx = GraphInvocationCtxBuilder::default()
+        .namespace(namespace.to_string())
+        .compute_graph_name(compute_graph.name.to_string())
+        .graph_version(compute_graph.version.clone())
+        .invocation_id(invocation_payload.id.clone())
+        .fn_task_analytics(HashMap::new())
+        .created_at(invocation_payload.created_at)
+        .build(compute_graph.clone())
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
+        })?;
     let request = RequestPayload::InvokeComputeGraph(InvokeComputeGraphRequest {
         namespace: namespace.clone(),
-        compute_graph_name: compute_graph.clone(),
+        compute_graph_name: compute_graph.name.clone(),
         invocation_payload,
+        ctx: graph_invocation_ctx,
     });
     state
         .indexify_state
@@ -306,7 +345,7 @@ pub async fn invoke_with_object(
         })?;
 
     let invocation_event_stream =
-        create_invocation_event_stream(id, rx, state, namespace, compute_graph).await;
+        create_invocation_event_stream(id, rx, state, namespace, compute_graph.name).await;
     Ok(
         axum::response::Sse::new(invocation_event_stream).keep_alive(
             axum::response::sse::KeepAlive::new()

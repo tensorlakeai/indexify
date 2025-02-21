@@ -4,6 +4,7 @@ use anyhow::Result;
 use data_model::{
     test_objects::tests::{
         self,
+        mock_invocation_ctx,
         mock_invocation_payload,
         mock_invocation_payload_graph_b,
         mock_node_fn_output_fn_a,
@@ -14,7 +15,6 @@ use data_model::{
     ExecutorId,
     NodeOutput,
     Task,
-    TaskId,
     TaskOutcome,
 };
 
@@ -69,12 +69,12 @@ impl TestStateStore {
         .await
     }
 
-    pub async fn finalize_task_graph_b(&self, invocation_id: &str, task_id: &TaskId) -> Result<()> {
-        finalize_task_graph_b(&self.indexify_state, invocation_id, task_id).await
+    pub async fn finalize_task_graph_b(&self, invocation_id: &str, task: &Task) -> Result<()> {
+        finalize_task_graph_b(&self.indexify_state, invocation_id, task).await
     }
 
-    pub async fn finalize_router_x(&self, invocation_id: &str, task_id: &TaskId) -> Result<()> {
-        finalize_router_x(&self.indexify_state, invocation_id, task_id).await
+    pub async fn finalize_router_x(&self, invocation_id: &str, task: &Task) -> Result<()> {
+        finalize_router_x(&self.indexify_state, invocation_id, task).await
     }
 }
 
@@ -92,10 +92,16 @@ pub async fn with_simple_graph(indexify_state: &IndexifyState) -> String {
         .await
         .unwrap();
     let invocation_payload = mock_invocation_payload();
+    let ctx = mock_invocation_ctx(
+        TEST_NAMESPACE,
+        &tests::mock_graph_a("image_hash".to_string()),
+        &invocation_payload,
+    );
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_A".to_string(),
         invocation_payload: invocation_payload.clone(),
+        ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -122,10 +128,12 @@ pub async fn with_router_graph(indexify_state: &IndexifyState) -> String {
         .unwrap();
 
     let invocation_payload = mock_invocation_payload_graph_b();
+    let ctx = mock_invocation_ctx(TEST_NAMESPACE, &tests::mock_graph_b(), &invocation_payload);
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_B".to_string(),
         invocation_payload: invocation_payload.clone(),
+        ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -152,10 +160,16 @@ pub async fn with_reducer_graph(indexify_state: &IndexifyState) -> String {
         .unwrap();
 
     let invocation_payload = mock_invocation_payload_graph_b();
+    let ctx = mock_invocation_ctx(
+        TEST_NAMESPACE,
+        &tests::mock_graph_with_reducer(),
+        &invocation_payload,
+    );
     let request = InvokeComputeGraphRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph_name: "graph_R".to_string(),
         invocation_payload: invocation_payload.clone(),
+        ctx,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -193,7 +207,7 @@ pub async fn finalize_task(
         compute_graph: task.compute_graph_name.to_string(),
         compute_fn: task.compute_fn_name.to_string(),
         invocation_id: task.invocation_id.to_string(),
-        task_id: task.id.clone(),
+        task: task.clone(),
         task_outcome,
         node_outputs,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
@@ -202,7 +216,7 @@ pub async fn finalize_task(
 
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::IngestTaskOuputs(request),
+            payload: RequestPayload::IngestTaskOutputs(request),
             processed_state_changes: vec![],
         })
         .await
@@ -211,14 +225,14 @@ pub async fn finalize_task(
 pub async fn finalize_task_graph_b(
     indexify_state: &IndexifyState,
     invocation_id: &str,
-    task_id: &TaskId,
+    task: &Task,
 ) -> Result<()> {
     let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
         compute_fn: "fn_a".to_string(),
         invocation_id: invocation_id.to_string(),
-        task_id: task_id.clone(),
+        task: task.clone(),
         node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_B", None)],
         task_outcome: TaskOutcome::Success,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
@@ -226,7 +240,7 @@ pub async fn finalize_task_graph_b(
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::IngestTaskOuputs(request),
+            payload: RequestPayload::IngestTaskOutputs(request),
             processed_state_changes: vec![],
         })
         .await
@@ -235,14 +249,14 @@ pub async fn finalize_task_graph_b(
 pub async fn finalize_router_x(
     indexify_state: &IndexifyState,
     invocation_id: &str,
-    task_id: &TaskId,
+    task: &Task,
 ) -> Result<()> {
     let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
         compute_fn: "router_x".to_string(),
         invocation_id: invocation_id.to_string(),
-        task_id: task_id.clone(),
+        task: task.clone(),
         node_outputs: vec![mock_node_router_output_x(&invocation_id, "graph_B")],
         task_outcome: TaskOutcome::Success,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
@@ -250,7 +264,7 @@ pub async fn finalize_router_x(
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::IngestTaskOuputs(request),
+            payload: RequestPayload::IngestTaskOutputs(request),
             processed_state_changes: vec![],
         })
         .await

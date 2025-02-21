@@ -195,31 +195,18 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::IngestTaskOuputs(task_outputs) => {
+            RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),
                     &txn,
                     task_outputs.clone(),
                 )?;
                 if ingested {
-                    state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
-                } else {
-                    vec![]
-                }
-            }
-            RequestPayload::FinalizeTask(finalize_task) => {
-                let finalized = state_machine::mark_task_finalized(
-                    self.db.clone(),
-                    &txn,
-                    finalize_task.clone(),
-                    self.metrics.clone(),
-                )?;
-                if finalized {
                     tasks_finalized
-                        .entry(finalize_task.executor_id.clone())
+                        .entry(task_outputs.executor_id.clone())
                         .or_default()
-                        .push(finalize_task.task_id.clone());
-                    state_changes::finalized_task(&self.last_state_change_id, &finalize_task)?
+                        .push(task_outputs.task.id.clone());
+                    state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
                 } else {
                     vec![]
                 }
@@ -264,15 +251,9 @@ impl IndexifyState {
                         &self.last_state_change_id,
                         &request,
                     )?;
-                if let Some(completion) = state_machine::create_tasks(
-                    self.db.clone(),
-                    &txn,
-                    &request.task_requests.clone(),
-                    self.metrics.clone().clone(),
-                    &request.namespace,
-                    &request.compute_graph,
-                    &request.invocation_id,
-                )? {
+                if let Some(completion) =
+                    state_machine::create_tasks(self.db.clone(), &txn, &request)?
+                {
                     let _ =
                         self.task_event_tx
                             .send(InvocationStateChangeEvent::InvocationFinished(
@@ -286,11 +267,6 @@ impl IndexifyState {
                         let _ = self.system_tasks_tx.send(());
                     }
                 };
-                state_machine::processed_reduction_tasks(
-                    self.db.clone(),
-                    &txn,
-                    &request.reduction_tasks,
-                )?;
                 new_state_changes
             }
             RequestPayload::TaskAllocationProcessorUpdate(request) => {
@@ -409,7 +385,7 @@ impl IndexifyState {
             return;
         }
         match &update_request.payload {
-            RequestPayload::IngestTaskOuputs(task_finished_event) => {
+            RequestPayload::IngestTaskOutputs(task_finished_event) => {
                 let ev =
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 let _ = self.task_event_tx.send(ev);
@@ -520,8 +496,10 @@ mod tests {
             TEST_NAMESPACE,
         },
         ComputeGraph,
+        GraphInvocationCtxBuilder,
         GraphVersion,
         Namespace,
+        StateChangeId,
     };
     use requests::{
         CreateOrUpdateComputeGraphRequest,
@@ -620,12 +598,19 @@ mod tests {
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
         let tx = indexify_state.db.transaction();
+        let ctx = GraphInvocationCtxBuilder::default()
+            .namespace("namespace1".to_string())
+            .compute_graph_name("cg1".to_string())
+            .invocation_id("foo1".to_string())
+            .graph_version(GraphVersion("1".to_string()))
+            .build(tests::mock_graph_a("image_hash".to_string()))?;
         let state_change_1 = state_changes::invoke_compute_graph(
             &indexify_state.last_state_change_id,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
                 invocation_payload: mock_invocation_payload(),
+                ctx: ctx.clone(),
             },
         )
         .unwrap();
@@ -648,6 +633,7 @@ mod tests {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
                 invocation_payload: mock_invocation_payload(),
+                ctx: ctx.clone(),
             },
         )
         .unwrap();

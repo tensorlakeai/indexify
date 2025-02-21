@@ -20,7 +20,7 @@ impl InvocationStateChangeEvent {
         Self::TaskCompleted(TaskCompleted {
             invocation_id: event.invocation_id,
             fn_name: event.compute_fn,
-            task_id: event.task_id.to_string(),
+            task_id: event.task.id.to_string(),
             outcome: event.task_outcome,
         })
     }

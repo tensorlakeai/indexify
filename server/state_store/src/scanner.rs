@@ -17,7 +17,7 @@ use data_model::{
     SystemTask,
     Task,
     TaskAnalytics,
-    TaskFinalizedEvent,
+    TaskOutputsIngestedEvent,
     UnprocessedStateChanges,
 };
 use metrics::Timer;
@@ -609,7 +609,10 @@ impl StateReader {
         )
     }
 
-    pub fn get_task_from_finished_event(&self, req: &TaskFinalizedEvent) -> Result<Option<Task>> {
+    pub fn get_task_from_finished_event(
+        &self,
+        req: &TaskOutputsIngestedEvent,
+    ) -> Result<Option<Task>> {
         return self.get_task(
             &req.namespace,
             &req.compute_graph,
