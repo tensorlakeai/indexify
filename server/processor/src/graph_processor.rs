@@ -169,7 +169,13 @@ impl GraphProcessor {
         info!("processing state change: {}", state_change.change_type);
         match &state_change.change_type {
             ChangeType::InvokeComputeGraph(event) => {
-                info!("invoking compute graph: {:?}", event);
+                info!(
+                    namespace = event.namespace,
+                    graph = event.compute_graph,
+                    invocation_id = event.invocation_id,
+                    "invoking compute graph: {:?}",
+                    event
+                );
                 let task_creation_result = self
                     .task_creator
                     .handle_invoke_compute_graph(event.clone())
@@ -243,7 +249,10 @@ impl GraphProcessor {
                 }
             }
             ChangeType::TombStoneExecutor(event) => {
-                info!("tombstone executor {:?}", event);
+                info!(
+                    executor_id = event.executor_id.to_string(),
+                    "tombstone executor {:?}", event
+                );
                 Ok(StateMachineUpdateRequest {
                     payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
                         executor_removed: event.executor_id.clone(),

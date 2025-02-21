@@ -56,7 +56,11 @@ async fn create_invocation_event_stream(
                 }
             }
             Ok(None) => {
-                info!("invocation not found, stopping stream");
+                info!(
+                    namespace = namespace,
+                    compute_graph = compute_graph,
+                    invocation_id=id,
+                    "invocation not found, stopping stream");
                 return;
             }
             Err(e) => {
@@ -79,7 +83,11 @@ async fn create_invocation_event_stream(
                         }
                     }
                     Err(RecvError::Lagged(num)) => {
-                        warn!("lagging behind task event stream by {} events", num);
+                        warn!(
+                            namespace = namespace,
+                            compute_graph = compute_graph,
+                            invocation_id=id,
+                            "lagging behind task event stream by {} events", num);
 
                         // Check if completion happened during lag
                         match state
@@ -100,11 +108,19 @@ async fn create_invocation_event_stream(
                                 }
                             }
                             Ok(None) => {
-                                error!("invocation not found");
+                                error!(
+                                    namespace = namespace,
+                                    compute_graph = compute_graph,
+                                    invocation_id=id,
+                                    "invocation not found");
                                 return;
                             }
                             Err(e) => {
-                                error!("failed to get invocation context: {:?}", e);
+                                error!(
+                                    namespace = namespace,
+                                    compute_graph = compute_graph,
+                                    invocation_id=id,
+                                    "failed to get invocation context: {:?}", e);
                                 return;
                             }
                         }
@@ -153,10 +169,20 @@ pub async fn invoke_with_file(
         if let Some(name) = field.name() {
             if name == "file" {
                 let name = Uuid::new_v4().to_string();
-                info!("writing to blob store, file name = {:?}", name);
+                info!(
+                    namespace = namespace,
+                    graph = compute_graph,
+                    "writing to blob store, file name = {:?}",
+                    name
+                );
                 let stream = field.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
                 let res = state.blob_storage.put(&name, stream).await.map_err(|e| {
-                    error!("failed to write to blob store: {:?}", e);
+                    error!(
+                        namespace = namespace,
+                        graph = compute_graph,
+                        "failed to write to blob store: {:?}",
+                        e
+                    );
                     IndexifyAPIError::internal_error(anyhow!(
                         "failed to write to blob store: {}",
                         e

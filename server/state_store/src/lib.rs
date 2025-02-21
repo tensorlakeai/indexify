@@ -324,7 +324,10 @@ impl IndexifyState {
                     }
                 };
                 if removed {
-                    info!("de-registering executor: {}", request.executor_id);
+                    info!(
+                        executor_id = request.executor_id.to_string(),
+                        "de-registering executor: {}", request.executor_id
+                    );
                     new_state_changes
                 } else {
                     vec![]
