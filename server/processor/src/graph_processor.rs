@@ -304,7 +304,7 @@ fn task_placement_result_to_sm_update(
     StateMachineUpdateRequest {
         payload: RequestPayload::TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest {
             allocations: task_placement_result.task_placements,
-            unplaced_task_keys: task_placement_result.unplaced_task_keys,
+            unplaced_tasks: task_placement_result.unplaced_tasks,
             placement_diagnostics: task_placement_result.placement_diagnostics,
         }),
         processed_state_changes: vec![state_change.clone()],

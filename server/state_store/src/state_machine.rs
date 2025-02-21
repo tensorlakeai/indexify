@@ -899,12 +899,6 @@ pub(crate) fn create_tasks(
     if graph_ctx.outstanding_tasks == 0 {
         Ok(Some(mark_invocation_finished(db, txn, graph_ctx)?))
     } else {
-        let serialized_graphctx = JsonEncoder::encode(&graph_ctx)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-            &ctx_key,
-            serialized_graphctx,
-        )?;
         Ok(None)
     }
 }
@@ -928,17 +922,11 @@ pub fn handle_task_allocation_update(
             allocation_key,
         );
 
-        if task_placement.task.status == TaskStatus::Pending {
-            do_cf_update::<Task>(
-                txn,
-                task.key().as_str(),
-                &IndexifyObjectsColumns::Tasks.cf_db(&db),
-                |task| {
-                    task.status = TaskStatus::Running;
-                },
-                false,
-            )?
-        }
+        txn.put_cf(
+            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            task.key().as_str(),
+            &JsonEncoder::encode(&task)?,
+        )?;
 
         txn.put_cf(
             &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
@@ -961,11 +949,19 @@ pub fn handle_task_allocation_update(
             task_placement.executor.get(),
         );
     }
-    for unplaced_task_key in &request.unplaced_task_keys {
-        info!("unallocated task: adding task key: {}", unplaced_task_key);
+    for unplaced_task in &request.unplaced_tasks {
+        let task_key = unplaced_task.key();
+        info!("unallocated task: {}", task_key);
+
+        txn.put_cf(
+            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            &task_key,
+            &JsonEncoder::encode(&unplaced_task)?,
+        )?;
+
         txn.put_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            unplaced_task_key.as_bytes(),
+            task_key,
             &[],
         )?;
     }

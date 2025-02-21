@@ -761,8 +761,8 @@ pub enum TaskStatus {
     Completed,
 }
 
-impl TaskStatus {
-    pub fn completed() -> Self {
+impl Default for TaskStatus {
+    fn default() -> Self {
         Self::Completed
     }
 }
@@ -778,7 +778,7 @@ pub struct Task {
     pub input_node_output_key: String,
     #[serde(default = "TaskOutputsIngestionStatus::pending")]
     pub output_status: TaskOutputsIngestionStatus,
-    #[serde(default = "TaskStatus::completed")]
+    #[serde(default)]
     pub status: TaskStatus,
     pub outcome: TaskOutcome,
     #[serde(default = "default_creation_time")]
