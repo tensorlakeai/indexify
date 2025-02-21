@@ -33,14 +33,7 @@ use tracing::{debug, error, info, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    DeleteInvocationRequest,
-    IngestTaskOutputsRequest,
-    InvokeComputeGraphRequest,
-    NamespaceProcessorUpdateRequest,
-    NamespaceRequest,
-    ReductionTasks,
-    RegisterExecutorRequest,
-    TaskAllocationUpdateRequest,
+    DeleteInvocationRequest, IngestTaskOutputsRequest, InvokeComputeGraphRequest, NamespaceProcessorUpdateRequest, NamespaceRequest, ReductionTasks, RegisterExecutorRequest, TaskAllocationUpdateRequest
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -609,11 +602,9 @@ pub(crate) fn create_tasks(
             invocation_ctx.key(),
             &serialized_graphctx,
         )?;
-        return Ok(Some(mark_invocation_finished(
-            db,
-            txn,
-            invocation_ctx.clone(),
-        )?));
+        if invocation_ctx.completed {
+            return Ok(Some(InvocationCompletion::User));
+        }
     }
     Ok(None)
 }
@@ -769,6 +760,12 @@ pub fn ingest_task_outputs(
         task_bytes,
     )?;
 
+
+    txn.delete_cf(
+        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+        task.make_allocation_key(&req.executor_id),
+    )?;
+
     Ok(true)
 }
 
@@ -806,27 +803,6 @@ pub(crate) fn mark_state_changes_processed(
         )?;
     }
     Ok(())
-}
-
-// Returns true if the invocation was a system task
-fn mark_invocation_finished(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    mut graph_ctx: GraphInvocationCtx,
-) -> Result<InvocationCompletion> {
-    info!(
-        "Marking invocation finished: {} {} {}",
-        graph_ctx.namespace, graph_ctx.compute_graph_name, graph_ctx.invocation_id,
-    );
-    graph_ctx.completed = true;
-    let serialized_graph_ctx = JsonEncoder::encode(&graph_ctx)?;
-    let key = graph_ctx.key();
-    txn.put_cf(
-        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        key,
-        serialized_graph_ctx,
-    )?;
-    Ok(InvocationCompletion::User)
 }
 
 pub(crate) fn register_executor(

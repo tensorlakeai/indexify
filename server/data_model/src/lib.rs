@@ -16,6 +16,7 @@ use filter::LabelsFilter;
 use indexify_utils::{default_creation_time, get_epoch_time_in_ms};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tracing::warn;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateMachineMetadata {
@@ -644,27 +645,28 @@ impl GraphInvocationCtx {
             self.fn_task_analytics
                 .entry(fn_name.clone())
                 .or_insert_with(|| {
-                    let mut analytics = TaskAnalytics::default();
-                    analytics.pending();
-                    analytics
-                });
+                    TaskAnalytics::default()
+                }).pending();
         }
         self.outstanding_tasks += tasks.len() as u64;
     }
 
-    pub fn complete_task(&mut self, task: &Task, terminate_invocation: bool) {
-        if terminate_invocation {
-            self.completed = true;
-        }
+    pub fn update_analytics(&mut self, task: &Task) {
         let fn_name = task.compute_fn_name.clone();
         if let Some(analytics) = self.fn_task_analytics.get_mut(&fn_name) {
             match task.outcome {
-                TaskOutcome::Success => analytics.successful_tasks += 1,
-                TaskOutcome::Failure => analytics.failed_tasks += 1,
-                TaskOutcome::Unknown => analytics.pending_tasks += 1,
+                TaskOutcome::Success => analytics.success(),
+                TaskOutcome::Failure => analytics.fail(),
+                _ => {
+                    warn!("Task outcome shouldn't be unknown: {:?}", task)
+                }
             }
         }
         self.outstanding_tasks -= 1;
+    }
+
+    pub fn complete_invocation(&mut self) {
+        self.completed = true;
     }
 
     pub fn key(&self) -> String {

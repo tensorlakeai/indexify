@@ -237,10 +237,11 @@ impl TaskCreator {
         ))?;
 
         trace!("invocation context: {:?}", invocation_ctx);
+        invocation_ctx.update_analytics(&task);
 
         if task.outcome == TaskOutcome::Failure {
             trace!("task failed, stopping scheduling of child tasks");
-            invocation_ctx.complete_task(&task, true);
+            invocation_ctx.complete_invocation();
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -285,7 +286,6 @@ impl TaskCreator {
                     task_keys = ?new_tasks.iter().map(|t| t.key()).collect::<Vec<String>>(),
                     "Creating a router edge task",
                 );
-                invocation_ctx.outstanding_tasks += new_tasks.len() as u64;
                 invocation_ctx.create_tasks(&new_tasks);
 
                 return Ok(TaskCreationResult {
@@ -322,7 +322,7 @@ impl TaskCreator {
                                 &task.namespace,
                                 &task.compute_graph_name,
                                 &task.invocation_id,
-                                None,
+                                Some(invocation_ctx),
                             ));
                         }
                     }
@@ -392,7 +392,7 @@ impl TaskCreator {
                             &task.namespace,
                             &task.compute_graph_name,
                             &task.invocation_id,
-                            None,
+                            Some(invocation_ctx),
                         ));
                     }
                 }
@@ -407,11 +407,12 @@ impl TaskCreator {
             trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
+            invocation_ctx.complete_invocation();
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
                 &task.invocation_id,
-                None,
+                Some(invocation_ctx),
             ));
         }
 
@@ -478,6 +479,7 @@ impl TaskCreator {
                             compute_fn_name = compute_node.name(),
                             "Found previously failed reducer task, stopping reducers",
                         );
+                        invocation_ctx.complete_invocation();
                         return Ok(TaskCreationResult::no_tasks(
                             &task.namespace,
                             &task.compute_graph_name,
