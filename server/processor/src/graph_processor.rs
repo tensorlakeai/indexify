@@ -6,7 +6,6 @@ use state_store::{
     requests::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
-        FinalizeTaskRequest,
         MutateClusterTopologyRequest,
         NamespaceProcessorUpdateRequest,
         ReductionTasks,
@@ -183,20 +182,7 @@ impl GraphProcessor {
                     &state_change,
                 ))
             }
-            ChangeType::TaskOutputsIngested(event) => Ok(StateMachineUpdateRequest {
-                payload: RequestPayload::FinalizeTask(FinalizeTaskRequest {
-                    namespace: event.namespace.clone(),
-                    compute_graph: event.compute_graph.clone(),
-                    compute_fn: event.compute_fn.clone(),
-                    invocation_id: event.invocation_id.clone(),
-                    task_id: event.task_id.clone(),
-                    task_outcome: event.outcome.clone(),
-                    executor_id: event.executor_id.clone(),
-                    diagnostics: event.diagnostic.clone(),
-                }),
-                processed_state_changes: vec![state_change.clone()],
-            }),
-            ChangeType::TaskFinalized(event) => {
+            ChangeType::TaskOutputsIngested(event) => {
                 let task_creation_result = self
                     .task_creator
                     .handle_task_finished_inner(self.indexify_state.clone(), event)
@@ -287,6 +273,7 @@ fn task_creation_result_to_sm_update(
             namespace: ns.to_string(),
             compute_graph: compute_graph.to_string(),
             invocation_id: invocation_id.to_string(),
+            invocation_ctx: task_creation_result.invocation_ctx,
             task_requests: task_creation_result.tasks,
             reduction_tasks: ReductionTasks {
                 new_reduction_tasks: task_creation_result.new_reduction_tasks,

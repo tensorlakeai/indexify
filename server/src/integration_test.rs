@@ -563,7 +563,7 @@ mod tests {
             let request = make_finalize_request("fn_gen", &task.id, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -579,7 +579,7 @@ mod tests {
                 let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
                 indexify_state
                     .write(StateMachineUpdateRequest {
-                        payload: RequestPayload::IngestTaskOuputs(request),
+                        payload: RequestPayload::IngestTaskOutputs(request),
                         processed_state_changes: vec![],
                     })
                     .await?;
@@ -596,7 +596,7 @@ mod tests {
             let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -611,7 +611,7 @@ mod tests {
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -816,7 +816,7 @@ mod tests {
             let request = make_finalize_request("fn_gen", &task.id, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -831,7 +831,7 @@ mod tests {
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -868,7 +868,7 @@ mod tests {
             let request = make_finalize_request("fn_reduce", &reduce_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -884,7 +884,7 @@ mod tests {
                 let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
                 indexify_state
                     .write(StateMachineUpdateRequest {
-                        payload: RequestPayload::IngestTaskOuputs(request),
+                        payload: RequestPayload::IngestTaskOutputs(request),
                         processed_state_changes: vec![],
                     })
                     .await?;
@@ -902,7 +902,7 @@ mod tests {
             let request = make_finalize_request("fn_reduce", &pending_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -917,7 +917,7 @@ mod tests {
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -931,7 +931,7 @@ mod tests {
             let request = make_finalize_request("fn_convert", &pending_task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1135,7 +1135,7 @@ mod tests {
             let request = make_finalize_request("fn_gen", &task.id, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1150,7 +1150,7 @@ mod tests {
             let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1197,7 +1197,7 @@ mod tests {
             };
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1213,7 +1213,7 @@ mod tests {
                 let request = make_finalize_request(&task.compute_fn_name, &task.id, 1);
                 indexify_state
                     .write(StateMachineUpdateRequest {
-                        payload: RequestPayload::IngestTaskOuputs(request),
+                        payload: RequestPayload::IngestTaskOutputs(request),
                         processed_state_changes: vec![],
                     })
                     .await?;
@@ -1405,7 +1405,7 @@ mod tests {
             let request = make_finalize_request("fn_gen", &task.id, 3);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1420,7 +1420,7 @@ mod tests {
                 make_finalize_request(&pending_tasks[0].compute_fn_name, &pending_tasks[0].id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1439,7 +1439,7 @@ mod tests {
             };
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1448,7 +1448,7 @@ mod tests {
                 make_finalize_request(&pending_tasks[2].compute_fn_name, &pending_tasks[2].id, 1);
             indexify_state
                 .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::IngestTaskOuputs(request),
+                    payload: RequestPayload::IngestTaskOutputs(request),
                     processed_state_changes: vec![],
                 })
                 .await?;
@@ -1547,7 +1547,7 @@ mod tests {
         indexify_state
             .write(StateMachineUpdateRequest {
                 processed_state_changes: vec![],
-                payload: RequestPayload::IngestTaskOuputs(IngestTaskOutputsRequest {
+                payload: RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                     namespace: TEST_NAMESPACE.to_string(),
                     compute_graph: "graph_A".to_string(),
                     compute_fn: "fn_a".to_string(),

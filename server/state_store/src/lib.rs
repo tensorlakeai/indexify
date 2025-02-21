@@ -195,31 +195,18 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
-            RequestPayload::IngestTaskOuputs(task_outputs) => {
+            RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),
                     &txn,
                     task_outputs.clone(),
                 )?;
                 if ingested {
-                    state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
-                } else {
-                    vec![]
-                }
-            }
-            RequestPayload::FinalizeTask(finalize_task) => {
-                let finalized = state_machine::mark_task_finalized(
-                    self.db.clone(),
-                    &txn,
-                    finalize_task.clone(),
-                    self.metrics.clone(),
-                )?;
-                if finalized {
                     tasks_finalized
-                        .entry(finalize_task.executor_id.clone())
+                        .entry(task_outputs.executor_id.clone())
                         .or_default()
-                        .push(finalize_task.task_id.clone());
-                    state_changes::finalized_task(&self.last_state_change_id, &finalize_task)?
+                        .push(task_outputs.task_id.clone());
+                    state_changes::task_outputs_ingested(&self.last_state_change_id, task_outputs)?
                 } else {
                     vec![]
                 }
@@ -264,15 +251,9 @@ impl IndexifyState {
                         &self.last_state_change_id,
                         &request,
                     )?;
-                if let Some(completion) = state_machine::create_tasks(
-                    self.db.clone(),
-                    &txn,
-                    &request.task_requests.clone(),
-                    self.metrics.clone().clone(),
-                    &request.namespace,
-                    &request.compute_graph,
-                    &request.invocation_id,
-                )? {
+                if let Some(completion) =
+                    state_machine::create_tasks(self.db.clone(), &txn, &request)?
+                {
                     let _ =
                         self.task_event_tx
                             .send(InvocationStateChangeEvent::InvocationFinished(
@@ -286,11 +267,6 @@ impl IndexifyState {
                         let _ = self.system_tasks_tx.send(());
                     }
                 };
-                state_machine::processed_reduction_tasks(
-                    self.db.clone(),
-                    &txn,
-                    &request.reduction_tasks,
-                )?;
                 new_state_changes
             }
             RequestPayload::TaskAllocationProcessorUpdate(request) => {
@@ -409,7 +385,7 @@ impl IndexifyState {
             return;
         }
         match &update_request.payload {
-            RequestPayload::IngestTaskOuputs(task_finished_event) => {
+            RequestPayload::IngestTaskOutputs(task_finished_event) => {
                 let ev =
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 let _ = self.task_event_tx.send(ev);

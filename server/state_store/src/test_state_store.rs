@@ -217,7 +217,7 @@ pub async fn finalize_task(
 
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::IngestTaskOuputs(request),
+            payload: RequestPayload::IngestTaskOutputs(request),
             processed_state_changes: vec![],
         })
         .await
@@ -241,7 +241,7 @@ pub async fn finalize_task_graph_b(
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::IngestTaskOuputs(request),
+            payload: RequestPayload::IngestTaskOutputs(request),
             processed_state_changes: vec![],
         })
         .await
@@ -265,7 +265,7 @@ pub async fn finalize_router_x(
     };
     indexify_state
         .write(StateMachineUpdateRequest {
-            payload: RequestPayload::IngestTaskOuputs(request),
+            payload: RequestPayload::IngestTaskOutputs(request),
             processed_state_changes: vec![],
         })
         .await

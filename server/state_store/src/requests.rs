@@ -21,8 +21,7 @@ pub struct StateMachineUpdateRequest {
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
-    IngestTaskOuputs(IngestTaskOutputsRequest),
-    FinalizeTask(FinalizeTaskRequest),
+    IngestTaskOutputs(IngestTaskOutputsRequest),
     CreateNameSpace(NamespaceRequest),
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
@@ -66,6 +65,7 @@ pub struct FinalizeTaskRequest {
     pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
     pub executor_id: ExecutorId,
+    pub invocation_ctx: GraphInvocationCtx,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +129,7 @@ pub struct NamespaceProcessorUpdateRequest {
     pub compute_graph: String,
     pub invocation_id: String,
     pub task_requests: Vec<Task>,
+    pub invocation_ctx: Option<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
 }
 

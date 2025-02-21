@@ -175,7 +175,7 @@ impl TestExecutor<'_> {
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::IngestTaskOuputs(IngestTaskOutputsRequest {
+                payload: RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
                     namespace: task.namespace.clone(),
                     compute_graph: task.compute_graph_name.clone(),
                     compute_fn: task.compute_fn_name.clone(),

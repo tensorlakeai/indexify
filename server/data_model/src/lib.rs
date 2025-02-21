@@ -633,12 +633,40 @@ pub struct GraphInvocationCtx {
     pub outcome: GraphInvocationOutcome,
     pub outstanding_tasks: u64,
     pub fn_task_analytics: HashMap<String, TaskAnalytics>,
-    pub is_system_task: bool,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
 }
 
 impl GraphInvocationCtx {
+    pub fn create_tasks(&mut self, tasks: &Vec<Task>) {
+        for task in tasks {
+            let fn_name = task.compute_fn_name.clone();
+            self.fn_task_analytics
+                .entry(fn_name.clone())
+                .or_insert_with(|| {
+                    let mut analytics = TaskAnalytics::default();
+                    analytics.pending();
+                    analytics
+                });
+        }
+        self.outstanding_tasks += tasks.len() as u64;
+    }
+
+    pub fn complete_task(&mut self, task: &Task, terminate_invocation: bool) {
+        if terminate_invocation {
+            self.completed = true;
+        }
+        let fn_name = task.compute_fn_name.clone();
+        if let Some(analytics) = self.fn_task_analytics.get_mut(&fn_name) {
+            match task.outcome {
+                TaskOutcome::Success => analytics.successful_tasks += 1,
+                TaskOutcome::Failure => analytics.failed_tasks += 1,
+                TaskOutcome::Unknown => analytics.pending_tasks += 1,
+            }
+        }
+        self.outstanding_tasks -= 1;
+    }
+
     pub fn key(&self) -> String {
         format!(
             "{}|{}|{}",
@@ -681,7 +709,6 @@ impl GraphInvocationCtxBuilder {
             .graph_version
             .clone()
             .ok_or(anyhow!("graph version is required"))?;
-        let is_system_task = self.is_system_task.unwrap_or(false);
         let created_at = self.created_at.unwrap_or_else(|| get_epoch_time_in_ms());
         Ok(GraphInvocationCtx {
             namespace,
@@ -692,7 +719,6 @@ impl GraphInvocationCtxBuilder {
             outcome: GraphInvocationOutcome::Undefined,
             fn_task_analytics,
             outstanding_tasks: 1, // Starts with 1 for the initial state change event
-            is_system_task,
             created_at,
         })
     }
@@ -986,13 +1012,14 @@ pub struct InvokeComputeGraphEvent {
     pub compute_graph: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TaskFinalizedEvent {
     pub namespace: String,
     pub compute_graph: String,
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
+    pub executor_id: ExecutorId,
 }
 
 impl fmt::Display for TaskFinalizedEvent {
@@ -1000,7 +1027,7 @@ impl fmt::Display for TaskFinalizedEvent {
         write!(
             f,
             "TaskFinishedEvent(namespace: {}, compute_graph: {}, compute_fn: {}, task_id: {})",
-            self.namespace, self.compute_graph, self.compute_fn, self.task_id
+            self.namespace, self.compute_graph, self.compute_fn, self.task_id,
         )
     }
 }
@@ -1012,9 +1039,7 @@ pub struct TaskOutputsIngestedEvent {
     pub compute_fn: String,
     pub invocation_id: String,
     pub task_id: TaskId,
-    pub outcome: TaskOutcome,
     pub executor_id: ExecutorId,
-    pub diagnostic: Option<TaskDiagnostics>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -1048,7 +1073,6 @@ pub struct ExecutorAddedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum ChangeType {
     InvokeComputeGraph(InvokeComputeGraphEvent),
-    TaskFinalized(TaskFinalizedEvent),
     TaskOutputsIngested(TaskOutputsIngestedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
@@ -1068,11 +1092,6 @@ impl fmt::Display for ChangeType {
                     ev.namespace, ev.invocation_id, ev.compute_graph
                 )
             }
-            ChangeType::TaskFinalized(ev) => write!(
-                f,
-                "TaskFinalized ns: {}, invocation: {}, compute_graph: {}, task: {}",
-                ev.namespace, ev.invocation_id, ev.compute_graph, ev.task_id,
-            ),
             ChangeType::TaskOutputsIngested(ev) => write!(
                 f,
                 "TaskOutputsIngested ns: {}, invocation: {}, compute_graph: {}, task: {}",

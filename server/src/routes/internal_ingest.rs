@@ -224,7 +224,7 @@ pub async fn ingest_files_from_executor(
         node_outputs.push(node_output);
     }
 
-    let request = RequestPayload::IngestTaskOuputs(IngestTaskOutputsRequest {
+    let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
         namespace: task_result.namespace.to_string(),
         compute_graph: task_result.compute_graph.to_string(),
         compute_fn: task_result.compute_fn.to_string(),
