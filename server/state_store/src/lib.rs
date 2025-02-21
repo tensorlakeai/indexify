@@ -598,14 +598,19 @@ mod tests {
     async fn test_order_state_changes() -> Result<()> {
         let indexify_state = TestStateStore::new().await?.indexify_state;
         let tx = indexify_state.db.transaction();
+        let ctx = GraphInvocationCtxBuilder::default()
+            .namespace("namespace1".to_string())
+            .compute_graph_name("cg1".to_string())
+            .invocation_id("foo1".to_string())
+            .graph_version(GraphVersion("1".to_string()))
+            .build(tests::mock_graph_a("image_hash".to_string()))?;
         let state_change_1 = state_changes::invoke_compute_graph(
             &indexify_state.last_state_change_id,
             &InvokeComputeGraphRequest {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
                 invocation_payload: mock_invocation_payload(),
-                ctx: GraphInvocationCtxBuilder::default()
-                    .build(tests::mock_graph_a("image_hash".to_string()))?,
+                ctx: ctx.clone(),
             },
         )
         .unwrap();
@@ -628,8 +633,7 @@ mod tests {
                 namespace: "namespace".to_string(),
                 compute_graph_name: "graph_A".to_string(),
                 invocation_payload: mock_invocation_payload(),
-                ctx: GraphInvocationCtxBuilder::default()
-                    .build(tests::mock_graph_a("image_hash".to_string()))?,
+                ctx: ctx.clone(),
             },
         )
         .unwrap();
