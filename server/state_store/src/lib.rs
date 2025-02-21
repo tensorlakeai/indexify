@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, StateChangeId, StateMachineMetadata, Task, TaskId};
+use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
 use futures::Stream;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
@@ -193,49 +193,6 @@ impl IndexifyState {
                     &txn,
                     &invoke_compute_graph_request,
                 )?;
-                state_changes
-            }
-            RequestPayload::ReplayComputeGraph(replay_compute_graph_request) => {
-                state_machine::replay_compute_graph(
-                    self.db.clone(),
-                    &txn,
-                    replay_compute_graph_request.clone(),
-                )?;
-                let _ = self.system_tasks_tx.send(());
-                vec![]
-            }
-            RequestPayload::UpdateSystemTask(update_system_task_request) => {
-                state_machine::update_system_task(
-                    self.db.clone(),
-                    &txn,
-                    update_system_task_request.clone(),
-                )?;
-                vec![]
-            }
-            RequestPayload::RemoveSystemTask(remove_system_task_request) => {
-                state_machine::remove_system_task(
-                    self.db.clone(),
-                    &txn,
-                    remove_system_task_request.clone(),
-                )?;
-
-                // Notify the system task handler that it possibly can start new tasks since
-                // a system task was removed.
-                let _ = self.system_tasks_tx.send(());
-                vec![]
-            }
-            RequestPayload::ReplayInvocations(replay_invocation_request) => {
-                let mut state_changes = state_machine::replay_invocations(
-                    self.db.clone(),
-                    &txn,
-                    replay_invocation_request.clone(),
-                )?;
-                for state_change in &mut state_changes {
-                    let last_change_id = self
-                        .last_state_change_id
-                        .fetch_add(1, atomic::Ordering::Relaxed);
-                    state_change.id = StateChangeId::new(last_change_id);
-                }
                 state_changes
             }
             RequestPayload::IngestTaskOuputs(task_outputs) => {

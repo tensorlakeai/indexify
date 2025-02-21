@@ -2,7 +2,6 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
-    GraphVersion,
     InvocationPayload,
     NodeOutput,
     ReduceTask,
@@ -21,8 +20,6 @@ pub struct StateMachineUpdateRequest {
 #[derive(Debug, Clone, strum::Display)]
 pub enum RequestPayload {
     InvokeComputeGraph(InvokeComputeGraphRequest),
-    ReplayComputeGraph(ReplayComputeGraphRequest),
-    ReplayInvocations(ReplayInvocationsRequest),
     IngestTaskOuputs(IngestTaskOutputsRequest),
     FinalizeTask(FinalizeTaskRequest),
     CreateNameSpace(NamespaceRequest),
@@ -34,8 +31,6 @@ pub enum RequestPayload {
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
-    UpdateSystemTask(UpdateSystemTaskRequest),
-    RemoveSystemTask(RemoveSystemTaskRequest),
     MutateClusterTopology(MutateClusterTopologyRequest),
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
     DeleteInvocationRequest(DeleteInvocationRequest),
@@ -45,28 +40,6 @@ pub enum RequestPayload {
 #[derive(Debug, Clone)]
 pub struct MutateClusterTopologyRequest {
     pub executor_removed: ExecutorId,
-}
-
-#[derive(Debug, Clone)]
-pub struct UpdateSystemTaskRequest {
-    pub namespace: String,
-    pub compute_graph_name: String,
-    pub waiting_for_running_invocations: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct RemoveSystemTaskRequest {
-    pub namespace: String,
-    pub compute_graph_name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReplayInvocationsRequest {
-    pub namespace: String,
-    pub compute_graph_name: String,
-    pub graph_version: GraphVersion,
-    pub invocation_ids: Vec<String>,
-    pub restart_key: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
