@@ -15,7 +15,6 @@ use data_model::{
     ExecutorId,
     NodeOutput,
     Task,
-    TaskId,
     TaskOutcome,
 };
 
