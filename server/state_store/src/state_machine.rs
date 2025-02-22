@@ -102,7 +102,7 @@ pub(crate) fn create_namespace(db: Arc<TransactionDB>, req: &NamespaceRequest) -
         &ns.name,
         serialized_namespace,
     )?;
-    info!("created namespace: {}", ns.name);
+    info!(namespace = ns.name, "created namespace: {}", ns.name);
     Ok(())
 }
 
@@ -111,10 +111,6 @@ pub fn create_invocation(
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
-    info!(
-        "create invocation: namespace: {}, compute_graph: {}",
-        req.namespace, req.compute_graph_name
-    );
     let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
     let cg = txn
         .get_for_update_cf(
@@ -138,6 +134,16 @@ pub fn create_invocation(
         req.ctx.key(),
         &JsonEncoder::encode(&req.ctx)?,
     )?;
+
+    info!(
+        namespace = req.namespace,
+        graph = req.compute_graph_name,
+        invocation_id = req.invocation_payload.id,
+        "created invocation: namespace: {}, compute_graph: {}",
+        req.namespace,
+        req.compute_graph_name
+    );
+
     Ok(())
 }
 
@@ -148,6 +154,14 @@ pub(crate) fn delete_invocation(
 ) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(4_194_304);
+
+    info!(
+        namespace = req.namespace,
+        graph = req.compute_graph,
+        invocation_id = req.invocation_id,
+        "Deleting invocation_id: {}",
+        req.invocation_id,
+    );
 
     // Delete the invocation payload
     let prefix = format!(
@@ -234,14 +248,25 @@ fn update_task_versions_for_cg(
         let mut task: Task = JsonEncoder::decode(&val)?;
         if task.graph_version != compute_graph.version && !task.outcome.is_terminal() {
             info!(
+                namespace = compute_graph.namespace,
+                graph = compute_graph.name,
+                graph_version = compute_graph.version.0,
+                function = task.compute_fn_name,
+                invocation_id = task.invocation_id,
+                task_id = task.id.to_string(),
                 "updating task: {} from version: {} to version: {}",
-                task.id, task.graph_version.0, compute_graph.version.0
+                task.id,
+                task.graph_version.0,
+                compute_graph.version.0
             );
             task.graph_version = compute_graph.version.clone();
         }
         tasks_to_update.insert(key, task);
     }
     info!(
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
         "upgrading tasks to latest version: {}",
         tasks_to_update.len()
     );
@@ -279,6 +304,10 @@ fn update_graph_invocations_for_cg(
             !graph_invocation_ctx.completed
         {
             info!(
+                namespace= graph_invocation_ctx.namespace,
+                invocation_id =  graph_invocation_ctx.invocation_id,
+                graph_version = graph_invocation_ctx.graph_version.0,
+                graph = graph_invocation_ctx.compute_graph_name,
                 "updating graph_invocation_ctx for invocation id: {} from version: {} to version: {}",
                 graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
             );
@@ -287,6 +316,9 @@ fn update_graph_invocations_for_cg(
         graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
     }
     info!(
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
         "upgrading graph invocation ctxs: {}",
         graph_invocation_ctx_to_update.len()
     );
@@ -308,8 +340,13 @@ pub(crate) fn create_or_update_compute_graph(
     upgrade_existing_tasks_to_current_version: bool,
 ) -> Result<()> {
     info!(
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
         "creating compute graph: ns: {} name: {}, upgrade invocations: {}",
-        compute_graph.namespace, compute_graph.name, upgrade_existing_tasks_to_current_version
+        compute_graph.namespace,
+        compute_graph.name,
+        upgrade_existing_tasks_to_current_version
     );
     let existing_compute_graph = txn
         .get_for_update_cf(
@@ -333,6 +370,9 @@ pub(crate) fn create_or_update_compute_graph(
         None => Ok(compute_graph.into_version()),
     }?;
     info!(
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
         "new compute graph version: {}",
         &new_compute_graph_version.version.0
     );
@@ -354,8 +394,13 @@ pub(crate) fn create_or_update_compute_graph(
         update_graph_invocations_for_cg(db.clone(), txn, &compute_graph)?;
     }
     info!(
+        namespace = compute_graph.namespace,
+        graph = compute_graph.name,
+        graph_version = compute_graph.version.0,
         "finished creating compute graph namespace: {} name: {}, version: {}",
-        compute_graph.namespace, compute_graph.name, compute_graph.version.0
+        compute_graph.namespace,
+        compute_graph.name,
+        compute_graph.version.0
     );
     Ok(())
 }
@@ -386,8 +431,11 @@ pub fn tombstone_compute_graph(
     name: &str,
 ) -> Result<()> {
     info!(
+        namespace = namespace,
+        graph = name,
         "tombstoning compute graph: namespace: {}, name: {}",
-        namespace, name
+        namespace,
+        name
     );
     let mut existing_compute_graph = txn
         .get_for_update_cf(
@@ -414,8 +462,11 @@ pub fn delete_compute_graph(
     name: &str,
 ) -> Result<()> {
     info!(
+        namespace = namespace,
+        graph = name,
         "deleting compute graph: namespace: {}, name: {}",
-        namespace, name
+        namespace,
+        name
     );
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -588,6 +639,11 @@ pub(crate) fn create_tasks(
     for task in &request.task_requests {
         let serialized_task = JsonEncoder::encode(&task)?;
         info!(
+            namespace = task.namespace,
+            graph = task.compute_graph_name,
+            invocation_id = task.invocation_id,
+            function_name = task.compute_fn_name,
+            task_id = task.id.to_string(),
             "creating task: ns: {}, compute graph: {}, invocation id: {},  task: {}, outcome: {:?}",
             task.namespace,
             task.compute_graph_name,
@@ -611,6 +667,10 @@ pub(crate) fn create_tasks(
         )?;
         if invocation_ctx.completed {
             info!(
+                namespace = invocation_ctx.namespace,
+                graph = invocation_ctx.compute_graph_name,
+                graph_version = invocation_ctx.graph_version.0,
+                invocation_id = invocation_ctx.invocation_id,
                 "invocation completed: ns: {}, compute graph: {}, invocation id: {}",
                 invocation_ctx.namespace,
                 invocation_ctx.compute_graph_name,
@@ -633,7 +693,14 @@ pub fn handle_task_allocation_update(
         let allocation_key = task_placement
             .task
             .make_allocation_key(&task_placement.executor);
-        info!("task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}, allocation_key: {}",
+        info!(
+            namespace = task_placement.task.namespace,
+            graph = task_placement.task.compute_graph_name,
+            graph_version = task_placement.task.graph_version.0,
+            invocation_id = task_placement.task.invocation_id,
+            function_name = task_placement.task.compute_fn_name,
+            task_id = task_placement.task.id.to_string(),
+            "task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}, allocation_key: {}",
             task_placement.task.namespace,
             task_placement.task.compute_graph_name,
             task_placement.task.invocation_id,
@@ -652,7 +719,14 @@ pub fn handle_task_allocation_update(
             allocation_key,
             &[],
         )?;
-        info!("unallocated task: deleting : ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
+        info!(
+            namespace = task_placement.task.namespace,
+            graph = task_placement.task.compute_graph_name,
+            graph_version = task_placement.task.graph_version.0,
+            invocation_id = task_placement.task.invocation_id,
+            function_name = task_placement.task.compute_fn_name,
+            task_id = task_placement.task.id.to_string(),
+            "unallocated task: deleting : ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
             task_placement.task.namespace,
             task_placement.task.compute_graph_name,
             task_placement.task.invocation_id,
@@ -670,7 +744,16 @@ pub fn handle_task_allocation_update(
     }
     for unplaced_task in &request.unplaced_tasks {
         let task_key = unplaced_task.key();
-        info!("unallocated task: {}", task_key);
+        info!(
+            namespace = unplaced_task.namespace,
+            graph = unplaced_task.compute_graph_name,
+            graph_version = unplaced_task.graph_version.0,
+            invocation_id = unplaced_task.invocation_id,
+            function_name = unplaced_task.compute_fn_name,
+            task_id = unplaced_task.id.to_string(),
+            "unallocated task: {}",
+            task_key
+        );
 
         txn.put_cf(
             &IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -703,7 +786,13 @@ pub fn ingest_task_outputs(
         )
         .map_err(|e| anyhow!("failed to get compute graph: {}", e))?;
     if graph.is_none() {
-        info!("Compute graph not found: {}", &req.compute_graph);
+        info!(
+            namespace = &req.namespace,
+            graph = &req.compute_graph,
+            invocation_id = &req.invocation_id,
+            "Compute graph not found: {}",
+            &req.compute_graph
+        );
         return Ok(false);
     }
 
@@ -717,7 +806,13 @@ pub fn ingest_task_outputs(
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
     if invocation.is_none() {
-        info!("Invocation not found: {} ", &req.invocation_id);
+        info!(
+            namespace = &req.namespace,
+            graph = &req.compute_graph,
+            invocation_id = &req.invocation_id,
+            "Invocation not found: {} ",
+            &req.invocation_id
+        );
         return Ok(false);
     }
     let task_key = format!(
@@ -726,7 +821,13 @@ pub fn ingest_task_outputs(
     );
     let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
     if task.is_none() {
-        info!("Task not found: {}", &task_key);
+        info!(
+            namespace = &req.namespace,
+            graph = &req.compute_graph,
+            invocation_id = &req.invocation_id,
+            "Task not found: {}",
+            &task_key
+        );
         return Ok(false);
     }
     let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
@@ -735,6 +836,9 @@ pub fn ingest_task_outputs(
     // once.
     if task.output_status == TaskOutputsIngestionStatus::Ingested {
         warn!(
+            namespace = &req.namespace,
+            graph = &req.compute_graph,
+            invocation_id = &req.invocation_id,
             task_key = task.key(),
             "Task outputs already uploaded, skipping setting outputs",
         );
@@ -851,6 +955,7 @@ pub(crate) fn deregister_executor(
     for key in iter {
         let (key, _) = key?;
         info!(
+            executor_id = executor_id.to_string(),
             "deregister executor: executor id: {}, removing task allocation: {}",
             executor_id,
             String::from_utf8(key.to_vec())?
@@ -858,6 +963,7 @@ pub(crate) fn deregister_executor(
         txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key)?;
         let task_key = Task::key_from_allocation_key(&key)?;
         info!(
+            executor_id = executor_id.to_string(),
             "deregister executor id: {}, adding to unallocated tasks: {}",
             executor_id,
             String::from_utf8(task_key.clone())?
@@ -869,9 +975,10 @@ pub(crate) fn deregister_executor(
         )?;
     }
     info!(
-        "deregister executor: executor id: {}, removing executor metadata",
-        executor_id
+        executor_id = executor_id.to_string(),
+        "deregister executor: executor id: {}, removing executor metadata", executor_id
     );
+
     txn.delete_cf(
         &IndexifyObjectsColumns::Executors.cf_db(&db),
         executor_id.to_string(),
