@@ -812,6 +812,22 @@ impl StateReader {
         }
     }
 
+    pub fn get_task_allocations(&self, executor_id: &ExecutorId) -> Result<Vec<Vec<u8>>> {
+        let kvs = &[KeyValue::new("op", "get_allocations")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let prefix = format!("{}|", executor_id);
+        let (allocation_rows, _) = self.get_raw_rows_from_cf_with_limits(
+            prefix.as_bytes(),
+            None,
+            IndexifyObjectsColumns::TaskAllocations,
+            None,
+        )?;
+
+        let allocation_keys = allocation_rows.iter().map(|(key, _)| key.clone()).collect();
+        Ok(allocation_keys)
+    }
+
     pub fn unallocated_tasks(&self) -> Result<Vec<Task>> {
         let kvs = &[KeyValue::new("op", "unallocated_tasks")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);

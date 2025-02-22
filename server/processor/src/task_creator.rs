@@ -56,7 +56,7 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
-    pub async fn handle_task_finished_inner(
+    pub fn handle_task_finished_inner(
         &self,
         indexify_state: Arc<IndexifyState>,
         task_finished_event: &TaskOutputsIngestedEvent,
@@ -110,10 +110,10 @@ impl TaskCreator {
             task.namespace,
             task.compute_graph_name
         ))?;
-        self.handle_task_finished(task, compute_graph_version).await
+        self.handle_task_finished(task, compute_graph_version)
     }
 
-    pub async fn handle_invoke_compute_graph(
+    pub fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
     ) -> Result<TaskCreationResult> {
@@ -202,7 +202,7 @@ impl TaskCreator {
         })
     }
 
-    pub async fn handle_task_finished(
+    pub fn handle_task_finished(
         &self,
         task: Task,
         compute_graph_version: ComputeGraphVersion,

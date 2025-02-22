@@ -36,8 +36,8 @@ use crate::requests::{
     DeleteInvocationRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
-    NamespaceProcessorUpdateRequest,
     NamespaceRequest,
+    ProcessorUpdateRequest,
     ReductionTasks,
     RegisterExecutorRequest,
     TaskAllocationUpdateRequest,
@@ -623,22 +623,17 @@ pub(crate) fn processed_reduction_tasks(
     Ok(())
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) enum InvocationCompletion {
-    User,
-    System,
-}
-
 // returns whether the invocation was completed or not and whether it was a user
 // or system task invocation.
 pub(crate) fn create_tasks(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    request: &NamespaceProcessorUpdateRequest,
-) -> Result<Option<InvocationCompletion>> {
-    for task in &request.task_requests {
-        let serialized_task = JsonEncoder::encode(&task)?;
-        info!(
+    request: &ProcessorUpdateRequest,
+) -> Result<()> {
+    if let Some(task_requests) = &request.task_requests {
+        for task in task_requests {
+            let serialized_task = JsonEncoder::encode(&task)?;
+            info!(
             namespace = task.namespace,
             graph = task.compute_graph_name,
             invocation_id = task.invocation_id,
@@ -651,13 +646,22 @@ pub(crate) fn create_tasks(
             task.key(),
             task.outcome
         );
-        txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            task.key(),
-            &serialized_task,
-        )?;
+            txn.put_cf(
+                &IndexifyObjectsColumns::Tasks.cf_db(&db),
+                task.key(),
+                &serialized_task,
+            )?;
+
+            txn.put_cf(
+                &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
+                task.key(),
+                [],
+            )?;
+        }
     }
-    processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
+    if let Some(reduction_tasks) = &request.reduction_tasks {
+        processed_reduction_tasks(db.clone(), txn, reduction_tasks)?;
+    }
     if let Some(invocation_ctx) = &request.invocation_ctx {
         let serialized_graphctx = JsonEncoder::encode(&invocation_ctx)?;
         txn.put_cf(
@@ -671,15 +675,11 @@ pub(crate) fn create_tasks(
                 graph = invocation_ctx.compute_graph_name,
                 graph_version = invocation_ctx.graph_version.0,
                 invocation_id = invocation_ctx.invocation_id,
-                "invocation completed: ns: {}, compute graph: {}, invocation id: {}",
-                invocation_ctx.namespace,
-                invocation_ctx.compute_graph_name,
-                invocation_ctx.invocation_id
+                "invocation completed",
             );
-            return Ok(Some(InvocationCompletion::User));
         }
     }
-    Ok(None)
+    Ok(())
 }
 
 pub fn handle_task_allocation_update(
@@ -741,31 +741,6 @@ pub fn handle_task_allocation_update(
             &vec![task_placement.task.clone()],
             task_placement.executor.get(),
         );
-    }
-    for unplaced_task in &request.unplaced_tasks {
-        let task_key = unplaced_task.key();
-        info!(
-            namespace = unplaced_task.namespace,
-            graph = unplaced_task.compute_graph_name,
-            graph_version = unplaced_task.graph_version.0,
-            invocation_id = unplaced_task.invocation_id,
-            function_name = unplaced_task.compute_fn_name,
-            task_id = unplaced_task.id.to_string(),
-            "unallocated task: {}",
-            task_key
-        );
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            &task_key,
-            &JsonEncoder::encode(&unplaced_task)?,
-        )?;
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            task_key,
-            &[],
-        )?;
     }
     Ok(())
 }

@@ -26,8 +26,7 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
-    NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
-    TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
+    ProcessorUpdate(ProcessorUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
@@ -124,19 +123,16 @@ pub struct ReductionTasks {
     pub processed_reduction_tasks: Vec<String>,
 }
 #[derive(Debug, Clone)]
-pub struct NamespaceProcessorUpdateRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub task_requests: Vec<Task>,
+pub struct ProcessorUpdateRequest {
+    pub task_requests: Option<Vec<Task>>,
     pub invocation_ctx: Option<GraphInvocationCtx>,
-    pub reduction_tasks: ReductionTasks,
+    pub reduction_tasks: Option<ReductionTasks>,
+    pub allocations: Option<Vec<TaskPlacement>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TaskAllocationUpdateRequest {
     pub allocations: Vec<TaskPlacement>,
-    pub unplaced_tasks: Vec<Task>,
     pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 

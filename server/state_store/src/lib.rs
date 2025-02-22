@@ -16,9 +16,9 @@ use futures::Stream;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
-use requests::{RequestPayload, StateMachineUpdateRequest};
+use requests::{RequestPayload, StateMachineUpdateRequest, TaskAllocationUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
-use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
+use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info, span};
@@ -245,41 +245,28 @@ impl IndexifyState {
                 self.gc_tx.send(()).unwrap();
                 vec![]
             }
-            RequestPayload::NamespaceProcessorUpdate(request) => {
-                let new_state_changes =
-                    state_changes::change_events_for_namespace_processor_update(
-                        &self.last_state_change_id,
-                        &request,
-                    )?;
-                if let Some(completion) =
-                    state_machine::create_tasks(self.db.clone(), &txn, &request)?
-                {
-                    let _ =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::InvocationFinished(
-                                InvocationFinishedEvent {
-                                    id: request.invocation_id.clone(),
-                                },
-                            ));
-                    if completion == InvocationCompletion::System {
-                        // Notify the system task handler that it can start new tasks since
-                        // a task was completed
-                        let _ = self.system_tasks_tx.send(());
-                    }
-                };
-                new_state_changes
-            }
-            RequestPayload::TaskAllocationProcessorUpdate(request) => {
+            RequestPayload::ProcessorUpdate(request) => {
+                let new_state_changes = state_changes::change_events_for_processor_update(
+                    &self.last_state_change_id,
+                    &request,
+                )?;
+                state_machine::create_tasks(self.db.clone(), &txn, &request)?;
+
+                let allocations = request.allocations.clone().unwrap_or_default();
                 state_machine::handle_task_allocation_update(
                     self.db.clone(),
                     &txn,
                     self.metrics.clone(),
-                    request,
+                    &TaskAllocationUpdateRequest {
+                        allocations: allocations.clone(),
+                        placement_diagnostics: vec![],
+                    },
                 )?;
-                for allocation in &request.allocations {
+                for allocation in allocations {
                     allocated_tasks_by_executor.push(allocation.executor.clone());
                 }
-                vec![]
+
+                new_state_changes
             }
             RequestPayload::RegisterExecutor(request) => {
                 {
@@ -393,8 +380,9 @@ impl IndexifyState {
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 let _ = self.task_event_tx.send(ev);
             }
-            RequestPayload::NamespaceProcessorUpdate(sched_update) => {
-                for task in &sched_update.task_requests {
+            RequestPayload::ProcessorUpdate(req) => {
+                let task_requests = req.task_requests.clone().unwrap_or_default();
+                for task in &task_requests {
                     let _ = self
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskCreated(
@@ -405,9 +393,19 @@ impl IndexifyState {
                             },
                         ));
                 }
-            }
-            RequestPayload::TaskAllocationProcessorUpdate(sched_update) => {
-                for task_allocated in &sched_update.allocations {
+                if let Some(invocation_ctx) = &req.invocation_ctx {
+                    if invocation_ctx.completed {
+                        let _ = self.task_event_tx.send(
+                            InvocationStateChangeEvent::InvocationFinished(
+                                InvocationFinishedEvent {
+                                    id: invocation_ctx.invocation_id.clone(),
+                                },
+                            ),
+                        );
+                    }
+                }
+                let allocations = req.allocations.clone().unwrap_or_default();
+                for task_allocated in &allocations {
                     let _ = self
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskAssigned(
@@ -416,16 +414,6 @@ impl IndexifyState {
                                 fn_name: task_allocated.task.compute_fn_name.clone(),
                                 task_id: task_allocated.task.id.to_string(),
                                 executor_id: task_allocated.executor.get().to_string(),
-                            },
-                        ));
-                }
-                for diagnostic in &sched_update.placement_diagnostics {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::DiagnosticMessage(
-                            invocation_events::DiagnosticMessage {
-                                invocation_id: diagnostic.task.invocation_id.clone(),
-                                message: diagnostic.message.clone(),
                             },
                         ));
                 }
