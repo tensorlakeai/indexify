@@ -2,14 +2,30 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    ComputeGraph, ComputeGraphError, ComputeGraphVersion, ExecutorId, GraphInvocationCtx,
-    InvocationPayload, Namespace, NodeOutput, OutputPayload, StateChange, StateMachineMetadata,
-    Task, TaskOutputsIngestionStatus, TaskStatus,
+    ComputeGraph,
+    ComputeGraphError,
+    ComputeGraphVersion,
+    ExecutorId,
+    GraphInvocationCtx,
+    InvocationPayload,
+    Namespace,
+    NodeOutput,
+    OutputPayload,
+    StateChange,
+    StateMachineMetadata,
+    Task,
+    TaskOutputsIngestionStatus,
+    TaskStatus,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
 use rocksdb::{
-    AsColumnFamilyRef, ColumnFamily, Direction, IteratorMode, ReadOptions, Transaction,
+    AsColumnFamilyRef,
+    ColumnFamily,
+    Direction,
+    IteratorMode,
+    ReadOptions,
+    Transaction,
     TransactionDB,
 };
 use strum::AsRefStr;
@@ -17,8 +33,13 @@ use tracing::{debug, error, info, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
-    DeleteInvocationRequest, IngestTaskOutputsRequest, InvokeComputeGraphRequest,
-    NamespaceProcessorUpdateRequest, NamespaceRequest, ReductionTasks, RegisterExecutorRequest,
+    DeleteInvocationRequest,
+    IngestTaskOutputsRequest,
+    InvokeComputeGraphRequest,
+    NamespaceProcessorUpdateRequest,
+    NamespaceRequest,
+    ReductionTasks,
+    RegisterExecutorRequest,
     TaskAllocationUpdateRequest,
 };
 pub type ContentId = String;
@@ -279,8 +300,8 @@ fn update_graph_invocations_for_cg(
     for kv in iter {
         let (key, val) = kv?;
         let mut graph_invocation_ctx: GraphInvocationCtx = JsonEncoder::decode(&val)?;
-        if graph_invocation_ctx.graph_version != compute_graph.version
-            && !graph_invocation_ctx.completed
+        if graph_invocation_ctx.graph_version != compute_graph.version &&
+            !graph_invocation_ctx.completed
         {
             info!(
                 namespace= graph_invocation_ctx.namespace,
