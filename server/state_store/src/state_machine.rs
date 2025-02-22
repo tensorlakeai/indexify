@@ -667,6 +667,10 @@ pub(crate) fn create_tasks(
         )?;
         if invocation_ctx.completed {
             info!(
+                namespace = invocation_ctx.namespace,
+                graph = invocation_ctx.compute_graph_name,
+                graph_version = invocation_ctx.graph_version.0,
+                invocation_id = invocation_ctx.invocation_id,
                 "invocation completed: ns: {}, compute graph: {}, invocation id: {}",
                 invocation_ctx.namespace,
                 invocation_ctx.compute_graph_name,
