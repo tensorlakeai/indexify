@@ -42,3 +42,5 @@ if [ $tests_exit_code -eq 0 ]; then
 else
   echo "One or more tests failed. Please check output log for details."
 fi
+
+exit $tests_exit_code
