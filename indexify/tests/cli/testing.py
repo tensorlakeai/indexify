@@ -55,4 +55,4 @@ def wait_executor_startup(port: int):
                 raise
 
         attempts_left -= 1
-        time.sleep(0.1)
+        time.sleep(1)
