@@ -10,7 +10,6 @@ use data_model::{
     StateChange,
     Task,
     TaskDiagnostics,
-    TaskId,
     TaskOutcome,
 };
 
@@ -65,30 +64,11 @@ pub struct IngestTaskOutputsRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct FinalizeTaskRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
-    pub invocation_id: String,
-    pub task_id: TaskId,
-    pub task_outcome: TaskOutcome,
-    pub diagnostics: Option<TaskDiagnostics>,
-    pub executor_id: ExecutorId,
-    pub invocation_ctx: GraphInvocationCtx,
-}
-
-#[derive(Debug, Clone)]
 pub struct InvokeComputeGraphRequest {
     pub namespace: String,
     pub compute_graph_name: String,
     pub invocation_payload: InvocationPayload,
     pub ctx: GraphInvocationCtx,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReplayComputeGraphRequest {
-    pub namespace: String,
-    pub compute_graph_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -115,11 +95,6 @@ pub struct DeleteComputeGraphOutputRequest {
     pub restart_key: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct TaskPlacement {
-    pub task: Task,
-    pub executor: ExecutorId,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct ReductionTasks {
