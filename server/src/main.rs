@@ -111,7 +111,6 @@ async fn main() {
     let tracing_provider = setup_tracing(config.clone())
         .inspect_err(|e| {
             error!("Error setting up tracing: {:?}", e);
-            return;
         })
         .unwrap();
 

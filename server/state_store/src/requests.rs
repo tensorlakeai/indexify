@@ -28,8 +28,6 @@ pub enum RequestPayload {
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
     SchedulerUpdate(SchedulerUpdateRequest),
-    NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
-    TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
@@ -45,8 +43,7 @@ pub struct SchedulerUpdateRequest {
     pub remove_allocations: Vec<Allocation>,
     pub updated_tasks: Vec<Task>,
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
-    pub new_reduction_tasks: Vec<ReduceTask>,
-    pub processed_reduction_tasks: Vec<String>,
+    pub reduction_tasks: ReductionTasks,
 }
 
 #[derive(Debug, Clone)]
@@ -124,32 +121,10 @@ pub struct TaskPlacement {
     pub executor: ExecutorId,
 }
 
-#[derive(Debug, Clone)]
-pub struct TaskPlacementDiagnostic {
-    pub task: Task,
-    pub message: String,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct ReductionTasks {
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
-}
-#[derive(Debug, Clone)]
-pub struct NamespaceProcessorUpdateRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub task_requests: Vec<Task>,
-    pub invocation_ctx: Option<GraphInvocationCtx>,
-    pub reduction_tasks: ReductionTasks,
-}
-
-#[derive(Debug, Clone)]
-pub struct TaskAllocationUpdateRequest {
-    pub new_allocations: Vec<Allocation>,
-    pub remove_allocations: Vec<Allocation>,
-    pub updated_tasks: Vec<Task>,
 }
 
 #[derive(Debug, Clone)]

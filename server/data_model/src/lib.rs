@@ -129,6 +129,16 @@ impl Allocation {
         executor_id.hash(&mut hasher);
         format!("{:x}", hasher.finish())
     }
+
+    pub fn task_key(&self) -> String {
+        Task::key_from(
+            &self.namespace,
+            &self.compute_graph,
+            &self.invocation_id,
+            &self.compute_fn,
+            &self.task_id.to_string(),
+        )
+    }
 }
 
 impl AllocationBuilder {
@@ -1168,7 +1178,6 @@ pub enum ChangeType {
     ExecutorAdded(ExecutorAddedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
     ExecutorRemoved(ExecutorRemovedEvent),
-    TaskCreated(TaskCreatedEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -1200,11 +1209,6 @@ impl fmt::Display for ChangeType {
             ChangeType::ExecutorRemoved(ev) => {
                 write!(f, "ExecutorRemoved, executor_id: {}", ev.executor_id)
             }
-            ChangeType::TaskCreated(ev) => write!(
-                f,
-                "TaskCreated ns: {}, invocation: {}, compute_graph: {}, task: {}",
-                ev.task.namespace, ev.task.invocation_id, ev.task.compute_graph_name, ev.task.id,
-            ),
             ChangeType::TombstoneInvocation(ev) => write!(
                 f,
                 "TombstoneInvocation, ns: {}, compute_graph: {}, invocation_id: {}",

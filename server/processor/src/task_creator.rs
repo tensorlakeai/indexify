@@ -15,7 +15,7 @@ use data_model::{
 };
 use state_store::{
     in_memory_state::InMemoryState,
-    requests::SchedulerUpdateRequest,
+    requests::{ReductionTasks, SchedulerUpdateRequest},
     IndexifyState,
 };
 use tracing::{error, info, trace, warn};
@@ -64,7 +64,7 @@ impl TaskCreator {
     pub async fn invoke(
         &self,
         change: &ChangeType,
-        _indexes: InMemoryState,
+        _indexes: Arc<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::TaskOutputsIngested(ev) => {
@@ -80,8 +80,10 @@ impl TaskCreator {
                         .map(|ctx| ctx.clone())
                         .into_iter()
                         .collect(),
-                    new_reduction_tasks: result.new_reduction_tasks,
-                    processed_reduction_tasks: result.processed_reduction_tasks,
+                    reduction_tasks: ReductionTasks {
+                        new_reduction_tasks: result.new_reduction_tasks,
+                        processed_reduction_tasks: result.processed_reduction_tasks,
+                    },
                 });
             }
             ChangeType::InvokeComputeGraph(ev) => {
@@ -95,8 +97,10 @@ impl TaskCreator {
                         .map(|ctx| ctx.clone())
                         .into_iter()
                         .collect(),
-                    new_reduction_tasks: result.new_reduction_tasks,
-                    processed_reduction_tasks: result.processed_reduction_tasks,
+                    reduction_tasks: ReductionTasks {
+                        new_reduction_tasks: result.new_reduction_tasks,
+                        processed_reduction_tasks: result.processed_reduction_tasks,
+                    },
                 });
             }
             _ => {
