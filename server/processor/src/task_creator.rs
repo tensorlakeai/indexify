@@ -64,11 +64,11 @@ impl TaskCreator {
     pub async fn invoke(
         &self,
         change: &ChangeType,
-        indexes: Arc<InMemoryState>,
+        indexes: &mut InMemoryState,
     ) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::TaskOutputsIngested(ev) => {
-                let result = self.handle_task_finished_inner(ev, &indexes).await?;
+                let result = self.handle_task_finished_inner(ev, indexes).await?;
                 return Ok(SchedulerUpdateRequest {
                     new_allocations: vec![],
                     remove_allocations: vec![],
@@ -86,7 +86,7 @@ impl TaskCreator {
             }
             ChangeType::InvokeComputeGraph(ev) => {
                 let result = self
-                    .handle_invoke_compute_graph(ev.clone(), &indexes)
+                    .handle_invoke_compute_graph(ev.clone(), indexes)
                     .await?;
                 return Ok(SchedulerUpdateRequest {
                     new_allocations: vec![],
@@ -119,7 +119,7 @@ impl TaskCreator {
     pub async fn handle_task_finished_inner(
         &self,
         task_finished_event: &TaskOutputsIngestedEvent,
-        indexes: &Arc<InMemoryState>,
+        indexes: &mut InMemoryState,
     ) -> Result<TaskCreationResult> {
         let task = indexes.tasks.get(&Task::key_from(
             &task_finished_event.namespace,
@@ -172,7 +172,7 @@ impl TaskCreator {
     pub async fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
-        indexes: &Arc<InMemoryState>,
+        indexes: &mut InMemoryState,
     ) -> Result<TaskCreationResult> {
         let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
             &event.namespace,
@@ -251,7 +251,7 @@ impl TaskCreator {
         &self,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
-        indexes: &Arc<InMemoryState>,
+        indexes: &mut InMemoryState,
     ) -> Result<TaskCreationResult> {
         let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
             &task.namespace,

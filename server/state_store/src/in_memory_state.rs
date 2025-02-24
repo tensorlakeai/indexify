@@ -304,8 +304,8 @@ impl InMemoryState {
             .map(|(_, v)| v.as_ref().clone())
     }
 
-    pub fn get_in_memory_state(&self) -> Arc<Self> {
-        Arc::new(InMemoryState {
+    pub fn get_in_memory_state(&self) -> Self {
+        InMemoryState {
             namespaces: self.namespaces.clone(),
             compute_graphs: self.compute_graphs.clone(),
             compute_graph_versions: self.compute_graph_versions.clone(),
@@ -315,6 +315,6 @@ impl InMemoryState {
             unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
-        })
+        }
     }
 }

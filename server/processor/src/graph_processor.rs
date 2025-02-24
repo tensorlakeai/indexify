@@ -160,7 +160,7 @@ impl GraphProcessor {
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
         info!("processing state change: {}", state_change.change_type);
-        let indexes = self
+        let mut indexes = self
             .indexify_state
             .in_memory_state
             .read()
@@ -170,12 +170,12 @@ impl GraphProcessor {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
                 let scheduler_update = self
                     .task_creator
-                    .invoke(&state_change.change_type, indexes.clone())
+                    .invoke(&state_change.change_type, &mut indexes)
                     .await;
                 if let Ok(mut result) = scheduler_update {
                     let placement_result = self
                         .task_allocator
-                        .schedule_tasks(result.clone().updated_tasks, indexes.clone())?;
+                        .schedule_tasks(result.clone().updated_tasks, &mut indexes)?;
                     result
                         .new_allocations
                         .extend(placement_result.new_allocations);
@@ -201,8 +201,8 @@ impl GraphProcessor {
             ChangeType::ExecutorAdded(_) | ChangeType::ExecutorRemoved(_) => {
                 let scheduler_update = self
                     .task_allocator
-                    .invoke(&state_change.change_type, indexes.clone());
-                let result = self.task_allocator.schedule_unplaced_tasks(indexes.clone());
+                    .invoke(&state_change.change_type, &mut indexes);
+                let result = self.task_allocator.schedule_unplaced_tasks(&mut indexes);
                 if let Ok(result) = scheduler_update {
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(result),
