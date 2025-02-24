@@ -161,14 +161,29 @@ impl GraphProcessor {
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
         info!("processing state change: {}", state_change.change_type);
-        let indexes = self.indexify_state.in_memory_state.get_in_memory_state();
+        let indexes = self
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .get_in_memory_state();
         match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
                 let scheduler_update = self
                     .task_creator
-                    .invoke(&state_change.change_type, indexes)
+                    .invoke(&state_change.change_type, indexes.clone())
                     .await;
-                if let Ok(result) = scheduler_update {
+                if let Ok(mut result) = scheduler_update {
+                    let placement_result = self
+                        .task_allocator
+                        .schedule_tasks(result.clone().updated_tasks, indexes.clone())?;
+                    result
+                        .new_allocations
+                        .extend(placement_result.new_allocations);
+                    result
+                        .remove_allocations
+                        .extend(placement_result.remove_allocations);
+                    result.updated_tasks = placement_result.updated_tasks;
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(result),
                         processed_state_changes: vec![state_change.clone()],
@@ -184,14 +199,11 @@ impl GraphProcessor {
                     })
                 }
             }
-            ChangeType::ExecutorAdded(_) |
-            ChangeType::ExecutorRemoved(_) |
-            ChangeType::TaskCreated(_) => {
-                let scheduler_update = self.task_allocator.invoke(
-                    &state_change.change_type,
-                    self.indexify_state.in_memory_state.get_in_memory_state(),
-                );
-                let result = self.task_allocator.schedule_unplaced_tasks();
+            ChangeType::ExecutorAdded(_) | ChangeType::ExecutorRemoved(_) => {
+                let scheduler_update = self
+                    .task_allocator
+                    .invoke(&state_change.change_type, indexes.clone());
+                let result = self.task_allocator.schedule_unplaced_tasks(indexes.clone());
                 if let Ok(result) = scheduler_update {
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(result),

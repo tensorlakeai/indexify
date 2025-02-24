@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    Allocation,
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
@@ -36,11 +37,10 @@ use crate::requests::{
     DeleteInvocationRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
-    NamespaceProcessorUpdateRequest,
     NamespaceRequest,
     ReductionTasks,
     RegisterExecutorRequest,
-    TaskAllocationUpdateRequest,
+    SchedulerUpdateRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -624,69 +624,10 @@ pub(crate) fn processed_reduction_tasks(
     Ok(())
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) enum InvocationCompletion {
-    User,
-    System,
-}
-
-// returns whether the invocation was completed or not and whether it was a user
-// or system task invocation.
-pub(crate) fn create_tasks(
+pub(crate) fn handle_scheduler_update(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    request: &NamespaceProcessorUpdateRequest,
-) -> Result<Option<InvocationCompletion>> {
-    for task in &request.task_requests {
-        let serialized_task = JsonEncoder::encode(&task)?;
-        info!(
-            namespace = task.namespace,
-            graph = task.compute_graph_name,
-            invocation_id = task.invocation_id,
-            function_name = task.compute_fn_name,
-            task_id = task.id.to_string(),
-            "creating task: ns: {}, compute graph: {}, invocation id: {},  task: {}, outcome: {:?}",
-            task.namespace,
-            task.compute_graph_name,
-            task.invocation_id,
-            task.key(),
-            task.outcome
-        );
-        txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            task.key(),
-            &serialized_task,
-        )?;
-    }
-    processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
-    if let Some(invocation_ctx) = &request.invocation_ctx {
-        let serialized_graphctx = JsonEncoder::encode(&invocation_ctx)?;
-        txn.put_cf(
-            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-            invocation_ctx.key(),
-            &serialized_graphctx,
-        )?;
-        if invocation_ctx.completed {
-            info!(
-                namespace = invocation_ctx.namespace,
-                graph = invocation_ctx.compute_graph_name,
-                graph_version = invocation_ctx.graph_version.0,
-                invocation_id = invocation_ctx.invocation_id,
-                "invocation completed: ns: {}, compute graph: {}, invocation id: {}",
-                invocation_ctx.namespace,
-                invocation_ctx.compute_graph_name,
-                invocation_ctx.invocation_id
-            );
-            return Ok(Some(InvocationCompletion::User));
-        }
-    }
-    Ok(None)
-}
-
-pub fn handle_task_allocation_update(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    request: &TaskAllocationUpdateRequest,
+    request: &SchedulerUpdateRequest,
 ) -> Result<()> {
     for alloc in &request.new_allocations {
         info!(
@@ -723,6 +664,17 @@ pub fn handle_task_allocation_update(
             IndexifyObjectsColumns::Tasks.cf_db(&db),
             task.key(),
             serialized_task,
+        )?;
+    }
+
+    processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
+
+    for invocation_ctx in &request.updated_invocations_states {
+        let serialized_graph_ctx = JsonEncoder::encode(&invocation_ctx)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            invocation_ctx.key(),
+            &serialized_graph_ctx,
         )?;
     }
     Ok(())
@@ -836,10 +788,16 @@ pub fn ingest_task_outputs(
     )?;
 
     txn.delete_cf(
-        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        task.make_allocation_key(&req.executor_id),
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        Allocation::key(
+            &req.executor_id.get(),
+            &req.task.id.to_string(),
+            &req.namespace,
+            &req.compute_graph,
+            &req.compute_fn,
+            &req.invocation_id,
+        ),
     )?;
-
     Ok(true)
 }
 
