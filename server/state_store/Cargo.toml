@@ -26,3 +26,4 @@ blob_store = { version = "0.1.0", path = "../blob_store" }
 url = { workspace = true }
 metrics = { workspace = true }
 opentelemetry = { workspace = true }
+im = { workspace = true }
