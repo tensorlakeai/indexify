@@ -136,6 +136,21 @@ impl InMemoryState {
         })
     }
 
+    pub fn get_tasks_by_fn(
+        &self,
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+    ) -> Vec<Task> {
+        let key = Task::key_prefix_for_fn(namespace, compute_graph, invocation_id, compute_fn);
+        self.tasks
+            .range(key.clone()..)
+            .take_while(|(k, _v)| k.starts_with(&key))
+            .map(|(_, v)| v.as_ref().clone())
+            .collect()
+    }
+
     pub fn active_tasks_for_executor(&self, executor_id: &str, limit: usize) -> Vec<Task> {
         self.allocations_by_executor
             .get(executor_id)
@@ -172,7 +187,8 @@ impl InMemoryState {
                     .entry(req.executor_id.get().to_string())
                     .or_default()
                     .retain(|a| a.id != allocation_key);
-                self.tasks.remove(&req.task.id.to_string());
+                self.tasks
+                    .insert(req.task.key(), Arc::new(req.task.clone()));
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -223,6 +239,24 @@ impl InMemoryState {
                 for invocation_ctx in &req.updated_invocations_states {
                     self.invocation_ctx
                         .insert(invocation_ctx.key(), Arc::new(invocation_ctx.clone()));
+                    // Remove tasks for invocation ctx if completed
+                    if invocation_ctx.completed {
+                        let key = Task::key_prefix_for_invocation(
+                            &invocation_ctx.namespace,
+                            &invocation_ctx.compute_graph_name,
+                            &invocation_ctx.invocation_id,
+                        );
+                        let keys_to_remove = self
+                            .tasks
+                            .range(key.clone()..)
+                            .into_iter()
+                            .take_while(|(k, _v)| k.starts_with(&key))
+                            .map(|(k, _v)| k.clone())
+                            .collect::<Vec<String>>();
+                        for k in keys_to_remove {
+                            self.tasks.remove(&k);
+                        }
+                    }
                 }
                 for allocation in &req.new_allocations {
                     self.allocations_by_executor
@@ -253,6 +287,21 @@ impl InMemoryState {
             _ => {}
         }
         Ok(())
+    }
+
+    pub fn next_reduction_task(
+        &self,
+        ns: &str,
+        cg: &str,
+        inv: &str,
+        c_fn: &str,
+    ) -> Option<ReduceTask> {
+        let key = format!("{}|{}|{}|{}", ns, cg, inv, c_fn);
+        self.queued_reduction_tasks
+            .range(key.clone()..)
+            .take_while(|(k, _v)| k.starts_with(&key))
+            .next()
+            .map(|(_, v)| v.as_ref().clone())
     }
 
     pub fn get_in_memory_state(&self) -> Arc<Self> {

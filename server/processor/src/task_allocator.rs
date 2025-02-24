@@ -16,7 +16,6 @@ use rand::seq::SliceRandom;
 use state_store::{
     in_memory_state::InMemoryState,
     requests::{ReductionTasks, SchedulerUpdateRequest},
-    IndexifyState,
 };
 use tracing::{error, info, span};
 
@@ -30,13 +29,11 @@ pub struct TaskPlacementResult {
     pub updated_tasks: Vec<Task>,
 }
 
-pub struct TaskAllocationProcessor {
-    indexify_state: Arc<IndexifyState>,
-}
+pub struct TaskAllocationProcessor {}
 
 impl TaskAllocationProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
-        Self { indexify_state }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 impl TaskAllocationProcessor {
@@ -149,21 +146,16 @@ impl TaskAllocationProcessor {
         task: &mut Task,
         indexes: Arc<InMemoryState>,
     ) -> Result<Option<Allocation>> {
-        let compute_graph_version = self
-            .indexify_state
-            .reader()
-            .get_compute_graph_version(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.graph_version,
-            )?
+        let compute_graph_version = indexes
+            .compute_graph_versions
+            .get(&task.key_compute_graph_version())
             .ok_or(anyhow!("compute graph not found"))?;
         let compute_fn = compute_graph_version
             .nodes
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("compute fn not found"))?;
         let filtered_executors =
-            self.filter_executors(&compute_graph_version, &compute_fn, indexes)?;
+            self.filter_executors(&compute_graph_version, &compute_fn, &indexes)?;
         let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
         if let Some(executor_id) = executor_id {
             info!("assigning task {:?} to executor {:?}", task.id, executor_id);
@@ -184,7 +176,7 @@ impl TaskAllocationProcessor {
         &self,
         compute_graph: &ComputeGraphVersion,
         node: &Node,
-        indexes: Arc<InMemoryState>,
+        indexes: &Arc<InMemoryState>,
     ) -> Result<FilteredExecutors> {
         let mut filtered_executors = vec![];
 
