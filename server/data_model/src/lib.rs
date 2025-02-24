@@ -1169,14 +1169,14 @@ pub struct StateChange {
 }
 impl StateChange {
     pub fn key(&self) -> Vec<u8> {
-        let mut key = String::new();
+        let mut key = vec![];
         if let Some(ns) = &self.namespace {
-            key.push_str(&format!("ns_{}|", &ns));
+            key.extend(format!("ns_{}|", &ns).as_bytes());
         } else {
-            key.push_str("global|");
+            key.extend(b"global|");
         }
-        key.push_str(format!("{}", self.id).as_str());
-        key.as_bytes().to_vec()
+        key.extend(self.id.0.to_be_bytes());
+        key
     }
 }
 
