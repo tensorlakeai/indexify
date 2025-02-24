@@ -29,10 +29,11 @@ if __name__ == "__main__":
 
     from tensorlake import RemoteGraph
     graph = RemoteGraph.deploy(g)
-    invocation_id = graph.run(block_until_done=True, a=10)
+    invocation_id = graph.run(block_until_done=True, a=1000)
     result = graph.output(invocation_id, "add")
-    print(result)
+    if result[0].val != 328350:
+        raise Exception(f"failure: {result[0]}")
 
-    graph = RemoteGraph.by_name("sequence_summer")
-    invocation_id = graph.run(block_until_done=True, a=5)
-    print(graph.output(invocation_id, "add"))
+    #graph = RemoteGraph.by_name("sequence_summer")
+    #invocation_id = graph.run(block_until_done=True, a=5)
+    #print(graph.output(invocation_id, "add"))

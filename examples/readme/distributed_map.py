@@ -17,6 +17,9 @@ if __name__ == '__main__':
     from tensorlake import RemoteGraph
     graph = RemoteGraph.deploy(g)
 
-    invocation_id = graph.run(block_until_done=True, a=90)
+    a=30
+    invocation_id = graph.run(block_until_done=True, a=a)
     result = graph.output(invocation_id, "squared")
+    if len(result) != a:
+        raise Exception("Wrong len")
     print(result)

@@ -700,12 +700,11 @@ pub fn handle_task_allocation_update(
             invocation_id = task_placement.task.invocation_id,
             function_name = task_placement.task.compute_fn_name,
             task_id = task_placement.task.id.to_string(),
-            "task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}, allocation_key: {}",
+            "task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}",
             task_placement.task.namespace,
             task_placement.task.compute_graph_name,
             task_placement.task.invocation_id,
             task_placement.task.id,
-            allocation_key,
         );
 
         txn.put_cf(
@@ -933,7 +932,7 @@ pub(crate) fn deregister_executor(
             executor_id = executor_id.to_string(),
             "deregister executor: executor id: {}, removing task allocation: {}",
             executor_id,
-            String::from_utf8(key.to_vec())?
+            String::from_utf8_lossy(key.to_vec().as_ref())
         );
         txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key)?;
         let task_key = Task::key_from_allocation_key(&key)?;
@@ -941,7 +940,7 @@ pub(crate) fn deregister_executor(
             executor_id = executor_id.to_string(),
             "deregister executor id: {}, adding to unallocated tasks: {}",
             executor_id,
-            String::from_utf8(task_key.clone())?
+            String::from_utf8_lossy(&task_key)
         );
         txn.put_cf(
             &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),

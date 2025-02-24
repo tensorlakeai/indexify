@@ -68,7 +68,7 @@ impl StateReader {
             } else {
                 warn!(
                     "Key not found: {}, column family: {}",
-                    String::from_utf8(key.to_vec()).unwrap_or_default(),
+                    String::from_utf8_lossy(key.to_vec().as_ref()),
                     column.to_string()
                 );
                 None

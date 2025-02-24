@@ -865,8 +865,16 @@ impl Task {
         format!("{}|{}|{}", self.namespace, self.id, output_id)
     }
 
-    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> String {
-        format!("{}|{}|{}", executor_id, self.creation_time_ns, self.key())
+    pub fn make_allocation_key(&self, executor_id: &ExecutorId) -> Vec<u8> {
+        let mut key = vec![];
+
+        key.extend(executor_id.0.as_bytes());
+        key.push(b'|');
+        key.extend(self.creation_time_ns.to_be_bytes());
+        key.push(b'|');
+        key.extend(self.key().as_bytes());
+
+        key
     }
 
     pub fn key_from_allocation_key(allocation_key: &[u8]) -> Result<Vec<u8>> {
@@ -1128,6 +1136,21 @@ impl fmt::Display for ChangeType {
     }
 }
 
+impl ChangeType {
+    pub fn enum_type(&self) -> &'static str {
+        match self {
+            ChangeType::InvokeComputeGraph(_) => "InvokeComputeGraph",
+            ChangeType::TaskOutputsIngested(_) => "TaskOutputsIngested",
+            ChangeType::TombstoneComputeGraph(_) => "TombstoneComputeGraph",
+            ChangeType::ExecutorAdded(_) => "ExecutorAdded",
+            ChangeType::TombStoneExecutor(_) => "TombStoneExecutor",
+            ChangeType::ExecutorRemoved(_) => "ExecutorRemoved",
+            ChangeType::TaskCreated(_) => "TaskCreated",
+            ChangeType::TombstoneInvocation(_) => "TombstoneInvocation",
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Copy, PartialOrd)]
 pub struct StateChangeId(u64);
 
@@ -1169,14 +1192,14 @@ pub struct StateChange {
 }
 impl StateChange {
     pub fn key(&self) -> Vec<u8> {
-        let mut key = String::new();
+        let mut key = vec![];
         if let Some(ns) = &self.namespace {
-            key.push_str(&format!("ns_{}|", &ns));
+            key.extend_from_slice(format!("ns_{}|", &ns).as_bytes());
         } else {
-            key.push_str("global|");
+            key.extend_from_slice(b"global|");
         }
-        key.push_str(format!("{}", self.id).as_str());
-        key.as_bytes().to_vec()
+        key.extend(self.id.0.to_be_bytes());
+        key
     }
 }
 
