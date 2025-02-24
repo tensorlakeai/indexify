@@ -58,9 +58,7 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let task_allocator = Arc::new(task_allocator::TaskAllocationProcessor::new(
-            indexify_state.clone(),
-        ));
+        let task_allocator = Arc::new(task_allocator::TaskAllocationProcessor::new());
         let task_creator = Arc::new(task_creator::TaskCreator::new(indexify_state.clone()));
         let graph_processor = Arc::new(GraphProcessor::new(
             indexify_state.clone(),

@@ -16,7 +16,6 @@ use data_model::{
     StateMachineMetadata,
     Task,
     TaskOutputsIngestionStatus,
-    TaskStatus,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
@@ -729,8 +728,9 @@ pub fn ingest_task_outputs(
         "{}|{}|{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task.id
     );
-    let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
-    if task.is_none() {
+    let existing_task =
+        txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
+    if existing_task.is_none() {
         info!(
             namespace = &req.namespace,
             graph = &req.compute_graph,
@@ -740,16 +740,16 @@ pub fn ingest_task_outputs(
         );
         return Ok(false);
     }
-    let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
+    let existing_task = JsonEncoder::decode::<Task>(&existing_task.unwrap())?;
 
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
-    if task.output_status == TaskOutputsIngestionStatus::Ingested {
+    if existing_task.output_status == TaskOutputsIngestionStatus::Ingested {
         warn!(
             namespace = &req.namespace,
             graph = &req.compute_graph,
             invocation_id = &req.invocation_id,
-            task_key = task.key(),
+            task_key = existing_task.key(),
             "Task outputs already uploaded, skipping setting outputs",
         );
         return Ok(false);
@@ -767,7 +767,7 @@ pub fn ingest_task_outputs(
 
         // Create a key to store the pointer to the node output to the task
         // NS_TASK_ID_<OutputID> -> Output Key
-        let task_output_key = task.key_output(&output.id);
+        let task_output_key = &req.task.key_output(&output.id);
         let node_output_id = JsonEncoder::encode(&output_key)?;
         txn.put_cf(
             &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
@@ -776,14 +776,12 @@ pub fn ingest_task_outputs(
         )?;
     }
 
-    task.output_status = TaskOutputsIngestionStatus::Ingested;
-    task.diagnostics = req.diagnostics.clone();
-    task.outcome = req.task_outcome.clone();
-    task.status = TaskStatus::Completed;
-    let task_bytes = JsonEncoder::encode(&task)?;
+    let existing_task = req.task;
+
+    let task_bytes = JsonEncoder::encode(&existing_task)?;
     txn.put_cf(
         &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        task.key(),
+        existing_task.key(),
         task_bytes,
     )?;
 
@@ -791,7 +789,7 @@ pub fn ingest_task_outputs(
         &IndexifyObjectsColumns::Allocations.cf_db(&db),
         Allocation::key(
             &req.executor_id.get(),
-            &req.task.id.to_string(),
+            &existing_task.id.to_string(),
             &req.namespace,
             &req.compute_graph,
             &req.compute_fn,

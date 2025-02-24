@@ -95,7 +95,6 @@ pub struct DeleteComputeGraphOutputRequest {
     pub restart_key: Option<Vec<u8>>,
 }
 
-
 #[derive(Debug, Clone, Default)]
 pub struct ReductionTasks {
     pub new_reduction_tasks: Vec<ReduceTask>,

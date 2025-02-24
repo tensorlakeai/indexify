@@ -263,7 +263,15 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
+            let unallocated_tasks: Vec<String> = indexify_state
+                .in_memory_state
+                .read()
+                .await
+                .get_in_memory_state()
+                .unallocated_tasks
+                .keys()
+                .cloned()
+                .collect();
             assert!(unallocated_tasks.is_empty(), "{:#?}", unallocated_tasks);
 
             let executor_tasks = executor1.get_tasks().await?;

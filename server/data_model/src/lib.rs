@@ -920,6 +920,21 @@ impl Task {
         format!("{}|{}", namespace, compute_graph)
     }
 
+    pub fn key_compute_graph_version(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, self.compute_graph_name, self.graph_version.0,
+        )
+    }
+
+    pub fn key_prefix_for_invocation(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> String {
+        format!("{}|{}|{}", namespace, compute_graph, invocation_id)
+    }
+
     pub fn key_prefix_for_fn(
         namespace: &str,
         compute_graph: &str,
