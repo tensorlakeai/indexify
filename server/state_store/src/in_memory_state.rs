@@ -247,8 +247,8 @@ impl InMemoryState {
                     Arc::new(req.executor.clone()),
                 );
             }
-            RequestPayload::DeregisterExecutor(req) => {
-                self.executors.remove(req.executor_id.get());
+            RequestPayload::MutateClusterTopology(req) => {
+                self.executors.remove(req.executor_removed.get());
             }
             _ => {}
         }
