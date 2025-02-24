@@ -86,11 +86,10 @@ impl GraphProcessor {
         // 1. First load 100 state changes. Process the `global` state changes first
         // and then the `ns_` state changes
         if cached_state_changes.is_empty() {
-            let unprocessed_state_changes =
-                self.indexify_state.reader().unprocessed_state_changes(
-                    &last_global_state_change_cursor,
-                    &last_namespace_state_change_cursor,
-                )?;
+            let unprocessed_state_changes = self
+                .indexify_state
+                .reader()
+                .unprocessed_state_changes(&None, &None)?;
             let _ = match unprocessed_state_changes.last_global_state_change_cursor {
                 Some(cursor) => {
                     last_global_state_change_cursor.replace(cursor);
