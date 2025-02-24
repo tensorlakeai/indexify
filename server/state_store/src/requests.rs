@@ -1,4 +1,5 @@
 use data_model::{
+    Allocation,
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
@@ -26,6 +27,7 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
+    SchedulerUpdate(SchedulerUpdateRequest),
     NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
     TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
@@ -35,6 +37,16 @@ pub enum RequestPayload {
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
     DeleteInvocationRequest(DeleteInvocationRequest),
     Noop,
+}
+
+#[derive(Debug, Clone)]
+pub struct SchedulerUpdateRequest {
+    pub new_allocations: Vec<Allocation>,
+    pub remove_allocations: Vec<Allocation>,
+    pub updated_tasks: Vec<Task>,
+    pub updated_invocations_states: Vec<GraphInvocationCtx>,
+    pub new_reduction_tasks: Vec<ReduceTask>,
+    pub processed_reduction_tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,9 +147,9 @@ pub struct NamespaceProcessorUpdateRequest {
 
 #[derive(Debug, Clone)]
 pub struct TaskAllocationUpdateRequest {
-    pub allocations: Vec<TaskPlacement>,
-    pub unplaced_tasks: Vec<Task>,
-    pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
+    pub new_allocations: Vec<Allocation>,
+    pub remove_allocations: Vec<Allocation>,
+    pub updated_tasks: Vec<Task>,
 }
 
 #[derive(Debug, Clone)]

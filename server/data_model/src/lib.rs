@@ -98,6 +98,84 @@ impl From<&str> for TaskId {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct Allocation {
+    pub id: String,
+    pub executor_id: ExecutorId,
+    pub task_id: TaskId,
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub invocation_id: String,
+    pub created_at: u128,
+}
+
+impl Allocation {
+    pub fn key(
+        executor_id: &str,
+        task_id: &str,
+        namespace: &str,
+        compute_graph: &str,
+        compute_fn: &str,
+        invocation_id: &str,
+    ) -> String {
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        compute_graph.hash(&mut hasher);
+        compute_fn.hash(&mut hasher);
+        task_id.hash(&mut hasher);
+        invocation_id.hash(&mut hasher);
+        executor_id.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+}
+
+impl AllocationBuilder {
+    pub fn build(&mut self) -> Result<Allocation> {
+        let namespace = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is required"))?;
+        let compute_graph = self
+            .compute_graph
+            .clone()
+            .ok_or(anyhow!("compute_graph_name is required"))?;
+        let compute_fn = self
+            .compute_fn
+            .clone()
+            .ok_or(anyhow!("compute fn is required"))?;
+        let invocation_id = self
+            .invocation_id
+            .clone()
+            .ok_or(anyhow!("invocation_id is required"))?;
+        let task_id = self.task_id.clone().ok_or(anyhow!("task_id is required"))?;
+        let executor_id = self
+            .executor_id
+            .clone()
+            .ok_or(anyhow!("executor_id is required"))?;
+        let created_at: u128 = get_epoch_time_in_ms() as u128;
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        compute_graph.hash(&mut hasher);
+        compute_fn.hash(&mut hasher);
+        task_id.hash(&mut hasher);
+        invocation_id.hash(&mut hasher);
+        executor_id.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        Ok(Allocation {
+            id,
+            task_id,
+            namespace,
+            executor_id,
+            compute_graph,
+            compute_fn,
+            invocation_id,
+            created_at,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct ImageInformation {
     pub image_name: String,
@@ -336,6 +414,10 @@ pub struct ComputeGraph {
 impl ComputeGraph {
     pub fn key(&self) -> String {
         ComputeGraph::key_from(&self.namespace, &self.name)
+    }
+
+    pub fn key_version(&self) -> String {
+        ComputeGraphVersion::key_from(&self.namespace, &self.name, &self.version)
     }
 
     pub fn key_from(namespace: &str, name: &str) -> String {
@@ -820,8 +902,12 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn keys_for_compute_graph(namespace: &str, compute_graph_name: &str) -> String {
-        format!("{}|{}", namespace, compute_graph_name)
+    pub fn is_terminal(&self) -> bool {
+        self.status == TaskStatus::Completed || self.outcome.is_terminal()
+    }
+
+    pub fn keys_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}", namespace, compute_graph)
     }
 
     pub fn key_prefix_for_fn(

@@ -7,21 +7,15 @@ use state_store::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
         MutateClusterTopologyRequest,
-        NamespaceProcessorUpdateRequest,
-        ReductionTasks,
         RequestPayload,
         StateMachineUpdateRequest,
-        TaskAllocationUpdateRequest,
     },
     IndexifyState,
 };
 use tokio::sync::Notify;
 use tracing::{error, info};
 
-use crate::{
-    task_allocator::{self, TaskPlacementResult},
-    task_creator::{self, TaskCreationResult},
-};
+use crate::{task_allocator, task_creator};
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
@@ -166,39 +160,49 @@ impl GraphProcessor {
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
         info!("processing state change: {}", state_change.change_type);
+        let indexes = self.indexify_state.in_memory_state.get_in_memory_state();
         match &state_change.change_type {
-            ChangeType::InvokeComputeGraph(event) => {
-                info!(
-                    namespace = event.namespace,
-                    graph = event.compute_graph,
-                    invocation_id = event.invocation_id,
-                    "invoking compute graph: {:?}",
-                    event
-                );
-                let task_creation_result = self
+            ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
+                let scheduler_update = self
                     .task_creator
-                    .handle_invoke_compute_graph(event.clone())
-                    .await?;
-                Ok(task_creation_result_to_sm_update(
-                    &event.namespace,
-                    &event.compute_graph,
-                    &event.invocation_id,
-                    task_creation_result,
-                    &state_change,
-                ))
+                    .invoke(&state_change.change_type, indexes)
+                    .await;
+                if let Ok(result) = scheduler_update {
+                    Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::SchedulerUpdate(result),
+                        processed_state_changes: vec![state_change.clone()],
+                    })
+                } else {
+                    error!(
+                        "error scheduling unplaced tasks: {:?}",
+                        scheduler_update.err()
+                    );
+                    Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::Noop,
+                        processed_state_changes: vec![state_change.clone()],
+                    })
+                }
             }
-            ChangeType::TaskOutputsIngested(event) => {
-                let task_creation_result = self
-                    .task_creator
-                    .handle_task_finished_inner(self.indexify_state.clone(), event)
-                    .await?;
-                Ok(task_creation_result_to_sm_update(
-                    &event.namespace,
-                    &event.compute_graph,
-                    &event.invocation_id,
-                    task_creation_result,
-                    &state_change,
-                ))
+            ChangeType::ExecutorAdded(_) |
+            ChangeType::ExecutorRemoved(_) |
+            ChangeType::TaskCreated(_) => {
+                let scheduler_update = self.task_allocator.invoke(
+                    &state_change.change_type,
+                    self.indexify_state.in_memory_state.get_in_memory_state(),
+                );
+                let result = self.task_allocator.schedule_unplaced_tasks();
+                if let Ok(result) = scheduler_update {
+                    Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::SchedulerUpdate(result),
+                        processed_state_changes: vec![state_change.clone()],
+                    })
+                } else {
+                    error!("error scheduling unplaced tasks: {:?}", result.err());
+                    Ok(StateMachineUpdateRequest {
+                        payload: RequestPayload::Noop,
+                        processed_state_changes: vec![state_change.clone()],
+                    })
+                }
             }
             ChangeType::TombstoneComputeGraph(request) => Ok(StateMachineUpdateRequest {
                 payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
@@ -215,38 +219,7 @@ impl GraphProcessor {
                 }),
                 processed_state_changes: vec![state_change.clone()],
             }),
-            ChangeType::ExecutorAdded(_event) => {
-                if let Err(err) = self.task_allocator.refresh_executors() {
-                    error!("error refreshing executors: {:?}", err);
-                }
-                let result = self.task_allocator.schedule_unplaced_tasks();
-                if let Ok(result) = result {
-                    Ok(task_placement_result_to_sm_update(result, &state_change))
-                } else {
-                    error!("error scheduling unplaced tasks: {:?}", result.err());
-                    Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::Noop,
-                        processed_state_changes: vec![state_change.clone()],
-                    })
-                }
-            }
-            ChangeType::ExecutorRemoved(_event) => {
-                if let Err(err) = self.task_allocator.refresh_executors() {
-                    error!("error refreshing executors: {:?}", err);
-                }
-                let task_allocation = self.task_allocator.schedule_unplaced_tasks()?;
-                if task_allocation.task_placements.is_empty() {
-                    Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::Noop,
-                        processed_state_changes: vec![state_change.clone()],
-                    })
-                } else {
-                    Ok(task_placement_result_to_sm_update(
-                        task_allocation,
-                        &state_change,
-                    ))
-                }
-            }
+
             ChangeType::TombStoneExecutor(event) => {
                 info!(
                     executor_id = event.executor_id.to_string(),
@@ -259,49 +232,6 @@ impl GraphProcessor {
                     processed_state_changes: vec![state_change.clone()],
                 })
             }
-            ChangeType::TaskCreated(event) => {
-                let result = self
-                    .task_allocator
-                    .schedule_tasks(vec![event.task.clone()])?;
-                Ok(task_placement_result_to_sm_update(result, &state_change))
-            }
         }
-    }
-}
-
-fn task_creation_result_to_sm_update(
-    ns: &str,
-    compute_graph: &str,
-    invocation_id: &str,
-    task_creation_result: TaskCreationResult,
-    state_change: &StateChange,
-) -> StateMachineUpdateRequest {
-    StateMachineUpdateRequest {
-        payload: RequestPayload::NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest {
-            namespace: ns.to_string(),
-            compute_graph: compute_graph.to_string(),
-            invocation_id: invocation_id.to_string(),
-            invocation_ctx: task_creation_result.invocation_ctx,
-            task_requests: task_creation_result.tasks,
-            reduction_tasks: ReductionTasks {
-                new_reduction_tasks: task_creation_result.new_reduction_tasks,
-                processed_reduction_tasks: task_creation_result.processed_reduction_tasks,
-            },
-        }),
-        processed_state_changes: vec![state_change.clone()],
-    }
-}
-
-fn task_placement_result_to_sm_update(
-    task_placement_result: TaskPlacementResult,
-    state_change: &StateChange,
-) -> StateMachineUpdateRequest {
-    StateMachineUpdateRequest {
-        payload: RequestPayload::TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest {
-            allocations: task_placement_result.task_placements,
-            unplaced_tasks: task_placement_result.unplaced_tasks,
-            placement_diagnostics: task_placement_result.placement_diagnostics,
-        }),
-        processed_state_changes: vec![state_change.clone()],
     }
 }

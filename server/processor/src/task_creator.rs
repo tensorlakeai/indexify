@@ -1,8 +1,8 @@
-use core::task;
 use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    ChangeType,
     ComputeGraphVersion,
     GraphInvocationCtx,
     InvokeComputeGraphEvent,
@@ -13,7 +13,11 @@ use data_model::{
     TaskOutcome,
     TaskOutputsIngestedEvent,
 };
-use state_store::IndexifyState;
+use state_store::{
+    in_memory_state::InMemoryState,
+    requests::SchedulerUpdateRequest,
+    IndexifyState,
+};
 use tracing::{error, info, trace, warn};
 
 #[derive(Debug)]
@@ -57,6 +61,57 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
+    pub async fn invoke(
+        &self,
+        change: &ChangeType,
+        _indexes: InMemoryState,
+    ) -> Result<SchedulerUpdateRequest> {
+        match change {
+            ChangeType::TaskOutputsIngested(ev) => {
+                let result = self
+                    .handle_task_finished_inner(self.indexify_state.clone(), ev)
+                    .await?;
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: vec![],
+                    remove_allocations: vec![],
+                    updated_tasks: result.tasks,
+                    updated_invocations_states: result
+                        .invocation_ctx
+                        .map(|ctx| ctx.clone())
+                        .into_iter()
+                        .collect(),
+                    new_reduction_tasks: result.new_reduction_tasks,
+                    processed_reduction_tasks: result.processed_reduction_tasks,
+                });
+            }
+            ChangeType::InvokeComputeGraph(ev) => {
+                let result = self.handle_invoke_compute_graph(ev.clone()).await?;
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: vec![],
+                    remove_allocations: vec![],
+                    updated_tasks: result.tasks,
+                    updated_invocations_states: result
+                        .invocation_ctx
+                        .map(|ctx| ctx.clone())
+                        .into_iter()
+                        .collect(),
+                    new_reduction_tasks: result.new_reduction_tasks,
+                    processed_reduction_tasks: result.processed_reduction_tasks,
+                });
+            }
+            _ => {
+                error!(
+                    "TaskCreator received an unexpected change type: {:?}",
+                    change
+                );
+                return Err(anyhow!(
+                    "TaskCreator received an unexpected change type: {:?}",
+                    change
+                ));
+            }
+        }
+    }
+
     pub async fn handle_task_finished_inner(
         &self,
         indexify_state: Arc<IndexifyState>,
@@ -224,7 +279,7 @@ impl TaskCreator {
                 )
             })?;
 
-        let Some(mut invocation_ctx ) = invocation_ctx else {
+        let Some(mut invocation_ctx) = invocation_ctx else {
             trace!("no invocation ctx, stopping scheduling of child tasks");
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,

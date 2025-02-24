@@ -71,6 +71,7 @@ pub enum IndexifyObjectsColumns {
     TaskOutputs,      //  NS_TaskID -> NodeOutputID
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
+    Allocations,             // Allocation ID -> Allocation
     TaskAllocations,         //  ExecutorId -> Task_Key
     UnallocatedTasks,        //  Task_Key -> Empty
 
@@ -685,86 +686,43 @@ pub(crate) fn create_tasks(
 pub fn handle_task_allocation_update(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    sm_metrics: Arc<StateStoreMetrics>,
     request: &TaskAllocationUpdateRequest,
 ) -> Result<()> {
-    for task_placement in &request.allocations {
-        let task = task_placement.task.clone();
-        let allocation_key = task_placement
-            .task
-            .make_allocation_key(&task_placement.executor);
+    for alloc in &request.new_allocations {
         info!(
-            namespace = task_placement.task.namespace,
-            graph = task_placement.task.compute_graph_name,
-            graph_version = task_placement.task.graph_version.0,
-            invocation_id = task_placement.task.invocation_id,
-            function_name = task_placement.task.compute_fn_name,
-            task_id = task_placement.task.id.to_string(),
-            "task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}, allocation_key: {}",
-            task_placement.task.namespace,
-            task_placement.task.compute_graph_name,
-            task_placement.task.invocation_id,
-            task_placement.task.id,
-            allocation_key,
+            namespace = alloc.namespace,
+            graph = alloc.compute_graph,
+            invocation_id = alloc.invocation_id,
+            function_name = alloc.compute_fn,
+            task_id = alloc.task_id.to_string(),
+            allocation_id = alloc.id,
+            "add_allocation",
         );
-
+        let serialized_alloc = JsonEncoder::encode(&alloc)?;
         txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            task.key().as_str(),
-            &JsonEncoder::encode(&task)?,
+            &IndexifyObjectsColumns::Allocations.cf_db(&db),
+            &alloc.id,
+            serialized_alloc,
         )?;
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-            allocation_key,
-            &[],
-        )?;
-        info!(
-            namespace = task_placement.task.namespace,
-            graph = task_placement.task.compute_graph_name,
-            graph_version = task_placement.task.graph_version.0,
-            invocation_id = task_placement.task.invocation_id,
-            function_name = task_placement.task.compute_fn_name,
-            task_id = task_placement.task.id.to_string(),
-            "unallocated task: deleting : ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
-            task_placement.task.namespace,
-            task_placement.task.compute_graph_name,
-            task_placement.task.invocation_id,
-            task_placement.task.key(),
-        );
-        txn.delete_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            task_placement.task.key(),
-        )?;
-
-        sm_metrics.task_assigned(
-            &vec![task_placement.task.clone()],
-            task_placement.executor.get(),
-        );
     }
-    for unplaced_task in &request.unplaced_tasks {
-        let task_key = unplaced_task.key();
+    for alloc in &request.remove_allocations {
         info!(
-            namespace = unplaced_task.namespace,
-            graph = unplaced_task.compute_graph_name,
-            graph_version = unplaced_task.graph_version.0,
-            invocation_id = unplaced_task.invocation_id,
-            function_name = unplaced_task.compute_fn_name,
-            task_id = unplaced_task.id.to_string(),
-            "unallocated task: {}",
-            task_key
+            namespace = alloc.namespace,
+            graph = alloc.compute_graph,
+            invocation_id = alloc.invocation_id,
+            function_name = alloc.compute_fn,
+            task_id = alloc.id.to_string(),
+            allocation_id = alloc.id,
+            "delete_allocation",
         );
-
+        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.id)?;
+    }
+    for task in &request.updated_tasks {
+        let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            &task_key,
-            &JsonEncoder::encode(&unplaced_task)?,
-        )?;
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            task_key,
-            &[],
+            IndexifyObjectsColumns::Tasks.cf_db(&db),
+            task.key(),
+            serialized_task,
         )?;
     }
     Ok(())

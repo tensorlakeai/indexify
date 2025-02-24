@@ -13,6 +13,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
 use futures::Stream;
+use in_memory_state::InMemoryState;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
@@ -23,6 +24,7 @@ use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info, span};
 
+pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
 pub mod requests;
@@ -92,6 +94,7 @@ pub struct IndexifyState {
     pub change_events_tx: tokio::sync::watch::Sender<()>,
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
+    pub in_memory_state: in_memory_state::InMemoryState,
     // state_metrics: Arc<StateMetrics>,
 }
 
@@ -103,23 +106,28 @@ impl IndexifyState {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
-        let db: TransactionDB = TransactionDB::open_cf_descriptors(
-            &db_opts,
-            &TransactionDBOptions::default(),
-            path,
-            sm_column_families,
-        )
-        .map_err(|e| anyhow!("failed to open db: {}", e))?;
+        let db = Arc::new(
+            TransactionDB::open_cf_descriptors(
+                &db_opts,
+                &TransactionDBOptions::default(),
+                path,
+                sm_column_families,
+            )
+            .map_err(|e| anyhow!("failed to open db: {}", e))?,
+        );
         let sm_meta = state_machine::read_sm_meta(&db)?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         StateMetrics::new(state_store_metrics.clone());
-        // let state_metrics = Arc::new(StateMetrics::new(state_store_metrics.clone()));
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
+        let indexes = InMemoryState::new(scanner::StateReader::new(
+            db.clone(),
+            state_store_metrics.clone(),
+        ))?;
         let s = Arc::new(Self {
-            db: Arc::new(db),
+            db,
             last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
             task_event_tx,
@@ -130,7 +138,7 @@ impl IndexifyState {
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
-            // state_metrics,
+            in_memory_state: indexes,
         });
 
         info!(
@@ -194,6 +202,9 @@ impl IndexifyState {
                     &invoke_compute_graph_request,
                 )?;
                 state_changes
+            }
+            RequestPayload::SchedulerUpdate(_req) => {
+                vec![]
             }
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
@@ -270,14 +281,9 @@ impl IndexifyState {
                 new_state_changes
             }
             RequestPayload::TaskAllocationProcessorUpdate(request) => {
-                state_machine::handle_task_allocation_update(
-                    self.db.clone(),
-                    &txn,
-                    self.metrics.clone(),
-                    request,
-                )?;
-                for allocation in &request.allocations {
-                    allocated_tasks_by_executor.push(allocation.executor.clone());
+                state_machine::handle_task_allocation_update(self.db.clone(), &txn, request)?;
+                for allocation in &request.new_allocations {
+                    allocated_tasks_by_executor.push(allocation.executor_id.clone());
                 }
                 vec![]
             }
@@ -407,25 +413,15 @@ impl IndexifyState {
                 }
             }
             RequestPayload::TaskAllocationProcessorUpdate(sched_update) => {
-                for task_allocated in &sched_update.allocations {
+                for task_allocated in &sched_update.new_allocations {
                     let _ = self
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskAssigned(
                             invocation_events::TaskAssigned {
-                                invocation_id: task_allocated.task.invocation_id.clone(),
-                                fn_name: task_allocated.task.compute_fn_name.clone(),
-                                task_id: task_allocated.task.id.to_string(),
-                                executor_id: task_allocated.executor.get().to_string(),
-                            },
-                        ));
-                }
-                for diagnostic in &sched_update.placement_diagnostics {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::DiagnosticMessage(
-                            invocation_events::DiagnosticMessage {
-                                invocation_id: diagnostic.task.invocation_id.clone(),
-                                message: diagnostic.message.clone(),
+                                invocation_id: task_allocated.invocation_id.clone(),
+                                fn_name: task_allocated.compute_fn.clone(),
+                                task_id: task_allocated.task_id.to_string(),
+                                executor_id: task_allocated.executor_id.get().to_string(),
                             },
                         ));
                 }
