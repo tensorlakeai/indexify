@@ -5,9 +5,8 @@ use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
 use metrics::{blob_storage, Timer};
 use object_store::{
-    aws::{AmazonS3Builder, AmazonS3ConfigKey, S3ConditionalPut},
+    aws::{AmazonS3Builder, S3ConditionalPut},
     parse_url,
-    parse_url_opts,
     path::Path,
     ObjectStore,
     ObjectStoreScheme,
@@ -82,28 +81,12 @@ impl BlobStorage {
             ObjectStoreScheme::AmazonS3 => {
                 // inject AWS environment variables to prioritize keys over instance metadata
                 // credentials.
-                let opts: Vec<(AmazonS3ConfigKey, String)> = std::env::vars_os()
-                    .filter_map(|(os_key, os_value)| {
-                        if let (Some(key), Some(value)) = (os_key.to_str(), os_value.to_str()) {
-                            if key.starts_with("AWS_") {
-                                if let Ok(config_key) = key.to_ascii_lowercase().parse() {
-                                    return Some((config_key, String::from(value)));
-                                }
-                            }
-                        }
-                        None
-                    })
-                    .collect();
-
-                let mut s3_builder = AmazonS3Builder::new().with_url(url_str);
-                for (key, value) in opts.iter() {
-                    s3_builder = s3_builder.with_config(*key, value.clone());
-                }
-                let s3_builder = s3_builder
+                let s3_builder = AmazonS3Builder::from_env()
+                    .with_url(url_str)
                     .with_conditional_put(S3ConditionalPut::ETagMatch)
                     .build()
                     .expect("failed to create object store");
-                let (_, path) = parse_url_opts(url, opts)?;
+                let (_, path) = parse_url(url)?;
                 Ok((Box::new(s3_builder), path))
             }
             _ => Ok(parse_url(url)?),
