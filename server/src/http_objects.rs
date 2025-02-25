@@ -666,6 +666,7 @@ pub struct Allocation {
     pub compute_fn: String,
     pub executor_id: String,
     pub task_id: String,
+    pub invocation_id: String,
     pub created_at: u128,
 }
 
@@ -677,6 +678,7 @@ impl From<data_model::Allocation> for Allocation {
             compute_fn: allocation.compute_fn,
             executor_id: allocation.executor_id.to_string(),
             task_id: allocation.task_id.to_string(),
+            invocation_id: allocation.invocation_id.to_string(),
             created_at: allocation.created_at,
         }
     }

@@ -862,7 +862,7 @@ pub(crate) fn deregister_executor(
     let prefix = format!("{}|", executor_id);
     let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
     let iter = txn.iterator_cf_opt(
-        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
         read_options,
         iterator_mode,
     );
@@ -874,7 +874,7 @@ pub(crate) fn deregister_executor(
             executor_id,
             String::from_utf8(key.to_vec())?
         );
-        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key)?;
+        txn.delete_cf(&IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
         let task_key = Task::key_from_allocation_key(&key)?;
         info!(
             executor_id = executor_id.to_string(),
@@ -882,11 +882,6 @@ pub(crate) fn deregister_executor(
             executor_id,
             String::from_utf8(task_key.clone())?
         );
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            &task_key,
-            &[],
-        )?;
     }
     info!(
         executor_id = executor_id.to_string(),
