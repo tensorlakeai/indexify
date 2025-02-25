@@ -1,12 +1,13 @@
-import os
 import subprocess
 import unittest
 from typing import List, Optional
 
+import testing
 from tensorlake import Graph, tensorlake_function
 from tensorlake.remote_graph import RemoteGraph
 from testing import (
     ExecutorProcessContextManager,
+    executor_pid,
     function_uri,
     test_graph_name,
     wait_executor_startup,
@@ -22,14 +23,9 @@ function_a_executor_pid: Optional[int] = None
 function_b_executor_pid: Optional[int] = None
 
 
-def get_executor_pid() -> int:
-    # Assuming Subprocess Function Executors are used in Open Source.
-    return os.getppid()
-
-
 @tensorlake_function()
 def get_dev_mode_executor_pid() -> int:
-    return get_executor_pid()
+    return executor_pid()
 
 
 @tensorlake_function()
@@ -38,7 +34,7 @@ def function_a() -> str:
     global function_a_executor_pid
     global function_b_executor_pid
 
-    current_executor_pid: int = get_executor_pid()
+    current_executor_pid: int = executor_pid()
     allowed_executor_pids: List[int] = [function_a_executor_pid, dev_mode_executor_pid]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
@@ -53,7 +49,7 @@ def function_b(_: str) -> str:
     global function_a_executor_pid
     global function_b_executor_pid
 
-    current_executor_pid: int = get_executor_pid()
+    current_executor_pid: int = executor_pid()
     allowed_executor_pids: List[int] = [function_b_executor_pid, dev_mode_executor_pid]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
@@ -64,7 +60,7 @@ def function_b(_: str) -> str:
 
 @tensorlake_function()
 def function_dev(_: str) -> str:
-    current_executor_pid: int = get_executor_pid()
+    current_executor_pid: int = executor_pid()
     allowed_executor_pids: List[int] = [dev_mode_executor_pid]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
@@ -81,7 +77,7 @@ class TestFunctionAllowlist(unittest.TestCase):
             start_node=get_dev_mode_executor_pid,
             version="1.0",
         )
-        graph = RemoteGraph.deploy(graph)
+        graph = RemoteGraph.deploy(graph, additional_modules=[testing])
 
         global dev_mode_executor_pid
         invocation_id = graph.run(block_until_done=True)
@@ -142,7 +138,7 @@ class TestFunctionAllowlist(unittest.TestCase):
                 )
                 graph.add_edge(function_a, function_b)
                 graph.add_edge(function_b, function_dev)
-                graph = RemoteGraph.deploy(graph)
+                graph = RemoteGraph.deploy(graph, additional_modules=[testing])
                 # As invocations might land on dev Executor, we need to run the graph multiple times
                 # to ensure that we catch wrong routing to Executor A or B if it ever happens.
                 for _ in range(10):

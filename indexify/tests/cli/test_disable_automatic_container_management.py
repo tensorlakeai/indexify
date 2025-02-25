@@ -1,21 +1,15 @@
-import os
-import platform
 import subprocess
 import unittest
 
+import testing
 from tensorlake import Graph, tensorlake_function
 from tensorlake.remote_graph import RemoteGraph
 from testing import (
     ExecutorProcessContextManager,
+    function_executor_id,
     test_graph_name,
     wait_executor_startup,
 )
-
-
-def function_executor_id() -> str:
-    # PIDs are good for Subprocess Function Executors.
-    # Hostnames are good for Function Executors running in VMs and containers.
-    return str(os.getpid()) + str(platform.node())
 
 
 @tensorlake_function()
@@ -31,7 +25,7 @@ class TestDisabledAutomaticContainerManagement(unittest.TestCase):
             start_node=get_function_executor_id,
             version="1.0",
         )
-        graph_v1 = RemoteGraph.deploy(graph_v1)
+        graph_v1 = RemoteGraph.deploy(graph_v1, additional_modules=[testing])
 
         invocation_id = graph_v1.run(block_until_done=True)
         output = graph_v1.output(invocation_id, "get_function_executor_id")
@@ -71,7 +65,7 @@ class TestDisabledAutomaticContainerManagement(unittest.TestCase):
                 start_node=get_function_executor_id,
                 version="2.0",
             )
-            graph_v2 = RemoteGraph.deploy(graph_v2)
+            graph_v2 = RemoteGraph.deploy(graph_v2, additional_modules=[testing])
 
             success_fe_ids_v2 = []
             for _ in range(10):
