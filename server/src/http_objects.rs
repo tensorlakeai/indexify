@@ -660,6 +660,34 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct Allocation {
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub executor_id: String,
+    pub task_id: String,
+    pub created_at: u128,
+}
+
+impl From<data_model::Allocation> for Allocation {
+    fn from(allocation: data_model::Allocation) -> Self {
+        Self {
+            namespace: allocation.namespace,
+            compute_graph: allocation.compute_graph,
+            compute_fn: allocation.compute_fn,
+            executor_id: allocation.executor_id.to_string(),
+            task_id: allocation.task_id.to_string(),
+            created_at: allocation.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExecutorAllocations {
+    pub allocations: HashMap<String, Vec<Allocation>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvocationQueryParams {
     pub block_until_finish: Option<bool>,
 }

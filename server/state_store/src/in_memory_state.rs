@@ -228,6 +228,11 @@ impl InMemoryState {
             RequestPayload::SchedulerUpdate(req) => {
                 for task in &req.updated_tasks {
                     self.tasks.insert(task.key(), Arc::new(task.clone()));
+                    if task.status == TaskStatus::Pending {
+                        self.unallocated_tasks.insert(task.key(), [0; 0]);
+                    } else {
+                        self.unallocated_tasks.remove(&task.key());
+                    }
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
                     self.queued_reduction_tasks.insert(task.key(), task.clone());

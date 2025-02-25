@@ -95,7 +95,6 @@ pub struct IndexifyState {
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
-    // state_metrics: Arc<StateMetrics>,
 }
 
 impl IndexifyState {

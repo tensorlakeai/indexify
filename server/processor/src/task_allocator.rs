@@ -92,6 +92,8 @@ impl TaskAllocationProcessor {
         for task_id in &unalloacted_task_ids {
             if let Some(task) = indexes.tasks.get(task_id) {
                 tasks.push(task.as_ref().clone());
+            } else {
+                error!("task not found in indexes: {}", task_id);
             }
         }
         self.schedule_tasks(tasks, indexes)

@@ -1,7 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
-use data_model::{ExecutorId, ExecutorMetadata};
+use data_model::{Allocation, ExecutorId, ExecutorMetadata};
 use state_store::{
     requests::{
         DeregisterExecutorRequest,
@@ -60,7 +60,36 @@ impl ExecutorManager {
     }
 
     pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {
-        self.indexify_state.reader().get_all_executors()
+        let mut executors = vec![];
+        for executor in self
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .executors
+            .values()
+        {
+            executors.push(executor.clone());
+        }
+        Ok(executors)
+    }
+
+    pub async fn list_allocations(&self) -> HashMap<String, Vec<Allocation>> {
+        self.indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .allocations_by_executor
+            .iter()
+            .map(|(executor_id, allocations)| {
+                let executor_id = executor_id.clone();
+                let mut allocs = vec![];
+                for allocation in allocations {
+                    allocs.push(allocation.clone());
+                }
+                (executor_id, allocs)
+            })
+            .collect()
     }
 }
 
