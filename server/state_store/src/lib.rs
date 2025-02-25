@@ -207,6 +207,12 @@ impl IndexifyState {
                 state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
                 for invocation_ctx in &request.updated_invocations_states {
                     if invocation_ctx.completed {
+                        info!(
+                            invocation_id = invocation_ctx.invocation_id.to_string(),
+                            namespace = invocation_ctx.namespace,
+                            compute_graph = invocation_ctx.compute_graph_name,
+                            "invocation completed"
+                        );
                         let _ = self.task_event_tx.send(
                             InvocationStateChangeEvent::InvocationFinished(
                                 InvocationFinishedEvent {

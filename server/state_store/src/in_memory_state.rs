@@ -11,6 +11,7 @@ use data_model::{
     Task,
     TaskStatus,
 };
+use tracing::error;
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -279,6 +280,19 @@ impl InMemoryState {
             }
             RequestPayload::MutateClusterTopology(req) => {
                 self.executors.remove(req.executor_removed.get());
+                for allocation in self
+                    .allocations_by_executor
+                    .get(req.executor_removed.get())
+                    .unwrap_or(&im::Vector::new())
+                {
+                    let Some(task) = self.tasks.get(&allocation.task_key()) else {
+                        error!("task not found for allocation: {:?}", allocation);
+                        continue;
+                    };
+                    self.unallocated_tasks.insert(task.key(), [0; 0]);
+                }
+                self.allocations_by_executor
+                    .remove(req.executor_removed.get());
             }
             _ => {}
         }
