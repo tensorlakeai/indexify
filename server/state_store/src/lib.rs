@@ -13,16 +13,18 @@ use std::{
 use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
 use futures::Stream;
+use in_memory_state::InMemoryState;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
-use state_machine::{IndexifyObjectsColumns, InvocationCompletion};
+use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, info, span};
 
+pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
 pub mod requests;
@@ -92,7 +94,7 @@ pub struct IndexifyState {
     pub change_events_tx: tokio::sync::watch::Sender<()>,
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
-    // state_metrics: Arc<StateMetrics>,
+    pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
 }
 
 impl IndexifyState {
@@ -103,23 +105,28 @@ impl IndexifyState {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
-        let db: TransactionDB = TransactionDB::open_cf_descriptors(
-            &db_opts,
-            &TransactionDBOptions::default(),
-            path,
-            sm_column_families,
-        )
-        .map_err(|e| anyhow!("failed to open db: {}", e))?;
+        let db = Arc::new(
+            TransactionDB::open_cf_descriptors(
+                &db_opts,
+                &TransactionDBOptions::default(),
+                path,
+                sm_column_families,
+            )
+            .map_err(|e| anyhow!("failed to open db: {}", e))?,
+        );
         let sm_meta = state_machine::read_sm_meta(&db)?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         StateMetrics::new(state_store_metrics.clone());
-        // let state_metrics = Arc::new(StateMetrics::new(state_store_metrics.clone()));
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
+        let indexes = Arc::new(RwLock::new(InMemoryState::new(scanner::StateReader::new(
+            db.clone(),
+            state_store_metrics.clone(),
+        ))?));
         let s = Arc::new(Self {
-            db: Arc::new(db),
+            db,
             last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
             task_event_tx,
@@ -130,7 +137,7 @@ impl IndexifyState {
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
-            // state_metrics,
+            in_memory_state: indexes,
         });
 
         info!(
@@ -195,6 +202,30 @@ impl IndexifyState {
                 )?;
                 state_changes
             }
+            RequestPayload::SchedulerUpdate(request) => {
+                state_machine::handle_scheduler_update(self.db.clone(), &txn, request)?;
+                for invocation_ctx in &request.updated_invocations_states {
+                    if invocation_ctx.completed {
+                        info!(
+                            invocation_id = invocation_ctx.invocation_id.to_string(),
+                            namespace = invocation_ctx.namespace,
+                            compute_graph = invocation_ctx.compute_graph_name,
+                            "invocation completed"
+                        );
+                        let _ = self.task_event_tx.send(
+                            InvocationStateChangeEvent::InvocationFinished(
+                                InvocationFinishedEvent {
+                                    id: invocation_ctx.invocation_id.clone(),
+                                },
+                            ),
+                        );
+                    }
+                }
+                for allocation in &request.new_allocations {
+                    allocated_tasks_by_executor.push(allocation.executor_id.clone());
+                }
+                vec![]
+            }
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
                     self.db.clone(),
@@ -243,42 +274,6 @@ impl IndexifyState {
             RequestPayload::DeleteInvocationRequest(request) => {
                 state_machine::delete_invocation(self.db.clone(), &txn, request)?;
                 self.gc_tx.send(()).unwrap();
-                vec![]
-            }
-            RequestPayload::NamespaceProcessorUpdate(request) => {
-                let new_state_changes =
-                    state_changes::change_events_for_namespace_processor_update(
-                        &self.last_state_change_id,
-                        &request,
-                    )?;
-                if let Some(completion) =
-                    state_machine::create_tasks(self.db.clone(), &txn, &request)?
-                {
-                    let _ =
-                        self.task_event_tx
-                            .send(InvocationStateChangeEvent::InvocationFinished(
-                                InvocationFinishedEvent {
-                                    id: request.invocation_id.clone(),
-                                },
-                            ));
-                    if completion == InvocationCompletion::System {
-                        // Notify the system task handler that it can start new tasks since
-                        // a task was completed
-                        let _ = self.system_tasks_tx.send(());
-                    }
-                };
-                new_state_changes
-            }
-            RequestPayload::TaskAllocationProcessorUpdate(request) => {
-                state_machine::handle_task_allocation_update(
-                    self.db.clone(),
-                    &txn,
-                    self.metrics.clone(),
-                    request,
-                )?;
-                for allocation in &request.allocations {
-                    allocated_tasks_by_executor.push(allocation.executor.clone());
-                }
                 vec![]
             }
             RequestPayload::RegisterExecutor(request) => {
@@ -356,6 +351,11 @@ impl IndexifyState {
             },
         )?;
         txn.commit()?;
+        self.in_memory_state
+            .write()
+            .await
+            .update_state(&request)
+            .map_err(|e| anyhow!("error updating in memory state: {}", e))?;
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
                 .write()
@@ -393,8 +393,20 @@ impl IndexifyState {
                     InvocationStateChangeEvent::from_task_finished(task_finished_event.clone());
                 let _ = self.task_event_tx.send(ev);
             }
-            RequestPayload::NamespaceProcessorUpdate(sched_update) => {
-                for task in &sched_update.task_requests {
+            RequestPayload::SchedulerUpdate(sched_update) => {
+                for task in &sched_update.new_allocations {
+                    let _ = self
+                        .task_event_tx
+                        .send(InvocationStateChangeEvent::TaskAssigned(
+                            invocation_events::TaskAssigned {
+                                invocation_id: task.invocation_id.clone(),
+                                fn_name: task.compute_fn.clone(),
+                                task_id: task.id.to_string(),
+                                executor_id: task.executor_id.get().to_string(),
+                            },
+                        ));
+                }
+                for task in &sched_update.updated_tasks {
                     let _ = self
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskCreated(
@@ -402,30 +414,6 @@ impl IndexifyState {
                                 invocation_id: task.invocation_id.clone(),
                                 fn_name: task.compute_fn_name.clone(),
                                 task_id: task.id.to_string(),
-                            },
-                        ));
-                }
-            }
-            RequestPayload::TaskAllocationProcessorUpdate(sched_update) => {
-                for task_allocated in &sched_update.allocations {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::TaskAssigned(
-                            invocation_events::TaskAssigned {
-                                invocation_id: task_allocated.task.invocation_id.clone(),
-                                fn_name: task_allocated.task.compute_fn_name.clone(),
-                                task_id: task_allocated.task.id.to_string(),
-                                executor_id: task_allocated.executor.get().to_string(),
-                            },
-                        ));
-                }
-                for diagnostic in &sched_update.placement_diagnostics {
-                    let _ = self
-                        .task_event_tx
-                        .send(InvocationStateChangeEvent::DiagnosticMessage(
-                            invocation_events::DiagnosticMessage {
-                                invocation_id: diagnostic.task.invocation_id.clone(),
-                                message: diagnostic.message.clone(),
                             },
                         ));
                 }
@@ -457,31 +445,20 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
             // The update thread modifies tasks first and then updates task_ids_sent,
             // this thread does the opposite. This avoids sending the same task multiple times.
             let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
-            match state
-                .reader()
-                .get_tasks_by_executor(&executor, limit)
-                 {
-                    Ok(tasks) => {
-                        let state = state.clone();
-                        let filtered_tasks = async {
-                            let mut executor_state = state.executor_states.write().await;
-                            let executor_s = executor_state.get_mut(&executor).unwrap();
-                            let mut filtered_tasks = vec![];
-                            for task in &tasks {
-                                if !task_ids_sent.contains(&task.id) {
-                                    filtered_tasks.push(task.clone());
-                                    executor_s.added(&vec![task.id.clone()]);
-                                }
-                            }
-                            filtered_tasks
-                        }.await;
-                        yield Ok(filtered_tasks)
-                    },
-                    Err(e) => {
-                        yield Err(e);
-                        return;
+            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor.to_string(), limit);
+            if active_tasks.len() > 0 {
+                let state = state.clone();
+                let mut executor_state = state.executor_states.write().await;
+                let executor_s = executor_state.get_mut(&executor).unwrap();
+                let mut filtered_tasks = vec![];
+                for task in &active_tasks{
+                    if !task_ids_sent.contains(&task.id) {
+                        filtered_tasks.push(task.clone());
+                        executor_s.added(&vec![task.id.clone()]);
                     }
                 }
+                yield Ok(filtered_tasks);
+            };
             let _ = rx.recv().await;
         }
     };

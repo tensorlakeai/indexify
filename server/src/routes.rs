@@ -62,11 +62,13 @@ use logs::download_task_logs;
 use crate::{
     executors::ExecutorManager,
     http_objects::{
+        Allocation,
         ComputeFn,
         ComputeGraph,
         ComputeGraphsList,
         CreateNamespace,
         DynamicRouter,
+        ExecutorAllocations,
         ExecutorMetadata,
         FnOutputs,
         GraphInvocations,
@@ -101,6 +103,7 @@ use crate::{
             delete_invocation,
             logs::download_task_logs,
             list_executors,
+            list_allocations,
             download::download_fn_output_payload,
         ),
         components(
@@ -123,6 +126,8 @@ use crate::{
                 Tasks,
                 GraphInvocations,
                 GraphVersion,
+                Allocation,
+                ExecutorAllocations,
             )
         ),
         tags(
@@ -178,6 +183,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/executors",
             get(list_executors).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/allocations",
+            get(list_allocations).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors/{id}/tasks",
@@ -649,6 +658,35 @@ async fn list_executors(
         .map_err(IndexifyAPIError::internal_error)?;
     let http_executors = executors.into_iter().map(|e| e.into()).collect();
     Ok(Json(http_executors))
+}
+
+/// List Allocations
+#[utoipa::path(
+    get,
+    path = "/internal/allocations",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List all allocations", body = HashMap<String, Vec<Allocation>>),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn list_allocations(
+    State(state): State<RouteState>,
+) -> Result<Json<ExecutorAllocations>, IndexifyAPIError> {
+    let allocations = state.executor_manager.list_allocations().await;
+    Ok(Json(ExecutorAllocations {
+        allocations: allocations
+            .into_iter()
+            .map(|(executor_id, allocations)| {
+                let executor_id = executor_id.clone();
+                let mut allocs = vec![];
+                for allocation in allocations {
+                    allocs.push(allocation.clone().into());
+                }
+                (executor_id, allocs)
+            })
+            .collect(),
+    }))
 }
 
 async fn executor_tasks(

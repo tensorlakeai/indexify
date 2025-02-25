@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use clap::Parser;
 use config::ServerConfig;
 use opentelemetry::global;
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
-use opentelemetry_sdk::trace::TracerProvider;
+use opentelemetry_sdk::trace::{SdkTracerProvider, TracerProviderBuilder};
 use service::Service;
 use tracing::error;
 use tracing_subscriber::{
@@ -66,7 +66,7 @@ where
     Box::new(tracing_subscriber::fmt::layer().compact())
 }
 
-fn setup_tracing(config: ServerConfig) -> Result<()> {
+fn setup_tracing(config: ServerConfig) -> Result<Option<SdkTracerProvider>> {
     let structured_logging = !config.dev;
     let env_filter_layer = get_env_filter();
     let log_layer = get_log_layer(structured_logging);
@@ -78,7 +78,7 @@ fn setup_tracing(config: ServerConfig) -> Result<()> {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
             error!("logger was already initiated, continuing: {:?}", e);
         }
-        return Ok(());
+        return Ok(None);
     }
 
     let mut span_exporter = SpanExporter::builder().with_tonic();
@@ -87,12 +87,12 @@ fn setup_tracing(config: ServerConfig) -> Result<()> {
     }
     let span_exporter = span_exporter.build()?;
 
-    let tracer_provider = TracerProvider::builder()
+    let tracer_provider = TracerProviderBuilder::default()
         .with_simple_exporter(span_exporter)
         .build();
     global::set_tracer_provider(tracer_provider.clone());
 
-    Ok(())
+    Ok(Some(tracer_provider))
 }
 
 #[tokio::main]
@@ -108,10 +108,11 @@ async fn main() {
         config.dev = true;
     }
 
-    if let Err(err) = setup_tracing(config.clone()) {
-        error!("Error setting up tracing: {:?}", err);
-        return;
-    }
+    let tracing_provider = setup_tracing(config.clone())
+        .inspect_err(|e| {
+            error!("Error setting up tracing: {:?}", e);
+        })
+        .unwrap();
 
     let service = Service::new(config).await;
     if let Err(err) = service {
@@ -123,5 +124,12 @@ async fn main() {
     }
 
     // export traces before shutdown
-    opentelemetry::global::shutdown_tracer_provider();
+    if let Some(tracer_provider) = tracing_provider {
+        if let Err(err) = tracer_provider.force_flush() {
+            error!("Error flushing traces: {:?}", err);
+        }
+        if let Err(err) = tracer_provider.shutdown() {
+            error!("Error shutting down tracer provider: {:?}", err);
+        }
+    }
 }

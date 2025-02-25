@@ -10,6 +10,8 @@ use data_model::{
     NodeOutputBuilder,
     OutputPayload,
     TaskDiagnostics,
+    TaskOutputsIngestionStatus,
+    TaskStatus,
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -244,6 +246,8 @@ pub async fn ingest_files_from_executor(
     let mut task = task.unwrap();
     task.outcome = task_result.outcome.clone().into();
     task.diagnostics = Some(task_diagnostic.clone());
+    task.output_status = TaskOutputsIngestionStatus::Ingested;
+    task.status = TaskStatus::Completed;
 
     let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
         namespace: task_result.namespace.to_string(),

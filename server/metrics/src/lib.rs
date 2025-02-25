@@ -94,7 +94,7 @@ where
     }
 }
 
-use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry_sdk::{metrics::SdkMeterProvider, Resource};
 
 pub fn init_provider() -> Result<Registry> {
     let registry = prometheus::Registry::new();
@@ -102,10 +102,12 @@ pub fn init_provider() -> Result<Registry> {
         .with_registry(registry.clone())
         .build()?;
     let provider = SdkMeterProvider::builder()
-        .with_resource(opentelemetry_sdk::Resource::new(vec![
-            opentelemetry::KeyValue::new("service.name", "indexify-server"),
-            opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-        ]))
+        .with_resource(
+            Resource::builder()
+                .with_attribute(KeyValue::new("service.name", "indexify-server"))
+                .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
+                .build(),
+        )
         .with_reader(exporter)
         .build();
 
