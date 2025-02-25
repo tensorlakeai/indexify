@@ -2,6 +2,12 @@ name: Build Indexify Server Release Packages
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        type: string
+        description: The ref to checkout before running the workflow
+        required: false
+        default: main
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest-xlarge
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: cargo install cargo-deb
@@ -37,6 +45,8 @@ jobs:
     runs-on: ubuntu-latest-xlarge
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - run: rustup toolchain install nightly --component rustfmt
       - run: cargo +nightly fmt --check
       - run: make build-release-aarch64
@@ -58,6 +68,8 @@ jobs:
     runs-on: macos-14-xlarge
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - run: rustup update
       - run: rustup toolchain install nightly --component rustfmt
       - run: rustup target add aarch64-apple-darwin
@@ -75,6 +87,8 @@ jobs:
   #   runs-on: macos-12
   #   steps:
   #     - uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ inputs.ref }}
   #     - run: rustup update
   #     - run: rustup toolchain install nightly --component rustfmt
   #     - run: cargo +nightly fmt --check
@@ -91,6 +105,8 @@ jobs:
   #   runs-on: windows-latest-large
   #   steps:
   #     - uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ inputs.ref }}
   #     - uses: ilammy/setup-nasm@v1
   #     - run: rustup toolchain install nightly --component rustfmt
   #     - run: cargo +nightly fmt --check
