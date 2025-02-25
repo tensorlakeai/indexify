@@ -40,7 +40,7 @@ impl TaskAllocationProcessor {
     pub fn invoke(
         &self,
         change: &ChangeType,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::ExecutorAdded(_ev) => {
@@ -58,7 +58,7 @@ impl TaskAllocationProcessor {
                 let mut remove_allocations = Vec::new();
                 let allocations = indexes.allocations_by_executor.get(ev.executor_id.get());
                 if let Some(allocations) = allocations {
-                    remove_allocations.extend(allocations.iter().map(|a| a.as_ref().clone()));
+                    remove_allocations.extend(allocations.iter().map(|a| a.clone()));
                     for allocation in allocations {
                         let task = indexes.tasks.get(&allocation.task_id.to_string());
                         if let Some(task) = task.cloned() {
@@ -85,7 +85,7 @@ impl TaskAllocationProcessor {
 
     pub fn schedule_unplaced_tasks(
         &self,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskPlacementResult> {
         let unalloacted_task_ids = indexes.unallocated_tasks.keys().cloned().collect_vec();
         let mut tasks = Vec::new();
@@ -100,7 +100,7 @@ impl TaskAllocationProcessor {
     pub fn schedule_tasks(
         &self,
         tasks: Vec<Task>,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskPlacementResult> {
         let mut allocations = Vec::new();
         let mut updated_tasks = Vec::new();
@@ -128,7 +128,7 @@ impl TaskAllocationProcessor {
                         .allocations_by_executor
                         .entry(allocation.executor_id.to_string())
                         .or_default()
-                        .push_back(Arc::new(allocation));
+                        .push_back(allocation);
                     indexes.tasks.insert(task.key(), Arc::new(task.clone()));
                 }
                 Ok(None) => {
@@ -150,7 +150,7 @@ impl TaskAllocationProcessor {
     fn allocate_task(
         &self,
         task: &mut Task,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<Option<Allocation>> {
         let compute_graph_version = indexes
             .compute_graph_versions
@@ -183,7 +183,7 @@ impl TaskAllocationProcessor {
         &self,
         compute_graph: &ComputeGraphVersion,
         node: &Node,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<FilteredExecutors> {
         let mut filtered_executors = vec![];
 

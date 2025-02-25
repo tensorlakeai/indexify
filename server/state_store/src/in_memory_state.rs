@@ -22,16 +22,16 @@ pub struct InMemoryState {
     pub namespaces: im::HashMap<String, [u8; 0]>,
 
     // Namespace|CG Name -> ComputeGraph
-    pub compute_graphs: im::HashMap<String, Arc<ComputeGraph>>,
+    pub compute_graphs: im::HashMap<String, ComputeGraph>,
 
     // Namespace|CG Name|Version -> ComputeGraph
-    pub compute_graph_versions: im::OrdMap<String, Arc<ComputeGraphVersion>>,
+    pub compute_graph_versions: im::OrdMap<String, ComputeGraphVersion>,
 
     // ExecutorId -> ExecutorMetadata
-    pub executors: im::HashMap<String, Arc<ExecutorMetadata>>,
+    pub executors: im::HashMap<String, ExecutorMetadata>,
 
     // Executor Id -> List of Task IDs
-    pub allocations_by_executor: im::HashMap<String, im::Vector<Arc<Allocation>>>,
+    pub allocations_by_executor: im::HashMap<String, im::Vector<Allocation>>,
 
     // NS|CG|Fn|Inv -> Task
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
@@ -40,10 +40,10 @@ pub struct InMemoryState {
     pub tasks: im::OrdMap<String, Arc<Task>>,
 
     // Queued Reduction Tasks
-    pub queued_reduction_tasks: im::OrdMap<String, Arc<ReduceTask>>,
+    pub queued_reduction_tasks: im::OrdMap<String, ReduceTask>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<String, Arc<GraphInvocationCtx>>,
+    pub invocation_ctx: im::OrdMap<String, GraphInvocationCtx>,
 }
 
 impl InMemoryState {
@@ -60,25 +60,25 @@ impl InMemoryState {
         for ns in &all_ns {
             let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
             for cg in cgs {
-                compute_graphs.insert(format!("{}|{}", ns.name, cg.name), Arc::new(cg));
+                compute_graphs.insert(format!("{}|{}", ns.name, cg.name), cg);
             }
         }
         let mut compute_graph_versions = im::OrdMap::new();
         let all_cg_versions: Vec<(String, ComputeGraphVersion)> =
             reader.get_all_rows_from_cf(IndexifyObjectsColumns::ComputeGraphVersions)?;
         for (id, cg) in all_cg_versions {
-            compute_graph_versions.insert(id, Arc::new(cg));
+            compute_graph_versions.insert(id, cg);
         }
 
         // Creating Executors
         let all_executors = reader.get_all_executors()?;
         let mut executors = im::HashMap::new();
         for executor in &all_executors {
-            executors.insert(executor.id.get().to_string(), Arc::new(executor.clone()));
+            executors.insert(executor.id.get().to_string(), executor.clone());
         }
 
         // Creating Allocated Tasks By Executor
-        let mut allocations_by_executor: im::HashMap<String, im::Vector<Arc<Allocation>>> =
+        let mut allocations_by_executor: im::HashMap<String, im::Vector<Allocation>> =
             im::HashMap::new();
         let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
             &[],
@@ -90,7 +90,7 @@ impl InMemoryState {
             allocations_by_executor
                 .entry(allocation.executor_id.get().to_string())
                 .or_default()
-                .push_back(Arc::new(allocation));
+                .push_back(allocation);
         }
 
         // Creating Tasks
@@ -115,13 +115,13 @@ impl InMemoryState {
             if ctx.completed {
                 continue;
             }
-            invocation_ctx.insert(id, Arc::new(ctx));
+            invocation_ctx.insert(id, ctx);
         }
         let mut queued_reduction_tasks = im::OrdMap::new();
         let all_reduction_tasks: Vec<(String, ReduceTask)> =
             reader.get_all_rows_from_cf(IndexifyObjectsColumns::ReductionTasks)?;
         for (_id, task) in all_reduction_tasks {
-            queued_reduction_tasks.insert(task.key(), Arc::new(task));
+            queued_reduction_tasks.insert(task.key(), task);
         }
         Ok(Self {
             namespaces,
@@ -171,8 +171,7 @@ impl InMemoryState {
     ) -> Result<()> {
         match &state_machine_update_request.payload {
             RequestPayload::InvokeComputeGraph(req) => {
-                self.invocation_ctx
-                    .insert(req.ctx.key(), Arc::new(req.ctx.clone()));
+                self.invocation_ctx.insert(req.ctx.key(), req.ctx.clone());
             }
             RequestPayload::IngestTaskOutputs(req) => {
                 let allocation_key = Allocation::key(
@@ -195,10 +194,10 @@ impl InMemoryState {
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 self.compute_graphs
-                    .insert(req.compute_graph.key(), Arc::new(req.compute_graph.clone()));
+                    .insert(req.compute_graph.key(), req.compute_graph.clone());
                 self.compute_graph_versions.insert(
                     req.compute_graph.into_version().key(),
-                    Arc::new(req.compute_graph.into_version().clone()),
+                    req.compute_graph.into_version().clone(),
                 );
             }
             RequestPayload::DeleteComputeGraphRequest(req) => {
@@ -230,15 +229,14 @@ impl InMemoryState {
                     self.tasks.insert(task.key(), Arc::new(task.clone()));
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
-                    self.queued_reduction_tasks
-                        .insert(task.key(), Arc::new(task.clone()));
+                    self.queued_reduction_tasks.insert(task.key(), task.clone());
                 }
                 for task in &req.reduction_tasks.processed_reduction_tasks {
                     self.queued_reduction_tasks.remove(task);
                 }
                 for invocation_ctx in &req.updated_invocations_states {
                     self.invocation_ctx
-                        .insert(invocation_ctx.key(), Arc::new(invocation_ctx.clone()));
+                        .insert(invocation_ctx.key(), invocation_ctx.clone());
                     // Remove tasks for invocation ctx if completed
                     if invocation_ctx.completed {
                         let key = Task::key_prefix_for_invocation(
@@ -262,7 +260,7 @@ impl InMemoryState {
                     self.allocations_by_executor
                         .entry(allocation.executor_id.get().to_string())
                         .or_default()
-                        .push_back(Arc::new(allocation.clone()));
+                        .push_back(allocation.clone());
                     self.unallocated_tasks
                         .remove(&allocation.task_id.to_string());
                 }
@@ -276,10 +274,8 @@ impl InMemoryState {
                 }
             }
             RequestPayload::RegisterExecutor(req) => {
-                self.executors.insert(
-                    req.executor.id.get().to_string(),
-                    Arc::new(req.executor.clone()),
-                );
+                self.executors
+                    .insert(req.executor.id.get().to_string(), req.executor.clone());
             }
             RequestPayload::MutateClusterTopology(req) => {
                 self.executors.remove(req.executor_removed.get());
@@ -301,11 +297,11 @@ impl InMemoryState {
             .range(key.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key))
             .next()
-            .map(|(_, v)| v.as_ref().clone())
+            .map(|(_, v)| v.clone())
     }
 
-    pub fn get_in_memory_state(&self) -> Self {
-        InMemoryState {
+    pub fn clone(&self) -> Box<Self> {
+        Box::new(InMemoryState {
             namespaces: self.namespaces.clone(),
             compute_graphs: self.compute_graphs.clone(),
             compute_graph_versions: self.compute_graph_versions.clone(),
@@ -315,6 +311,6 @@ impl InMemoryState {
             unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
-        }
+        })
     }
 }

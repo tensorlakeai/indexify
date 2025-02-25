@@ -64,7 +64,7 @@ impl TaskCreator {
     pub async fn invoke(
         &self,
         change: &ChangeType,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::TaskOutputsIngested(ev) => {
@@ -119,7 +119,7 @@ impl TaskCreator {
     pub async fn handle_task_finished_inner(
         &self,
         task_finished_event: &TaskOutputsIngestedEvent,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
         let task = indexes.tasks.get(&Task::key_from(
             &task_finished_event.namespace,
@@ -163,7 +163,7 @@ impl TaskCreator {
         ))?;
         self.handle_task_finished(
             task.as_ref().clone(),
-            compute_graph_version.as_ref().clone(),
+            compute_graph_version.clone(),
             indexes,
         )
         .await
@@ -172,7 +172,7 @@ impl TaskCreator {
     pub async fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
         let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
             &event.namespace,
@@ -192,7 +192,6 @@ impl TaskCreator {
                 "invocation context not found for invocation_id {}",
                 event.invocation_id
             ))?
-            .as_ref()
             .clone();
 
         let compute_graph_version =
@@ -251,7 +250,7 @@ impl TaskCreator {
         &self,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
-        indexes: &mut InMemoryState,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
         let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
             &task.namespace,
@@ -280,7 +279,7 @@ impl TaskCreator {
         }
 
         trace!("invocation context: {:?}", invocation_ctx);
-        let mut invocation_ctx = invocation_ctx.as_ref().clone();
+        let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
         if task.outcome == TaskOutcome::Failure {

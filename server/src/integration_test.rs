@@ -267,7 +267,7 @@ mod tests {
                 .in_memory_state
                 .read()
                 .await
-                .get_in_memory_state()
+                .clone()
                 .unallocated_tasks
                 .keys()
                 .cloned()
