@@ -1518,11 +1518,6 @@ mod tests {
         task.status = TaskStatus::Completed;
         task.outcome = TaskOutcome::Success;
 
-        let join_handler = tokio::spawn(async move {
-            let res = stream.next().await.unwrap()?;
-            Ok::<_, anyhow::Error>(res)
-        });
-
         indexify_state
             .write(StateMachineUpdateRequest {
                 processed_state_changes: vec![],
@@ -1547,7 +1542,7 @@ mod tests {
         // Process the task
         test_srv.process_all_state_changes().await?;
 
-        let res = join_handler.await??;
+        let res = stream.next().await.unwrap()?;
         assert_eq!(res.len(), 2, "res: {:#?}", res);
 
         Ok(())
