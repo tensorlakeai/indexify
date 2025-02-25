@@ -1,19 +1,19 @@
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
-use data_model::{ChangeType, StateChange};
+use data_model::{ChangeType, StateChange, TaskStatus};
 use state_store::{
     requests::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
-        MutateClusterTopologyRequest,
         RequestPayload,
+        SchedulerUpdateRequest,
         StateMachineUpdateRequest,
     },
     IndexifyState,
 };
 use tokio::sync::Notify;
-use tracing::{error, info};
+use tracing::{error, info, trace};
 
 use crate::{task_allocator, task_creator};
 
@@ -135,6 +135,9 @@ impl GraphProcessor {
                 }
             }
         };
+
+        trace!("writing state change: {:#?}", sm_update);
+
         // 6. Write the state change
         if let Err(err) = self.indexify_state.write(sm_update).await {
             // TODO: Determine if error is transient or not to determine if retrying should
@@ -197,14 +200,16 @@ impl GraphProcessor {
                 let scheduler_update = self
                     .task_allocator
                     .invoke(&state_change.change_type, &mut indexes);
-                let result = self.task_allocator.schedule_unplaced_tasks(&mut indexes);
                 if let Ok(result) = scheduler_update {
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(result),
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
-                    error!("error scheduling unplaced tasks: {:?}", result.err());
+                    error!(
+                        "error scheduling unplaced tasks: {:?}",
+                        scheduler_update.err()
+                    );
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::Noop,
                         processed_state_changes: vec![state_change.clone()],
@@ -228,13 +233,30 @@ impl GraphProcessor {
             }),
 
             ChangeType::TombStoneExecutor(event) => {
-                info!(
-                    executor_id = event.executor_id.to_string(),
-                    "tombstone executor {:?}", event
-                );
+                // Set all tasks that were running on the executor to pending
+                let mut tasks =
+                    indexes.active_tasks_for_executor(event.executor_id.get(), usize::MAX);
+                for task in &mut tasks {
+                    task.status = TaskStatus::Pending;
+                }
+
+                // Remove all allocations for the executor
+                let allocations = indexes
+                    .allocations_by_executor
+                    .entry(event.executor_id.get().to_string())
+                    .or_default()
+                    .iter()
+                    .map(|a| a.clone())
+                    .collect::<Vec<_>>();
+
                 Ok(StateMachineUpdateRequest {
-                    payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
-                        executor_removed: event.executor_id.clone(),
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
+                        new_allocations: vec![],
+                        remove_allocations: allocations,
+                        updated_tasks: tasks,
+                        updated_invocations_states: vec![],
+                        remove_executors: vec![event.executor_id.clone()],
+                        reduction_tasks: Default::default(),
                     }),
                     processed_state_changes: vec![state_change.clone()],
                 })

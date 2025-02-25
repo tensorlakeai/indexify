@@ -16,6 +16,7 @@ use data_model::{
     NodeOutput,
     Task,
     TaskOutcome,
+    TaskStatus,
 };
 
 use crate::{
@@ -202,13 +203,17 @@ pub async fn finalize_task(
             )
         })
         .collect();
+
+    let mut task = task.clone();
+    task.outcome = task_outcome.clone();
+    task.status = TaskStatus::Completed;
+
     let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: task.compute_graph_name.to_string(),
         compute_fn: task.compute_fn_name.to_string(),
         invocation_id: task.invocation_id.to_string(),
         task: task.clone(),
-        task_outcome,
         node_outputs,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         diagnostics: None,
@@ -227,6 +232,10 @@ pub async fn finalize_task_graph_b(
     invocation_id: &str,
     task: &Task,
 ) -> Result<()> {
+    let mut task = task.clone();
+    task.outcome = TaskOutcome::Success;
+    task.status = TaskStatus::Completed;
+
     let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
@@ -234,7 +243,6 @@ pub async fn finalize_task_graph_b(
         invocation_id: invocation_id.to_string(),
         task: task.clone(),
         node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_B", None)],
-        task_outcome: TaskOutcome::Success,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         diagnostics: None,
     };
@@ -251,6 +259,10 @@ pub async fn finalize_router_x(
     invocation_id: &str,
     task: &Task,
 ) -> Result<()> {
+    let mut task = task.clone();
+    task.outcome = TaskOutcome::Success;
+    task.status = TaskStatus::Completed;
+
     let request = IngestTaskOutputsRequest {
         namespace: TEST_NAMESPACE.to_string(),
         compute_graph: "graph_B".to_string(),
@@ -258,7 +270,6 @@ pub async fn finalize_router_x(
         invocation_id: invocation_id.to_string(),
         task: task.clone(),
         node_outputs: vec![mock_node_router_output_x(&invocation_id, "graph_B")],
-        task_outcome: TaskOutcome::Success,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
         diagnostics: None,
     };

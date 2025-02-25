@@ -5,6 +5,7 @@ use data_model::{
     ChangeType,
     ComputeGraphVersion,
     GraphInvocationCtx,
+    GraphInvocationOutcome,
     InvokeComputeGraphEvent,
     Node,
     OutputPayload,
@@ -82,6 +83,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
+                    remove_executors: vec![],
                 });
             }
             ChangeType::InvokeComputeGraph(ev) => {
@@ -101,6 +103,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
+                    remove_executors: vec![],
                 });
             }
             _ => {
@@ -285,6 +288,7 @@ impl TaskCreator {
         if task.outcome == TaskOutcome::Failure {
             trace!("task failed, stopping scheduling of child tasks");
             invocation_ctx.complete_invocation(true);
+            invocation_ctx.outcome = GraphInvocationOutcome::Failure;
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,

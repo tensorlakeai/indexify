@@ -224,7 +224,11 @@ impl IndexifyState {
                 for allocation in &request.new_allocations {
                     allocated_tasks_by_executor.push(allocation.executor_id.clone());
                 }
-                vec![]
+                // trigger deregister executor events if this update removed any executors.
+                state_changes::deregister_executor_events(
+                    &self.last_state_change_id,
+                    &request.remove_executors,
+                )?
             }
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
@@ -291,15 +295,6 @@ impl IndexifyState {
 
                 state_changes::register_executor(&self.last_state_change_id, &request)
                     .map_err(|e| anyhow!("error getting state changes {}", e))?
-            }
-            RequestPayload::MutateClusterTopology(request) => {
-                state_machine::deregister_executor(
-                    self.db.clone(),
-                    &txn,
-                    &request.executor_removed,
-                    self.metrics.clone(),
-                )?;
-                state_changes::deregister_executor_events(&self.last_state_change_id, &request)?
             }
             RequestPayload::DeregisterExecutor(request) => {
                 let new_state_changes =
@@ -447,6 +442,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
             let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
             let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor.to_string(), limit);
             if active_tasks.len() > 0 {
+                info!(executor_id = executor.to_string(), "sending tasks to executor");
                 let state = state.clone();
                 let mut executor_state = state.executor_states.write().await;
                 let executor_s = executor_state.get_mut(&executor).unwrap();

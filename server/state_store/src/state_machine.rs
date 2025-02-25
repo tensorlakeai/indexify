@@ -6,7 +6,6 @@ use data_model::{
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
-    ExecutorId,
     GraphInvocationCtx,
     InvocationPayload,
     Namespace,
@@ -658,6 +657,14 @@ pub(crate) fn handle_scheduler_update(
         txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.id)?;
     }
     for task in &request.updated_tasks {
+        info!(
+            namespace = task.namespace,
+            graph = task.compute_graph_name,
+            invocation_id = task.invocation_id,
+            function_name = task.compute_fn_name,
+            task_id = task.id.to_string(),
+            "updated task",
+        );
         let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
             IndexifyObjectsColumns::Tasks.cf_db(&db),
@@ -674,6 +681,14 @@ pub(crate) fn handle_scheduler_update(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             invocation_ctx.key(),
             &serialized_graph_ctx,
+        )?;
+    }
+
+    for executor_id in &request.remove_executors {
+        info!(executor_id = executor_id.get(), "remove executor");
+        txn.delete_cf(
+            &IndexifyObjectsColumns::Executors.cf_db(&db),
+            executor_id.get(),
         )?;
     }
     Ok(())
@@ -787,7 +802,7 @@ pub fn ingest_task_outputs(
 
     txn.delete_cf(
         &IndexifyObjectsColumns::Allocations.cf_db(&db),
-        Allocation::key(
+        Allocation::id(
             &req.executor_id.get(),
             &existing_task.id.to_string(),
             &req.namespace,
@@ -848,51 +863,6 @@ pub(crate) fn register_executor(
         serialized_executor_metadata,
     )?;
     sm_metrics.add_executor();
-    Ok(())
-}
-
-pub(crate) fn deregister_executor(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    executor_id: &ExecutorId,
-    sm_metrics: Arc<StateStoreMetrics>,
-) -> Result<()> {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}|", executor_id);
-    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
-    let iter = txn.iterator_cf_opt(
-        &IndexifyObjectsColumns::Allocations.cf_db(&db),
-        read_options,
-        iterator_mode,
-    );
-    for key in iter {
-        let (key, _) = key?;
-        info!(
-            executor_id = executor_id.to_string(),
-            "deregister executor: executor id: {}, removing task allocation: {}",
-            executor_id,
-            String::from_utf8(key.to_vec())?
-        );
-        txn.delete_cf(&IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
-        let task_key = Task::key_from_allocation_key(&key)?;
-        info!(
-            executor_id = executor_id.to_string(),
-            "deregister executor id: {}, adding to unallocated tasks: {}",
-            executor_id,
-            String::from_utf8(task_key.clone())?
-        );
-    }
-    info!(
-        executor_id = executor_id.to_string(),
-        "deregister executor: executor id: {}, removing executor metadata", executor_id
-    );
-
-    txn.delete_cf(
-        &IndexifyObjectsColumns::Executors.cf_db(&db),
-        executor_id.to_string(),
-    )?;
-    sm_metrics.remove_executor(executor_id.get());
     Ok(())
 }
 
