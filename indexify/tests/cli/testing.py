@@ -1,3 +1,4 @@
+import os
 import subprocess
 import unittest
 from typing import List, Optional
@@ -22,13 +23,18 @@ def function_uri(namespace: str, graph: str, function: str, version: str) -> str
 
 
 class ExecutorProcessContextManager:
-    def __init__(self, args: List[str]):
+    def __init__(self, args: List[str], keep_std_outputs: bool = True):
         self._args = ["indexify-cli", "executor"]
         self._args.extend(args)
+        self._keep_std_outputs = keep_std_outputs
         self._process: Optional[subprocess.Popen] = None
 
     def __enter__(self) -> subprocess.Popen:
-        self._process = subprocess.Popen(self._args)
+        kwargs = {}
+        if not self._keep_std_outputs:
+            kwargs["stdout"] = subprocess.DEVNULL
+            kwargs["stderr"] = subprocess.DEVNULL
+        self._process = subprocess.Popen(self._args, **kwargs)
         return self._process
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -56,3 +62,13 @@ def wait_executor_startup(port: int):
 
         attempts_left -= 1
         time.sleep(1)
+
+
+def executor_pid() -> int:
+    # Assuming Subprocess Function Executors are used in Open Source.
+    return os.getppid()
+
+
+def function_executor_id() -> str:
+    # PIDs are good for Subprocess Function Executors.
+    return os.getpid()
