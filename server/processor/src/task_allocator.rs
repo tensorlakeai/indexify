@@ -54,6 +54,36 @@ impl TaskAllocationProcessor {
                     remove_executors: vec![],
                 });
             }
+            ChangeType::TombStoneExecutor(ev) => {
+                let mut updated_tasks = Vec::new();
+                let mut remove_allocations = Vec::new();
+                let allocations = indexes.allocations_by_executor.get(ev.executor_id.get());
+                if let Some(allocations) = allocations {
+                    remove_allocations.extend(allocations.iter().map(|a| a.clone()));
+                    for allocation in allocations {
+                        let task = indexes.tasks.get(&allocation.task_id.to_string());
+                        if let Some(task) = task.cloned() {
+                            let mut task = task.as_ref().clone();
+                            task.status = TaskStatus::Pending;
+                            updated_tasks.push(task);
+                        } else {
+                            error!(
+                                "task of allocation not found in indexes: {}",
+                                allocation.task_id
+                            );
+                        }
+                    }
+                }
+
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: vec![],
+                    remove_allocations,
+                    updated_tasks,
+                    updated_invocations_states: vec![],
+                    reduction_tasks: ReductionTasks::default(),
+                    remove_executors: vec![ev.executor_id.clone()],
+                });
+            }
             _ => {
                 error!("unhandled change type: {:?}", change);
                 return Err(anyhow!("unhandled change type"));

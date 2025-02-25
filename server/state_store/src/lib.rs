@@ -21,7 +21,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 use tracing::{debug, info, span};
 
 pub mod in_memory_state;
@@ -36,14 +36,14 @@ pub mod test_state_store;
 
 #[derive(Debug)]
 pub struct ExecutorState {
-    pub new_task_channel: broadcast::Sender<()>,
+    pub new_task_channel: watch::Sender<()>,
     pub num_registered: u64,
     pub task_ids_sent: HashSet<TaskId>,
 }
 
 impl ExecutorState {
     pub fn new() -> Self {
-        let (new_task_channel, _) = broadcast::channel(1);
+        let (new_task_channel, _) = watch::channel(());
         Self {
             new_task_channel,
             num_registered: 0,
@@ -66,7 +66,7 @@ impl ExecutorState {
         let _ = self.new_task_channel.send(());
     }
 
-    pub fn subscribe(&mut self) -> broadcast::Receiver<()> {
+    pub fn subscribe(&mut self) -> watch::Receiver<()> {
         self.task_ids_sent.clear();
         self.new_task_channel.subscribe()
     }
@@ -442,20 +442,24 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
             let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
             let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor.to_string(), limit);
             if active_tasks.len() > 0 {
-                info!(executor_id = executor.to_string(), "sending tasks to executor");
                 let state = state.clone();
-                let mut executor_state = state.executor_states.write().await;
-                let executor_s = executor_state.get_mut(&executor).unwrap();
                 let mut filtered_tasks = vec![];
-                for task in &active_tasks{
-                    if !task_ids_sent.contains(&task.id) {
-                        filtered_tasks.push(task.clone());
-                        executor_s.added(&vec![task.id.clone()]);
+                {
+                    let mut executor_state = state.executor_states.write().await;
+                    let executor_s = executor_state.get_mut(&executor).unwrap();
+                    for task in &active_tasks{
+                        if !task_ids_sent.contains(&task.id) {
+                            filtered_tasks.push(task.clone());
+                            executor_s.added(&vec![task.id.clone()]);
+                        }
                     }
                 }
                 yield Ok(filtered_tasks);
-            };
-            let _ = rx.recv().await;
+            }
+            if let Err(_) = rx.changed().await {
+                info!(executor_id=executor.get(), "executor channel closed, stopping task stream");
+                break;
+            }
         }
     };
 

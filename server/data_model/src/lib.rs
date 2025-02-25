@@ -759,14 +759,10 @@ impl GraphInvocationCtx {
         self.outstanding_tasks -= 1;
     }
 
-    pub fn complete_invocation(&mut self, force_complete: bool) {
+    pub fn complete_invocation(&mut self, force_complete: bool, outcome: GraphInvocationOutcome) {
         if self.outstanding_tasks == 0 || force_complete {
             self.completed = true;
-        }
-        // We explicitly set the outcome to failure, if it was not already set to
-        // success.
-        if self.outcome != GraphInvocationOutcome::Failure {
-            self.outcome = GraphInvocationOutcome::Success;
+            self.outcome = outcome;
         }
     }
 

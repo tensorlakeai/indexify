@@ -29,7 +29,6 @@ mod tests {
         task_stream,
         test_state_store,
     };
-    use tracing::info;
 
     use crate::{
         service::Service,
@@ -1512,14 +1511,17 @@ mod tests {
 
         let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone(), 10);
 
-        info!(">>>>>>>>>>>>> streaming first task");
         let res = stream.next().await.unwrap()?;
-
         assert_eq!(res.len(), 1);
 
         let mut task = res.first().unwrap().clone();
         task.status = TaskStatus::Completed;
         task.outcome = TaskOutcome::Success;
+
+        let join_handler = tokio::spawn(async move {
+            let res = stream.next().await.unwrap()?;
+            Ok::<_, anyhow::Error>(res)
+        });
 
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -1540,13 +1542,14 @@ mod tests {
                     diagnostics: None,
                 }),
             })
-            .await
-            .unwrap();
-        test_srv.process_graph_processor().await?;
+            .await?;
 
-        info!(">>>>>>>>>>>>> streaming next task");
-        let res = stream.next().await.unwrap()?;
-        assert_eq!(res.len(), 0);
+        // Process the task
+        test_srv.process_all_state_changes().await?;
+
+        let res = join_handler.await??;
+        assert_eq!(res.len(), 2, "res: {:#?}", res);
+
         Ok(())
     }
 }

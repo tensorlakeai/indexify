@@ -74,7 +74,7 @@ impl TestService {
         Ok(())
     }
 
-    pub async fn process_graph_processor(&self) -> Result<()> {
+    async fn process_graph_processor(&self) -> Result<()> {
         let notify = Arc::new(tokio::sync::Notify::new());
         let mut cached_state_changes = self
             .service

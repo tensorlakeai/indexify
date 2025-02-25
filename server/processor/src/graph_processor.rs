@@ -1,13 +1,12 @@
 use std::{sync::Arc, vec};
 
 use anyhow::Result;
-use data_model::{ChangeType, StateChange, TaskStatus};
+use data_model::{ChangeType, StateChange};
 use state_store::{
     requests::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
         RequestPayload,
-        SchedulerUpdateRequest,
         StateMachineUpdateRequest,
     },
     IndexifyState,
@@ -186,17 +185,16 @@ impl GraphProcessor {
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
-                    error!(
-                        "error scheduling unplaced tasks: {:?}",
-                        scheduler_update.err()
-                    );
+                    error!("error creating tasks: {:?}", scheduler_update.err());
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::Noop,
                         processed_state_changes: vec![state_change.clone()],
                     })
                 }
             }
-            ChangeType::ExecutorAdded(_) | ChangeType::ExecutorRemoved(_) => {
+            ChangeType::ExecutorAdded(_) |
+            ChangeType::ExecutorRemoved(_) |
+            ChangeType::TombStoneExecutor(_) => {
                 let scheduler_update = self
                     .task_allocator
                     .invoke(&state_change.change_type, &mut indexes);
@@ -231,36 +229,6 @@ impl GraphProcessor {
                 }),
                 processed_state_changes: vec![state_change.clone()],
             }),
-
-            ChangeType::TombStoneExecutor(event) => {
-                // Set all tasks that were running on the executor to pending
-                let mut tasks =
-                    indexes.active_tasks_for_executor(event.executor_id.get(), usize::MAX);
-                for task in &mut tasks {
-                    task.status = TaskStatus::Pending;
-                }
-
-                // Remove all allocations for the executor
-                let allocations = indexes
-                    .allocations_by_executor
-                    .entry(event.executor_id.get().to_string())
-                    .or_default()
-                    .iter()
-                    .map(|a| a.clone())
-                    .collect::<Vec<_>>();
-
-                Ok(StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdateRequest {
-                        new_allocations: vec![],
-                        remove_allocations: allocations,
-                        updated_tasks: tasks,
-                        updated_invocations_states: vec![],
-                        remove_executors: vec![event.executor_id.clone()],
-                        reduction_tasks: Default::default(),
-                    }),
-                    processed_state_changes: vec![state_change.clone()],
-                })
-            }
         }
     }
 }

@@ -757,6 +757,18 @@ pub fn ingest_task_outputs(
     }
     let existing_task = JsonEncoder::decode::<Task>(&existing_task.unwrap())?;
 
+    txn.delete_cf(
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        Allocation::id(
+            &req.executor_id.get(),
+            &existing_task.id.to_string(),
+            &req.namespace,
+            &req.compute_graph,
+            &req.compute_fn,
+            &req.invocation_id,
+        ),
+    )?;
+
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
     if existing_task.output_status == TaskOutputsIngestionStatus::Ingested {
@@ -800,17 +812,6 @@ pub fn ingest_task_outputs(
         task_bytes,
     )?;
 
-    txn.delete_cf(
-        &IndexifyObjectsColumns::Allocations.cf_db(&db),
-        Allocation::id(
-            &req.executor_id.get(),
-            &existing_task.id.to_string(),
-            &req.namespace,
-            &req.compute_graph,
-            &req.compute_fn,
-            &req.invocation_id,
-        ),
-    )?;
     Ok(true)
 }
 
