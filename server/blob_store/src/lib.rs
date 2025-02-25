@@ -5,9 +5,8 @@ use bytes::{Bytes, BytesMut};
 use futures::{stream::BoxStream, StreamExt};
 use metrics::{blob_storage, Timer};
 use object_store::{
-    aws::{AmazonS3Builder, AmazonS3ConfigKey, S3ConditionalPut},
+    aws::{AmazonS3Builder, S3ConditionalPut},
     parse_url,
-    parse_url_opts,
     path::Path,
     ObjectStore,
     ObjectStoreScheme,
