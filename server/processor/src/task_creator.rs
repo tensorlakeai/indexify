@@ -5,6 +5,7 @@ use data_model::{
     ChangeType,
     ComputeGraphVersion,
     GraphInvocationCtx,
+    GraphInvocationOutcome,
     InvokeComputeGraphEvent,
     Node,
     OutputPayload,
@@ -82,6 +83,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
+                    remove_executors: vec![],
                 });
             }
             ChangeType::InvokeComputeGraph(ev) => {
@@ -101,6 +103,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
+                    remove_executors: vec![],
                 });
             }
             _ => {
@@ -284,7 +287,7 @@ impl TaskCreator {
 
         if task.outcome == TaskOutcome::Failure {
             trace!("task failed, stopping scheduling of child tasks");
-            invocation_ctx.complete_invocation(true);
+            invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -446,7 +449,7 @@ impl TaskCreator {
             trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
-            invocation_ctx.complete_invocation(false);
+            invocation_ctx.complete_invocation(false, GraphInvocationOutcome::Success);
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -518,7 +521,7 @@ impl TaskCreator {
                             compute_fn_name = compute_node.name(),
                             "Found previously failed reducer task, stopping reducers",
                         );
-                        invocation_ctx.complete_invocation(true);
+                        invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
                         return Ok(TaskCreationResult::no_tasks(
                             &task.namespace,
                             &task.compute_graph_name,

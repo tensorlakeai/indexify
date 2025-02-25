@@ -84,6 +84,10 @@ impl TaskId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Display for TaskId {
@@ -112,7 +116,7 @@ pub struct Allocation {
 }
 
 impl Allocation {
-    pub fn key(
+    pub fn id(
         executor_id: &str,
         task_id: &str,
         namespace: &str,
@@ -165,16 +169,15 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("executor_id is required"))?;
         let created_at: u128 = get_epoch_time_in_ms() as u128;
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        compute_graph.hash(&mut hasher);
-        compute_fn.hash(&mut hasher);
-        task_id.hash(&mut hasher);
-        invocation_id.hash(&mut hasher);
-        executor_id.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
         Ok(Allocation {
-            id,
+            id: Allocation::id(
+                executor_id.get(),
+                task_id.get(),
+                &namespace,
+                &compute_graph,
+                &compute_fn,
+                &invocation_id,
+            ),
             task_id,
             namespace,
             executor_id,
@@ -756,9 +759,10 @@ impl GraphInvocationCtx {
         self.outstanding_tasks -= 1;
     }
 
-    pub fn complete_invocation(&mut self, force_complete: bool) {
+    pub fn complete_invocation(&mut self, force_complete: bool, outcome: GraphInvocationOutcome) {
         if self.outstanding_tasks == 0 || force_complete {
             self.completed = true;
+            self.outcome = outcome;
         }
     }
 

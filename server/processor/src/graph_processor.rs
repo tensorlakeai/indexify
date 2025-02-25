@@ -6,14 +6,13 @@ use state_store::{
     requests::{
         DeleteComputeGraphRequest,
         DeleteInvocationRequest,
-        MutateClusterTopologyRequest,
         RequestPayload,
         StateMachineUpdateRequest,
     },
     IndexifyState,
 };
 use tokio::sync::Notify;
-use tracing::{error, info};
+use tracing::{error, info, trace};
 
 use crate::{task_allocator, task_creator};
 
@@ -135,6 +134,9 @@ impl GraphProcessor {
                 }
             }
         };
+
+        trace!("writing state change: {:#?}", sm_update);
+
         // 6. Write the state change
         if let Err(err) = self.indexify_state.write(sm_update).await {
             // TODO: Determine if error is transient or not to determine if retrying should
@@ -183,28 +185,29 @@ impl GraphProcessor {
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
-                    error!(
-                        "error scheduling unplaced tasks: {:?}",
-                        scheduler_update.err()
-                    );
+                    error!("error creating tasks: {:?}", scheduler_update.err());
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::Noop,
                         processed_state_changes: vec![state_change.clone()],
                     })
                 }
             }
-            ChangeType::ExecutorAdded(_) | ChangeType::ExecutorRemoved(_) => {
+            ChangeType::ExecutorAdded(_) |
+            ChangeType::ExecutorRemoved(_) |
+            ChangeType::TombStoneExecutor(_) => {
                 let scheduler_update = self
                     .task_allocator
                     .invoke(&state_change.change_type, &mut indexes);
-                let result = self.task_allocator.schedule_unplaced_tasks(&mut indexes);
                 if let Ok(result) = scheduler_update {
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(result),
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
-                    error!("error scheduling unplaced tasks: {:?}", result.err());
+                    error!(
+                        "error scheduling unplaced tasks: {:?}",
+                        scheduler_update.err()
+                    );
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::Noop,
                         processed_state_changes: vec![state_change.clone()],
@@ -226,19 +229,6 @@ impl GraphProcessor {
                 }),
                 processed_state_changes: vec![state_change.clone()],
             }),
-
-            ChangeType::TombStoneExecutor(event) => {
-                info!(
-                    executor_id = event.executor_id.to_string(),
-                    "tombstone executor {:?}", event
-                );
-                Ok(StateMachineUpdateRequest {
-                    payload: RequestPayload::MutateClusterTopology(MutateClusterTopologyRequest {
-                        executor_removed: event.executor_id.clone(),
-                    }),
-                    processed_state_changes: vec![state_change.clone()],
-                })
-            }
         }
     }
 }

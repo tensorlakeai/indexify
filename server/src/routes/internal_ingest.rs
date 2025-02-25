@@ -256,7 +256,6 @@ pub async fn ingest_files_from_executor(
         invocation_id: task_result.invocation_id.to_string(),
         task: task.clone(),
         node_outputs,
-        task_outcome: task_result.outcome.clone().into(),
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
         diagnostics: Some(task_diagnostic),
     });

@@ -11,7 +11,6 @@ use data_model::{
     Task,
     TaskStatus,
 };
-use tracing::error;
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -175,7 +174,7 @@ impl InMemoryState {
                 self.invocation_ctx.insert(req.ctx.key(), req.ctx.clone());
             }
             RequestPayload::IngestTaskOutputs(req) => {
-                let allocation_key = Allocation::key(
+                let allocation_key = Allocation::id(
                     req.executor_id.get(),
                     &req.task.id.to_string(),
                     &req.namespace,
@@ -275,29 +274,14 @@ impl InMemoryState {
                         .entry(allocation.executor_id.get().to_string())
                         .or_default()
                         .retain(|a| a.task_id != allocation.task_id);
-                    self.unallocated_tasks
-                        .insert(allocation.task_id.to_string(), [0; 0]);
+                }
+                for executor_id in &req.remove_executors {
+                    self.executors.remove(executor_id.get());
                 }
             }
             RequestPayload::RegisterExecutor(req) => {
                 self.executors
                     .insert(req.executor.id.get().to_string(), req.executor.clone());
-            }
-            RequestPayload::MutateClusterTopology(req) => {
-                self.executors.remove(req.executor_removed.get());
-                for allocation in self
-                    .allocations_by_executor
-                    .get(req.executor_removed.get())
-                    .unwrap_or(&im::Vector::new())
-                {
-                    let Some(task) = self.tasks.get(&allocation.task_key()) else {
-                        error!("task not found for allocation: {:?}", allocation);
-                        continue;
-                    };
-                    self.unallocated_tasks.insert(task.key(), [0; 0]);
-                }
-                self.allocations_by_executor
-                    .remove(req.executor_removed.get());
             }
             _ => {}
         }

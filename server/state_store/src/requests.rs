@@ -10,9 +10,9 @@ use data_model::{
     StateChange,
     Task,
     TaskDiagnostics,
-    TaskOutcome,
 };
 
+#[derive(Debug)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub processed_state_changes: Vec<StateChange>,
@@ -30,7 +30,6 @@ pub enum RequestPayload {
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
-    MutateClusterTopology(MutateClusterTopologyRequest),
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
     DeleteInvocationRequest(DeleteInvocationRequest),
     Noop,
@@ -43,11 +42,7 @@ pub struct SchedulerUpdateRequest {
     pub updated_tasks: Vec<Task>,
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
-}
-
-#[derive(Debug, Clone)]
-pub struct MutateClusterTopologyRequest {
-    pub executor_removed: ExecutorId,
+    pub remove_executors: Vec<ExecutorId>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +53,6 @@ pub struct IngestTaskOutputsRequest {
     pub invocation_id: String,
     pub task: Task,
     pub node_outputs: Vec<NodeOutput>,
-    pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
     pub executor_id: ExecutorId,
 }

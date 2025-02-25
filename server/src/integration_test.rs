@@ -15,6 +15,7 @@ mod tests {
         ExecutorId,
         Task,
         TaskOutcome,
+        TaskStatus,
     };
     use futures::StreamExt;
     use state_store::{
@@ -56,14 +57,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let tasks = indexify_state
-                .reader()
-                .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
-                .unwrap()
-                .0;
-            assert_eq!(tasks.len(), 1);
-
-            // Should have 0 unprocessed state - one task it would be unallocated
+            // Should have 0 unprocessed state.
             let unprocessed_state_changes = indexify_state
                 .reader()
                 .unprocessed_state_changes(&None, &None)?;
@@ -74,8 +68,7 @@ mod tests {
                 unprocessed_state_changes
             );
 
-            let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
-            assert_eq!(unallocated_tasks.len(), 1, "{:#?}", unallocated_tasks);
+            test_srv.assert_task_states(1, 0, 1, 0).await?;
 
             invocation_id
         };
@@ -86,13 +79,20 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
+            test_srv.assert_task_states(1, 1, 0, 0).await?;
+
             executor
         };
 
         // finalize the starting node task
         {
             let executor_tasks = executor.get_tasks().await?;
-            assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
+            assert_eq!(
+                executor_tasks.len(),
+                1,
+                "Executor tasks: {:#?}",
+                executor_tasks
+            );
             executor
                 .finalize_task(
                     executor_tasks.first().unwrap(),
@@ -102,18 +102,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let tasks = indexify_state
-                .reader()
-                .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
-                .unwrap()
-                .0;
-            assert_eq!(tasks.len(), 3, "{:#?}", tasks);
-
-            let successful_tasks: Vec<Task> = tasks
-                .into_iter()
-                .filter(|t| t.outcome == TaskOutcome::Success)
-                .collect();
-            assert_eq!(successful_tasks.len(), 1, "{:#?}", successful_tasks);
+            test_srv.assert_task_states(3, 2, 0, 1).await?;
         }
 
         // finalize the remaining tasks
@@ -263,16 +252,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let unallocated_tasks: Vec<String> = indexify_state
-                .in_memory_state
-                .read()
-                .await
-                .clone()
-                .unallocated_tasks
-                .keys()
-                .cloned()
-                .collect();
-            assert!(unallocated_tasks.is_empty(), "{:#?}", unallocated_tasks);
+            test_srv.assert_task_states(1, 1, 0, 0).await?;
 
             let executor_tasks = executor1.get_tasks().await?;
             assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
@@ -288,8 +268,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
-            assert!(unallocated_tasks.is_empty(), "{:#?}", unallocated_tasks);
+            test_srv.assert_task_states(1, 1, 0, 0).await?;
 
             let executor_tasks = executor2.get_tasks().await?;
             assert!(executor_tasks.is_empty(), "{:#?}", executor_tasks);
@@ -303,8 +282,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
-            assert!(unallocated_tasks.is_empty(), "{:#?}", unallocated_tasks);
+            test_srv.assert_task_states(1, 1, 0, 0).await?;
 
             let executor_tasks = executor2.get_tasks().await?;
             assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
@@ -316,8 +294,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            let unallocated_tasks = indexify_state.reader().unallocated_tasks()?;
-            assert_eq!(unallocated_tasks.len(), 1, "{:#?}", unallocated_tasks);
+            test_srv.assert_task_states(1, 0, 1, 0).await?;
         }
 
         Ok(())
@@ -1526,14 +1503,20 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         let res = indexify_state
-            .reader()
-            .get_tasks_by_executor(&mock_executor_id(), 10)?;
+            .in_memory_state
+            .read()
+            .await
+            .active_tasks_for_executor(mock_executor_id().get(), 10);
         assert_eq!(res.len(), 1);
 
         let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone(), 10);
-        let res = stream.next().await.unwrap()?;
 
+        let res = stream.next().await.unwrap()?;
         assert_eq!(res.len(), 1);
+
+        let mut task = res.first().unwrap().clone();
+        task.status = TaskStatus::Completed;
+        task.outcome = TaskOutcome::Success;
 
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -1543,24 +1526,25 @@ mod tests {
                     compute_graph: "graph_A".to_string(),
                     compute_fn: "fn_a".to_string(),
                     invocation_id: invocation_id.clone(),
-                    task: res[0].clone(),
+                    task,
                     node_outputs: vec![mock_node_fn_output(
                         invocation_id.as_str(),
                         "graph_A",
                         "fn_a",
                         None,
                     )],
-                    task_outcome: TaskOutcome::Success,
                     executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
                     diagnostics: None,
                 }),
             })
-            .await
-            .unwrap();
-        test_srv.process_graph_processor().await?;
+            .await?;
+
+        // Process the task
+        test_srv.process_all_state_changes().await?;
 
         let res = stream.next().await.unwrap()?;
-        assert_eq!(res.len(), 0);
+        assert_eq!(res.len(), 2, "res: {:#?}", res);
+
         Ok(())
     }
 }

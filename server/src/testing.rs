@@ -8,13 +8,17 @@ use data_model::{
     ExecutorMetadata,
     Task,
     TaskOutcome,
+    TaskStatus,
 };
-use state_store::requests::{
-    DeregisterExecutorRequest,
-    IngestTaskOutputsRequest,
-    RegisterExecutorRequest,
-    RequestPayload,
-    StateMachineUpdateRequest,
+use state_store::{
+    requests::{
+        DeregisterExecutorRequest,
+        IngestTaskOutputsRequest,
+        RegisterExecutorRequest,
+        RequestPayload,
+        StateMachineUpdateRequest,
+    },
+    state_machine::IndexifyObjectsColumns,
 };
 use tracing::subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
@@ -70,7 +74,7 @@ impl TestService {
         Ok(())
     }
 
-    pub async fn process_graph_processor(&self) -> Result<()> {
+    async fn process_graph_processor(&self) -> Result<()> {
         let notify = Arc::new(tokio::sync::Notify::new());
         let mut cached_state_changes = self
             .service
@@ -104,6 +108,74 @@ impl TestService {
             executor: executor.clone(),
             service: self,
         })
+    }
+
+    pub async fn assert_task_states(
+        &self,
+        total: usize,
+        allocated: usize,
+        unallocated: usize,
+        completed_success: usize,
+    ) -> Result<()> {
+        let tasks = self
+            .service
+            .indexify_state
+            .reader()
+            .get_all_rows_from_cf::<Task>(IndexifyObjectsColumns::Tasks)?
+            .iter()
+            .map(|r| r.1.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(tasks.len(), total, "Total Tasks: {:#?}", tasks);
+
+        let allocated_tasks = tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Running)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            allocated_tasks.len(),
+            allocated,
+            "Allocated tasks: {:#?}/{:#?}",
+            allocated_tasks,
+            tasks,
+        );
+
+        let unallocated_tasks = tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Pending)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unallocated_tasks.len(),
+            unallocated,
+            "Unallocated tasks: {:#?}",
+            unallocated_tasks
+        );
+
+        let completed_success_tasks = tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Completed && t.outcome == TaskOutcome::Success)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            completed_success_tasks.len(),
+            completed_success,
+            "Tasks completed successfully: {:#?}",
+            completed_success_tasks
+        );
+
+        let unallocated_tasks = self
+            .service
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .unallocated_tasks
+            .clone();
+        assert_eq!(
+            unallocated_tasks.len(),
+            unallocated,
+            "Unallocated tasks in mem store",
+        );
+
+        Ok(())
     }
 }
 
@@ -153,8 +225,10 @@ impl TestExecutor<'_> {
             .service
             .service
             .indexify_state
-            .reader()
-            .get_tasks_by_executor(&self.executor.id, 100)?;
+            .in_memory_state
+            .read()
+            .await
+            .active_tasks_for_executor(&self.executor.id.get(), 100);
 
         Ok(tasks)
     }
@@ -171,6 +245,10 @@ impl TestExecutor<'_> {
             })
             .collect();
 
+        let mut task = task.clone();
+        task.outcome = args.task_outcome.clone();
+        task.status = TaskStatus::Completed;
+
         self.service
             .service
             .indexify_state
@@ -180,9 +258,8 @@ impl TestExecutor<'_> {
                     compute_graph: task.compute_graph_name.clone(),
                     compute_fn: task.compute_fn_name.clone(),
                     invocation_id: task.invocation_id.clone(),
-                    task: task.clone(),
+                    task,
                     node_outputs,
-                    task_outcome: args.task_outcome,
                     executor_id: self.executor.id.clone(),
                     diagnostics: None,
                 }),
