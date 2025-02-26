@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "indexify-server"
-version = "0.2.32"
+version = "0.2.33"
 dependencies = [
  "anyhow",
  "async-stream",
