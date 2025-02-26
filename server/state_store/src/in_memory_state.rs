@@ -20,16 +20,16 @@ pub struct InMemoryState {
     pub namespaces: im::HashMap<String, [u8; 0]>,
 
     // Namespace|CG Name -> ComputeGraph
-    pub compute_graphs: im::HashMap<String, ComputeGraph>,
+    pub compute_graphs: im::HashMap<String, Box<ComputeGraph>>,
 
     // Namespace|CG Name|Version -> ComputeGraph
-    pub compute_graph_versions: im::OrdMap<String, ComputeGraphVersion>,
+    pub compute_graph_versions: im::OrdMap<String, Box<ComputeGraphVersion>>,
 
     // ExecutorId -> ExecutorMetadata
-    pub executors: im::HashMap<String, ExecutorMetadata>,
+    pub executors: im::HashMap<String, Box<ExecutorMetadata>>,
 
     // Executor Id -> List of Task IDs
-    pub allocations_by_executor: im::HashMap<String, im::Vector<Allocation>>,
+    pub allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>>,
 
     // NS|CG|Fn|Inv -> Task
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
@@ -38,7 +38,7 @@ pub struct InMemoryState {
     pub tasks: im::OrdMap<String, Box<Task>>,
 
     // Queued Reduction Tasks
-    pub queued_reduction_tasks: im::OrdMap<String, ReduceTask>,
+    pub queued_reduction_tasks: im::OrdMap<String, Box<ReduceTask>>,
 
     // Invocation Ctx
     pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
@@ -57,7 +57,7 @@ impl InMemoryState {
                 // Creating Compute Graphs and Versions
                 let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
                 for cg in cgs {
-                    compute_graphs.insert(format!("{}|{}", ns.name, cg.name), cg);
+                    compute_graphs.insert(format!("{}|{}", ns.name, cg.name), Box::new(cg));
                 }
             }
         }
@@ -67,7 +67,7 @@ impl InMemoryState {
             let all_cg_versions: Vec<(String, ComputeGraphVersion)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::ComputeGraphVersions)?;
             for (id, cg) in all_cg_versions {
-                compute_graph_versions.insert(id, cg);
+                compute_graph_versions.insert(id, Box::new(cg));
             }
         }
 
@@ -76,12 +76,12 @@ impl InMemoryState {
         {
             let all_executors = reader.get_all_executors()?;
             for executor in &all_executors {
-                executors.insert(executor.id.get().to_string(), executor.clone());
+                executors.insert(executor.id.get().to_string(), Box::new(executor.clone()));
             }
         }
 
         // Creating Allocated Tasks By Executor
-        let mut allocations_by_executor: im::HashMap<String, im::Vector<Allocation>> =
+        let mut allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>> =
             im::HashMap::new();
         {
             let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
@@ -94,7 +94,7 @@ impl InMemoryState {
                 allocations_by_executor
                     .entry(allocation.executor_id.get().to_string())
                     .or_default()
-                    .push_back(allocation);
+                    .push_back(Box::new(allocation));
             }
         }
 
@@ -132,7 +132,7 @@ impl InMemoryState {
             let all_reduction_tasks: Vec<(String, ReduceTask)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::ReductionTasks)?;
             for (_id, task) in all_reduction_tasks {
-                queued_reduction_tasks.insert(task.key(), task);
+                queued_reduction_tasks.insert(task.key(), Box::new(task));
             }
         }
         Ok(Self {
@@ -207,10 +207,10 @@ impl InMemoryState {
             }
             RequestPayload::CreateOrUpdateComputeGraph(req) => {
                 self.compute_graphs
-                    .insert(req.compute_graph.key(), req.compute_graph.clone());
+                    .insert(req.compute_graph.key(), Box::new(req.compute_graph.clone()));
                 self.compute_graph_versions.insert(
                     req.compute_graph.into_version().key(),
-                    req.compute_graph.into_version().clone(),
+                    Box::new(req.compute_graph.into_version()),
                 );
 
                 // FIXME - we should set this in the API and not here, so that these things are
@@ -281,7 +281,8 @@ impl InMemoryState {
                     self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
-                    self.queued_reduction_tasks.insert(task.key(), task.clone());
+                    self.queued_reduction_tasks
+                        .insert(task.key(), Box::new(task.clone()));
                 }
                 for task in &req.reduction_tasks.processed_reduction_tasks {
                     self.queued_reduction_tasks.remove(task);
@@ -312,7 +313,7 @@ impl InMemoryState {
                     self.allocations_by_executor
                         .entry(allocation.executor_id.get().to_string())
                         .or_default()
-                        .push_back(allocation.clone());
+                        .push_back(Box::new(allocation.clone()));
                     self.unallocated_tasks
                         .remove(&allocation.task_id.to_string());
                 }
@@ -327,8 +328,10 @@ impl InMemoryState {
                 }
             }
             RequestPayload::RegisterExecutor(req) => {
-                self.executors
-                    .insert(req.executor.id.get().to_string(), req.executor.clone());
+                self.executors.insert(
+                    req.executor.id.get().to_string(),
+                    Box::new(req.executor.clone()),
+                );
             }
             _ => {}
         }
@@ -347,7 +350,7 @@ impl InMemoryState {
             .range(key.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key))
             .next()
-            .map(|(_, v)| v.clone())
+            .map(|(_, v)| *v.clone())
     }
 
     pub fn clone(&self) -> Box<Self> {

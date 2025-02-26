@@ -166,7 +166,7 @@ impl TaskCreator {
         ))?;
         self.handle_task_finished(
             task.clone().deref().clone(),
-            compute_graph_version.clone(),
+            *compute_graph_version.clone(),
             indexes,
         )
         .await

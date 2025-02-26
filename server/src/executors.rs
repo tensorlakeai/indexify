@@ -69,7 +69,7 @@ impl ExecutorManager {
             .executors
             .values()
         {
-            executors.push(executor.clone());
+            executors.push(*executor.clone());
         }
         Ok(executors)
     }
@@ -85,7 +85,7 @@ impl ExecutorManager {
                 let executor_id = executor_id.clone();
                 let mut allocs = vec![];
                 for allocation in allocations {
-                    allocs.push(allocation.clone());
+                    allocs.push(*allocation.clone());
                 }
                 (executor_id, allocs)
             })

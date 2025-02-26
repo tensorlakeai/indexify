@@ -59,7 +59,7 @@ impl TaskAllocationProcessor {
                 let mut remove_allocations = Vec::new();
                 let allocations = indexes.allocations_by_executor.get(ev.executor_id.get());
                 if let Some(allocations) = allocations {
-                    remove_allocations.extend(allocations.iter().map(|a| a.clone()));
+                    remove_allocations.extend(allocations.iter().map(|a| *a.clone()));
                     for allocation in allocations {
                         let task = indexes.tasks.get(&allocation.task_key());
                         if let Some(task) = task.cloned() {
@@ -138,7 +138,7 @@ impl TaskAllocationProcessor {
                         .allocations_by_executor
                         .entry(allocation.executor_id.to_string())
                         .or_default()
-                        .push_back(allocation);
+                        .push_back(Box::new(allocation));
                     indexes.tasks.insert(task.key(), task.clone());
                 }
                 Ok(None) => {
