@@ -175,7 +175,7 @@ impl GraphProcessor {
                             .clone()
                             .updated_tasks
                             .into_iter()
-                            .map(Arc::new)
+                            .map(Box::new)
                             .collect(),
                         &mut indexes,
                     )?;

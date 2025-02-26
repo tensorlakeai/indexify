@@ -1,5 +1,3 @@
-use std::{ops::Deref, sync::Arc};
-
 use anyhow::Result;
 use data_model::{
     Allocation,
@@ -37,13 +35,13 @@ pub struct InMemoryState {
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
 
     // Task Key -> Task
-    pub tasks: im::OrdMap<String, Arc<Task>>,
+    pub tasks: im::OrdMap<String, Box<Task>>,
 
     // Queued Reduction Tasks
     pub queued_reduction_tasks: im::OrdMap<String, ReduceTask>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<String, Arc<GraphInvocationCtx>>,
+    pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
 }
 
 impl InMemoryState {
@@ -113,7 +111,7 @@ impl InMemoryState {
                 if task.status == TaskStatus::Pending {
                     unallocated_tasks.insert(task.key(), [0; 0]);
                 }
-                tasks.insert(task.key(), Arc::new(task));
+                tasks.insert(task.key(), Box::new(task));
             }
         }
 
@@ -125,7 +123,7 @@ impl InMemoryState {
                 if ctx.completed {
                     continue;
                 }
-                invocation_ctx.insert(id, Arc::new(ctx));
+                invocation_ctx.insert(id, Box::new(ctx));
             }
         }
 
@@ -156,7 +154,7 @@ impl InMemoryState {
         compute_graph: &str,
         invocation_id: &str,
         compute_fn: &str,
-    ) -> Vec<Arc<Task>> {
+    ) -> Vec<Box<Task>> {
         let key = Task::key_prefix_for_fn(namespace, compute_graph, invocation_id, compute_fn);
         self.tasks
             .range(key.clone()..)
@@ -165,7 +163,7 @@ impl InMemoryState {
             .collect()
     }
 
-    pub fn active_tasks_for_executor(&self, executor_id: &str, limit: usize) -> Vec<Arc<Task>> {
+    pub fn active_tasks_for_executor(&self, executor_id: &str, limit: usize) -> Vec<Box<Task>> {
         self.allocations_by_executor
             .get(executor_id)
             .map(|allocations| {
@@ -186,7 +184,7 @@ impl InMemoryState {
         match &state_machine_update_request.payload {
             RequestPayload::InvokeComputeGraph(req) => {
                 self.invocation_ctx
-                    .insert(req.ctx.key(), Arc::new(req.ctx.clone()));
+                    .insert(req.ctx.key(), Box::new(req.ctx.clone()));
             }
             RequestPayload::IngestTaskOutputs(req) => {
                 let allocation_key = Allocation::id(
@@ -202,7 +200,7 @@ impl InMemoryState {
                     .or_default()
                     .retain(|a| a.id != allocation_key);
                 self.tasks
-                    .insert(req.task.key(), Arc::new(req.task.clone()));
+                    .insert(req.task.key(), Box::new(req.task.clone()));
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -226,7 +224,7 @@ impl InMemoryState {
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&key_prefix))
                         .for_each(|(_k, v)| {
-                            let mut task = v.deref().clone();
+                            let mut task = v.clone();
                             task.graph_version = req.compute_graph.into_version().version;
                             tasks_to_update.push(task);
                         });
@@ -236,16 +234,16 @@ impl InMemoryState {
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&key_prefix))
                         .for_each(|(_k, v)| {
-                            let mut ctx = v.deref().clone();
+                            let mut ctx = v.clone();
                             ctx.graph_version = req.compute_graph.into_version().version;
                             invocation_ctx_to_update.push(ctx);
                         });
 
                     for task in tasks_to_update {
-                        self.tasks.insert(task.key(), Arc::new(task));
+                        self.tasks.insert(task.key(), task);
                     }
                     for ctx in invocation_ctx_to_update {
-                        self.invocation_ctx.insert(ctx.key(), Arc::new(ctx));
+                        self.invocation_ctx.insert(ctx.key(), ctx);
                     }
                 }
             }
@@ -280,7 +278,7 @@ impl InMemoryState {
                     } else {
                         self.unallocated_tasks.remove(&task.key());
                     }
-                    self.tasks.insert(task.key(), Arc::new(task.clone()));
+                    self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
                     self.queued_reduction_tasks.insert(task.key(), task.clone());
@@ -290,7 +288,7 @@ impl InMemoryState {
                 }
                 for invocation_ctx in &req.updated_invocations_states {
                     self.invocation_ctx
-                        .insert(invocation_ctx.key(), Arc::new(invocation_ctx.clone()));
+                        .insert(invocation_ctx.key(), Box::new(invocation_ctx.clone()));
                     // Remove tasks for invocation ctx if completed
                     if invocation_ctx.completed {
                         let key = Task::key_prefix_for_invocation(

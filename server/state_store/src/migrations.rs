@@ -13,15 +13,23 @@ use crate::{
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
 pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
+    info!("starting state store migration");
     let mut sm_meta = read_sm_meta(&db).context("reading current state machine metadata")?;
 
     let txn = db.transaction();
 
-    if sm_meta.db_version < 2 {
+    if sm_meta.db_version == 1 {
         migrate_v1_to_v2(db.clone(), &txn, &mut sm_meta).context("migrating from v1 to v2")?;
+    } else {
+        info!(
+            "No migration needed, current version: {}",
+            sm_meta.db_version
+        );
     }
 
     txn.commit().context("committing migrations")?;
+
+    info!("completed state store migration");
     Ok(sm_meta)
 }
 
