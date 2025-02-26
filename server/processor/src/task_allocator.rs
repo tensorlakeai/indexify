@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, vec};
+use std::vec;
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -63,7 +63,7 @@ impl TaskAllocationProcessor {
                     for allocation in allocations {
                         let task = indexes.tasks.get(&allocation.task_key());
                         if let Some(task) = task.cloned() {
-                            let mut task = task.clone().deref().clone();
+                            let mut task = *task;
                             task.status = TaskStatus::Pending;
                             updated_tasks.push(task);
                         } else {
@@ -109,12 +109,12 @@ impl TaskAllocationProcessor {
 
     pub fn schedule_tasks(
         &self,
-        tasks: Vec<Arc<Task>>,
+        tasks: Vec<Box<Task>>,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskPlacementResult> {
         let mut allocations = Vec::new();
         let mut updated_tasks: Vec<Task> = Vec::new();
-        for task in tasks {
+        for mut task in tasks {
             let span = span!(
                 tracing::Level::INFO,
                 "allocate_task",
@@ -125,7 +125,6 @@ impl TaskAllocationProcessor {
                 invocation_id = task.invocation_id
             );
             let _enter = span.enter();
-            let mut task = task.clone().deref().clone();
             if task.outcome.is_terminal() {
                 error!("task: {} already completed, skipping", task.id);
                 continue;
@@ -140,7 +139,7 @@ impl TaskAllocationProcessor {
                         .entry(allocation.executor_id.to_string())
                         .or_default()
                         .push_back(allocation);
-                    indexes.tasks.insert(task.key(), Arc::new(task.clone()));
+                    indexes.tasks.insert(task.key(), task.clone());
                 }
                 Ok(None) => {
                     info!("no executors available for task {:?}", task.id);
@@ -151,7 +150,7 @@ impl TaskAllocationProcessor {
             }
 
             // always updated to tasks that were just created
-            updated_tasks.push(task);
+            updated_tasks.push(*task);
         }
         Ok(TaskPlacementResult {
             new_allocations: allocations,
