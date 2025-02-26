@@ -7,12 +7,12 @@ use anyhow::Result;
 use data_model::{
     ChangeType,
     ExecutorAddedEvent,
+    ExecutorId,
     ExecutorRemovedEvent,
     InvokeComputeGraphEvent,
     StateChange,
     StateChangeBuilder,
     StateChangeId,
-    TaskCreatedEvent,
     TaskOutputsIngestedEvent,
     TombstoneComputeGraphEvent,
     TombstoneInvocationEvent,
@@ -25,8 +25,6 @@ use crate::requests::{
     DeregisterExecutorRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
-    MutateClusterTopologyRequest,
-    NamespaceProcessorUpdateRequest,
     RegisterExecutorRequest,
 };
 
@@ -122,48 +120,32 @@ pub fn task_outputs_ingested(
     Ok(vec![state_change])
 }
 
-pub fn change_events_for_namespace_processor_update(
-    last_state_change_id: &AtomicU64,
-    req: &NamespaceProcessorUpdateRequest,
-) -> Result<Vec<StateChange>> {
-    let mut state_changes = Vec::new();
-    for task in &req.task_requests {
-        let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-        let state_change = StateChangeBuilder::default()
-            .change_type(ChangeType::TaskCreated(TaskCreatedEvent {
-                task: task.clone(),
-            }))
-            .namespace(Some(task.namespace.clone()))
-            .compute_graph(Some(task.compute_graph_name.clone()))
-            .invocation(Some(task.invocation_id.clone()))
-            .created_at(get_epoch_time_in_ms())
-            .object_id(task.id.to_string())
-            .id(StateChangeId::new(last_change_id))
-            .processed_at(None)
-            .build()?;
-        state_changes.push(state_change);
-    }
-    Ok(state_changes)
-}
-
 pub fn deregister_executor_events(
     last_state_change_id: &AtomicU64,
-    request: &MutateClusterTopologyRequest,
+    executor_ids: &[ExecutorId],
 ) -> Result<Vec<StateChange>> {
-    let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-    let state_change = StateChangeBuilder::default()
-        .change_type(ChangeType::ExecutorRemoved(ExecutorRemovedEvent {
-            executor_id: request.executor_removed.clone(),
-        }))
-        .namespace(None)
-        .compute_graph(None)
-        .invocation(None)
-        .created_at(get_epoch_time_in_ms())
-        .object_id(request.executor_removed.get().to_string())
-        .id(StateChangeId::new(last_change_id))
-        .processed_at(None)
-        .build()?;
-    Ok(vec![state_change])
+    let state_changes = executor_ids
+        .iter()
+        .map(|executor_id| -> Result<StateChange> {
+            let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+            let state_change = StateChangeBuilder::default()
+                .change_type(ChangeType::ExecutorRemoved(ExecutorRemovedEvent {
+                    executor_id: executor_id.clone(),
+                }))
+                .namespace(None)
+                .compute_graph(None)
+                .invocation(None)
+                .created_at(get_epoch_time_in_ms())
+                .object_id(executor_id.get().to_string())
+                .id(StateChangeId::new(last_change_id))
+                .processed_at(None)
+                .build()?;
+
+            Ok(state_change)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(state_changes)
 }
 
 pub fn tombstone_executor(

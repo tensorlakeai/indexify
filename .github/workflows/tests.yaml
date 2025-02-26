@@ -6,8 +6,6 @@ on:
       - 'main'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    branches:
-      - 'main'
     paths:
       - 'server/**'
       - 'indexify/**'
@@ -165,13 +163,13 @@ jobs:
           pkill -SIGTERM -F /tmp/indexify-executor.pid
       - name: Wait for processes termination
         run: |
-            pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
-            for pid_file in $pid_files; do
-              while pkill -0 -F "$pid_file" 2>/dev/null; do
-                echo "waiting for process $pid_file to exit..."
-                sleep 1
-              done
+          pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
+          for pid_file in $pid_files; do
+            while pkill -0 -F "$pid_file" 2>/dev/null; do
+              echo "waiting for process $pid_file to exit..."
+              sleep 1
             done
+          done
       - name: Validate that all processes terminated
         run: |
           if pgrep -f indexify; then
@@ -266,13 +264,13 @@ jobs:
           pkill -SIGTERM -F /tmp/indexify-executor.pid
       - name: Wait for processes termination
         run: |
-            pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
-            for pid_file in $pid_files; do
-              while pkill -0 -F "$pid_file" 2>/dev/null; do
-                echo "waiting for process $pid_file to exit..."
-                sleep 1
-              done
+          pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
+          for pid_file in $pid_files; do
+            while pkill -0 -F "$pid_file" 2>/dev/null; do
+              echo "waiting for process $pid_file to exit..."
+              sleep 1
             done
+          done
       - name: Validate that all processes terminated
         run: |
           if pgrep -f indexify; then

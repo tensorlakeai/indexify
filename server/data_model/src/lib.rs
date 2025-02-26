@@ -84,6 +84,10 @@ impl TaskId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Display for TaskId {
@@ -95,6 +99,93 @@ impl Display for TaskId {
 impl From<&str> for TaskId {
     fn from(value: &str) -> Self {
         Self(value.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct Allocation {
+    pub id: String,
+    pub executor_id: ExecutorId,
+    pub task_id: TaskId,
+    pub namespace: String,
+    pub compute_graph: String,
+    pub compute_fn: String,
+    pub invocation_id: String,
+    pub created_at: u128,
+}
+
+impl Allocation {
+    pub fn id(
+        executor_id: &str,
+        task_id: &str,
+        namespace: &str,
+        compute_graph: &str,
+        compute_fn: &str,
+        invocation_id: &str,
+    ) -> String {
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        compute_graph.hash(&mut hasher);
+        compute_fn.hash(&mut hasher);
+        task_id.hash(&mut hasher);
+        invocation_id.hash(&mut hasher);
+        executor_id.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    pub fn task_key(&self) -> String {
+        Task::key_from(
+            &self.namespace,
+            &self.compute_graph,
+            &self.invocation_id,
+            &self.compute_fn,
+            &self.task_id.to_string(),
+        )
+    }
+}
+
+impl AllocationBuilder {
+    pub fn build(&mut self) -> Result<Allocation> {
+        let namespace = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is required"))?;
+        let compute_graph = self
+            .compute_graph
+            .clone()
+            .ok_or(anyhow!("compute_graph_name is required"))?;
+        let compute_fn = self
+            .compute_fn
+            .clone()
+            .ok_or(anyhow!("compute fn is required"))?;
+        let invocation_id = self
+            .invocation_id
+            .clone()
+            .ok_or(anyhow!("invocation_id is required"))?;
+        let task_id = self.task_id.clone().ok_or(anyhow!("task_id is required"))?;
+        let executor_id = self
+            .executor_id
+            .clone()
+            .ok_or(anyhow!("executor_id is required"))?;
+        let created_at: u128 = get_epoch_time_in_ms() as u128;
+        Ok(Allocation {
+            id: Allocation::id(
+                executor_id.get(),
+                task_id.get(),
+                &namespace,
+                &compute_graph,
+                &compute_fn,
+                &invocation_id,
+            ),
+            task_id,
+            namespace,
+            executor_id,
+            compute_graph,
+            compute_fn,
+            invocation_id,
+            created_at,
+        })
     }
 }
 
@@ -336,6 +427,10 @@ pub struct ComputeGraph {
 impl ComputeGraph {
     pub fn key(&self) -> String {
         ComputeGraph::key_from(&self.namespace, &self.name)
+    }
+
+    pub fn key_version(&self) -> String {
+        ComputeGraphVersion::key_from(&self.namespace, &self.name, &self.version)
     }
 
     pub fn key_from(namespace: &str, name: &str) -> String {
@@ -664,9 +759,10 @@ impl GraphInvocationCtx {
         self.outstanding_tasks -= 1;
     }
 
-    pub fn complete_invocation(&mut self, force_complete: bool) {
+    pub fn complete_invocation(&mut self, force_complete: bool, outcome: GraphInvocationOutcome) {
         if self.outstanding_tasks == 0 || force_complete {
             self.completed = true;
+            self.outcome = outcome;
         }
     }
 
@@ -820,8 +916,27 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn keys_for_compute_graph(namespace: &str, compute_graph_name: &str) -> String {
-        format!("{}|{}", namespace, compute_graph_name)
+    pub fn is_terminal(&self) -> bool {
+        self.status == TaskStatus::Completed || self.outcome.is_terminal()
+    }
+
+    pub fn keys_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}", namespace, compute_graph)
+    }
+
+    pub fn key_compute_graph_version(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, self.compute_graph_name, self.graph_version.0,
+        )
+    }
+
+    pub fn key_prefix_for_invocation(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> String {
+        format!("{}|{}|{}", namespace, compute_graph, invocation_id)
     }
 
     pub fn key_prefix_for_fn(
@@ -1082,7 +1197,6 @@ pub enum ChangeType {
     ExecutorAdded(ExecutorAddedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
     ExecutorRemoved(ExecutorRemovedEvent),
-    TaskCreated(TaskCreatedEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -1114,11 +1228,6 @@ impl fmt::Display for ChangeType {
             ChangeType::ExecutorRemoved(ev) => {
                 write!(f, "ExecutorRemoved, executor_id: {}", ev.executor_id)
             }
-            ChangeType::TaskCreated(ev) => write!(
-                f,
-                "TaskCreated ns: {}, invocation: {}, compute_graph: {}, task: {}",
-                ev.task.namespace, ev.task.invocation_id, ev.task.compute_graph_name, ev.task.id,
-            ),
             ChangeType::TombstoneInvocation(ev) => write!(
                 f,
                 "TombstoneInvocation, ns: {}, compute_graph: {}, invocation_id: {}",

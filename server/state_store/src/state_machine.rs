@@ -2,10 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    Allocation,
     ComputeGraph,
     ComputeGraphError,
     ComputeGraphVersion,
-    ExecutorId,
     GraphInvocationCtx,
     InvocationPayload,
     Namespace,
@@ -15,7 +15,6 @@ use data_model::{
     StateMachineMetadata,
     Task,
     TaskOutputsIngestionStatus,
-    TaskStatus,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
 use metrics::StateStoreMetrics;
@@ -36,11 +35,10 @@ use crate::requests::{
     DeleteInvocationRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
-    NamespaceProcessorUpdateRequest,
     NamespaceRequest,
     ReductionTasks,
     RegisterExecutorRequest,
-    TaskAllocationUpdateRequest,
+    SchedulerUpdateRequest,
 };
 pub type ContentId = String;
 pub type ExecutorIdRef<'a> = &'a str;
@@ -71,6 +69,7 @@ pub enum IndexifyObjectsColumns {
     TaskOutputs,      //  NS_TaskID -> NodeOutputID
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
+    Allocations,             // Allocation ID -> Allocation
     TaskAllocations,         //  ExecutorId -> Task_Key
     UnallocatedTasks,        //  Task_Key -> Empty
 
@@ -623,148 +622,73 @@ pub(crate) fn processed_reduction_tasks(
     Ok(())
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) enum InvocationCompletion {
-    User,
-    System,
-}
-
-// returns whether the invocation was completed or not and whether it was a user
-// or system task invocation.
-pub(crate) fn create_tasks(
+pub(crate) fn handle_scheduler_update(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
-    request: &NamespaceProcessorUpdateRequest,
-) -> Result<Option<InvocationCompletion>> {
-    for task in &request.task_requests {
-        let serialized_task = JsonEncoder::encode(&task)?;
+    request: &SchedulerUpdateRequest,
+) -> Result<()> {
+    for alloc in &request.new_allocations {
+        info!(
+            namespace = alloc.namespace,
+            graph = alloc.compute_graph,
+            invocation_id = alloc.invocation_id,
+            function_name = alloc.compute_fn,
+            task_id = alloc.task_id.to_string(),
+            allocation_id = alloc.id,
+            "add_allocation",
+        );
+        let serialized_alloc = JsonEncoder::encode(&alloc)?;
+        txn.put_cf(
+            &IndexifyObjectsColumns::Allocations.cf_db(&db),
+            &alloc.id,
+            serialized_alloc,
+        )?;
+    }
+    for alloc in &request.remove_allocations {
+        info!(
+            namespace = alloc.namespace,
+            graph = alloc.compute_graph,
+            invocation_id = alloc.invocation_id,
+            function_name = alloc.compute_fn,
+            task_id = alloc.id.to_string(),
+            allocation_id = alloc.id,
+            "delete_allocation",
+        );
+        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.id)?;
+    }
+    for task in &request.updated_tasks {
         info!(
             namespace = task.namespace,
             graph = task.compute_graph_name,
             invocation_id = task.invocation_id,
             function_name = task.compute_fn_name,
             task_id = task.id.to_string(),
-            "creating task: ns: {}, compute graph: {}, invocation id: {},  task: {}, outcome: {:?}",
-            task.namespace,
-            task.compute_graph_name,
-            task.invocation_id,
-            task.key(),
-            task.outcome
+            "updated task",
         );
+        let serialized_task = JsonEncoder::encode(&task)?;
         txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
+            IndexifyObjectsColumns::Tasks.cf_db(&db),
             task.key(),
-            &serialized_task,
+            serialized_task,
         )?;
     }
+
     processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
-    if let Some(invocation_ctx) = &request.invocation_ctx {
-        let serialized_graphctx = JsonEncoder::encode(&invocation_ctx)?;
+
+    for invocation_ctx in &request.updated_invocations_states {
+        let serialized_graph_ctx = JsonEncoder::encode(&invocation_ctx)?;
         txn.put_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
             invocation_ctx.key(),
-            &serialized_graphctx,
+            &serialized_graph_ctx,
         )?;
-        if invocation_ctx.completed {
-            info!(
-                namespace = invocation_ctx.namespace,
-                graph = invocation_ctx.compute_graph_name,
-                graph_version = invocation_ctx.graph_version.0,
-                invocation_id = invocation_ctx.invocation_id,
-                "invocation completed: ns: {}, compute graph: {}, invocation id: {}",
-                invocation_ctx.namespace,
-                invocation_ctx.compute_graph_name,
-                invocation_ctx.invocation_id
-            );
-            return Ok(Some(InvocationCompletion::User));
-        }
     }
-    Ok(None)
-}
 
-pub fn handle_task_allocation_update(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    sm_metrics: Arc<StateStoreMetrics>,
-    request: &TaskAllocationUpdateRequest,
-) -> Result<()> {
-    for task_placement in &request.allocations {
-        let task = task_placement.task.clone();
-        let allocation_key = task_placement
-            .task
-            .make_allocation_key(&task_placement.executor);
-        info!(
-            namespace = task_placement.task.namespace,
-            graph = task_placement.task.compute_graph_name,
-            graph_version = task_placement.task.graph_version.0,
-            invocation_id = task_placement.task.invocation_id,
-            function_name = task_placement.task.compute_fn_name,
-            task_id = task_placement.task.id.to_string(),
-            "task allocation: addition ns: {}, compute_graph: {}, invocation id: {}, task id: {}, allocation_key: {}",
-            task_placement.task.namespace,
-            task_placement.task.compute_graph_name,
-            task_placement.task.invocation_id,
-            task_placement.task.id,
-            allocation_key,
-        );
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            task.key().as_str(),
-            &JsonEncoder::encode(&task)?,
-        )?;
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-            allocation_key,
-            &[],
-        )?;
-        info!(
-            namespace = task_placement.task.namespace,
-            graph = task_placement.task.compute_graph_name,
-            graph_version = task_placement.task.graph_version.0,
-            invocation_id = task_placement.task.invocation_id,
-            function_name = task_placement.task.compute_fn_name,
-            task_id = task_placement.task.id.to_string(),
-            "unallocated task: deleting : ns: {}, compute_graph: {}, invocation id: {}, task key: {}",
-            task_placement.task.namespace,
-            task_placement.task.compute_graph_name,
-            task_placement.task.invocation_id,
-            task_placement.task.key(),
-        );
+    for executor_id in &request.remove_executors {
+        info!(executor_id = executor_id.get(), "remove executor");
         txn.delete_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            task_placement.task.key(),
-        )?;
-
-        sm_metrics.task_assigned(
-            &vec![task_placement.task.clone()],
-            task_placement.executor.get(),
-        );
-    }
-    for unplaced_task in &request.unplaced_tasks {
-        let task_key = unplaced_task.key();
-        info!(
-            namespace = unplaced_task.namespace,
-            graph = unplaced_task.compute_graph_name,
-            graph_version = unplaced_task.graph_version.0,
-            invocation_id = unplaced_task.invocation_id,
-            function_name = unplaced_task.compute_fn_name,
-            task_id = unplaced_task.id.to_string(),
-            "unallocated task: {}",
-            task_key
-        );
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::Tasks.cf_db(&db),
-            &task_key,
-            &JsonEncoder::encode(&unplaced_task)?,
-        )?;
-
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            task_key,
-            &[],
+            &IndexifyObjectsColumns::Executors.cf_db(&db),
+            executor_id.get(),
         )?;
     }
     Ok(())
@@ -819,8 +743,9 @@ pub fn ingest_task_outputs(
         "{}|{}|{}|{}|{}",
         req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task.id
     );
-    let task = txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
-    if task.is_none() {
+    let existing_task =
+        txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
+    if existing_task.is_none() {
         info!(
             namespace = &req.namespace,
             graph = &req.compute_graph,
@@ -830,16 +755,28 @@ pub fn ingest_task_outputs(
         );
         return Ok(false);
     }
-    let mut task = JsonEncoder::decode::<Task>(&task.unwrap())?;
+    let existing_task = JsonEncoder::decode::<Task>(&existing_task.unwrap())?;
+
+    txn.delete_cf(
+        &IndexifyObjectsColumns::Allocations.cf_db(&db),
+        Allocation::id(
+            &req.executor_id.get(),
+            &existing_task.id.to_string(),
+            &req.namespace,
+            &req.compute_graph,
+            &req.compute_fn,
+            &req.invocation_id,
+        ),
+    )?;
 
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
-    if task.output_status == TaskOutputsIngestionStatus::Ingested {
+    if existing_task.output_status == TaskOutputsIngestionStatus::Ingested {
         warn!(
             namespace = &req.namespace,
             graph = &req.compute_graph,
             invocation_id = &req.invocation_id,
-            task_key = task.key(),
+            task_key = existing_task.key(),
             "Task outputs already uploaded, skipping setting outputs",
         );
         return Ok(false);
@@ -857,7 +794,7 @@ pub fn ingest_task_outputs(
 
         // Create a key to store the pointer to the node output to the task
         // NS_TASK_ID_<OutputID> -> Output Key
-        let task_output_key = task.key_output(&output.id);
+        let task_output_key = &req.task.key_output(&output.id);
         let node_output_id = JsonEncoder::encode(&output_key)?;
         txn.put_cf(
             &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
@@ -866,20 +803,13 @@ pub fn ingest_task_outputs(
         )?;
     }
 
-    task.output_status = TaskOutputsIngestionStatus::Ingested;
-    task.diagnostics = req.diagnostics.clone();
-    task.outcome = req.task_outcome.clone();
-    task.status = TaskStatus::Completed;
-    let task_bytes = JsonEncoder::encode(&task)?;
+    let existing_task = req.task;
+
+    let task_bytes = JsonEncoder::encode(&existing_task)?;
     txn.put_cf(
         &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        task.key(),
+        existing_task.key(),
         task_bytes,
-    )?;
-
-    txn.delete_cf(
-        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        task.make_allocation_key(&req.executor_id),
     )?;
 
     Ok(true)
@@ -934,56 +864,6 @@ pub(crate) fn register_executor(
         serialized_executor_metadata,
     )?;
     sm_metrics.add_executor();
-    Ok(())
-}
-
-pub(crate) fn deregister_executor(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    executor_id: &ExecutorId,
-    sm_metrics: Arc<StateStoreMetrics>,
-) -> Result<()> {
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(4_194_304);
-    let prefix = format!("{}|", executor_id);
-    let iterator_mode = IteratorMode::From(prefix.as_bytes(), Direction::Forward);
-    let iter = txn.iterator_cf_opt(
-        &IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        read_options,
-        iterator_mode,
-    );
-    for key in iter {
-        let (key, _) = key?;
-        info!(
-            executor_id = executor_id.to_string(),
-            "deregister executor: executor id: {}, removing task allocation: {}",
-            executor_id,
-            String::from_utf8(key.to_vec())?
-        );
-        txn.delete_cf(&IndexifyObjectsColumns::TaskAllocations.cf_db(&db), &key)?;
-        let task_key = Task::key_from_allocation_key(&key)?;
-        info!(
-            executor_id = executor_id.to_string(),
-            "deregister executor id: {}, adding to unallocated tasks: {}",
-            executor_id,
-            String::from_utf8(task_key.clone())?
-        );
-        txn.put_cf(
-            &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-            &task_key,
-            &[],
-        )?;
-    }
-    info!(
-        executor_id = executor_id.to_string(),
-        "deregister executor: executor id: {}, removing executor metadata", executor_id
-    );
-
-    txn.delete_cf(
-        &IndexifyObjectsColumns::Executors.cf_db(&db),
-        executor_id.to_string(),
-    )?;
-    sm_metrics.remove_executor(executor_id.get());
     Ok(())
 }
 

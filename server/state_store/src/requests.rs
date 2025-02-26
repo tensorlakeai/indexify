@@ -1,4 +1,5 @@
 use data_model::{
+    Allocation,
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
@@ -9,10 +10,9 @@ use data_model::{
     StateChange,
     Task,
     TaskDiagnostics,
-    TaskId,
-    TaskOutcome,
 };
 
+#[derive(Debug)]
 pub struct StateMachineUpdateRequest {
     pub payload: RequestPayload,
     pub processed_state_changes: Vec<StateChange>,
@@ -26,20 +26,23 @@ pub enum RequestPayload {
     CreateOrUpdateComputeGraph(CreateOrUpdateComputeGraphRequest),
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
-    NamespaceProcessorUpdate(NamespaceProcessorUpdateRequest),
-    TaskAllocationProcessorUpdate(TaskAllocationUpdateRequest),
+    SchedulerUpdate(SchedulerUpdateRequest),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
-    MutateClusterTopology(MutateClusterTopologyRequest),
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
     DeleteInvocationRequest(DeleteInvocationRequest),
     Noop,
 }
 
 #[derive(Debug, Clone)]
-pub struct MutateClusterTopologyRequest {
-    pub executor_removed: ExecutorId,
+pub struct SchedulerUpdateRequest {
+    pub new_allocations: Vec<Allocation>,
+    pub remove_allocations: Vec<Allocation>,
+    pub updated_tasks: Vec<Task>,
+    pub updated_invocations_states: Vec<GraphInvocationCtx>,
+    pub reduction_tasks: ReductionTasks,
+    pub remove_executors: Vec<ExecutorId>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,22 +53,8 @@ pub struct IngestTaskOutputsRequest {
     pub invocation_id: String,
     pub task: Task,
     pub node_outputs: Vec<NodeOutput>,
-    pub task_outcome: TaskOutcome,
     pub diagnostics: Option<TaskDiagnostics>,
     pub executor_id: ExecutorId,
-}
-
-#[derive(Debug, Clone)]
-pub struct FinalizeTaskRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub compute_fn: String,
-    pub invocation_id: String,
-    pub task_id: TaskId,
-    pub task_outcome: TaskOutcome,
-    pub diagnostics: Option<TaskDiagnostics>,
-    pub executor_id: ExecutorId,
-    pub invocation_ctx: GraphInvocationCtx,
 }
 
 #[derive(Debug, Clone)]
@@ -74,12 +63,6 @@ pub struct InvokeComputeGraphRequest {
     pub compute_graph_name: String,
     pub invocation_payload: InvocationPayload,
     pub ctx: GraphInvocationCtx,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReplayComputeGraphRequest {
-    pub namespace: String,
-    pub compute_graph_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -106,38 +89,10 @@ pub struct DeleteComputeGraphOutputRequest {
     pub restart_key: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct TaskPlacement {
-    pub task: Task,
-    pub executor: ExecutorId,
-}
-
-#[derive(Debug, Clone)]
-pub struct TaskPlacementDiagnostic {
-    pub task: Task,
-    pub message: String,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct ReductionTasks {
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
-}
-#[derive(Debug, Clone)]
-pub struct NamespaceProcessorUpdateRequest {
-    pub namespace: String,
-    pub compute_graph: String,
-    pub invocation_id: String,
-    pub task_requests: Vec<Task>,
-    pub invocation_ctx: Option<GraphInvocationCtx>,
-    pub reduction_tasks: ReductionTasks,
-}
-
-#[derive(Debug, Clone)]
-pub struct TaskAllocationUpdateRequest {
-    pub allocations: Vec<TaskPlacement>,
-    pub unplaced_tasks: Vec<Task>,
-    pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
 }
 
 #[derive(Debug, Clone)]

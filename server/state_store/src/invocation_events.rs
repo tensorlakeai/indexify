@@ -21,7 +21,7 @@ impl InvocationStateChangeEvent {
             invocation_id: event.invocation_id,
             fn_name: event.compute_fn,
             task_id: event.task.id.to_string(),
-            outcome: event.task_outcome,
+            outcome: event.task.outcome,
         })
     }
 

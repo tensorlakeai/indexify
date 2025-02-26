@@ -2,8 +2,10 @@ use std::{sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
+    ChangeType,
     ComputeGraphVersion,
     GraphInvocationCtx,
+    GraphInvocationOutcome,
     InvokeComputeGraphEvent,
     Node,
     OutputPayload,
@@ -12,8 +14,12 @@ use data_model::{
     TaskOutcome,
     TaskOutputsIngestedEvent,
 };
-use state_store::IndexifyState;
-use tracing::{error, info, trace};
+use state_store::{
+    in_memory_state::InMemoryState,
+    requests::{ReductionTasks, SchedulerUpdateRequest},
+    IndexifyState,
+};
+use tracing::{error, info, trace, warn};
 
 #[derive(Debug)]
 pub struct TaskCreationResult {
@@ -56,19 +62,76 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
+    pub async fn invoke(
+        &self,
+        change: &ChangeType,
+        indexes: &mut Box<InMemoryState>,
+    ) -> Result<SchedulerUpdateRequest> {
+        match change {
+            ChangeType::TaskOutputsIngested(ev) => {
+                let result = self.handle_task_finished_inner(ev, indexes).await?;
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: vec![],
+                    remove_allocations: vec![],
+                    updated_tasks: result.tasks,
+                    updated_invocations_states: result
+                        .invocation_ctx
+                        .map(|ctx| ctx.clone())
+                        .into_iter()
+                        .collect(),
+                    reduction_tasks: ReductionTasks {
+                        new_reduction_tasks: result.new_reduction_tasks,
+                        processed_reduction_tasks: result.processed_reduction_tasks,
+                    },
+                    remove_executors: vec![],
+                });
+            }
+            ChangeType::InvokeComputeGraph(ev) => {
+                let result = self
+                    .handle_invoke_compute_graph(ev.clone(), indexes)
+                    .await?;
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: vec![],
+                    remove_allocations: vec![],
+                    updated_tasks: result.tasks,
+                    updated_invocations_states: result
+                        .invocation_ctx
+                        .map(|ctx| ctx.clone())
+                        .into_iter()
+                        .collect(),
+                    reduction_tasks: ReductionTasks {
+                        new_reduction_tasks: result.new_reduction_tasks,
+                        processed_reduction_tasks: result.processed_reduction_tasks,
+                    },
+                    remove_executors: vec![],
+                });
+            }
+            _ => {
+                error!(
+                    "TaskCreator received an unexpected change type: {:?}",
+                    change
+                );
+                return Err(anyhow!(
+                    "TaskCreator received an unexpected change type: {:?}",
+                    change
+                ));
+            }
+        }
+    }
+
     pub async fn handle_task_finished_inner(
         &self,
-        indexify_state: Arc<IndexifyState>,
         task_finished_event: &TaskOutputsIngestedEvent,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
-        let task = indexify_state
-            .reader()
-            .get_task_from_finished_event(task_finished_event)
-            .map_err(|e| {
-                error!("error getting task from finished event: {:?}", e);
-                e
-            })?;
-        if task.is_none() {
+        let task = indexes.tasks.get(&Task::key_from(
+            &task_finished_event.namespace,
+            &task_finished_event.compute_graph,
+            &task_finished_event.invocation_id,
+            &task_finished_event.compute_fn,
+            &task_finished_event.task_id.to_string(),
+        ));
+        let Some(task) = task else {
             error!(
                 "task not found for task finished event: {}",
                 task_finished_event.task_id
@@ -79,20 +142,11 @@ impl TaskCreator {
                 &task_finished_event.invocation_id,
                 None,
             ));
-        }
-        let task = task.ok_or(anyhow!("task not found: {}", task_finished_event.task_id))?;
+        };
 
-        let compute_graph_version = indexify_state
-            .reader()
-            .get_compute_graph_version(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.graph_version,
-            )
-            .map_err(|e| {
-                error!("error getting compute graph version: {:?}", e);
-                e
-            })?;
+        let compute_graph_version = indexes
+            .compute_graph_versions
+            .get(&task.key_compute_graph_version());
         if compute_graph_version.is_none() {
             error!(
                 "compute graph version not found: {:?} {:?}",
@@ -110,24 +164,20 @@ impl TaskCreator {
             task.namespace,
             task.compute_graph_name
         ))?;
-        self.handle_task_finished(task, compute_graph_version).await
+        self.handle_task_finished(task.clone(), compute_graph_version.clone(), indexes)
+            .await
     }
 
     pub async fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx = self
-            .indexify_state
-            .reader()
-            .invocation_ctx(&event.namespace, &event.compute_graph, &event.invocation_id)
-            .map_err(|e| {
-                anyhow!(
-                    "error getting invocation context for invocation {}: {:?}",
-                    event.invocation_id,
-                    e
-                )
-            })?;
+        let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
+            &event.namespace,
+            &event.compute_graph,
+            &event.invocation_id,
+        ));
         if invocation_ctx.is_none() {
             return Ok(TaskCreationResult::no_tasks(
                 &event.namespace,
@@ -136,28 +186,21 @@ impl TaskCreator {
                 None,
             ));
         }
-        let mut invocation_ctx = invocation_ctx.ok_or(anyhow!(
-            "invocation context not found for invocation_id {}",
-            event.invocation_id
-        ))?;
+        let mut invocation_ctx = invocation_ctx
+            .ok_or(anyhow!(
+                "invocation context not found for invocation_id {}",
+                event.invocation_id
+            ))?
+            .clone();
 
-        let compute_graph_version = self
-            .indexify_state
-            .reader()
-            .get_compute_graph_version(
-                &event.namespace,
-                &event.compute_graph,
-                &invocation_ctx.graph_version,
-            )
-            .map_err(|e| {
-                anyhow!(
-                    "error getting compute graph version: {:?} {:?} {:?} {:?}",
-                    event.namespace,
-                    event.compute_graph,
-                    invocation_ctx.graph_version,
-                    e
-                )
-            })?;
+        let compute_graph_version =
+            indexes
+                .compute_graph_versions
+                .get(&ComputeGraphVersion::key_from(
+                    &event.namespace,
+                    &event.compute_graph,
+                    &invocation_ctx.graph_version,
+                ));
         if compute_graph_version.is_none() {
             info!(
                 "compute graph version not found: {:?} {:?} {:?}",
@@ -206,23 +249,15 @@ impl TaskCreator {
         &self,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx = self
-            .indexify_state
-            .reader()
-            .invocation_ctx(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-            )
-            .map_err(|e| {
-                anyhow!(
-                    "error getting invocation context for invocation {}: {:?}",
-                    task.invocation_id,
-                    e
-                )
-            })?;
-        if invocation_ctx.is_none() {
+        let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
+            &task.namespace,
+            &task.compute_graph_name,
+            &task.invocation_id,
+        ));
+
+        let Some(invocation_ctx) = invocation_ctx else {
             trace!("no invocation ctx, stopping scheduling of child tasks");
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
@@ -230,18 +265,25 @@ impl TaskCreator {
                 &task.invocation_id,
                 None,
             ));
+        };
+
+        if invocation_ctx.completed {
+            warn!("invocation already completed, stopping scheduling of child tasks");
+            return Ok(TaskCreationResult::no_tasks(
+                &task.namespace,
+                &task.compute_graph_name,
+                &task.invocation_id,
+                None,
+            ));
         }
-        let mut invocation_ctx = invocation_ctx.ok_or(anyhow!(
-            "invocation context not found for invocation_id {}",
-            task.invocation_id
-        ))?;
 
         trace!("invocation context: {:?}", invocation_ctx);
+        let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
         if task.outcome == TaskOutcome::Failure {
             trace!("task failed, stopping scheduling of child tasks");
-            invocation_ctx.complete_invocation(true);
+            invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -326,16 +368,12 @@ impl TaskCreator {
                             ));
                         }
                     }
-                    let reduction_task = self
-                        .indexify_state
-                        .reader()
-                        .next_reduction_task(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &task.invocation_id,
-                            &compute_fn.name,
-                        )
-                        .map_err(|e| anyhow!("error getting next reduction task: {:?}", e))?;
+                    let reduction_task = indexes.next_reduction_task(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                        &compute_fn.name,
+                    );
                     if let Some(reduction_task) = reduction_task {
                         // Create a new task for the queued reduction_task
                         let output = outputs.first().unwrap();
@@ -407,7 +445,7 @@ impl TaskCreator {
             trace!(
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
-            invocation_ctx.complete_invocation(false);
+            invocation_ctx.complete_invocation(false, GraphInvocationOutcome::Success);
             return Ok(TaskCreationResult::no_tasks(
                 &task.namespace,
                 &task.compute_graph_name,
@@ -479,7 +517,7 @@ impl TaskCreator {
                             compute_fn_name = compute_node.name(),
                             "Found previously failed reducer task, stopping reducers",
                         );
-                        invocation_ctx.complete_invocation(true);
+                        invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
                         return Ok(TaskCreationResult::no_tasks(
                             &task.namespace,
                             &task.compute_graph_name,
@@ -512,15 +550,12 @@ impl TaskCreator {
                     //
                     // To do so, we need to find the previous reducer task to reuse its output.
                     if successful_tasks_for_node > 0 {
-                        let (prev_reducer_tasks, _) = self.indexify_state.reader().get_task_by_fn(
+                        let prev_reducer_tasks = indexes.get_tasks_by_fn(
                             &task.namespace,
                             &task.compute_graph_name,
                             &task.invocation_id,
-                            compute_node.name(),
-                            None,
-                            Some(1),
-                        )?;
-
+                            &task.compute_fn_name,
+                        );
                         if prev_reducer_tasks.is_empty() {
                             return Err(anyhow!(
                                 "Previous reducer task not found, should never happen: {:?}",

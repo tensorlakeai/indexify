@@ -1,65 +1,119 @@
-use std::{
-    sync::{Arc, RwLock},
-    vec,
-};
+use std::vec;
 
 use anyhow::{anyhow, Result};
-use data_model::{ComputeGraphVersion, ExecutorId, ExecutorMetadata, Node, Task, TaskStatus};
+use data_model::{
+    Allocation,
+    AllocationBuilder,
+    ChangeType,
+    ComputeGraphVersion,
+    ExecutorId,
+    Node,
+    Task,
+    TaskStatus,
+};
+use itertools::Itertools;
 use rand::seq::SliceRandom;
 use state_store::{
-    requests::{TaskPlacement, TaskPlacementDiagnostic},
-    IndexifyState,
+    in_memory_state::InMemoryState,
+    requests::{ReductionTasks, SchedulerUpdateRequest},
 };
 use tracing::{error, info, span};
 
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
-    pub diagnostic_msgs: Vec<String>,
 }
 
 pub struct TaskPlacementResult {
-    pub task_placements: Vec<TaskPlacement>,
-    pub unplaced_tasks: Vec<Task>,
-    pub placement_diagnostics: Vec<TaskPlacementDiagnostic>,
+    pub new_allocations: Vec<Allocation>,
+    pub remove_allocations: Vec<Allocation>,
+    pub updated_tasks: Vec<Task>,
 }
 
-struct ScheduleTaskResult {
-    pub task_placements: Vec<TaskPlacement>,
-    pub unplaced_tasks: Vec<Task>,
-    pub diagnostic_msgs: Vec<String>,
-}
-
-pub struct TaskAllocationProcessor {
-    indexify_state: Arc<IndexifyState>,
-    executors: Arc<RwLock<Vec<ExecutorMetadata>>>,
-}
+pub struct TaskAllocationProcessor {}
 
 impl TaskAllocationProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
-        let executors = Arc::new(RwLock::new(Vec::new()));
-        Self {
-            indexify_state,
-            executors,
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+impl TaskAllocationProcessor {
+    pub fn invoke(
+        &self,
+        change: &ChangeType,
+        indexes: &mut Box<InMemoryState>,
+    ) -> Result<SchedulerUpdateRequest> {
+        match change {
+            ChangeType::ExecutorAdded(_) | ChangeType::ExecutorRemoved(_) => {
+                let task_allocation_results = self.schedule_unplaced_tasks(indexes)?;
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: task_allocation_results.new_allocations,
+                    remove_allocations: task_allocation_results.remove_allocations,
+                    updated_tasks: task_allocation_results.updated_tasks,
+                    updated_invocations_states: vec![],
+                    reduction_tasks: ReductionTasks::default(),
+                    remove_executors: vec![],
+                });
+            }
+            ChangeType::TombStoneExecutor(ev) => {
+                let mut updated_tasks = Vec::new();
+                let mut remove_allocations = Vec::new();
+                let allocations = indexes.allocations_by_executor.get(ev.executor_id.get());
+                if let Some(allocations) = allocations {
+                    remove_allocations.extend(allocations.iter().map(|a| a.clone()));
+                    for allocation in allocations {
+                        let task = indexes.tasks.get(&allocation.task_key());
+                        if let Some(task) = task.cloned() {
+                            let mut task = task.clone();
+                            task.status = TaskStatus::Pending;
+                            updated_tasks.push(task);
+                        } else {
+                            error!(
+                                "task of allocation not found in indexes: {}",
+                                allocation.task_key(),
+                            );
+                        }
+                    }
+                }
+
+                return Ok(SchedulerUpdateRequest {
+                    new_allocations: vec![],
+                    remove_allocations,
+                    updated_tasks,
+                    updated_invocations_states: vec![],
+                    reduction_tasks: ReductionTasks::default(),
+                    remove_executors: vec![ev.executor_id.clone()],
+                });
+            }
+            _ => {
+                error!("unhandled change type: {:?}", change);
+                return Err(anyhow!("unhandled change type"));
+            }
         }
     }
-}
-impl TaskAllocationProcessor {
-    pub fn schedule_unplaced_tasks(&self) -> Result<TaskPlacementResult> {
-        let tasks = self.indexify_state.reader().unallocated_tasks()?;
-        self.schedule_tasks(tasks)
+
+    pub fn schedule_unplaced_tasks(
+        &self,
+        indexes: &mut Box<InMemoryState>,
+    ) -> Result<TaskPlacementResult> {
+        let unallocated_task_ids = indexes.unallocated_tasks.keys().cloned().collect_vec();
+        let mut tasks = Vec::new();
+        for task_id in &unallocated_task_ids {
+            if let Some(task) = indexes.tasks.get(task_id) {
+                tasks.push(task.clone());
+            } else {
+                error!("task not found in indexes: {}", task_id);
+            }
+        }
+        self.schedule_tasks(tasks, indexes)
     }
 
-    pub fn refresh_executors(&self) -> Result<()> {
-        let all_executors = self.indexify_state.reader().get_all_executors()?;
-        let mut executors = self.executors.write().unwrap();
-        *executors = all_executors;
-        Ok(())
-    }
-
-    pub fn schedule_tasks(&self, tasks: Vec<Task>) -> Result<TaskPlacementResult> {
-        let mut task_placements = Vec::new();
-        let mut unplaced_tasks: Vec<Task> = Vec::new();
-        let mut placement_diagnostics = Vec::new();
+    pub fn schedule_tasks(
+        &self,
+        tasks: Vec<Task>,
+        indexes: &mut Box<InMemoryState>,
+    ) -> Result<TaskPlacementResult> {
+        let mut allocations = Vec::new();
+        let mut updated_tasks = Vec::new();
         for mut task in tasks {
             let span = span!(
                 tracing::Level::INFO,
@@ -68,85 +122,83 @@ impl TaskAllocationProcessor {
                 namespace = task.namespace,
                 compute_graph = task.compute_graph_name,
                 compute_fn = task.compute_fn_name,
+                invocation_id = task.invocation_id
             );
             let _enter = span.enter();
             if task.outcome.is_terminal() {
                 error!("task: {} already completed, skipping", task.id);
+                updated_tasks.push(task.clone());
                 continue;
             }
             info!("allocate task {:?} ", task.id);
-            match self.allocate_task(&mut task) {
-                Ok(schedule_task_results) => {
-                    task_placements.extend(schedule_task_results.task_placements);
-                    unplaced_tasks.extend(schedule_task_results.unplaced_tasks);
-                    placement_diagnostics.extend(schedule_task_results.diagnostic_msgs.iter().map(
-                        |msg| TaskPlacementDiagnostic {
-                            task: task.clone(),
-                            message: msg.clone(),
-                        },
-                    ));
+            match self.allocate_task(&mut task, indexes) {
+                Ok(Some(allocation)) => {
+                    allocations.push(allocation.clone());
+                    task.status = TaskStatus::Running;
+                    indexes
+                        .allocations_by_executor
+                        .entry(allocation.executor_id.to_string())
+                        .or_default()
+                        .push_back(allocation);
+                    indexes.tasks.insert(task.key(), task.clone());
+                }
+                Ok(None) => {
+                    info!("no executors available for task {:?}", task.id);
                 }
                 Err(err) => {
                     error!("failed to allocate task, skipping: {:?}", err);
                 }
             }
+            updated_tasks.push(task.clone());
         }
         Ok(TaskPlacementResult {
-            task_placements,
-            unplaced_tasks,
-            placement_diagnostics,
+            new_allocations: allocations,
+            remove_allocations: vec![],
+            updated_tasks,
         })
     }
 
-    fn allocate_task(&self, task: &mut Task) -> Result<ScheduleTaskResult> {
-        let mut task_placements = Vec::new();
-        let mut unplaced_tasks = Vec::new();
-        let mut diagnostic_msgs = Vec::new();
-        let compute_graph_version = self
-            .indexify_state
-            .reader()
-            .get_compute_graph_version(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.graph_version,
-            )?
-            .ok_or(anyhow!("compute graph not found"))?;
+    fn allocate_task(
+        &self,
+        task: &mut Task,
+        indexes: &mut Box<InMemoryState>,
+    ) -> Result<Option<Allocation>> {
+        let compute_graph_version = indexes
+            .compute_graph_versions
+            .get(&task.key_compute_graph_version())
+            .ok_or(anyhow!("compute graph not found"))?
+            .clone();
         let compute_fn = compute_graph_version
             .nodes
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("compute fn not found"))?;
-        let filtered_executors = self.filter_executors(&compute_graph_version, &compute_fn)?;
-        if !filtered_executors.diagnostic_msgs.is_empty() {
-            diagnostic_msgs.extend(filtered_executors.diagnostic_msgs);
-        }
+        let filtered_executors =
+            self.filter_executors(&compute_graph_version, &compute_fn, indexes)?;
         let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
         if let Some(executor_id) = executor_id {
             info!("assigning task {:?} to executor {:?}", task.id, executor_id);
-            task.status = TaskStatus::Running;
-            task_placements.push(TaskPlacement {
-                task: task.clone(),
-                executor: executor_id.clone(),
-            });
-        } else {
-            task.status = TaskStatus::Pending;
-            unplaced_tasks.push(task.clone());
+            let allocation = AllocationBuilder::default()
+                .namespace(task.namespace.clone())
+                .compute_graph(task.compute_graph_name.clone())
+                .compute_fn(task.compute_fn_name.clone())
+                .invocation_id(task.invocation_id.clone())
+                .task_id(task.id.clone())
+                .executor_id(executor_id.clone())
+                .build()?;
+            return Ok(Some(allocation));
         }
-        Ok(ScheduleTaskResult {
-            task_placements,
-            unplaced_tasks,
-            diagnostic_msgs,
-        })
+        Ok(None)
     }
 
     fn filter_executors(
         &self,
         compute_graph: &ComputeGraphVersion,
         node: &Node,
+        indexes: &mut Box<InMemoryState>,
     ) -> Result<FilteredExecutors> {
         let mut filtered_executors = vec![];
 
-        let mut diagnostic_msgs = vec![];
-        let executors = self.executors.read().unwrap();
+        let executors = indexes.executors.values().collect_vec();
 
         for executor in executors.iter() {
             match executor.function_allowlist {
@@ -163,12 +215,8 @@ impl TaskAllocationProcessor {
                 }
             }
         }
-        if !filtered_executors.is_empty() {
-            diagnostic_msgs.clear();
-        }
         Ok(FilteredExecutors {
             executors: filtered_executors,
-            diagnostic_msgs,
         })
     }
 }
