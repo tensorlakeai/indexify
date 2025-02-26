@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use data_model::StateMachineMetadata;
 use rocksdb::{IteratorMode, ReadOptions, Transaction, TransactionDB};
 use tracing::info;
@@ -175,7 +175,7 @@ mod tests {
                 path,
                 sm_column_families,
             )
-            .map_err(|e| anyhow!("failed to open db: {}", e))?,
+            .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
         );
 
         // Create tasks with different outcomes and no status

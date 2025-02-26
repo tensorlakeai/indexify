@@ -170,9 +170,15 @@ impl GraphProcessor {
                     .invoke(&state_change.change_type, &mut indexes)
                     .await;
                 if let Ok(mut result) = scheduler_update {
-                    let placement_result = self
-                        .task_allocator
-                        .schedule_tasks(result.clone().updated_tasks, &mut indexes)?;
+                    let placement_result = self.task_allocator.schedule_tasks(
+                        result
+                            .clone()
+                            .updated_tasks
+                            .into_iter()
+                            .map(Arc::new)
+                            .collect(),
+                        &mut indexes,
+                    )?;
                     result
                         .new_allocations
                         .extend(placement_result.new_allocations);
@@ -181,7 +187,7 @@ impl GraphProcessor {
                         .extend(placement_result.remove_allocations);
                     result.updated_tasks = placement_result.updated_tasks;
                     Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::SchedulerUpdate(result),
+                        payload: RequestPayload::SchedulerUpdate(Box::new(result)),
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
@@ -200,7 +206,7 @@ impl GraphProcessor {
                     .invoke(&state_change.change_type, &mut indexes);
                 if let Ok(result) = scheduler_update {
                     Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::SchedulerUpdate(result),
+                        payload: RequestPayload::SchedulerUpdate(Box::new(result)),
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {

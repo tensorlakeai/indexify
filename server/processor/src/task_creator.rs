@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::{ops::Deref, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -164,8 +164,12 @@ impl TaskCreator {
             task.namespace,
             task.compute_graph_name
         ))?;
-        self.handle_task_finished(task.clone(), compute_graph_version.clone(), indexes)
-            .await
+        self.handle_task_finished(
+            task.clone().deref().clone(),
+            compute_graph_version.clone(),
+            indexes,
+        )
+        .await
     }
 
     pub async fn handle_invoke_compute_graph(
@@ -191,6 +195,7 @@ impl TaskCreator {
                 "invocation context not found for invocation_id {}",
                 event.invocation_id
             ))?
+            .deref()
             .clone();
 
         let compute_graph_version =
@@ -230,6 +235,7 @@ impl TaskCreator {
             &compute_graph_version.version,
         )?;
         invocation_ctx.create_tasks(&vec![task.clone()]);
+
         trace!(
             task_key = task.key(),
             "Creating a standard task to start compute graph"
@@ -241,7 +247,7 @@ impl TaskCreator {
             tasks: vec![task],
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
-            invocation_ctx: Some(invocation_ctx.clone()),
+            invocation_ctx: Some(invocation_ctx),
         })
     }
 
@@ -278,7 +284,7 @@ impl TaskCreator {
         }
 
         trace!("invocation context: {:?}", invocation_ctx);
-        let mut invocation_ctx = invocation_ctx.clone();
+        let mut invocation_ctx = invocation_ctx.deref().clone();
         invocation_ctx.update_analytics(&task);
 
         if task.outcome == TaskOutcome::Failure {
