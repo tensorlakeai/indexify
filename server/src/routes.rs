@@ -43,7 +43,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     executors::{self, EXECUTOR_TIMEOUT},
-    http_objects::{Invocation, InvocationStatus},
+    http_objects::{ExecutorAllocations, Invocation, InvocationStatus, UnallocatedTasks},
 };
 
 mod download;
@@ -68,8 +68,8 @@ use crate::{
         ComputeGraphsList,
         CreateNamespace,
         DynamicRouter,
-        ExecutorAllocations,
         ExecutorMetadata,
+        ExecutorsAllocations,
         FnOutputs,
         GraphInvocations,
         GraphVersion,
@@ -104,6 +104,7 @@ use crate::{
             logs::download_task_logs,
             list_executors,
             list_allocations,
+            list_unallocated_tasks,
             download::download_fn_output_payload,
         ),
         components(
@@ -127,7 +128,8 @@ use crate::{
                 GraphInvocations,
                 GraphVersion,
                 Allocation,
-                ExecutorAllocations,
+                ExecutorsAllocations,
+                UnallocatedTasks,
             )
         ),
         tags(
@@ -187,6 +189,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/allocations",
             get(list_allocations).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/unallocated_tasks",
+            get(list_unallocated_tasks).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors/{id}/tasks",
@@ -672,9 +678,9 @@ async fn list_executors(
 )]
 async fn list_allocations(
     State(state): State<RouteState>,
-) -> Result<Json<ExecutorAllocations>, IndexifyAPIError> {
+) -> Result<Json<ExecutorsAllocations>, IndexifyAPIError> {
     let allocations = state.executor_manager.list_allocations().await;
-    Ok(Json(ExecutorAllocations {
+    Ok(Json(ExecutorsAllocations {
         allocations: allocations
             .into_iter()
             .map(|(executor_id, allocations)| {
@@ -683,9 +689,42 @@ async fn list_allocations(
                 for allocation in allocations {
                     allocs.push(allocation.clone().into());
                 }
-                (executor_id, allocs)
+                (
+                    executor_id,
+                    ExecutorAllocations {
+                        count: allocs.len(),
+                        allocations: allocs,
+                    },
+                )
             })
             .collect(),
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/internal/unallocated_tasks",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List all unallocated tasks", body = UnallocatedTasks),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn list_unallocated_tasks(
+    State(state): State<RouteState>,
+) -> Result<Json<UnallocatedTasks>, IndexifyAPIError> {
+    let state = state.indexify_state.in_memory_state.read().await;
+    let unallocated_tasks: Vec<Task> = state
+        .unallocated_tasks
+        .clone()
+        .iter()
+        .filter_map(|(task_id, _)| state.tasks.get(task_id))
+        .map(|t| (**t).clone().into())
+        .collect();
+
+    Ok(Json(UnallocatedTasks {
+        count: unallocated_tasks.len(),
+        tasks: unallocated_tasks,
     }))
 }
 

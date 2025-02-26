@@ -685,8 +685,20 @@ impl From<data_model::Allocation> for Allocation {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnallocatedTasks {
+    pub tasks: Vec<Task>,
+    pub count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorAllocations {
-    pub allocations: HashMap<String, Vec<Allocation>>,
+    pub allocations: Vec<Allocation>,
+    pub count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExecutorsAllocations {
+    pub allocations: HashMap<String, ExecutorAllocations>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
