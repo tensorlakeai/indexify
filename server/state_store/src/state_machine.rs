@@ -12,7 +12,6 @@ use data_model::{
     NodeOutput,
     OutputPayload,
     StateChange,
-    StateMachineMetadata,
     Task,
     TaskOutputsIngestionStatus,
 };
@@ -890,32 +889,4 @@ where
     let serialized_task = JsonEncoder::encode(&task)?;
     txn.put_cf(cf, &key, &serialized_task)?;
     Ok(())
-}
-
-pub fn write_sm_meta(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    meta: &StateMachineMetadata,
-) -> Result<()> {
-    let serialized_meta = JsonEncoder::encode(&meta)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::StateMachineMetadata.cf_db(&db),
-        b"sm_meta",
-        &serialized_meta,
-    )?;
-    Ok(())
-}
-
-pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
-    let meta = db.get_cf(
-        &IndexifyObjectsColumns::StateMachineMetadata.cf_db(&db),
-        b"sm_meta",
-    )?;
-    match meta {
-        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
-        None => Ok(StateMachineMetadata {
-            db_version: 0,
-            last_change_idx: 0,
-        }),
-    }
 }
