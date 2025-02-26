@@ -16,7 +16,6 @@ use data_model::{
     TaskOutputsIngestionStatus,
 };
 use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
-use metrics::StateStoreMetrics;
 use rocksdb::{
     AsColumnFamilyRef,
     ColumnFamily,
@@ -854,7 +853,6 @@ pub(crate) fn register_executor(
     db: Arc<TransactionDB>,
     txn: &Transaction<TransactionDB>,
     req: &RegisterExecutorRequest,
-    sm_metrics: Arc<StateStoreMetrics>,
 ) -> Result<()> {
     let serialized_executor_metadata = JsonEncoder::encode(&req.executor)?;
     txn.put_cf(
@@ -862,7 +860,6 @@ pub(crate) fn register_executor(
         req.executor.key(),
         serialized_executor_metadata,
     )?;
-    sm_metrics.add_executor();
     Ok(())
 }
 

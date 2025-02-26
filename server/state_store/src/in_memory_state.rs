@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use data_model::{
     Allocation,
@@ -9,6 +11,8 @@ use data_model::{
     Task,
     TaskStatus,
 };
+use metrics::{StateStoreMetrics, Timer};
+use opentelemetry::{metrics::Gauge, KeyValue};
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -42,10 +46,18 @@ pub struct InMemoryState {
 
     // Invocation Ctx
     pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
+
+    state_store_metrics: Arc<StateStoreMetrics>,
+
+    unallocated_tasks_gauge: Gauge<u64>,
+    active_tasks_gauge: Gauge<u64>,
+    active_invocations_gauge: Gauge<u64>,
+    active_allocations_gauge: Gauge<u64>,
 }
 
 impl InMemoryState {
-    pub fn new(reader: StateReader) -> Result<Self> {
+    pub fn new(reader: StateReader, state_store_metrics: Arc<StateStoreMetrics>) -> Result<Self> {
+        // Creating Namespaces
         let mut namespaces = im::HashMap::new();
         let mut compute_graphs = im::HashMap::new();
         {
@@ -135,7 +147,26 @@ impl InMemoryState {
                 queued_reduction_tasks.insert(task.key(), Box::new(task));
             }
         }
-        Ok(Self {
+
+        let unallocated_tasks_gauge = opentelemetry::global::meter("state_store")
+            .u64_gauge("un_allocated_tasks")
+            .with_description("Number of unallocated tasks, reported from in_memory_state")
+            .build();
+
+        let active_tasks_gauge = opentelemetry::global::meter("state_store")
+            .u64_gauge("active_tasks")
+            .with_description("Number of active tasks, reported from in_memory_state")
+            .build();
+
+        let active_invocations_gauge = opentelemetry::global::meter("state_store")
+            .u64_gauge("active_invocations_gauge")
+            .with_description("Number of active tasks, reported from in_memory_state")
+            .build();
+        let active_allocations_gauge = opentelemetry::global::meter("state_store")
+            .u64_gauge("active_allocations_gauge")
+            .with_description("Number of active tasks, reported from in_memory_state")
+            .build();
+        let in_memory_state = Self {
             namespaces,
             compute_graphs,
             compute_graph_versions,
@@ -145,7 +176,15 @@ impl InMemoryState {
             unallocated_tasks,
             invocation_ctx,
             queued_reduction_tasks,
-        })
+            state_store_metrics,
+            unallocated_tasks_gauge,
+            active_tasks_gauge,
+            active_invocations_gauge,
+            active_allocations_gauge,
+        };
+        in_memory_state.emit_metrics();
+
+        Ok(in_memory_state)
     }
 
     pub fn get_tasks_by_fn(
@@ -297,6 +336,7 @@ impl InMemoryState {
                             &invocation_ctx.compute_graph_name,
                             &invocation_ctx.invocation_id,
                         );
+                        self.invocation_ctx.remove(&key);
                         let keys_to_remove = self
                             .tasks
                             .range(key.clone()..)
@@ -353,6 +393,29 @@ impl InMemoryState {
             .map(|(_, v)| *v.clone())
     }
 
+    pub fn emit_metrics(&self) {
+        let kvs = &[KeyValue::new("op", "state_store_metrics_write")];
+        let _timer = Timer::start_with_labels(&self.state_store_metrics.state_metrics_write, kvs);
+        self.unallocated_tasks_gauge.record(
+            self.unallocated_tasks.len() as u64,
+            &[KeyValue::new("global", "unallocated_tasks")],
+        );
+        self.active_tasks_gauge.record(
+            self.tasks.len() as u64,
+            &[KeyValue::new("global", "active_tasks")],
+        );
+        self.active_invocations_gauge.record(
+            self.invocation_ctx.len() as u64,
+            &[KeyValue::new("global", "active_invocations")],
+        );
+        for (executor_id, allocations) in &self.allocations_by_executor {
+            self.active_allocations_gauge.record(
+                allocations.len() as u64,
+                &[KeyValue::new("executor_id", executor_id.to_string())],
+            );
+        }
+    }
+
     pub fn clone(&self) -> Box<Self> {
         Box::new(InMemoryState {
             namespaces: self.namespaces.clone(),
@@ -364,6 +427,11 @@ impl InMemoryState {
             unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
+            state_store_metrics: self.state_store_metrics.clone(),
+            unallocated_tasks_gauge: self.unallocated_tasks_gauge.clone(),
+            active_tasks_gauge: self.active_tasks_gauge.clone(),
+            active_invocations_gauge: self.active_invocations_gauge.clone(),
+            active_allocations_gauge: self.active_allocations_gauge.clone(),
         })
     }
 }
