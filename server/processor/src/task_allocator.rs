@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::vec;
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -63,7 +63,7 @@ impl TaskAllocationProcessor {
                     for allocation in allocations {
                         let task = indexes.tasks.get(&allocation.task_key());
                         if let Some(task) = task.cloned() {
-                            let mut task = task.as_ref().clone();
+                            let mut task = task.clone();
                             task.status = TaskStatus::Pending;
                             updated_tasks.push(task);
                         } else {
@@ -99,7 +99,7 @@ impl TaskAllocationProcessor {
         let mut tasks = Vec::new();
         for task_id in &unallocated_task_ids {
             if let Some(task) = indexes.tasks.get(task_id) {
-                tasks.push(task.as_ref().clone());
+                tasks.push(task.clone());
             } else {
                 error!("task not found in indexes: {}", task_id);
             }
@@ -140,7 +140,7 @@ impl TaskAllocationProcessor {
                         .entry(allocation.executor_id.to_string())
                         .or_default()
                         .push_back(allocation);
-                    indexes.tasks.insert(task.key(), Arc::new(task.clone()));
+                    indexes.tasks.insert(task.key(), task.clone());
                 }
                 Ok(None) => {
                     info!("no executors available for task {:?}", task.id);

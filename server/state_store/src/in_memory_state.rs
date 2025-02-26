@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use data_model::{
     Allocation,
@@ -37,7 +35,7 @@ pub struct InMemoryState {
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
 
     // Task Key -> Task
-    pub tasks: im::OrdMap<String, Arc<Task>>,
+    pub tasks: im::OrdMap<String, Task>,
 
     // Queued Reduction Tasks
     pub queued_reduction_tasks: im::OrdMap<String, ReduceTask>,
@@ -102,7 +100,7 @@ impl InMemoryState {
             if task.is_terminal() {
                 continue;
             }
-            tasks.insert(task.key(), Arc::new(task.clone()));
+            tasks.insert(task.key(), task.clone());
             if task.status == TaskStatus::Pending {
                 unallocated_tasks.insert(task.key(), [0; 0]);
             }
@@ -147,7 +145,7 @@ impl InMemoryState {
         self.tasks
             .range(key.clone()..)
             .take_while(|(k, _v)| k.starts_with(&key))
-            .map(|(_, v)| v.as_ref().clone())
+            .map(|(_, v)| v.clone())
             .collect()
     }
 
@@ -159,7 +157,7 @@ impl InMemoryState {
                     .iter()
                     .take(limit)
                     .filter_map(|allocation| self.tasks.get(&allocation.task_key()))
-                    .map(|task| (task).as_ref().clone())
+                    .map(|task| task.clone())
                     .collect()
             })
             .unwrap_or_default()
@@ -187,7 +185,7 @@ impl InMemoryState {
                     .or_default()
                     .retain(|a| a.id != allocation_key);
                 self.tasks
-                    .insert(req.task.key(), Arc::new(req.task.clone()));
+                    .insert(req.task.key(), req.task.clone());
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -199,6 +197,37 @@ impl InMemoryState {
                     req.compute_graph.into_version().key(),
                     req.compute_graph.into_version().clone(),
                 );
+
+                // FIXME - we should set this in the API and not here, so that these things are not
+                // set in the state store
+                if req.upgrade_tasks_to_current_version {
+                    let mut tasks_to_update = vec![];
+                    let key_prefix = Task::keys_for_compute_graph(&req.namespace, &req.compute_graph.name);
+                    self.tasks.range(key_prefix.clone()..)
+                        .into_iter()
+                        .take_while(|(k, _v)| k.starts_with(&key_prefix))
+                        .for_each(|(_k, v)| {
+                            let mut task = v.clone();
+                            task.graph_version = req.compute_graph.into_version().version;
+                            tasks_to_update.push(task);
+                        });
+                    let mut invocation_ctx_to_update = vec![];
+                    self.invocation_ctx.range(key_prefix.clone()..)
+                        .into_iter()
+                        .take_while(|(k, _v)| k.starts_with(&key_prefix))
+                        .for_each(|(_k, v)| {
+                            let mut ctx = v.clone();
+                            ctx.graph_version = req.compute_graph.into_version().version;
+                            invocation_ctx_to_update.push(ctx);
+                        });
+
+                    for task in tasks_to_update {
+                        self.tasks.insert(task.key(), task.clone());
+                    }
+                    for ctx in invocation_ctx_to_update {
+                        self.invocation_ctx.insert(ctx.key(), ctx.clone());
+                    }
+                }
             }
             RequestPayload::DeleteComputeGraphRequest(req) => {
                 let key = ComputeGraph::key_from(&req.namespace, &req.name);
@@ -226,7 +255,7 @@ impl InMemoryState {
             }
             RequestPayload::SchedulerUpdate(req) => {
                 for task in &req.updated_tasks {
-                    self.tasks.insert(task.key(), Arc::new(task.clone()));
+                    self.tasks.insert(task.key(), task.clone());
                     if task.status == TaskStatus::Pending {
                         self.unallocated_tasks.insert(task.key(), [0; 0]);
                     } else {

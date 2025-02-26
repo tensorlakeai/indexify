@@ -165,7 +165,7 @@ impl TaskCreator {
             task.compute_graph_name
         ))?;
         self.handle_task_finished(
-            task.as_ref().clone(),
+            task.clone(),
             compute_graph_version.clone(),
             indexes,
         )
