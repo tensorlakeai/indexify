@@ -1,3 +1,5 @@
+use std::{ops::Deref, sync::Arc};
+
 use anyhow::Result;
 use data_model::{
     Allocation,
@@ -35,91 +37,105 @@ pub struct InMemoryState {
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
 
     // Task Key -> Task
-    pub tasks: im::OrdMap<String, Task>,
+    pub tasks: im::OrdMap<String, Arc<Task>>,
 
     // Queued Reduction Tasks
     pub queued_reduction_tasks: im::OrdMap<String, ReduceTask>,
 
     // Invocation Ctx
-    pub invocation_ctx: im::OrdMap<String, GraphInvocationCtx>,
+    pub invocation_ctx: im::OrdMap<String, Arc<GraphInvocationCtx>>,
 }
 
 impl InMemoryState {
     pub fn new(reader: StateReader) -> Result<Self> {
-        // Creating Namespaces
         let mut namespaces = im::HashMap::new();
-        let all_ns = reader.get_all_namespaces()?;
-        for ns in &all_ns {
-            namespaces.insert(ns.name.clone(), [0; 0]);
-        }
-
-        // Creating Compute Graphs and Versions
         let mut compute_graphs = im::HashMap::new();
-        for ns in &all_ns {
-            let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
-            for cg in cgs {
-                compute_graphs.insert(format!("{}|{}", ns.name, cg.name), cg);
+        {
+            let all_ns = reader.get_all_namespaces()?;
+            for ns in &all_ns {
+                // Creating Namespaces
+                namespaces.insert(ns.name.clone(), [0; 0]);
+
+                // Creating Compute Graphs and Versions
+                let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
+                for cg in cgs {
+                    compute_graphs.insert(format!("{}|{}", ns.name, cg.name), cg);
+                }
             }
         }
+
         let mut compute_graph_versions = im::OrdMap::new();
-        let all_cg_versions: Vec<(String, ComputeGraphVersion)> =
-            reader.get_all_rows_from_cf(IndexifyObjectsColumns::ComputeGraphVersions)?;
-        for (id, cg) in all_cg_versions {
-            compute_graph_versions.insert(id, cg);
+        {
+            let all_cg_versions: Vec<(String, ComputeGraphVersion)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ComputeGraphVersions)?;
+            for (id, cg) in all_cg_versions {
+                compute_graph_versions.insert(id, cg);
+            }
         }
 
         // Creating Executors
-        let all_executors = reader.get_all_executors()?;
         let mut executors = im::HashMap::new();
-        for executor in &all_executors {
-            executors.insert(executor.id.get().to_string(), executor.clone());
+        {
+            let all_executors = reader.get_all_executors()?;
+            for executor in &all_executors {
+                executors.insert(executor.id.get().to_string(), executor.clone());
+            }
         }
 
         // Creating Allocated Tasks By Executor
         let mut allocations_by_executor: im::HashMap<String, im::Vector<Allocation>> =
             im::HashMap::new();
-        let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
-            &[],
-            None,
-            IndexifyObjectsColumns::Allocations,
-            None,
-        )?;
-        for allocation in allocations {
-            allocations_by_executor
-                .entry(allocation.executor_id.get().to_string())
-                .or_default()
-                .push_back(allocation);
+        {
+            let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
+                &[],
+                None,
+                IndexifyObjectsColumns::Allocations,
+                None,
+            )?;
+            for allocation in allocations {
+                allocations_by_executor
+                    .entry(allocation.executor_id.get().to_string())
+                    .or_default()
+                    .push_back(allocation);
+            }
         }
 
         // Creating Tasks
-        let all_tasks: Vec<(String, Task)> =
-            reader.get_all_rows_from_cf(IndexifyObjectsColumns::Tasks)?;
         let mut tasks = im::OrdMap::new();
         let mut unallocated_tasks = im::OrdMap::new();
-        for (_id, task) in all_tasks {
-            if task.is_terminal() {
-                continue;
-            }
-            tasks.insert(task.key(), task.clone());
-            if task.status == TaskStatus::Pending {
-                unallocated_tasks.insert(task.key(), [0; 0]);
+        {
+            let all_tasks: Vec<(String, Task)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::Tasks)?;
+            for (_id, task) in all_tasks {
+                if task.is_terminal() {
+                    continue;
+                }
+                if task.status == TaskStatus::Pending {
+                    unallocated_tasks.insert(task.key(), [0; 0]);
+                }
+                tasks.insert(task.key(), Arc::new(task));
             }
         }
 
         let mut invocation_ctx = im::OrdMap::new();
-        let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
-            reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
-        for (id, ctx) in all_graph_invocation_ctx {
-            if ctx.completed {
-                continue;
+        {
+            let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
+            for (id, ctx) in all_graph_invocation_ctx {
+                if ctx.completed {
+                    continue;
+                }
+                invocation_ctx.insert(id, Arc::new(ctx));
             }
-            invocation_ctx.insert(id, ctx);
         }
+
         let mut queued_reduction_tasks = im::OrdMap::new();
-        let all_reduction_tasks: Vec<(String, ReduceTask)> =
-            reader.get_all_rows_from_cf(IndexifyObjectsColumns::ReductionTasks)?;
-        for (_id, task) in all_reduction_tasks {
-            queued_reduction_tasks.insert(task.key(), task);
+        {
+            let all_reduction_tasks: Vec<(String, ReduceTask)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::ReductionTasks)?;
+            for (_id, task) in all_reduction_tasks {
+                queued_reduction_tasks.insert(task.key(), task);
+            }
         }
         Ok(Self {
             namespaces,
@@ -140,7 +156,7 @@ impl InMemoryState {
         compute_graph: &str,
         invocation_id: &str,
         compute_fn: &str,
-    ) -> Vec<Task> {
+    ) -> Vec<Arc<Task>> {
         let key = Task::key_prefix_for_fn(namespace, compute_graph, invocation_id, compute_fn);
         self.tasks
             .range(key.clone()..)
@@ -149,7 +165,7 @@ impl InMemoryState {
             .collect()
     }
 
-    pub fn active_tasks_for_executor(&self, executor_id: &str, limit: usize) -> Vec<Task> {
+    pub fn active_tasks_for_executor(&self, executor_id: &str, limit: usize) -> Vec<Arc<Task>> {
         self.allocations_by_executor
             .get(executor_id)
             .map(|allocations| {
@@ -169,7 +185,8 @@ impl InMemoryState {
     ) -> Result<()> {
         match &state_machine_update_request.payload {
             RequestPayload::InvokeComputeGraph(req) => {
-                self.invocation_ctx.insert(req.ctx.key(), req.ctx.clone());
+                self.invocation_ctx
+                    .insert(req.ctx.key(), Arc::new(req.ctx.clone()));
             }
             RequestPayload::IngestTaskOutputs(req) => {
                 let allocation_key = Allocation::id(
@@ -184,7 +201,8 @@ impl InMemoryState {
                     .entry(req.executor_id.get().to_string())
                     .or_default()
                     .retain(|a| a.id != allocation_key);
-                self.tasks.insert(req.task.key(), req.task.clone());
+                self.tasks
+                    .insert(req.task.key(), Arc::new(req.task.clone()));
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -208,7 +226,7 @@ impl InMemoryState {
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&key_prefix))
                         .for_each(|(_k, v)| {
-                            let mut task = v.clone();
+                            let mut task = v.deref().clone();
                             task.graph_version = req.compute_graph.into_version().version;
                             tasks_to_update.push(task);
                         });
@@ -218,16 +236,16 @@ impl InMemoryState {
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&key_prefix))
                         .for_each(|(_k, v)| {
-                            let mut ctx = v.clone();
+                            let mut ctx = v.deref().clone();
                             ctx.graph_version = req.compute_graph.into_version().version;
                             invocation_ctx_to_update.push(ctx);
                         });
 
                     for task in tasks_to_update {
-                        self.tasks.insert(task.key(), task.clone());
+                        self.tasks.insert(task.key(), Arc::new(task));
                     }
                     for ctx in invocation_ctx_to_update {
-                        self.invocation_ctx.insert(ctx.key(), ctx.clone());
+                        self.invocation_ctx.insert(ctx.key(), Arc::new(ctx));
                     }
                 }
             }
@@ -257,12 +275,12 @@ impl InMemoryState {
             }
             RequestPayload::SchedulerUpdate(req) => {
                 for task in &req.updated_tasks {
-                    self.tasks.insert(task.key(), task.clone());
                     if task.status == TaskStatus::Pending {
                         self.unallocated_tasks.insert(task.key(), [0; 0]);
                     } else {
                         self.unallocated_tasks.remove(&task.key());
                     }
+                    self.tasks.insert(task.key(), Arc::new(task.clone()));
                 }
                 for task in &req.reduction_tasks.new_reduction_tasks {
                     self.queued_reduction_tasks.insert(task.key(), task.clone());
@@ -272,7 +290,7 @@ impl InMemoryState {
                 }
                 for invocation_ctx in &req.updated_invocations_states {
                     self.invocation_ctx
-                        .insert(invocation_ctx.key(), invocation_ctx.clone());
+                        .insert(invocation_ctx.key(), Arc::new(invocation_ctx.clone()));
                     // Remove tasks for invocation ctx if completed
                     if invocation_ctx.completed {
                         let key = Task::key_prefix_for_invocation(

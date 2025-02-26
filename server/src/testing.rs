@@ -230,7 +230,7 @@ impl TestExecutor<'_> {
             .await
             .active_tasks_for_executor(&self.executor.id.get(), 100);
 
-        Ok(tasks)
+        Ok(tasks.into_iter().map(|task| (*task).clone()).collect())
     }
 
     pub async fn finalize_task(&self, task: &Task, args: FinalizeTaskArgs) -> Result<()> {

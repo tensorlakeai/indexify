@@ -1,4 +1,4 @@
-use std::vec;
+use std::{ops::Deref, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -63,7 +63,7 @@ impl TaskAllocationProcessor {
                     for allocation in allocations {
                         let task = indexes.tasks.get(&allocation.task_key());
                         if let Some(task) = task.cloned() {
-                            let mut task = task.clone();
+                            let mut task = task.clone().deref().clone();
                             task.status = TaskStatus::Pending;
                             updated_tasks.push(task);
                         } else {
@@ -109,12 +109,12 @@ impl TaskAllocationProcessor {
 
     pub fn schedule_tasks(
         &self,
-        tasks: Vec<Task>,
+        tasks: Vec<Arc<Task>>,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskPlacementResult> {
         let mut allocations = Vec::new();
-        let mut updated_tasks = Vec::new();
-        for mut task in tasks {
+        let mut updated_tasks: Vec<Task> = Vec::new();
+        for task in tasks {
             let span = span!(
                 tracing::Level::INFO,
                 "allocate_task",
@@ -125,13 +125,13 @@ impl TaskAllocationProcessor {
                 invocation_id = task.invocation_id
             );
             let _enter = span.enter();
+            let mut task = task.clone().deref().clone();
             if task.outcome.is_terminal() {
                 error!("task: {} already completed, skipping", task.id);
-                updated_tasks.push(task.clone());
                 continue;
             }
             info!("allocate task {:?} ", task.id);
-            match self.allocate_task(&mut task, indexes) {
+            match self.allocate_task(&task, indexes) {
                 Ok(Some(allocation)) => {
                     allocations.push(allocation.clone());
                     task.status = TaskStatus::Running;
@@ -140,7 +140,7 @@ impl TaskAllocationProcessor {
                         .entry(allocation.executor_id.to_string())
                         .or_default()
                         .push_back(allocation);
-                    indexes.tasks.insert(task.key(), task.clone());
+                    indexes.tasks.insert(task.key(), Arc::new(task.clone()));
                 }
                 Ok(None) => {
                     info!("no executors available for task {:?}", task.id);
@@ -149,7 +149,9 @@ impl TaskAllocationProcessor {
                     error!("failed to allocate task, skipping: {:?}", err);
                 }
             }
-            updated_tasks.push(task.clone());
+
+            // always updated to tasks that were just created
+            updated_tasks.push(task);
         }
         Ok(TaskPlacementResult {
             new_allocations: allocations,
@@ -160,8 +162,8 @@ impl TaskAllocationProcessor {
 
     fn allocate_task(
         &self,
-        task: &mut Task,
-        indexes: &mut Box<InMemoryState>,
+        task: &Task,
+        indexes: &Box<InMemoryState>,
     ) -> Result<Option<Allocation>> {
         let compute_graph_version = indexes
             .compute_graph_versions
@@ -194,7 +196,7 @@ impl TaskAllocationProcessor {
         &self,
         compute_graph: &ComputeGraphVersion,
         node: &Node,
-        indexes: &mut Box<InMemoryState>,
+        indexes: &Box<InMemoryState>,
     ) -> Result<FilteredExecutors> {
         let mut filtered_executors = vec![];
 

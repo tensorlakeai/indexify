@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    ops::Deref,
     path::PathBuf,
     pin::Pin,
     sync::{
@@ -452,7 +453,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
                     let executor_s = executor_state.get_mut(&executor).unwrap();
                     for task in &active_tasks{
                         if !task_ids_sent.contains(&task.id) {
-                            filtered_tasks.push(task.clone());
+                            filtered_tasks.push(task.deref().clone());
                             executor_s.added(&vec![task.id.clone()]);
                         }
                     }
