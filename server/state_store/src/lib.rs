@@ -16,7 +16,7 @@ use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
 use futures::Stream;
 use in_memory_state::InMemoryState;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
-use metrics::{state_metrics::Metrics as StateMetrics, StateStoreMetrics, Timer};
+use metrics::{StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptions};
@@ -122,12 +122,11 @@ impl IndexifyState {
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
-        StateMetrics::new(state_store_metrics.clone());
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
-        let indexes = Arc::new(RwLock::new(InMemoryState::new(scanner::StateReader::new(
-            db.clone(),
+        let indexes = Arc::new(RwLock::new(InMemoryState::new(
+            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
             state_store_metrics.clone(),
-        ))?));
+        )?));
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
@@ -290,12 +289,7 @@ impl IndexifyState {
                     let entry = states.entry(request.executor.id.clone()).or_default();
                     entry.num_registered += 1;
                 }
-                state_machine::register_executor(
-                    self.db.clone(),
-                    &txn,
-                    &request,
-                    self.metrics.clone(),
-                )?;
+                state_machine::register_executor(self.db.clone(), &txn, &request)?;
 
                 state_changes::register_executor(&self.last_state_change_id, &request)
                     .map_err(|e| anyhow!("error getting state changes {}", e))?
@@ -355,6 +349,7 @@ impl IndexifyState {
             .await
             .update_state(&request)
             .map_err(|e| anyhow!("error updating in memory state: {}", e))?;
+        self.in_memory_state.read().await.emit_metrics();
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
                 .write()
