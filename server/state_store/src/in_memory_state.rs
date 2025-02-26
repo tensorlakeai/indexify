@@ -148,21 +148,21 @@ impl InMemoryState {
             }
         }
 
-        let unallocated_tasks_gauge = opentelemetry::global::meter("foo")
+        let unallocated_tasks_gauge = opentelemetry::global::meter("state_store")
             .u64_gauge("un_allocated_tasks")
             .with_description("Number of unallocated tasks, reported from in_memory_state")
             .build();
 
-        let active_tasks_gauge = opentelemetry::global::meter("foo")
+        let active_tasks_gauge = opentelemetry::global::meter("state_store")
             .u64_gauge("active_tasks")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
 
-        let active_invocations_gauge = opentelemetry::global::meter("foo")
+        let active_invocations_gauge = opentelemetry::global::meter("state_store")
             .u64_gauge("active_invocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
-        let active_allocations_gauge = opentelemetry::global::meter("foo")
+        let active_allocations_gauge = opentelemetry::global::meter("state_store")
             .u64_gauge("active_invocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
