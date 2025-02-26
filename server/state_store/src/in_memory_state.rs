@@ -184,8 +184,7 @@ impl InMemoryState {
                     .entry(req.executor_id.get().to_string())
                     .or_default()
                     .retain(|a| a.id != allocation_key);
-                self.tasks
-                    .insert(req.task.key(), req.task.clone());
+                self.tasks.insert(req.task.key(), req.task.clone());
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -198,12 +197,14 @@ impl InMemoryState {
                     req.compute_graph.into_version().clone(),
                 );
 
-                // FIXME - we should set this in the API and not here, so that these things are not
-                // set in the state store
+                // FIXME - we should set this in the API and not here, so that these things are
+                // not set in the state store
                 if req.upgrade_tasks_to_current_version {
                     let mut tasks_to_update = vec![];
-                    let key_prefix = Task::keys_for_compute_graph(&req.namespace, &req.compute_graph.name);
-                    self.tasks.range(key_prefix.clone()..)
+                    let key_prefix =
+                        Task::keys_for_compute_graph(&req.namespace, &req.compute_graph.name);
+                    self.tasks
+                        .range(key_prefix.clone()..)
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&key_prefix))
                         .for_each(|(_k, v)| {
@@ -212,7 +213,8 @@ impl InMemoryState {
                             tasks_to_update.push(task);
                         });
                     let mut invocation_ctx_to_update = vec![];
-                    self.invocation_ctx.range(key_prefix.clone()..)
+                    self.invocation_ctx
+                        .range(key_prefix.clone()..)
                         .into_iter()
                         .take_while(|(k, _v)| k.starts_with(&key_prefix))
                         .for_each(|(_k, v)| {

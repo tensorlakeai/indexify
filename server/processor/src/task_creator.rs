@@ -164,12 +164,8 @@ impl TaskCreator {
             task.namespace,
             task.compute_graph_name
         ))?;
-        self.handle_task_finished(
-            task.clone(),
-            compute_graph_version.clone(),
-            indexes,
-        )
-        .await
+        self.handle_task_finished(task.clone(), compute_graph_version.clone(), indexes)
+            .await
     }
 
     pub async fn handle_invoke_compute_graph(
