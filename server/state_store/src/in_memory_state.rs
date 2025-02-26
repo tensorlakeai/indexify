@@ -163,11 +163,10 @@ impl InMemoryState {
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
         let active_allocations_gauge = opentelemetry::global::meter("state_store")
-            .u64_gauge("active_invocations_gauge")
+            .u64_gauge("active_allocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
-
-        Ok(Self {
+        let in_memory_state = Self {
             namespaces,
             compute_graphs,
             compute_graph_versions,
@@ -182,7 +181,10 @@ impl InMemoryState {
             active_tasks_gauge,
             active_invocations_gauge,
             active_allocations_gauge,
-        })
+        };
+        in_memory_state.emit_metrics();
+
+        Ok(in_memory_state)
     }
 
     pub fn get_tasks_by_fn(
@@ -334,6 +336,7 @@ impl InMemoryState {
                             &invocation_ctx.compute_graph_name,
                             &invocation_ctx.invocation_id,
                         );
+                        self.invocation_ctx.remove(&key);
                         let keys_to_remove = self
                             .tasks
                             .range(key.clone()..)
