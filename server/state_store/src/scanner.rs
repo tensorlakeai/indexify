@@ -23,10 +23,11 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
+
 #[derive(Debug)]
 pub struct FilterResponse<T> {
     pub items: Vec<T>,
@@ -427,6 +428,27 @@ impl StateReader {
         Ok(urls)
     }
 
+    pub fn all_unprocessed_state_changes(&self) -> Result<Vec<StateChange>> {
+        let kvs = &[KeyValue::new("op", "all_unprocessed_state_changes")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+
+        let cf = IndexifyObjectsColumns::UnprocessedStateChanges.cf_db(&self.db);
+        let iter = self
+            .db
+            .iterator_cf_opt(&cf, read_options, IteratorMode::Start);
+        let mut state_changes = Vec::new();
+        for kv in iter {
+            if let Ok((_, value)) = kv {
+                let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+                state_changes.push(state_change);
+            }
+        }
+        Ok(state_changes)
+    }
+
     pub fn unprocessed_state_changes(
         &self,
         global_index: &Option<Vec<u8>>,
@@ -442,14 +464,23 @@ impl StateReader {
                 IndexifyObjectsColumns::UnprocessedStateChanges,
                 None,
             )?;
+        let global_count = global_state_changes.len();
         state_changes.extend(global_state_changes);
         if state_changes.len() >= 100 {
+            info!(
+                total = state_changes.len(),
+                global = global_count,
+                ns = 0,
+                "Returning unprocessed state changes (no ns messages fetched)",
+            );
             return Ok(UnprocessedStateChanges {
                 changes: state_changes,
                 last_global_state_change_cursor: global_state_change_cursor,
-                last_namespace_state_change_cursor: None,
+                // returning previous ns cursor as we did not fetch ns messages
+                last_namespace_state_change_cursor: ns_index.clone(),
             });
         }
+
         let (ns_state_changes, ns_state_change_cursor) = self
             .get_rows_from_cf_with_limits::<StateChange>(
                 "ns".as_bytes(),
@@ -457,7 +488,15 @@ impl StateReader {
                 IndexifyObjectsColumns::UnprocessedStateChanges,
                 Some(100 - state_changes.len()),
             )?;
+        let ns_count = ns_state_changes.len();
         state_changes.extend(ns_state_changes);
+
+        info!(
+            total = state_changes.len(),
+            global = global_count,
+            ns = ns_count,
+            "Returning unprocessed state changes",
+        );
         return Ok(UnprocessedStateChanges {
             changes: state_changes,
             last_global_state_change_cursor: global_state_change_cursor,

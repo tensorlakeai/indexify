@@ -43,7 +43,13 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     executors::{self, EXECUTOR_TIMEOUT},
-    http_objects::{ExecutorAllocations, Invocation, InvocationStatus, UnallocatedTasks},
+    http_objects::{
+        ExecutorAllocations,
+        Invocation,
+        InvocationStatus,
+        StateChangesResponse,
+        UnallocatedTasks,
+    },
 };
 
 mod download;
@@ -105,6 +111,7 @@ use crate::{
             list_executors,
             list_allocations,
             list_unallocated_tasks,
+            list_unprocessed_state_changes,
             download::download_fn_output_payload,
         ),
         components(
@@ -130,6 +137,7 @@ use crate::{
                 Allocation,
                 ExecutorsAllocations,
                 UnallocatedTasks,
+                StateChangesResponse,
             )
         ),
         tags(
@@ -193,6 +201,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/unallocated_tasks",
             get(list_unallocated_tasks).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/unprocessed_state_changes",
+            get(list_unprocessed_state_changes).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors/{id}/tasks",
@@ -698,6 +710,30 @@ async fn list_allocations(
                 )
             })
             .collect(),
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/internal/unprocessed_state_changes",
+    tag = "operations",
+    responses(
+        (status = 200, description = "List all unprocessed state changes", body = StateChangesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn list_unprocessed_state_changes(
+    State(state): State<RouteState>,
+) -> Result<Json<StateChangesResponse>, IndexifyAPIError> {
+    let state_changes = state
+        .indexify_state
+        .reader()
+        .all_unprocessed_state_changes()
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    Ok(Json(StateChangesResponse {
+        count: state_changes.len(),
+        state_changes: state_changes.into_iter().map(Into::into).collect(),
     }))
 }
 

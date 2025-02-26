@@ -685,15 +685,45 @@ impl From<data_model::Allocation> for Allocation {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UnallocatedTasks {
-    pub tasks: Vec<Task>,
+pub struct StateChange {
+    pub id: String,
+    pub object_id: String,
+    pub change_type: String,
+    pub created_at: u64,
+    pub namespace: Option<String>,
+    pub compute_graph: Option<String>,
+    pub invocation: Option<String>,
+}
+impl From<data_model::StateChange> for StateChange {
+    fn from(item: data_model::StateChange) -> Self {
+        StateChange {
+            id: item.id.to_string(),
+            object_id: item.object_id.to_string(),
+            change_type: item.change_type.to_string(),
+            created_at: item.created_at,
+            namespace: item.namespace,
+            compute_graph: item.compute_graph,
+            invocation: item.invocation,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct StateChangesResponse {
     pub count: usize,
+    pub state_changes: Vec<StateChange>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnallocatedTasks {
+    pub count: usize,
+    pub tasks: Vec<Task>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorAllocations {
-    pub allocations: Vec<Allocation>,
     pub count: usize,
+    pub allocations: Vec<Allocation>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
