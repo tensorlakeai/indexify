@@ -27,6 +27,7 @@ use tracing::{debug, info, span};
 pub mod in_memory_state;
 pub mod invocation_events;
 pub mod kv;
+pub mod migrations;
 pub mod requests;
 pub mod scanner;
 pub mod serializer;
@@ -85,6 +86,7 @@ pub type StateChangeStream =
 pub struct IndexifyState {
     pub db: Arc<TransactionDB>,
     pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
+    pub db_version: u64,
     pub last_state_change_id: Arc<AtomicU64>,
     pub task_event_tx: tokio::sync::broadcast::Sender<InvocationStateChangeEvent>,
     pub gc_tx: tokio::sync::watch::Sender<()>,
@@ -114,7 +116,7 @@ impl IndexifyState {
             )
             .map_err(|e| anyhow!("failed to open db: {}", e))?,
         );
-        let sm_meta = state_machine::read_sm_meta(&db)?;
+        let sm_meta = migrations::migrate(db.clone())?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
@@ -127,6 +129,7 @@ impl IndexifyState {
         ))?));
         let s = Arc::new(Self {
             db,
+            db_version: sm_meta.db_version,
             last_state_change_id: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             executor_states: RwLock::new(HashMap::new()),
             task_event_tx,
@@ -337,12 +340,12 @@ impl IndexifyState {
             &txn,
             &request.processed_state_changes,
         )?;
-        state_machine::write_sm_meta(
+        migrations::write_sm_meta(
             self.db.clone(),
             &txn,
             &StateMachineMetadata {
                 last_change_idx: self.last_state_change_id.load(atomic::Ordering::Relaxed),
-                db_version: 1,
+                db_version: self.db_version,
             },
         )?;
         txn.commit()?;
@@ -461,6 +464,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
                 break;
             }
         }
+        info!(executor_id=executor.get(), "task stream stopped");
     };
 
     Box::pin(stream)
