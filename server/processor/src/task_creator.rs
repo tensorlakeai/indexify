@@ -621,7 +621,6 @@ impl TaskCreator {
             }
         }
 
-        trace!("tasks: {:?}", new_tasks.len());
         invocation_ctx.create_tasks(&new_tasks);
         Ok(TaskCreationResult {
             namespace: task.namespace.clone(),

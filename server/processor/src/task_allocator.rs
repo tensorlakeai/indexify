@@ -7,6 +7,7 @@ use data_model::{
     ChangeType,
     ComputeGraphVersion,
     ExecutorId,
+    ExecutorMetadata,
     Node,
     Task,
     TaskStatus,
@@ -29,6 +30,14 @@ pub struct TaskPlacementResult {
     pub updated_tasks: Vec<Task>,
 }
 
+// Maximum number of allocations per executor.
+//
+// In the future, this should be a dynamic value based on:
+// - compute node concurrency configuration
+// - compute node batching configuration
+// - compute node timeout configuration
+const MAX_ALLOCATIONS_PER_EXECUTOR: usize = 20;
+
 pub struct TaskAllocationProcessor {}
 
 impl TaskAllocationProcessor {
@@ -44,7 +53,7 @@ impl TaskAllocationProcessor {
     ) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::ExecutorAdded(_) | ChangeType::ExecutorRemoved(_) => {
-                let task_allocation_results = self.schedule_unplaced_tasks(indexes)?;
+                let task_allocation_results = self.allocate(indexes)?;
                 return Ok(SchedulerUpdateRequest {
                     new_allocations: task_allocation_results.new_allocations,
                     remove_allocations: task_allocation_results.remove_allocations,
@@ -91,10 +100,7 @@ impl TaskAllocationProcessor {
         }
     }
 
-    pub fn schedule_unplaced_tasks(
-        &self,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<TaskPlacementResult> {
+    pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<TaskPlacementResult> {
         let unallocated_task_ids = indexes.unallocated_tasks.keys().cloned().collect_vec();
         let mut tasks = Vec::new();
         for task_id in &unallocated_task_ids {
@@ -114,6 +120,16 @@ impl TaskAllocationProcessor {
     ) -> Result<TaskPlacementResult> {
         let mut allocations = Vec::new();
         let mut updated_tasks: Vec<Task> = Vec::new();
+
+        if indexes.executors.is_empty() {
+            info!("no executors available for task allocation");
+            return Ok(TaskPlacementResult {
+                new_allocations: vec![],
+                remove_allocations: vec![],
+                updated_tasks,
+            });
+        }
+
         for mut task in tasks {
             let span = span!(
                 tracing::Level::INFO,
@@ -129,8 +145,29 @@ impl TaskAllocationProcessor {
                 error!("task: {} already completed, skipping", task.id);
                 continue;
             }
+
             info!("allocate task {:?} ", task.id);
-            match self.allocate_task(&task, indexes) {
+
+            // get executors with allocation capacity
+            let executors = indexes
+                .executors
+                .iter()
+                .filter(|(k, _)| {
+                    let allocations = indexes.allocations_by_executor.get(*k);
+                    let allocation_count = allocations.map_or(0, |allocs| allocs.len());
+                    info!("executor {} has {} allocations", k, allocation_count);
+                    allocation_count < MAX_ALLOCATIONS_PER_EXECUTOR
+                })
+                .map(|(_, v)| v)
+                .collect_vec();
+
+            // terminate allocating early if no executors available
+            if executors.is_empty() {
+                info!("no executors with capacity available for task");
+                break;
+            }
+
+            match self.allocate_task(&task, indexes, &executors) {
                 Ok(Some(allocation)) => {
                     allocations.push(allocation.clone());
                     task.status = TaskStatus::Running;
@@ -140,6 +177,8 @@ impl TaskAllocationProcessor {
                         .or_default()
                         .push_back(Box::new(allocation));
                     indexes.tasks.insert(task.key(), task.clone());
+                    indexes.unallocated_tasks.remove(&task.key());
+                    updated_tasks.push(*task);
                 }
                 Ok(None) => {
                     info!("no executors available for task {:?}", task.id);
@@ -148,9 +187,6 @@ impl TaskAllocationProcessor {
                     error!("failed to allocate task, skipping: {:?}", err);
                 }
             }
-
-            // always updated to tasks that were just created
-            updated_tasks.push(*task);
         }
         Ok(TaskPlacementResult {
             new_allocations: allocations,
@@ -163,6 +199,7 @@ impl TaskAllocationProcessor {
         &self,
         task: &Task,
         indexes: &Box<InMemoryState>,
+        executors: &Vec<&Box<ExecutorMetadata>>,
     ) -> Result<Option<Allocation>> {
         let compute_graph_version = indexes
             .compute_graph_versions
@@ -173,8 +210,10 @@ impl TaskAllocationProcessor {
             .nodes
             .get(&task.compute_fn_name)
             .ok_or(anyhow!("compute fn not found"))?;
+
         let filtered_executors =
-            self.filter_executors(&compute_graph_version, &compute_fn, indexes)?;
+            self.filter_executors(&compute_graph_version, &compute_fn, executors)?;
+
         let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
         if let Some(executor_id) = executor_id {
             info!("assigning task {:?} to executor {:?}", task.id, executor_id);
@@ -195,11 +234,9 @@ impl TaskAllocationProcessor {
         &self,
         compute_graph: &ComputeGraphVersion,
         node: &Node,
-        indexes: &Box<InMemoryState>,
+        executors: &Vec<&Box<ExecutorMetadata>>,
     ) -> Result<FilteredExecutors> {
         let mut filtered_executors = vec![];
-
-        let executors = indexes.executors.values().collect_vec();
 
         for executor in executors.iter() {
             match executor.function_allowlist {

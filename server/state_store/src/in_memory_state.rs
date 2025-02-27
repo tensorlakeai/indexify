@@ -35,7 +35,7 @@ pub struct InMemoryState {
     // Executor Id -> List of Task IDs
     pub allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>>,
 
-    // NS|CG|Fn|Inv -> Task
+    // TaskKey -> Task
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
 
     // Task Key -> Task
@@ -372,6 +372,8 @@ impl InMemoryState {
                 }
                 for executor_id in &req.remove_executors {
                     self.executors.remove(executor_id.get());
+                    self.allocations_by_executor
+                        .remove(&executor_id.get().to_string());
                 }
             }
             RequestPayload::RegisterExecutor(req) => {

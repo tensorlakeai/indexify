@@ -173,22 +173,18 @@ impl GraphProcessor {
                     .invoke(&state_change.change_type, &mut indexes)
                     .await;
                 if let Ok(mut result) = scheduler_update {
-                    let placement_result = self.task_allocator.schedule_tasks(
-                        result
-                            .clone()
-                            .updated_tasks
-                            .into_iter()
-                            .map(Box::new)
-                            .collect(),
-                        &mut indexes,
-                    )?;
+                    result.updated_tasks.iter().for_each(|t| {
+                        indexes.tasks.insert(t.key(), Box::new(t.clone()));
+                        indexes.unallocated_tasks.insert(t.key(), [0; 0]);
+                    });
+                    let placement_result = self.task_allocator.allocate(&mut indexes)?;
                     result
                         .new_allocations
                         .extend(placement_result.new_allocations);
                     result
                         .remove_allocations
                         .extend(placement_result.remove_allocations);
-                    result.updated_tasks = placement_result.updated_tasks;
+                    result.updated_tasks.extend(placement_result.updated_tasks);
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(Box::new(result)),
                         processed_state_changes: vec![state_change.clone()],
