@@ -89,10 +89,11 @@ impl Service {
         });
 
         let global_meter = opentelemetry::global::meter("server-http");
-        let otel_metrics_service_layer = tower_otel_http_metrics::HTTPMetricsLayerBuilder::builder()
-            .with_meter(global_meter)
-            .build()
-            .unwrap();
+        let otel_metrics_service_layer =
+            tower_otel_http_metrics::HTTPMetricsLayerBuilder::builder()
+                .with_meter(global_meter)
+                .build()
+                .unwrap();
 
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
