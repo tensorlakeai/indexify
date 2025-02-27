@@ -105,9 +105,13 @@ impl GraphProcessor {
             return Ok(());
         }
 
-        // 3. Fire a notification when caching multiple
-        // state changes in order to process them.
-        if cached_state_changes.len() > 1 {
+        // 3. Fire a notification when handling multiple
+        // state changes in order to fill in the cache when
+        // the next state change is processed.
+        //
+        // 0 = we fetched all current state changes
+        // > 1 = we are processing cached state changes, we need to fetch more when done
+        if cached_state_changes.len() > 0 {
             notify.notify_one();
         }
 
