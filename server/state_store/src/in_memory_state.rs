@@ -288,16 +288,16 @@ impl InMemoryState {
             }
             RequestPayload::DeleteInvocationRequest(req) => {
                 // Remove tasks
-                let key = Task::key_prefix_for_invocation(
+                let key_prefix = Task::key_prefix_for_invocation(
                     &req.namespace,
                     &req.compute_graph,
                     &req.invocation_id,
                 );
                 let mut tasks_to_remove = Vec::new();
                 self.tasks
-                    .range(key.clone()..)
+                    .range(key_prefix.clone()..)
                     .into_iter()
-                    .take_while(|(k, _v)| k.starts_with(&key))
+                    .take_while(|(k, _v)| k.starts_with(&key_prefix))
                     .for_each(|(k, _v)| {
                         tasks_to_remove.push(k.clone());
                     });
@@ -306,7 +306,7 @@ impl InMemoryState {
                 }
 
                 // Remove invocation ctx
-                self.invocation_ctx.remove(&key);
+                self.invocation_ctx.remove(&key_prefix);
 
                 // Remove allocations
                 let mut allocations_to_remove = Vec::new();
@@ -324,7 +324,7 @@ impl InMemoryState {
                 // Remove unallocated tasks
                 let mut unallocated_tasks_to_remove = Vec::new();
                 for (k, _v) in self.unallocated_tasks.iter() {
-                    if k.starts_with(&key) {
+                    if k.starts_with(&key_prefix) {
                         unallocated_tasks_to_remove.push(k.clone());
                     }
                 }
@@ -335,7 +335,7 @@ impl InMemoryState {
                 // Remove queued reduction tasks
                 let mut queued_reduction_tasks_to_remove = Vec::new();
                 for (k, _v) in self.queued_reduction_tasks.iter() {
-                    if k.starts_with(&key) {
+                    if k.starts_with(&key_prefix) {
                         queued_reduction_tasks_to_remove.push(k.clone());
                     }
                 }
