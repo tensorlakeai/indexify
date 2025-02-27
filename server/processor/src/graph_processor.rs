@@ -177,10 +177,6 @@ impl GraphProcessor {
                     .invoke(&state_change.change_type, &mut indexes)
                     .await;
                 if let Ok(mut result) = scheduler_update {
-                    result.updated_tasks.iter().for_each(|t| {
-                        indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                        indexes.unallocated_tasks.insert(t.key(), [0; 0]);
-                    });
                     let placement_result = self.task_allocator.allocate(&mut indexes)?;
                     result
                         .new_allocations

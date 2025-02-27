@@ -70,6 +70,13 @@ impl TaskCreator {
         match change {
             ChangeType::TaskOutputsIngested(ev) => {
                 let result = self.handle_task_finished_inner(ev, indexes).await?;
+                result.tasks.iter().for_each(|t| {
+                    indexes.tasks.insert(t.key(), Box::new(t.clone()));
+                    indexes.unallocated_tasks.insert(t.key(), [0; 0]);
+                });
+                if let Some(ctx) = result.invocation_ctx.clone() {
+                    indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
+                }
                 return Ok(SchedulerUpdateRequest {
                     new_allocations: vec![],
                     remove_allocations: vec![],
@@ -90,6 +97,13 @@ impl TaskCreator {
                 let result = self
                     .handle_invoke_compute_graph(ev.clone(), indexes)
                     .await?;
+                result.tasks.iter().for_each(|t| {
+                    indexes.tasks.insert(t.key(), Box::new(t.clone()));
+                    indexes.unallocated_tasks.insert(t.key(), [0; 0]);
+                });
+                if let Some(ctx) = result.invocation_ctx.clone() {
+                    indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
+                }
                 return Ok(SchedulerUpdateRequest {
                     new_allocations: vec![],
                     remove_allocations: vec![],
