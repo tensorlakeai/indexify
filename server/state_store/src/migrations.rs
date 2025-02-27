@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use data_model::StateMachineMetadata;
@@ -18,13 +18,19 @@ pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
 
     let txn = db.transaction();
 
-    if sm_meta.db_version == 1 {
-        migrate_v1_to_v2(db.clone(), &txn, &mut sm_meta).context("migrating from v1 to v2")?;
-    } else {
-        info!(
-            "No migration needed, current version: {}",
-            sm_meta.db_version
-        );
+    match sm_meta.db_version {
+        1 => {
+            migrate_v1_to_v2(db.clone(), &txn, &mut sm_meta).context("migrating from v1 to v2")?;
+        }
+        2 => {
+            migrate_v2_to_v3(db.clone(), &txn, &mut sm_meta).context("migrating from v2 to v3")?;
+        }
+        _ => {
+            info!(
+                "No migration needed, current version: {}",
+                sm_meta.db_version
+            );
+        }
     }
 
     txn.commit().context("committing migrations")?;
@@ -39,6 +45,7 @@ pub fn migrate_v1_to_v2(
     txn: &Transaction<TransactionDB>,
     sm_meta: &mut StateMachineMetadata,
 ) -> Result<()> {
+    let mut num_total_tasks: usize = 0;
     let mut num_migrated_tasks: usize = 0;
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(10_194_304);
@@ -55,6 +62,7 @@ pub fn migrate_v1_to_v2(
         );
 
         for kv in iter {
+            num_total_tasks += 1;
             let (key, val_bytes) = kv?;
 
             let mut task_value: serde_json::Value = serde_json::from_slice(&val_bytes)
@@ -85,6 +93,7 @@ pub fn migrate_v1_to_v2(
                     ));
                 }
             };
+
             if status_undefined {
                 num_migrated_tasks += 1;
                 if outcome == "Success" || outcome == "Failure" {
@@ -98,23 +107,106 @@ pub fn migrate_v1_to_v2(
                         serde_json::Value::String("Pending".to_string()),
                     );
                 }
+
+                let task_bytes = serde_json::to_vec(&task_value).map_err(|e| {
+                    anyhow::anyhow!(
+                        "error serializing into json: {}, value: {:?}",
+                        e,
+                        task_value.clone()
+                    )
+                })?;
+
+                txn.put_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), &key, &task_bytes)?;
             }
-
-            let task_bytes = serde_json::to_vec(&task_value).map_err(|e| {
-                anyhow::anyhow!(
-                    "error serializing into json: {}, value: {:?}",
-                    e,
-                    task_value.clone()
-                )
-            })?;
-
-            txn.put_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), &key, &task_bytes)?;
         }
     }
 
-    info!("Migrated {} tasks from v1 to v2", num_migrated_tasks);
+    info!(
+        "Migrated {}/{} tasks from v1 to v2",
+        num_migrated_tasks, num_total_tasks
+    );
 
     sm_meta.db_version = 2;
+    write_sm_meta(db.clone(), &txn, &sm_meta)?;
+    Ok(())
+}
+
+#[tracing::instrument(skip(db, txn))]
+pub fn migrate_v2_to_v3(
+    db: Arc<TransactionDB>,
+    txn: &Transaction<TransactionDB>,
+    sm_meta: &mut StateMachineMetadata,
+) -> Result<()> {
+    let mut num_total_invocation_ctx: usize = 0;
+    let mut num_migrated_invocation_ctx: usize = 0;
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(10_194_304);
+
+    // Migrate graph invocation ctx date from invocation payload data
+    // by using the payload created_at
+    {
+        let iter = db.iterator_cf_opt(
+            IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            read_options,
+            IteratorMode::Start,
+        );
+
+        for kv in iter {
+            num_total_invocation_ctx += 1;
+            let (key, val_bytes) = kv?;
+            let key_str = String::from_utf8_lossy(&key);
+
+            let mut invocation_ctx: serde_json::Value = serde_json::from_slice(&val_bytes)
+                .map_err(|e| {
+                    anyhow::anyhow!("error deserializing InvocationCtx json bytes, {}", e)
+                })?;
+
+            let new_invocation_ctx = invocation_ctx.as_object_mut().ok_or_else(|| {
+                anyhow::anyhow!("unexpected invocation ctx JSON value {}", key_str)
+            })?;
+
+            if new_invocation_ctx.contains_key("created_at") {
+                continue;
+            }
+
+            let invocation_bytes = db
+                .get_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(&db), &key)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("invocation not found for invocation ctx: {}", key_str)
+                })?;
+
+            let invocation: serde_json::Value = serde_json::from_slice(&invocation_bytes)?;
+
+            let created_at = invocation
+                .get("created_at")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("created_at not found in invocation: {}", key_str)
+                })?;
+
+            new_invocation_ctx.insert(
+                "created_at".to_string(),
+                serde_json::Value::from(created_at),
+            );
+
+            let new_invocation_ctx_bytes = serde_json::to_vec(&new_invocation_ctx)?;
+
+            txn.put_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+                &key,
+                &new_invocation_ctx_bytes,
+            )?;
+
+            num_migrated_invocation_ctx += 1;
+        }
+    }
+
+    info!(
+        "Migrated {}/{} invocation context from v2 to v3",
+        num_migrated_invocation_ctx, num_total_invocation_ctx
+    );
+
+    sm_meta.db_version = 3;
     write_sm_meta(db.clone(), &txn, &sm_meta)?;
     Ok(())
 }
@@ -270,6 +362,153 @@ mod tests {
                 .unwrap(),
         )?;
         assert_eq!(task3["status"], "Pending");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_migrate_v2_to_v3() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let path = temp_dir.path().to_str().unwrap();
+
+        let sm_column_families = vec![
+            rocksdb::ColumnFamilyDescriptor::new(
+                IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
+                Options::default(),
+            ),
+            rocksdb::ColumnFamilyDescriptor::new(
+                IndexifyObjectsColumns::GraphInvocations.as_ref(),
+                Options::default(),
+            ),
+            rocksdb::ColumnFamilyDescriptor::new(
+                IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+                Options::default(),
+            ),
+        ];
+
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        let db = Arc::new(
+            TransactionDB::open_cf_descriptors(
+                &db_opts,
+                &TransactionDBOptions::default(),
+                path,
+                sm_column_families,
+            )
+            .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
+        );
+
+        // Create invocation payloads and invocation contexts without created_at
+        let invocations = vec![
+            json!({
+                "id": "invocation1",
+                "namespace": "test_ns",
+                "compute_graph_name": "test_graph",
+                "payload": {
+                    "path": "path1",
+                    "size": 123,
+                    "sha256_hash": "hash1"
+                },
+                "created_at": 1000,
+                "encoding": "application/json"
+            }),
+            json!({
+                "id": "invocation2",
+                "namespace": "test_ns",
+                "compute_graph_name": "test_graph",
+                "payload": {
+                    "path": "path2",
+                    "size": 456,
+                    "sha256_hash": "hash2"
+                },
+                "created_at": 2000,
+                "encoding": "application/json"
+            }),
+        ];
+
+        let invocation_ctxs = vec![
+            json!({
+                "namespace": "test_ns",
+                "compute_graph_name": "test_graph",
+                "graph_version": "1",
+                "invocation_id": "invocation1",
+                "completed": false,
+                "outcome": "Undefined",
+                "outstanding_tasks": 0,
+                "fn_task_analytics": {}
+            }),
+            json!({
+                "namespace": "test_ns",
+                "compute_graph_name": "test_graph",
+                "graph_version": "1",
+                "invocation_id": "invocation2",
+                "completed": false,
+                "outcome": "Undefined",
+                "outstanding_tasks": 0,
+                "fn_task_analytics": {}
+            }),
+        ];
+
+        for invocation in invocations {
+            let key = format!(
+                "{}|{}|{}",
+                invocation["namespace"].as_str().unwrap(),
+                invocation["compute_graph_name"].as_str().unwrap(),
+                invocation["id"].as_str().unwrap()
+            );
+            let bytes = serde_json::to_vec(&invocation)?;
+            db.put_cf(
+                &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
+                &key,
+                &bytes,
+            )?;
+        }
+
+        for ctx in invocation_ctxs {
+            let key = format!(
+                "{}|{}|{}",
+                ctx["namespace"].as_str().unwrap(),
+                ctx["compute_graph_name"].as_str().unwrap(),
+                ctx["invocation_id"].as_str().unwrap()
+            );
+            let bytes = serde_json::to_vec(&ctx)?;
+            db.put_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+                &key,
+                &bytes,
+            )?;
+        }
+
+        // Perform migration
+        let mut sm_meta = StateMachineMetadata {
+            db_version: 2,
+            last_change_idx: 0,
+        };
+        let txn = db.transaction();
+        migrate_v2_to_v3(db.clone(), &txn, &mut sm_meta)?;
+        txn.commit()?;
+
+        // Verify migration
+        let ctx1_key = "test_ns|test_graph|invocation1";
+        let ctx1: serde_json::Value = serde_json::from_slice(
+            &db.get_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+                &ctx1_key,
+            )?
+            .unwrap(),
+        )?;
+        assert_eq!(ctx1["created_at"], 1000);
+
+        let ctx2_key = "test_ns|test_graph|invocation2";
+        let ctx2: serde_json::Value = serde_json::from_slice(
+            &db.get_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+                &ctx2_key,
+            )?
+            .unwrap(),
+        )?;
+        assert_eq!(ctx2["created_at"], 2000);
 
         Ok(())
     }

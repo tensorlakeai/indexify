@@ -98,15 +98,18 @@ impl GraphProcessor {
             state_changes.reverse();
             cached_state_changes.extend(state_changes);
         }
+
         // 2. If there are no state changes to process, return
         // and wait for the scheduler to wake us up again when there are state changes
         if cached_state_changes.is_empty() {
             return Ok(());
         }
 
-        // 3. Fire a notification to wake ourselves up to see if there are more than 100
-        //    state changes
-        notify.notify_one();
+        // 3. Fire a notification when caching multiple
+        // state changes in order to process them.
+        if cached_state_changes.len() > 1 {
+            notify.notify_one();
+        }
 
         // 4. Process the next state change from the queue
         let state_change = cached_state_changes.pop().unwrap();
