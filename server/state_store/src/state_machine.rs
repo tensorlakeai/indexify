@@ -156,8 +156,7 @@ pub(crate) fn delete_invocation(
         namespace = req.namespace,
         graph = req.compute_graph,
         invocation_id = req.invocation_id,
-        "Deleting invocation_id: {}",
-        req.invocation_id,
+        "Deleting invocation",
     );
 
     // Delete the invocation payload
@@ -170,57 +169,22 @@ pub(crate) fn delete_invocation(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         prefix.as_bytes(),
     )?;
-
-    // Delete Tasks
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::Tasks.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
-    // Delete Allocated Tasks
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::TaskAllocations.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
-
-    // Delete Unallocated Tasks
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
-
-    // Delete Task Outputs
-    // FIXME: This requires putting the invocation id in the task output key
-
-    // Delete Graph Invocation Context
-    delete_cf_prefix(
-        txn,
-        IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
-
-    // mark all fn output urls for gc.
     for iter in make_prefix_iterator(
         txn,
-        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         prefix.as_bytes(),
         &None,
     ) {
-        let (key, value) = iter?;
-        let value = JsonEncoder::decode::<NodeOutput>(&value)?;
-        match &value.payload {
-            OutputPayload::Router(_) => {}
-            OutputPayload::Fn(payload) => {
-                txn.put_cf(
-                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                    payload.path.as_bytes(),
-                    [],
-                )?;
-            }
-        }
-        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
+        info!("deleting graph invocation");
+        let (_key, value) = iter?;
+        let value = JsonEncoder::decode::<InvocationPayload>(&value)?;
+        info!("deleting graph invocation: {}", value.id);
+        let req = DeleteInvocationRequest {
+            namespace: value.namespace,
+            compute_graph: value.compute_graph_name,
+            invocation_id: value.id,
+        };
+        delete_invocation(db.clone(), txn, &req)?;
     }
     Ok(())
 }
