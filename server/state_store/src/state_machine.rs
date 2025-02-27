@@ -193,7 +193,22 @@ pub(crate) fn delete_invocation(
             task_id = task.id.get(),
             "deleting task",
         );
-        txn.delete_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), &task.key())?;
+        match task.diagnostics {
+            Some(diagnostic) => {
+                [diagnostic.stdout.clone(), diagnostic.stderr.clone()]
+                    .iter()
+                    .flatten()
+                    .try_for_each(|data| -> Result<()> {
+                        txn.put_cf(
+                            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                            data.path.as_bytes(),
+                            [],
+                        )?;
+                        Ok(())
+                    })?;
+            }
+            None => {}
+        }
         let task_output_prefix = format!("{}|{}", task.namespace, task.id);
         delete_cf_prefix(
             txn,
