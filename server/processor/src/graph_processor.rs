@@ -105,9 +105,13 @@ impl GraphProcessor {
             return Ok(());
         }
 
-        // 3. Fire a notification when caching multiple
-        // state changes in order to process them.
-        if cached_state_changes.len() > 1 {
+        // 3. Fire a notification when handling multiple
+        // state changes in order to fill in the cache when
+        // the next state change is processed.
+        //
+        // 0 = we fetched all current state changes
+        // > 1 = we are processing cached state changes, we need to fetch more when done
+        if cached_state_changes.len() > 0 {
             notify.notify_one();
         }
 
@@ -173,22 +177,14 @@ impl GraphProcessor {
                     .invoke(&state_change.change_type, &mut indexes)
                     .await;
                 if let Ok(mut result) = scheduler_update {
-                    let placement_result = self.task_allocator.schedule_tasks(
-                        result
-                            .clone()
-                            .updated_tasks
-                            .into_iter()
-                            .map(Box::new)
-                            .collect(),
-                        &mut indexes,
-                    )?;
+                    let placement_result = self.task_allocator.allocate(&mut indexes)?;
                     result
                         .new_allocations
                         .extend(placement_result.new_allocations);
                     result
                         .remove_allocations
                         .extend(placement_result.remove_allocations);
-                    result.updated_tasks = placement_result.updated_tasks;
+                    result.updated_tasks.extend(placement_result.updated_tasks);
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(Box::new(result)),
                         processed_state_changes: vec![state_change.clone()],

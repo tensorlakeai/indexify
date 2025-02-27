@@ -35,7 +35,7 @@ pub struct InMemoryState {
     // Executor Id -> List of Task IDs
     pub allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>>,
 
-    // NS|CG|Fn|Inv -> Task
+    // TaskKey -> Task
     pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
 
     // Task Key -> Task
@@ -110,6 +110,19 @@ impl InMemoryState {
             }
         }
 
+        let mut invocation_ctx = im::OrdMap::new();
+        {
+            let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
+                reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
+            for (_id, ctx) in all_graph_invocation_ctx {
+                // Do not cache completed invocations
+                if ctx.completed {
+                    continue;
+                }
+                invocation_ctx.insert(ctx.key(), Box::new(ctx));
+            }
+        }
+
         // Creating Tasks
         let mut tasks = im::OrdMap::new();
         let mut unallocated_tasks = im::OrdMap::new();
@@ -117,6 +130,18 @@ impl InMemoryState {
             let all_tasks: Vec<(String, Task)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::Tasks)?;
             for (_id, task) in all_tasks {
+                // Do not cache tasks for completed invocations
+                if invocation_ctx
+                    .get(&GraphInvocationCtx::key_from(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                    ))
+                    .is_none()
+                {
+                    continue;
+                }
+
                 if task.is_terminal() {
                     continue;
                 }
@@ -127,23 +152,22 @@ impl InMemoryState {
             }
         }
 
-        let mut invocation_ctx = im::OrdMap::new();
-        {
-            let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
-                reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
-            for (_id, ctx) in all_graph_invocation_ctx {
-                if ctx.completed {
-                    continue;
-                }
-                invocation_ctx.insert(ctx.key(), Box::new(ctx));
-            }
-        }
-
         let mut queued_reduction_tasks = im::OrdMap::new();
         {
             let all_reduction_tasks: Vec<(String, ReduceTask)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::ReductionTasks)?;
             for (_id, task) in all_reduction_tasks {
+                // Do not cache reduction tasks for completed invocations
+                if invocation_ctx
+                    .get(&GraphInvocationCtx::key_from(
+                        &task.namespace,
+                        &task.compute_graph_name,
+                        &task.invocation_id,
+                    ))
+                    .is_none()
+                {
+                    continue;
+                }
                 queued_reduction_tasks.insert(task.key(), Box::new(task));
             }
         }
@@ -344,16 +368,16 @@ impl InMemoryState {
                             &invocation_ctx.invocation_id,
                         );
                         self.invocation_ctx.remove(&key);
-                        let keys_to_remove = self
+                        let tasks_to_remove = self
                             .tasks
                             .range(key.clone()..)
                             .into_iter()
                             .take_while(|(k, _v)| k.starts_with(&key))
-                            .map(|(k, _v)| k.clone())
-                            .collect::<Vec<String>>();
-                        for k in keys_to_remove {
-                            self.tasks.remove(&k);
-                        }
+                            .map(|(_k, v)| v.clone())
+                            .collect::<Vec<_>>();
+
+                        self.delete_tasks(tasks_to_remove);
+                        // TODO: delete cached queued reduction tasks
                     }
                 }
                 for allocation in &req.new_allocations {
@@ -372,6 +396,8 @@ impl InMemoryState {
                 }
                 for executor_id in &req.remove_executors {
                     self.executors.remove(executor_id.get());
+                    self.allocations_by_executor
+                        .remove(&executor_id.get().to_string());
                 }
             }
             RequestPayload::RegisterExecutor(req) => {
@@ -423,6 +449,17 @@ impl InMemoryState {
         }
     }
 
+    pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
+        for task in tasks.iter() {
+            self.tasks.remove(&task.key());
+            self.unallocated_tasks.remove(&task.key());
+        }
+
+        for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
+            allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
+        }
+    }
+
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
         // Remove tasks
         let key_prefix =
@@ -443,16 +480,8 @@ impl InMemoryState {
         self.invocation_ctx.remove(&key_prefix);
 
         // Remove allocations
-        let mut allocations_to_remove = Vec::new();
-        for (_executor, allocations) in self.allocations_by_executor.iter() {
-            allocations.iter().for_each(|allocation| {
-                if allocation.invocation_id == invocation_id {
-                    allocations_to_remove.push(allocation.id.clone());
-                }
-            });
-        }
-        for allocation in allocations_to_remove {
-            self.allocations_by_executor.remove(&allocation);
+        for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
+            allocations.retain(|allocation| allocation.invocation_id != invocation_id);
         }
 
         // Remove unallocated tasks
