@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use data_model::StateMachineMetadata;
@@ -10,41 +10,69 @@ use crate::{
     state_machine::IndexifyObjectsColumns,
 };
 
+const SERVER_DB_VERSION: u64 = 3;
+
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
 pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
-    info!("starting state store migration");
     let mut sm_meta = read_sm_meta(&db).context("reading current state machine metadata")?;
+    let current_db_version = sm_meta.db_version;
+
+    if current_db_version == SERVER_DB_VERSION {
+        info!(
+            "no state store migration needed, already at version {}",
+            SERVER_DB_VERSION
+        );
+    }
+
+    info!(
+        "starting state store migration from version {} to {}",
+        current_db_version, SERVER_DB_VERSION
+    );
 
     let txn = db.transaction();
 
-    match sm_meta.db_version {
-        1 => {
-            migrate_v1_to_v2(db.clone(), &txn, &mut sm_meta).context("migrating from v1 to v2")?;
-        }
-        2 => {
-            migrate_v2_to_v3(db.clone(), &txn, &mut sm_meta).context("migrating from v2 to v3")?;
-        }
-        _ => {
-            info!(
-                "No migration needed, current version: {}",
-                sm_meta.db_version
-            );
-        }
+    // handle empty DB
+    if sm_meta.db_version == 0 {
+        sm_meta.db_version = SERVER_DB_VERSION;
     }
 
-    txn.commit().context("committing migrations")?;
+    // migrations
+    {
+        if sm_meta.db_version == 1 {
+            sm_meta.db_version += 1;
+            migrate_v1_to_v2(db.clone(), &txn).context("migrating from v1 to v2")?;
+        }
 
+        if sm_meta.db_version == 2 {
+            sm_meta.db_version += 1;
+            migrate_v2_to_v3(db.clone(), &txn).context("migrating from v2 to v3")?;
+        }
+
+        // add new migrations before this line
+    }
+
+    // assert we migrated all the way to the expected server version
+    if sm_meta.db_version != SERVER_DB_VERSION {
+        return Err(anyhow::anyhow!(
+            "migration did not migrate to the expected server version: {} != {}",
+            sm_meta.db_version,
+            SERVER_DB_VERSION
+        ));
+    }
+
+    // saving db version
+    write_sm_meta(db.clone(), &txn, &sm_meta)?;
+
+    info!("committing migration");
+    txn.commit().context("committing migration")?;
     info!("completed state store migration");
+
     Ok(sm_meta)
 }
 
 #[tracing::instrument(skip(db, txn))]
-pub fn migrate_v1_to_v2(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    sm_meta: &mut StateMachineMetadata,
-) -> Result<()> {
+pub fn migrate_v1_to_v2(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>) -> Result<()> {
     let mut num_total_tasks: usize = 0;
     let mut num_migrated_tasks: usize = 0;
     let mut read_options = ReadOptions::default();
@@ -126,17 +154,11 @@ pub fn migrate_v1_to_v2(
         num_migrated_tasks, num_total_tasks
     );
 
-    sm_meta.db_version = 2;
-    write_sm_meta(db.clone(), &txn, &sm_meta)?;
     Ok(())
 }
 
 #[tracing::instrument(skip(db, txn))]
-pub fn migrate_v2_to_v3(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    sm_meta: &mut StateMachineMetadata,
-) -> Result<()> {
+pub fn migrate_v2_to_v3(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>) -> Result<()> {
     let mut num_total_invocation_ctx: usize = 0;
     let mut num_migrated_invocation_ctx: usize = 0;
     let mut read_options = ReadOptions::default();
@@ -164,10 +186,6 @@ pub fn migrate_v2_to_v3(
             let new_invocation_ctx = invocation_ctx.as_object_mut().ok_or_else(|| {
                 anyhow::anyhow!("unexpected invocation ctx JSON value {}", key_str)
             })?;
-
-            if new_invocation_ctx.contains_key("created_at") {
-                continue;
-            }
 
             let invocation_bytes = db
                 .get_cf(&IndexifyObjectsColumns::GraphInvocations.cf_db(&db), &key)?
@@ -206,8 +224,6 @@ pub fn migrate_v2_to_v3(
         num_migrated_invocation_ctx, num_total_invocation_ctx
     );
 
-    sm_meta.db_version = 3;
-    write_sm_meta(db.clone(), &txn, &sm_meta)?;
     Ok(())
 }
 
@@ -333,12 +349,8 @@ mod tests {
         }
 
         // Perform migration
-        let mut sm_meta = StateMachineMetadata {
-            db_version: 1,
-            last_change_idx: 0,
-        };
         let txn = db.transaction();
-        migrate_v1_to_v2(db.clone(), &txn, &mut sm_meta)?;
+        migrate_v1_to_v2(db.clone(), &txn)?;
         txn.commit()?;
 
         // Verify migration
@@ -481,12 +493,8 @@ mod tests {
         }
 
         // Perform migration
-        let mut sm_meta = StateMachineMetadata {
-            db_version: 2,
-            last_change_idx: 0,
-        };
         let txn = db.transaction();
-        migrate_v2_to_v3(db.clone(), &txn, &mut sm_meta)?;
+        migrate_v2_to_v3(db.clone(), &txn)?;
         txn.commit()?;
 
         // Verify migration
@@ -509,6 +517,60 @@ mod tests {
             .unwrap(),
         )?;
         assert_eq!(ctx2["created_at"], 2000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_migrate_logic() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let path = temp_dir.path().to_str().unwrap();
+
+        let sm_column_families = vec![rocksdb::ColumnFamilyDescriptor::new(
+            IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+            Options::default(),
+        )];
+
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        let db = Arc::new(
+            TransactionDB::open_cf_descriptors(
+                &db_opts,
+                &TransactionDBOptions::default(),
+                path,
+                sm_column_families,
+            )
+            .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
+        );
+
+        // Test case where the database is already at the latest version
+        let sm_meta = StateMachineMetadata {
+            db_version: SERVER_DB_VERSION,
+            last_change_idx: 0,
+        };
+        let txn = db.transaction();
+        write_sm_meta(db.clone(), &txn, &sm_meta)?;
+        txn.commit()?;
+
+        let result = migrate(db.clone());
+        assert!(result.is_ok());
+        let sm_meta = result.unwrap();
+        assert_eq!(sm_meta.db_version, SERVER_DB_VERSION);
+
+        // Test case where the database is empty
+        let sm_meta = StateMachineMetadata {
+            db_version: 0,
+            last_change_idx: 0,
+        };
+        let txn = db.transaction();
+        write_sm_meta(db.clone(), &txn, &sm_meta)?;
+        txn.commit()?;
+
+        let result = migrate(db.clone());
+        assert!(result.is_ok());
+        let sm_meta = result.unwrap();
+        assert_eq!(sm_meta.db_version, SERVER_DB_VERSION);
 
         Ok(())
     }
