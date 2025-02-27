@@ -155,7 +155,6 @@ impl TaskAllocationProcessor {
                 .filter(|(k, _)| {
                     let allocations = indexes.allocations_by_executor.get(*k);
                     let allocation_count = allocations.map_or(0, |allocs| allocs.len());
-                    info!("executor {} has {} allocations", k, allocation_count);
                     allocation_count < MAX_ALLOCATIONS_PER_EXECUTOR
                 })
                 .map(|(_, v)| v)
