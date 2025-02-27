@@ -131,11 +131,11 @@ impl InMemoryState {
         {
             let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
-            for (id, ctx) in all_graph_invocation_ctx {
+            for (_id, ctx) in all_graph_invocation_ctx {
                 if ctx.completed {
                     continue;
                 }
-                invocation_ctx.insert(id, Box::new(ctx));
+                invocation_ctx.insert(ctx.key(), Box::new(ctx));
             }
         }
 
@@ -286,6 +286,9 @@ impl InMemoryState {
                     }
                 }
             }
+            RequestPayload::DeleteInvocationRequest(req) => {
+                self.delete_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
+            }
             RequestPayload::DeleteComputeGraphRequest(req) => {
                 let key = ComputeGraph::key_from(&req.namespace, &req.name);
                 self.compute_graphs.remove(&key);
@@ -306,8 +309,12 @@ impl InMemoryState {
                     .take_while(|(k, _v)| k.starts_with(&key))
                     .map(|(k, _v)| k.clone())
                     .collect::<Vec<String>>();
+                let mut invocations_to_remove = Vec::new();
                 for k in keys_to_remove {
-                    self.invocation_ctx.remove(&k);
+                    invocations_to_remove.push(k);
+                }
+                for k in invocations_to_remove {
+                    self.delete_invocation(&req.namespace, &req.name, &k);
                 }
             }
             RequestPayload::SchedulerUpdate(req) => {
@@ -413,6 +420,61 @@ impl InMemoryState {
                 allocations.len() as u64,
                 &[KeyValue::new("executor_id", executor_id.to_string())],
             );
+        }
+    }
+
+    pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
+        // Remove tasks
+        let key_prefix =
+            Task::key_prefix_for_invocation(&namespace, &compute_graph, &invocation_id);
+        let mut tasks_to_remove = Vec::new();
+        self.tasks
+            .range(key_prefix.clone()..)
+            .into_iter()
+            .take_while(|(k, _v)| k.starts_with(&key_prefix))
+            .for_each(|(k, _v)| {
+                tasks_to_remove.push(k.clone());
+            });
+        for task in tasks_to_remove {
+            self.tasks.remove(&task);
+        }
+
+        // Remove invocation ctx
+        self.invocation_ctx.remove(&key_prefix);
+
+        // Remove allocations
+        let mut allocations_to_remove = Vec::new();
+        for (_executor, allocations) in self.allocations_by_executor.iter() {
+            allocations.iter().for_each(|allocation| {
+                if allocation.invocation_id == invocation_id {
+                    allocations_to_remove.push(allocation.id.clone());
+                }
+            });
+        }
+        for allocation in allocations_to_remove {
+            self.allocations_by_executor.remove(&allocation);
+        }
+
+        // Remove unallocated tasks
+        let mut unallocated_tasks_to_remove = Vec::new();
+        for (k, _v) in self.unallocated_tasks.iter() {
+            if k.starts_with(&key_prefix) {
+                unallocated_tasks_to_remove.push(k.clone());
+            }
+        }
+        for k in unallocated_tasks_to_remove {
+            self.unallocated_tasks.remove(&k);
+        }
+
+        // Remove queued reduction tasks
+        let mut queued_reduction_tasks_to_remove = Vec::new();
+        for (k, _v) in self.queued_reduction_tasks.iter() {
+            if k.starts_with(&key_prefix) {
+                queued_reduction_tasks_to_remove.push(k.clone());
+            }
+        }
+        for k in queued_reduction_tasks_to_remove {
+            self.queued_reduction_tasks.remove(&k);
         }
     }
 

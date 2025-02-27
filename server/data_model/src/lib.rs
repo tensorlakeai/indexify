@@ -1289,6 +1289,19 @@ impl StateChange {
     }
 }
 
+impl Display for StateChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "StateChange: namespace:{},  id: {}, change_type: {}, created_at: {}",
+            self.namespace.as_ref().unwrap_or(&"global".to_string()),
+            self.id,
+            self.change_type,
+            self.created_at,
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Namespace {
     pub name: String,
