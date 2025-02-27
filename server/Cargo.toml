@@ -54,7 +54,7 @@ pin-project-lite = "0.2.16"
 async-trait = "0.1.86"
 tokio-stream = "0.1.17"
 slatedb = { git = "https://github.com/diptanu/slatedb" }
-rust-embed = { version = "8.5.0", features = ["mime-guess"] }
+rust-embed = { version = "8.6.0", features = ["mime-guess"] }
 reqwest = { version = "0.12.12", default-features = false, features = [
     "json",
     "rustls-tls",
@@ -68,7 +68,7 @@ tower-http = { version = "0.6.2", default-features = false, features = [
 ] }
 pin-project = "1.1.9"
 ciborium = "0.2.2"
-uuid = { version = "1.14.0", features = ["v4"] }
+uuid = { version = "1.15.1", features = ["v4"] }
 url = "2.5.4"
 opentelemetry = { version = "0.28.0", features = ["metrics", "trace"] }
 opentelemetry_sdk = { version = "0.28.0", features = [
@@ -86,7 +86,7 @@ opentelemetry-prometheus = { version = "0.28.0" }
 prometheus = { version = "0.13.4" }
 tracing-opentelemetry = "0.29.0"
 dashmap = "6.1.0"
-tower-otel-http-metrics = "0.12.0"
+tower-otel-http-metrics = "0.13.0"
 im = {version="15.1.0"}
 
 [dependencies]
@@ -99,7 +99,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 figment = { workspace = true }
-clap = { version = "4.5.30", features = ["derive"] }
+clap = { version = "4.5.31", features = ["derive"] }
 tracing = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
@@ -128,7 +128,7 @@ prometheus = { workspace = true }
 metrics = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-axum-tracing-opentelemetry = { version = "0.26.0", features = [
+axum-tracing-opentelemetry = { version = "0.26.1", features = [
     "tracing_level_info",
 ] }
 tower-otel-http-metrics = { workspace = true }
