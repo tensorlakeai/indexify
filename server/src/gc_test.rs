@@ -4,6 +4,7 @@ mod tests {
     use bytes::Bytes;
     use data_model::{
         test_objects::tests::{mock_graph_a, TEST_NAMESPACE},
+        InvocationPayload,
         NodeOutput,
     };
     use futures::stream;
@@ -50,6 +51,26 @@ mod tests {
         let data_stream = Box::pin(stream::once(async { Ok(Bytes::from(data)) }));
         let res = blob_storage.put(path, data_stream).await?;
 
+        // Create a graph invocation
+        let invocation = InvocationPayload {
+            id: "invocation_id".to_string(),
+            namespace: TEST_NAMESPACE.to_string(),
+            compute_graph_name: compute_graph.name.clone(),
+            payload: data_model::DataPayload {
+                path: res.url.clone(),
+                size: res.size_bytes,
+                sha256_hash: res.sha256_hash.clone(),
+            },
+            created_at: 5,
+            encoding: "application/octet-stream".to_string(),
+        };
+
+        indexify_state.db.put_cf(
+            &IndexifyObjectsColumns::GraphInvocations.cf_db(&indexify_state.db),
+            invocation.key().as_bytes(),
+            &JsonEncoder::encode(&invocation)?,
+        )?;
+
         let output = NodeOutput {
             id: "id".to_string(),
             namespace: TEST_NAMESPACE.to_string(),
@@ -59,7 +80,7 @@ mod tests {
             payload: data_model::OutputPayload::Fn(data_model::DataPayload {
                 path: res.url.clone(),
                 size: res.size_bytes,
-                sha256_hash: res.sha256_hash,
+                sha256_hash: res.sha256_hash.clone(),
             }),
             errors: None,
             reduced_state: false,
