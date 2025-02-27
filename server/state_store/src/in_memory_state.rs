@@ -131,11 +131,11 @@ impl InMemoryState {
         {
             let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::GraphInvocationCtx)?;
-            for (id, ctx) in all_graph_invocation_ctx {
+            for (_id, ctx) in all_graph_invocation_ctx {
                 if ctx.completed {
                     continue;
                 }
-                invocation_ctx.insert(id, Box::new(ctx));
+                invocation_ctx.insert(ctx.key(), Box::new(ctx));
             }
         }
 
@@ -284,6 +284,63 @@ impl InMemoryState {
                     for ctx in invocation_ctx_to_update {
                         self.invocation_ctx.insert(ctx.key(), ctx);
                     }
+                }
+            }
+            RequestPayload::DeleteInvocationRequest(req) => {
+                // Remove tasks
+                let key = Task::key_prefix_for_invocation(
+                    &req.namespace,
+                    &req.compute_graph,
+                    &req.invocation_id,
+                );
+                let mut tasks_to_remove = Vec::new();
+                self.tasks
+                    .range(key.clone()..)
+                    .into_iter()
+                    .take_while(|(k, _v)| k.starts_with(&key))
+                    .for_each(|(k, _v)| {
+                        tasks_to_remove.push(k.clone());
+                    });
+                for task in tasks_to_remove {
+                    self.tasks.remove(&task);
+                }
+
+                // Remove invocation ctx
+                self.invocation_ctx.remove(&key);
+
+                // Remove allocations
+                let mut allocations_to_remove = Vec::new();
+                for (_executor, allocations) in self.allocations_by_executor.iter() {
+                    allocations.iter().for_each(|allocation| {
+                        if allocation.invocation_id == req.invocation_id {
+                            allocations_to_remove.push(allocation.id.clone());
+                        }
+                    });
+                }
+                for allocation in allocations_to_remove {
+                    self.allocations_by_executor.remove(&allocation);
+                }
+
+                // Remove unallocated tasks
+                let mut unallocated_tasks_to_remove = Vec::new();
+                for (k, _v) in self.unallocated_tasks.iter() {
+                    if k.starts_with(&key) {
+                        unallocated_tasks_to_remove.push(k.clone());
+                    }
+                }
+                for k in unallocated_tasks_to_remove {
+                    self.unallocated_tasks.remove(&k);
+                }
+
+                // Remove queued reduction tasks
+                let mut queued_reduction_tasks_to_remove = Vec::new();
+                for (k, _v) in self.queued_reduction_tasks.iter() {
+                    if k.starts_with(&key) {
+                        queued_reduction_tasks_to_remove.push(k.clone());
+                    }
+                }
+                for k in queued_reduction_tasks_to_remove {
+                    self.queued_reduction_tasks.remove(&k);
                 }
             }
             RequestPayload::DeleteComputeGraphRequest(req) => {
