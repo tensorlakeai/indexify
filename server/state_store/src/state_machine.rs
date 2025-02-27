@@ -169,22 +169,87 @@ pub(crate) fn delete_invocation(
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         prefix.as_bytes(),
     )?;
+    let mut tasks_deleted = Vec::new();
+
+    // delete all tasks for this invocation
     for iter in make_prefix_iterator(
         txn,
-        &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
+        IndexifyObjectsColumns::Tasks.cf_db(&db),
         prefix.as_bytes(),
         &None,
     ) {
-        info!("deleting graph invocation");
         let (_key, value) = iter?;
-        let value = JsonEncoder::decode::<InvocationPayload>(&value)?;
-        info!("deleting graph invocation: {}", value.id);
-        let req = DeleteInvocationRequest {
-            namespace: value.namespace,
-            compute_graph: value.compute_graph_name,
-            invocation_id: value.id,
-        };
-        delete_invocation(db.clone(), txn, &req)?;
+        let value = Box::new(JsonEncoder::decode::<Task>(&value)?);
+        tasks_deleted.push(value);
+    }
+
+    // delete all task outputs for this invocation
+    // delete all tasks for this invocation
+    for task in tasks_deleted {
+        info!(
+            namespace = req.namespace,
+            graph = req.compute_graph,
+            invocation_id = req.invocation_id,
+            task_id = task.id.get(),
+            "deleting task",
+        );
+        txn.delete_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), &task.key())?;
+        let task_output_prefix = format!("{}|{}", task.namespace, task.id);
+        delete_cf_prefix(
+            txn,
+            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
+            task_output_prefix.as_bytes(),
+        )?;
+    }
+
+    // delete all allocations for this invocation
+    for iter in make_prefix_iterator(
+        txn,
+        IndexifyObjectsColumns::Allocations.cf_db(&db),
+        prefix.as_bytes(),
+        &None,
+    ) {
+        let (key, value) = iter?;
+        let value = JsonEncoder::decode::<Allocation>(&value)?;
+        if value.invocation_id == req.invocation_id {
+            info!(
+                namespace = req.namespace,
+                graph = req.compute_graph,
+                invocation_id = req.invocation_id,
+                allocation_id = value.id,
+                "deleting allocation",
+            );
+            txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
+        }
+    }
+
+    // Delete Graph Invocation Context
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    // mark all fn output urls for gc.
+    for iter in make_prefix_iterator(
+        txn,
+        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
+        prefix.as_bytes(),
+        &None,
+    ) {
+        let (key, value) = iter?;
+        let value = JsonEncoder::decode::<NodeOutput>(&value)?;
+        match &value.payload {
+            OutputPayload::Router(_) => {}
+            OutputPayload::Fn(payload) => {
+                txn.put_cf(
+                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
+                    payload.path.as_bytes(),
+                    [],
+                )?;
+            }
+        }
+        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
     }
     Ok(())
 }
@@ -429,57 +494,26 @@ pub fn delete_compute_graph(
         namespace,
         name
     );
+    let prefix = format!("{}|{}", namespace, name);
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        format!("{}|{}", namespace, name),
+        prefix.as_bytes(),
     )?;
-    let prefix = format!("{}|{}|", namespace, name);
-    delete_cf_prefix(
+    for iter in make_prefix_iterator(
         txn,
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
         prefix.as_bytes(),
-    )?;
-
-    delete_cf_prefix(
-        txn,
-        &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
-
-    for iter in make_prefix_iterator(
-        txn,
-        &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        prefix.as_bytes(),
         &None,
     ) {
-        let (key, value) = iter?;
-        let value = JsonEncoder::decode::<Task>(&value)?;
-
-        // mark all diagnostics urls for gc.
-        match &value.diagnostics {
-            Some(diagnostics) => {
-                [diagnostics.stdout.clone(), diagnostics.stderr.clone()]
-                    .iter()
-                    .flatten()
-                    .try_for_each(|data| -> Result<()> {
-                        txn.put_cf(
-                            &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                            data.path.as_bytes(),
-                            [],
-                        )?;
-
-                        Ok(())
-                    })?;
-            }
-            None => {}
-        }
-        txn.delete_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &key)?;
-
-        delete_cf_prefix(
-            txn,
-            &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
-            format!("{}|{}", namespace, value.id).as_bytes(),
-        )?;
+        let (_key, value) = iter?;
+        let value = JsonEncoder::decode::<InvocationPayload>(&value)?;
+        info!("deleting graph invocation: {}", value.id);
+        let req = DeleteInvocationRequest {
+            namespace: value.namespace,
+            compute_graph: value.compute_graph_name,
+            invocation_id: value.id,
+        };
+        delete_invocation(db.clone(), txn, &req)?;
     }
 
     for iter in make_prefix_iterator(
@@ -501,34 +535,6 @@ pub fn delete_compute_graph(
             &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
             &key,
         )?;
-    }
-
-    delete_cf_prefix(
-        txn,
-        &IndexifyObjectsColumns::UnallocatedTasks.cf_db(&db),
-        prefix.as_bytes(),
-    )?;
-
-    // mark all fn output urls for gc.
-    for iter in make_prefix_iterator(
-        txn,
-        &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-        prefix.as_bytes(),
-        &None,
-    ) {
-        let (key, value) = iter?;
-        let value = JsonEncoder::decode::<NodeOutput>(&value)?;
-        match &value.payload {
-            OutputPayload::Router(_) => {}
-            OutputPayload::Fn(payload) => {
-                txn.put_cf(
-                    &IndexifyObjectsColumns::GcUrls.cf_db(&db),
-                    payload.path.as_bytes(),
-                    [],
-                )?;
-            }
-        }
-        txn.delete_cf(&IndexifyObjectsColumns::FnOutputs.cf_db(&db), &key)?;
     }
 
     Ok(())
