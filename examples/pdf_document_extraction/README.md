@@ -73,6 +73,9 @@ The name of the databases used in the example are `text_embeddings` and `image_e
 
 There code to retrieve from ChromaDB is [here](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/chromadb_retreive.py)
 
+#### Swapping OCR Engines
+You could swap out Docling for another open source or propretiery engine. The code [here](https://github.com/tensorlakeai/indexify/blob/c7b6c5929b6fdd58993e8187f5d546f056950289/examples/pdf_document_extraction/pdf_parser_docling.py#L18) needs to be updated to use another library. 
+
 ## Using GPU
 
 You have to make a couple of changes to use GPUs for PDF parsing.
