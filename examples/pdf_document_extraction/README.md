@@ -5,6 +5,13 @@ This example uses open-source components such Docling for document parsing and E
 
 The pipeline is hosted on a server endpoint in one of the containers. The endpoint can be called from any Python application.
 
+## Tools and Libraries Used 
+* **Orchestration**: Indexify
+* **Docling**: PDF Parsing
+* **Langchain**: Text splitting
+* **SentenceTransformers**: Text and Image Embedding
+* **VectorDB**: Elastic Search
+
 ## Start the Server Endpoint
 
 ```bash
@@ -33,27 +40,23 @@ After this, you can call the endpoint with PDFs to make Indexify start parsing d
 from indexify import RemoteGraph
 
 graph = RemoteGraph.by_name("Extract_pages_tables_images_pdf")
-invocation_id = graph.run(block_until_done=True, url="")
+# Pass in a publicly avaialable PDF from the internet 
+invocation_id = graph.run(block_until_done=True, url="https://arxiv.org/pdf/2501.12948")
 ```
 
 ## Outputs 
-You can read the output of every function of the Graph. For example,
+You can read the output of every function of the Graph. For example, to get the chunks from the documents - 
 
 ```python
 chunks = graph.output(invocation_id, "chunk_text")
 ```
 
-The ChromaDB tables are populated automatically by the [ChromaDBWriter](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/chromadb_writer.py) class.
-The name of the databases used in the example are `text_embeddings` and `image_embeddings`. The database running inside the container at port `8000` is forwarded to the host for convenience. 
-
-For ElasticSearch, the service in this example is set-up using `docker-compose.yaml`. `elastic_writer.py` relies on docker networking to connect to it
-and index the generated vectors.
-
 ## Vector Search
 
-Once the documents are processed, you can query ChromaDB for vector search. Here is some [same code for that](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/retreive.py)
+Once the documents are processed, you can query Elastic Search for vector search. Here is some [same code for that](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/es_retreive.py)
 
-For ElasticSearch `es_retrieve.py` has some sample python code to query the indexes.
+The indexes created in Elastic Search are `text_embeddings` and `image_embeddings`. The port `9200` is forwarded to the host from the container, so you can query the indexes.
+
 
 ## Customization
 
@@ -62,6 +65,13 @@ Copy the folder, modify the code as you like and simply upload the new Graph.
 ```bash
 python workflow.py
 ```
+
+#### Using Chroma DB 
+
+The ChromaDB tables are populated automatically by the [ChromaDBWriter](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/chromadb_writer.py) class.
+The name of the databases used in the example are `text_embeddings` and `image_embeddings`. The database running inside the container at port `8000` is forwarded to the host for convenience. 
+
+There code to retrieve from ChromaDB is [here](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/chromadb_retreive.py)
 
 ## Using GPU
 
