@@ -12,7 +12,7 @@ use state_store::{
     IndexifyState,
 };
 use tokio::sync::Notify;
-use tracing::{error, info, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::{task_allocator, task_creator};
 
@@ -168,7 +168,7 @@ impl GraphProcessor {
         &self,
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
-        info!("processing state change: {}", state_change);
+        debug!("processing state change: {}", state_change);
         let mut indexes = self.indexify_state.in_memory_state.read().await.clone();
         match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
