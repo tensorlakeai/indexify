@@ -1,7 +1,7 @@
 # PDF Document Extraction and Indexing
 
 The example builds a pipeline that extracts text, tables and figures from a PDF Document. It embeds the text, table and images from the document and writes them into ChromaDB.
-This example also provides an alternate approach, that is OSS friendly, using Docling for document parsing and ElasticSearch as the vector store.
+This example uses open-source components such Docling for document parsing and ElasticSearch as the vector store, to make it easy to deploy in commercial settings
 
 The pipeline is hosted on a server endpoint in one of the containers. The endpoint can be called from any Python application.
 
