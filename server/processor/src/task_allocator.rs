@@ -18,7 +18,7 @@ use state_store::{
     in_memory_state::InMemoryState,
     requests::{ReductionTasks, SchedulerUpdateRequest},
 };
-use tracing::{error, info, span};
+use tracing::{debug, error, info, span};
 
 pub struct FilteredExecutors {
     pub executors: Vec<ExecutorId>,
@@ -110,6 +110,13 @@ impl TaskAllocationProcessor {
                 error!("task not found in indexes: {}", task_id);
             }
         }
+        if tasks.is_empty() {
+            return Ok(TaskPlacementResult {
+                new_allocations: vec![],
+                remove_allocations: vec![],
+                updated_tasks: vec![],
+            });
+        }
         self.schedule_tasks(tasks, indexes)
     }
 
@@ -132,7 +139,7 @@ impl TaskAllocationProcessor {
 
         for mut task in tasks {
             let span = span!(
-                tracing::Level::INFO,
+                tracing::Level::DEBUG,
                 "allocate_task",
                 task_id = task.id.to_string(),
                 namespace = task.namespace,
@@ -146,7 +153,7 @@ impl TaskAllocationProcessor {
                 continue;
             }
 
-            info!("allocate task {:?} ", task.id);
+            debug!("attempting to allocate task {:?} ", task.id);
 
             // get executors with allocation capacity
             let executors = indexes
@@ -162,12 +169,21 @@ impl TaskAllocationProcessor {
 
             // terminate allocating early if no executors available
             if executors.is_empty() {
-                info!("no executors with capacity available for task");
+                debug!("no executors with capacity available for task");
                 break;
             }
 
             match self.allocate_task(&task, indexes, &executors) {
                 Ok(Some(allocation)) => {
+                    info!(
+                        executor_id = &allocation.executor_id.get(),
+                        task_id = &task.id.to_string(),
+                        namespace = &task.namespace,
+                        compute_graph = &task.compute_graph_name,
+                        compute_fn = &task.compute_fn_name,
+                        invocation_id = &task.invocation_id,
+                        "allocated task"
+                    );
                     allocations.push(allocation.clone());
                     task.status = TaskStatus::Running;
                     indexes
@@ -180,7 +196,14 @@ impl TaskAllocationProcessor {
                     updated_tasks.push(*task);
                 }
                 Ok(None) => {
-                    info!("no executors available for task {:?}", task.id);
+                    debug!(
+                        task_id = task.id.to_string(),
+                        invocation_id = task.invocation_id.to_string(),
+                        namespace = task.namespace,
+                        compute_graph = task.compute_graph_name,
+                        compute_fn = task.compute_fn_name,
+                        "no executors available for task"
+                    );
                 }
                 Err(err) => {
                     error!("failed to allocate task, skipping: {:?}", err);

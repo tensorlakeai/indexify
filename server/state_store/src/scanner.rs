@@ -23,7 +23,7 @@ use metrics::Timer;
 use opentelemetry::KeyValue;
 use rocksdb::{Direction, IteratorMode, ReadOptions, TransactionDB};
 use serde::de::DeserializeOwned;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
@@ -467,7 +467,7 @@ impl StateReader {
         let global_count = global_state_changes.len();
         state_changes.extend(global_state_changes);
         if state_changes.len() >= 100 {
-            info!(
+            debug!(
                 total = state_changes.len(),
                 global = global_count,
                 ns = 0,
@@ -491,7 +491,7 @@ impl StateReader {
         let ns_count = ns_state_changes.len();
         state_changes.extend(ns_state_changes);
 
-        info!(
+        debug!(
             total = state_changes.len(),
             global = global_count,
             ns = ns_count,
