@@ -16,7 +16,7 @@ The [Graph](workflow.py) has all the code which performs PDF Parsing, embedding 
 Make sure to deploy the right graph before running the example.
 
 ```bash
-pip install indexify
+pip install indexify tensorlake
 ```
 
 ```bash
