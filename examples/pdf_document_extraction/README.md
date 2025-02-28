@@ -53,7 +53,7 @@ chunks = graph.output(invocation_id, "chunk_text")
 
 ## Vector Search
 
-Once the documents are processed, you can query Elastic Search for vector search. Here is some [same code for that](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/es_retreive.py)
+Once the documents are processed, you can query Elastic Search for vector search. Here is some [same code for that](https://github.com/tensorlakeai/indexify/blob/main/examples/pdf_document_extraction/es_retrieve.py)
 
 The indexes created in Elastic Search are `text_embeddings` and `image_embeddings`. The port `9200` is forwarded to the host from the container, so you can query the indexes.
 
