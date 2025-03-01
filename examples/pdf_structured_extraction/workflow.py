@@ -84,7 +84,7 @@ def write_to_db(bill: BillSchema) -> None:
         session.commit()
 
 def create_graph() -> Graph:
-    g = Graph(name="bill_workflow", start_node=parse_pdf)
+    g = Graph(name="bill_workflow", start_node=parse_pdf, additional_modules=[sys.modules[__name__]])
     g.add_edge(parse_pdf, write_to_db)
     return g
 
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     from pathlib import Path
     g = create_graph()
     import sys
-    graph = RemoteGraph.deploy(g, additional_modules=[sys.modules[__name__]], server_url="http://100.106.216.46:8900")
+    graph = RemoteGraph.deploy(g, server_url="http://100.106.216.46:8900")
     import httpx
     response = httpx.get("https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/sample_bill.pdf")
     f = File(data=response.content)
