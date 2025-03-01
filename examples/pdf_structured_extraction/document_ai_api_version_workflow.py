@@ -148,8 +148,7 @@ def extract_with_oai(markdown: str) -> BillSchema:
 
 
 def create_graph() -> Graph:
-    g = Graph(name="bill_workflow_document_ai_version", start_node=tensorlake_document_ai_parse)
-
+    g = Graph(name="bill_workflow_document_ai_version", start_node=tensorlake_document_ai_parse, additional_modules=[sys.modules[__name__]])
     g.add_edge(tensorlake_document_ai_parse, extract_with_oai)
     return g
 
@@ -158,7 +157,7 @@ if __name__ == "__main__":
     graph = create_graph()
 
     import sys
-    graph = RemoteGraph.deploy(graph, additional_modules=[sys.modules[__name__]], server_url="http://100.106.216.46:8900")
+    graph = RemoteGraph.deploy(graph, server_url="http://100.106.216.46:8900")
 
     import httpx
     response = httpx.get("https://pub-5dc4d0c0254749378ccbcfffa4bd2a1e.r2.dev/sample_bill.pdf")

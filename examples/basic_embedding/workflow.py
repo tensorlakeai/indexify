@@ -38,8 +38,8 @@ class EmbeddingFunction(TensorlakeCompute):
 
 if __name__ == "__main__":
     import sys
-    g = Graph(name="basic_embedding", start_node=EmbeddingFunction)
-    g = RemoteGraph.deploy(g, additional_modules=[sys.modules[__name__]])
+    g = Graph(name="basic_embedding", start_node=EmbeddingFunction, additional_modules=[sys.modules[__name__]])
+    g = RemoteGraph.deploy(g)
     sentences = Sentences(sentences=["hello world", "how are you"])
     invocation_id = g.run(block_until_done=True, img=sentences)
     output = g.output(invocation_id, "sentence_embedder")

@@ -17,6 +17,7 @@ def create_graph() -> Graph:
         "Extract_pages_tables_images_pdf_docling",
         start_node=PDFParserDocling,
         version="0.1",  # update when deploying to keep track of graph versions (param is defaulted in the sdk).
+        additional_modules=[common_objects, images],
     )
 
     # Send the parse output to the text chunker and the image embedder.
@@ -51,7 +52,6 @@ if __name__ == "__main__":
 
     remote_graph = RemoteGraph.deploy(
         graph,
-        additional_modules=[common_objects, images],
         server_url="http://localhost:8900",
     )
 
