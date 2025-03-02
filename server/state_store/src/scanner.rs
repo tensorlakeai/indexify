@@ -66,17 +66,15 @@ impl StateReader {
             .cf_handle(column.as_ref())
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
         let mut items = Vec::with_capacity(keys.len());
-        let multi_get_keys: Vec<_> = keys.iter().map(|k| k.to_vec()).collect();
-        let values = self
-            .db
-            .multi_get_cf(multi_get_keys.iter().map(|k| (&cf_handle, k)));
-        for (key, value) in multi_get_keys.into_iter().zip(values.into_iter()) {
+        let multi_get_keys: Vec<_> = keys.iter().map(|k| (&cf_handle, k.to_vec())).collect();
+        let values = self.db.multi_get_cf(multi_get_keys);
+        for (key, value) in keys.into_iter().zip(values.into_iter()) {
             let val: Option<V> = if let Some(value) = value? {
                 Some(JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?)
             } else {
                 warn!(
                     "Key not found: {}, column family: {}",
-                    String::from_utf8(key).unwrap_or_default(),
+                    String::from_utf8(key.to_vec()).unwrap_or_default(),
                     column.to_string()
                 );
                 None
