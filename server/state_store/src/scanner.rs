@@ -28,6 +28,11 @@ use tracing::{debug, warn};
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
 
+pub enum CursorDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Debug)]
 pub struct FilterResponse<T> {
     pub items: Vec<T>,
@@ -60,16 +65,16 @@ impl StateReader {
             .db
             .cf_handle(column.as_ref())
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
-        let mut items = Vec::new();
-        for key in keys {
-            let value = self.db.get_cf(&cf_handle, key)?;
-            let val: Option<V> = if let Some(value) = value {
+        let mut items = Vec::with_capacity(keys.len());
+        let multi_get_keys: Vec<_> = keys.iter().map(|k| (&cf_handle, k.to_vec())).collect();
+        let values = self.db.multi_get_cf(multi_get_keys);
+        for (key, value) in keys.into_iter().zip(values.into_iter()) {
+            let val: Option<V> = if let Some(value) = value? {
                 Some(JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?)
             } else {
                 warn!(
-                    "Key not found: {}, column family: {}",
-                    String::from_utf8(key.to_vec()).unwrap_or_default(),
-                    column.to_string()
+                    "Key not found: {}",
+                    String::from_utf8(key.to_vec()).unwrap_or_default()
                 );
                 None
             };
@@ -84,6 +89,7 @@ impl StateReader {
         restart_key: Option<&[u8]>,
         column: IndexifyObjectsColumns,
         limit: Option<usize>,
+        direction: Option<CursorDirection>,
     ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "get_raw_rows_from_cf_with_limits")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -93,11 +99,16 @@ impl StateReader {
             .cf_handle(column.as_ref())
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
 
+        let direction = match direction.unwrap_or(CursorDirection::Forward) {
+            CursorDirection::Forward => Direction::Forward,
+            CursorDirection::Backward => Direction::Reverse,
+        };
+
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
-            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
-            None => IteratorMode::From(&key_prefix, Direction::Forward),
+            Some(restart_key) => IteratorMode::From(restart_key, direction),
+            None => IteratorMode::From(&key_prefix, direction),
         };
         let iter = self
             .db
@@ -559,18 +570,80 @@ impl StateReader {
         namespace: &str,
         compute_graph: &str,
         cursor: Option<&[u8]>,
-        limit: Option<usize>,
+        limit: usize,
+        direction: Option<CursorDirection>,
     ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+        let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes()].concat();
 
-        let key = format!("{}|{}|", namespace, compute_graph);
-        self.get_rows_from_cf_with_limits::<GraphInvocationCtx>(
-            key.as_bytes(),
-            cursor,
+        let direction = direction.unwrap_or(CursorDirection::Forward);
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(10_194_304);
+
+        let mut upper_bound = key_prefix.clone();
+        upper_bound.push(0xff);
+        read_options.set_iterate_upper_bound(upper_bound);
+
+        let mut lower_bound = key_prefix.clone();
+        lower_bound.push(0x00);
+        read_options.set_iterate_lower_bound(lower_bound);
+
+        let mut iter = self.db.raw_iterator_cf_opt(
+            &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&self.db),
+            read_options,
+        );
+
+        match cursor {
+            Some(cursor) => iter.seek(cursor),
+            None => iter.seek_to_last(),
+        }
+
+        let mut rows = Vec::new();
+        let mut next_cursor = None;
+
+        // Collect results
+        while iter.valid() {
+            if let Some((key, _v)) = iter.item() {
+                if rows.len() < limit {
+                    rows.push(key.to_vec());
+                } else {
+                    next_cursor = Some(key.to_vec());
+                    break;
+                }
+            } else {
+                break;
+            }
+
+            match direction {
+                CursorDirection::Backward => iter.next(),
+                CursorDirection::Forward => iter.prev(),
+            }
+        }
+
+        // Process the collected keys
+        let mut invocation_prefixes: Vec<Vec<u8>> = Vec::new();
+        for key in rows {
+            if let Some(invocation_id) =
+                GraphInvocationCtx::get_invocation_id_from_secondary_index_key(&key)
+            {
+                invocation_prefixes.push(
+                    GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id)
+                        .as_bytes()
+                        .to_vec(),
+                );
+            }
+        }
+
+        let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
+            invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
             IndexifyObjectsColumns::GraphInvocationCtx,
-            limit,
-        )
+        )?;
+
+        Ok((
+            invocations.into_iter().filter_map(|v| v).collect(),
+            next_cursor,
+        ))
     }
 
     pub fn list_compute_graphs(

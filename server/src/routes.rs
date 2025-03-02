@@ -15,6 +15,7 @@ use axum_tracing_opentelemetry::{
     self,
     middleware::{OtelAxumLayer, OtelInResponseLayer},
 };
+use base64::prelude::*;
 use blob_store::PutResult;
 use data_model::{ComputeGraphError, ExecutorId};
 use futures::StreamExt;
@@ -73,6 +74,7 @@ use crate::{
         ComputeGraph,
         ComputeGraphsList,
         CreateNamespace,
+        CursorDirection,
         DynamicRouter,
         ExecutorMetadata,
         ExecutorsAllocations,
@@ -124,6 +126,7 @@ use crate::{
                 Node,
                 DynamicRouter,
                 ComputeFn,
+                ListParams,
                 ComputeGraphCreateType,
                 ComputeGraphsList,
                 ImageInformation,
@@ -552,6 +555,9 @@ async fn delete_compute_graph(
     get,
     path = "/namespaces/{namespace}/compute_graphs",
     tag = "operations",
+    params(
+        ListParams
+    ),
     responses(
         (status = 200, description = "Lists Compute Graph", body = ComputeGraphsList),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
@@ -562,11 +568,15 @@ async fn list_compute_graphs(
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<ComputeGraphsList>, IndexifyAPIError> {
+    let cursor = params
+        .cursor
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
     let (compute_graphs, cursor) = state
         .indexify_state
         .reader()
-        .list_compute_graphs(&namespace, params.cursor.as_deref(), params.limit)
+        .list_compute_graphs(&namespace, cursor.as_deref(), params.limit)
         .map_err(IndexifyAPIError::internal_error)?;
+    let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
     Ok(Json(ComputeGraphsList {
         compute_graphs: compute_graphs.into_iter().map(|c| c.into()).collect(),
         cursor,
@@ -603,8 +613,11 @@ async fn get_compute_graph(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations",
     tag = "ingestion",
+    params(
+        ListParams
+    ),
     responses(
-        (status = 200, description = "Compute Graph Definition", body = GraphInvocations),
+        (status = 200, description = "List Graph Invocations", body = GraphInvocations),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
@@ -613,20 +626,31 @@ async fn graph_invocations(
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<GraphInvocations>, IndexifyAPIError> {
+    let cursor = params
+        .cursor
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+    let direction = match params.direction {
+        Some(CursorDirection::Forward) => Some(state_store::scanner::CursorDirection::Forward),
+        Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),
+        None => None,
+    };
     let (invocation_ctxs, cursor) = state
         .indexify_state
         .reader()
         .list_invocations(
             &namespace,
             &compute_graph,
-            params.cursor.as_deref(),
-            params.limit,
+            cursor.as_deref(),
+            params.limit.unwrap_or(100),
+            direction,
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let mut invocations = vec![];
     for invocation_ctx in invocation_ctxs {
         invocations.push(invocation_ctx.into());
     }
+    let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
+
     Ok(Json(GraphInvocations {
         invocations,
         cursor,
@@ -821,6 +845,9 @@ async fn executor_tasks(
     get,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/tasks",
     tag = "operations",
+    params(
+        ListParams
+    ),
     responses(
         (status = 200, description = "List tasks for a given invocation id", body = Tasks),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
@@ -832,6 +859,9 @@ async fn list_tasks(
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<Tasks>, IndexifyAPIError> {
+    let cursor = params
+        .cursor
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
     let (tasks, cursor) = state
         .indexify_state
         .reader()
@@ -839,11 +869,12 @@ async fn list_tasks(
             &namespace,
             &compute_graph,
             &invocation_id,
-            params.cursor.as_deref(),
+            cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let tasks = tasks.into_iter().map(Into::into).collect();
+    let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
     Ok(Json(Tasks { tasks, cursor }))
 }
 
@@ -885,6 +916,9 @@ async fn list_outputs(
     Query(params): Query<ListParams>,
     State(state): State<RouteState>,
 ) -> Result<Json<FnOutputs>, IndexifyAPIError> {
+    let cursor = params
+        .cursor
+        .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
     let invocation_ctx = state
         .indexify_state
         .reader()
@@ -899,7 +933,7 @@ async fn list_outputs(
             &namespace,
             &compute_graph,
             &invocation_id,
-            params.cursor.as_deref(),
+            cursor.as_deref(),
             params.limit,
         )
         .map_err(IndexifyAPIError::internal_error)?;
@@ -912,6 +946,7 @@ async fn list_outputs(
     } else {
         InvocationStatus::Pending
     };
+    let cursor = cursor.map(|c| BASE64_STANDARD.encode(c));
 
     // We return the outputs of finalized and pending invocations to allow getting
     // partial results.

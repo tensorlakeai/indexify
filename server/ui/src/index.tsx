@@ -60,6 +60,11 @@ const router = createBrowserRouter(
       loader: rootLoader,
       children: [
         {
+          index: true,
+          element: <Navigate to="/default/compute-graphs" replace />,
+          errorElement: <ErrorPage />
+        },
+        {
           path: "/:namespace",
           element: <RedirectToComputeGraphs />,
           errorElement: <ErrorPage />

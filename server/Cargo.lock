@@ -1542,6 +1542,7 @@ dependencies = [
  "axum 0.8.1",
  "axum-server",
  "axum-tracing-opentelemetry",
+ "base64",
  "blob_store",
  "bytes",
  "ciborium",

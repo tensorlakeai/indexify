@@ -45,14 +45,23 @@ export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
   }
 }
 
-export async function IndividualComputeGraphPageLoader({ params }: LoaderFunctionArgs) {
+export async function IndividualComputeGraphPageLoader({ params, request }: LoaderFunctionArgs) {
   const { namespace, 'compute-graph': computeGraph } = params
   if (!namespace) return redirect('/')
+
+  const url = new URL(request.url)
+  const cursor = url.searchParams.get('cursor') || undefined
+  const direction = url.searchParams.get('direction') || 'forward'
+  const limit = 20
   
   try {
-    const [computeGraphs, invocations] = await Promise.all([
+    const invocationsUrl = `/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations?limit=${limit}${
+      cursor ? `&cursor=${cursor}` : ''
+    }${direction ? `&direction=${direction}` : ''}`
+    
+    const [computeGraphs, invocationsResponse] = await Promise.all([
       apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`),
-      apiGet<{ invocations: unknown[] }>(`/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations`)
+      apiGet<{ invocations: unknown[], cursor?: string }>(invocationsUrl)
     ])
 
     const localComputeGraph = computeGraphs.compute_graphs.find(
@@ -64,7 +73,9 @@ export async function IndividualComputeGraphPageLoader({ params }: LoaderFunctio
     }
 
     return {
-      invocationsList: invocations.invocations,
+      invocationsList: invocationsResponse.invocations,
+      cursor: invocationsResponse.cursor,
+      currentDirection: direction,
       computeGraph: localComputeGraph,
       namespace,
     }
