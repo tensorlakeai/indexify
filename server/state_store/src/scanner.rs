@@ -576,19 +576,73 @@ impl StateReader {
     ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
         let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes()].concat();
 
-        let (rows, cursor) = self.get_raw_rows_from_cf_with_limits(
-            &key_prefix,
-            cursor,
-            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex,
-            Some(limit),
-            direction,
-        )?;
+        let direction = direction.unwrap_or(CursorDirection::Forward);
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(10_194_304);
 
+        let mut upper_bound = key_prefix.clone();
+        upper_bound.push(0xff);
+        read_options.set_iterate_upper_bound(upper_bound);
+
+        // Create lower bound with the correct type
+        let mut lower_bound = key_prefix.clone();
+        lower_bound.push(0x00);
+        read_options.set_iterate_lower_bound(lower_bound);
+
+        let mut iter = self.db.raw_iterator_cf_opt(
+            &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&self.db),
+            read_options,
+        );
+
+        match cursor {
+            Some(cursor) => {
+                iter.seek(cursor);
+                if matches!(direction, CursorDirection::Backward) && iter.valid() {
+                    iter.prev();
+                }
+            }
+            None => match direction {
+                CursorDirection::Backward => iter.seek(&key_prefix),
+                CursorDirection::Forward => {
+                    let mut seek_key = key_prefix.clone();
+                    seek_key.push(0xff);
+                    iter.seek_for_prev(&seek_key);
+                }
+            },
+        }
+
+        let mut rows = Vec::new();
+        let mut next_cursor = None;
+
+        // Collect results
+        while iter.valid() {
+            if let Some((key, _v)) = iter.item() {
+                if !key.starts_with(&key_prefix) {
+                    break;
+                }
+
+                if rows.len() < limit {
+                    rows.push(key.to_vec());
+                } else {
+                    next_cursor = Some(key.to_vec());
+                    break;
+                }
+            } else {
+                break;
+            }
+
+            // Move the iterator in the specified direction
+            match direction {
+                CursorDirection::Backward => iter.next(),
+                CursorDirection::Forward => iter.prev(),
+            }
+        }
+
+        // Process the collected keys
         let mut invocation_prefixes: Vec<Vec<u8>> = Vec::new();
-        for (key, _) in rows {
+        for key in rows {
             if let Some(invocation_id) =
                 GraphInvocationCtx::get_invocation_id_from_secondary_index_key(&key)
             {
@@ -599,12 +653,16 @@ impl StateReader {
                 );
             }
         }
+
         let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
             invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
             IndexifyObjectsColumns::GraphInvocationCtx,
         )?;
 
-        Ok((invocations.into_iter().filter_map(|v| v).collect(), cursor))
+        Ok((
+            invocations.into_iter().filter_map(|v| v).collect(),
+            next_cursor,
+        ))
     }
 
     pub fn list_compute_graphs(
