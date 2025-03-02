@@ -19,6 +19,8 @@ export interface ComputeGraphLoaderData extends NamespaceLoaderData {
 export interface IndividualComputeGraphLoaderData extends NamespaceLoaderData {
   invocationsList: Invocation[]
   computeGraph: ComputeGraph
+  nextCursor?: string
+  currentCursor?: string
 }
 
 export interface IndividualInvocationLoaderData extends NamespaceLoaderData {

@@ -1,8 +1,8 @@
-import { Box, Breadcrumbs, Typography, Stack, Chip } from '@mui/material'
+import { Box, Breadcrumbs, Typography, Stack, Chip, Button, ButtonGroup } from '@mui/material'
 import { TableDocument } from 'iconsax-react'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
-import { Link, useLoaderData } from 'react-router-dom'
-import { useState, useCallback } from 'react'
+import { Link, useLoaderData, useNavigate } from 'react-router-dom'
+import { useState, useCallback, useEffect } from 'react'
 import type { Invocation } from '../../types'
 import type { IndividualComputeGraphLoaderData } from './types'
 import ComputeGraphTable from '../../components/tables/ComputeGraphTable'
@@ -11,8 +11,10 @@ import InvocationsTable from '../../components/tables/InvocationsTable'
 import CopyTextPopover from '../../components/CopyTextPopover'
 
 const IndividualComputeGraphPage = () => {
-  const { invocationsList, computeGraph, namespace } =
+  const { invocationsList, computeGraph, namespace, nextCursor, currentCursor } =
     useLoaderData() as IndividualComputeGraphLoaderData
+  
+  const navigate = useNavigate()
 
   const [invocations, setInvocations] = useState<Invocation[]>(
     [...invocationsList].sort(
@@ -20,12 +22,30 @@ const IndividualComputeGraphPage = () => {
     )
   )
 
+  useEffect(() => {
+    setInvocations(
+      [...invocationsList].sort(
+        (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
+      )
+    )
+  }, [invocationsList])
+
   const handleDelete = useCallback((updatedList: Invocation[]) => {
     const sortedList = [...updatedList].sort(
       (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
     )
     setInvocations(sortedList)
   }, [])
+
+  const handleNextPage = () => {
+    if (nextCursor) {
+      navigate(`/${namespace}/compute-graphs/${computeGraph.name}?cursor=${nextCursor}`)
+    }
+  }
+
+  const handlePreviousPage = () => {
+    navigate(`/${namespace}/compute-graphs/${computeGraph.name}`)
+  }
 
   return (
     <Stack direction="column" spacing={3}>
@@ -79,6 +99,20 @@ const IndividualComputeGraphPage = () => {
           computeGraph={computeGraph.name}
           onDelete={handleDelete}
         />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+          <Button 
+              onClick={handlePreviousPage}
+              disabled={!currentCursor}
+            >
+              Previous
+            </Button>
+          <Button 
+              onClick={handleNextPage}
+              disabled={!nextCursor}
+            >
+              Next
+            </Button>
+        </Box>
       </Box>
     </Stack>
   )
