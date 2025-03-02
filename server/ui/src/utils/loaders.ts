@@ -48,16 +48,20 @@ export async function ComputeGraphsPageLoader({ params }: LoaderFunctionArgs) {
 export async function IndividualComputeGraphPageLoader({ params, request }: LoaderFunctionArgs) {
   const { namespace, 'compute-graph': computeGraph } = params
   if (!namespace) return redirect('/')
-  
-  // Get cursor from URL if present
+
   const url = new URL(request.url)
   const cursor = url.searchParams.get('cursor') || undefined
-  const limit = 20 // Default limit for pagination
+  const direction = url.searchParams.get('direction') || 'forward'
+  const limit = 20
   
   try {
+    const invocationsUrl = `/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations?limit=${limit}${
+      cursor ? `&cursor=${cursor}` : ''
+    }${direction ? `&direction=${direction}` : ''}`
+    
     const [computeGraphs, invocationsResponse] = await Promise.all([
       apiGet<ComputeGraphsList>(`/namespaces/${namespace}/compute_graphs`),
-      apiGet<{ invocations: unknown[], next_cursor?: string }>(`/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`)
+      apiGet<{ invocations: unknown[], cursor?: string }>(invocationsUrl)
     ])
 
     const localComputeGraph = computeGraphs.compute_graphs.find(
@@ -70,10 +74,10 @@ export async function IndividualComputeGraphPageLoader({ params, request }: Load
 
     return {
       invocationsList: invocationsResponse.invocations,
-      nextCursor: invocationsResponse.next_cursor,
+      cursor: invocationsResponse.cursor,
+      currentDirection: direction,
       computeGraph: localComputeGraph,
       namespace,
-      currentCursor: cursor,
     }
   } catch (error) {
     console.error("Error fetching compute graph data:", error)
