@@ -74,6 +74,7 @@ use crate::{
         ComputeGraph,
         ComputeGraphsList,
         CreateNamespace,
+        CursorDirection,
         DynamicRouter,
         ExecutorMetadata,
         ExecutorsAllocations,
@@ -628,6 +629,11 @@ async fn graph_invocations(
     let cursor = params
         .cursor
         .map(|c| BASE64_STANDARD.decode(c).unwrap_or(vec![]));
+    let direction = match params.direction {
+        Some(CursorDirection::Forward) => Some(state_store::scanner::CursorDirection::Forward),
+        Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),
+        None => None,
+    };
     let (invocation_ctxs, cursor) = state
         .indexify_state
         .reader()
@@ -636,6 +642,7 @@ async fn graph_invocations(
             &compute_graph,
             cursor.as_deref(),
             params.limit.unwrap_or(100),
+            direction,
         )
         .map_err(IndexifyAPIError::internal_error)?;
     let mut invocations = vec![];

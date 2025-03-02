@@ -59,10 +59,19 @@ impl From<serde_json::Error> for IndexifyAPIError {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub enum CursorDirection {
+    #[serde(rename = "forward")]
+    Forward,
+    #[serde(rename = "backward")]
+    Backward,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, IntoParams)]
 pub struct ListParams {
     pub limit: Option<usize>,
     pub cursor: Option<String>,
+    pub direction: Option<CursorDirection>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

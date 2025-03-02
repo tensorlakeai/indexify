@@ -28,6 +28,11 @@ use tracing::{debug, warn};
 use super::state_machine::IndexifyObjectsColumns;
 use crate::serializer::{JsonEncode, JsonEncoder};
 
+pub enum CursorDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Debug)]
 pub struct FilterResponse<T> {
     pub items: Vec<T>,
@@ -87,6 +92,7 @@ impl StateReader {
         restart_key: Option<&[u8]>,
         column: IndexifyObjectsColumns,
         limit: Option<usize>,
+        direction: Option<CursorDirection>,
     ) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "get_raw_rows_from_cf_with_limits")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -96,11 +102,16 @@ impl StateReader {
             .cf_handle(column.as_ref())
             .ok_or(anyhow::anyhow!("Failed to get column family {}", column))?;
 
+        let direction = match direction.unwrap_or(CursorDirection::Forward) {
+            CursorDirection::Forward => Direction::Forward,
+            CursorDirection::Backward => Direction::Reverse,
+        };
+
         let mut read_options = ReadOptions::default();
         read_options.set_readahead_size(10_194_304);
         let iterator_mode = match restart_key {
-            Some(restart_key) => IteratorMode::From(restart_key, Direction::Forward),
-            None => IteratorMode::From(&key_prefix, Direction::Forward),
+            Some(restart_key) => IteratorMode::From(restart_key, direction),
+            None => IteratorMode::From(&key_prefix, direction),
         };
         let iter = self
             .db
@@ -563,6 +574,7 @@ impl StateReader {
         compute_graph: &str,
         cursor: Option<&[u8]>,
         limit: usize,
+        direction: Option<CursorDirection>,
     ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
@@ -574,6 +586,7 @@ impl StateReader {
             cursor,
             IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex,
             Some(limit),
+            direction,
         )?;
 
         let mut invocation_prefixes: Vec<Vec<u8>> = Vec::new();
