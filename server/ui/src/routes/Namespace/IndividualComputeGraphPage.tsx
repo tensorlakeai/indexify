@@ -1,4 +1,4 @@
-import { Box, Breadcrumbs, Typography, Stack, Chip, Button, ButtonGroup } from '@mui/material'
+import { Box, Breadcrumbs, Typography, Stack, Chip, Button } from '@mui/material'
 import { TableDocument } from 'iconsax-react'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import { Link, useLoaderData, useNavigate } from 'react-router-dom'
@@ -101,17 +101,17 @@ const IndividualComputeGraphPage = () => {
         />
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
           <Button 
-              onClick={handlePreviousPage}
-              disabled={!currentCursor}
-            >
-              Previous
-            </Button>
+            onClick={handlePreviousPage}
+            disabled={!currentCursor}
+          >
+            Previous
+          </Button>
           <Button 
-              onClick={handleNextPage}
-              disabled={!nextCursor}
-            >
-              Next
-            </Button>
+            onClick={handleNextPage}
+            disabled={!nextCursor}
+          >
+            Next
+          </Button>
         </Box>
       </Box>
     </Stack>
