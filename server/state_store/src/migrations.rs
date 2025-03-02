@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use data_model::StateMachineMetadata;
+use data_model::{GraphInvocationCtx, StateMachineMetadata};
 use rocksdb::{IteratorMode, ReadOptions, Transaction, TransactionDB};
 use tracing::info;
 
@@ -10,7 +10,7 @@ use crate::{
     state_machine::IndexifyObjectsColumns,
 };
 
-const SERVER_DB_VERSION: u64 = 3;
+const SERVER_DB_VERSION: u64 = 4;
 
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
@@ -47,6 +47,11 @@ pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
         if sm_meta.db_version == 2 {
             sm_meta.db_version += 1;
             migrate_v2_to_v3(db.clone(), &txn).context("migrating from v2 to v3")?;
+        }
+
+        if sm_meta.db_version == 3 {
+            sm_meta.db_version += 1;
+            migrate_v3_to_v4(db.clone(), &txn).context("migrating from v3 to v4")?;
         }
 
         // add new migrations before this line
@@ -224,6 +229,47 @@ pub fn migrate_v2_to_v3(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>
         num_migrated_invocation_ctx, num_total_invocation_ctx
     );
 
+    Ok(())
+}
+
+#[tracing::instrument(skip(db, txn))]
+pub fn migrate_v3_to_v4(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>) -> Result<()> {
+    let mut num_total_invocation_ctx: usize = 0;
+    let mut num_migrated_invocation_ctx: usize = 0;
+
+    {
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+
+        let iter = db.iterator_cf_opt(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            read_options,
+            IteratorMode::Start,
+        );
+
+        for kv in iter {
+            num_total_invocation_ctx += 1;
+            let (_key, value) = kv?;
+
+            let graph_invocation_ctx = JsonEncoder::decode::<GraphInvocationCtx>(&value)?;
+
+            let secondary_index_key =
+                GraphInvocationCtx::secondary_index_key(&graph_invocation_ctx);
+
+            txn.put_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
+                &secondary_index_key,
+                &[],
+            )?;
+
+            num_migrated_invocation_ctx += 1;
+        }
+    }
+
+    info!(
+        "Migrated {}/{} invocation context secondary indexes from v3 to v4",
+        num_migrated_invocation_ctx, num_total_invocation_ctx
+    );
     Ok(())
 }
 
