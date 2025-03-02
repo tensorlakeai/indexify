@@ -73,9 +73,8 @@ impl StateReader {
                 Some(JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?)
             } else {
                 warn!(
-                    "Key not found: {}, column family: {}",
-                    String::from_utf8(key.to_vec()).unwrap_or_default(),
-                    column.to_string()
+                    "Key not found: {}",
+                    String::from_utf8(key.to_vec()).unwrap_or_default()
                 );
                 None
             };
@@ -586,7 +585,6 @@ impl StateReader {
         upper_bound.push(0xff);
         read_options.set_iterate_upper_bound(upper_bound);
 
-        // Create lower bound with the correct type
         let mut lower_bound = key_prefix.clone();
         lower_bound.push(0x00);
         read_options.set_iterate_lower_bound(lower_bound);
@@ -597,20 +595,8 @@ impl StateReader {
         );
 
         match cursor {
-            Some(cursor) => {
-                iter.seek(cursor);
-                if matches!(direction, CursorDirection::Backward) && iter.valid() {
-                    iter.prev();
-                }
-            }
-            None => match direction {
-                CursorDirection::Backward => iter.seek(&key_prefix),
-                CursorDirection::Forward => {
-                    let mut seek_key = key_prefix.clone();
-                    seek_key.push(0xff);
-                    iter.seek_for_prev(&seek_key);
-                }
-            },
+            Some(cursor) => iter.seek(cursor),
+            None => iter.seek_to_last(),
         }
 
         let mut rows = Vec::new();
@@ -619,10 +605,6 @@ impl StateReader {
         // Collect results
         while iter.valid() {
             if let Some((key, _v)) = iter.item() {
-                if !key.starts_with(&key_prefix) {
-                    break;
-                }
-
                 if rows.len() < limit {
                     rows.push(key.to_vec());
                 } else {
@@ -633,7 +615,6 @@ impl StateReader {
                 break;
             }
 
-            // Move the iterator in the specified direction
             match direction {
                 CursorDirection::Backward => iter.next(),
                 CursorDirection::Forward => iter.prev(),
