@@ -8,7 +8,7 @@ use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
 use tracing::error;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
 pub struct IndexifyAPIError {
@@ -59,10 +59,10 @@ impl From<serde_json::Error> for IndexifyAPIError {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, IntoParams)]
 pub struct ListParams {
     pub limit: Option<usize>,
-    pub cursor: Option<Vec<u8>>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -377,7 +377,7 @@ pub struct CreateNamespace {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComputeGraphsList {
     pub compute_graphs: Vec<ComputeGraph>,
-    pub cursor: Option<Vec<u8>>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -401,7 +401,7 @@ pub struct CreateNamespaceResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GraphInvocations {
     pub invocations: Vec<Invocation>,
-    pub cursor: Option<Vec<u8>>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -504,7 +504,7 @@ impl From<data_model::Task> for Task {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Tasks {
     pub tasks: Vec<Task>,
-    pub cursor: Option<Vec<u8>>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -553,7 +553,7 @@ pub struct FnOutputs {
     pub status: InvocationStatus,
     pub outcome: InvocationOutcome,
     pub outputs: Vec<FnOutput>,
-    pub cursor: Option<Vec<u8>>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

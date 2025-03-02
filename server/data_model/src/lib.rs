@@ -773,6 +773,24 @@ impl GraphInvocationCtx {
         )
     }
 
+    pub fn secondary_index_key(&self) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(self.namespace.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(self.compute_graph_name.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(&self.created_at.to_be_bytes());
+        key.push(b'|');
+        key.extend_from_slice(self.invocation_id.as_bytes());
+        key
+    }
+
+    pub fn get_invocation_id_from_secondary_index_key(key: &[u8]) -> Option<String> {
+        key.split(|&b| b == b'|')
+            .nth(3)
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+    }
+
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
         format!("{}|{}|{}", ns, cg, id)
     }

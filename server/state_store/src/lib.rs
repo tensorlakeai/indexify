@@ -102,7 +102,8 @@ pub struct IndexifyState {
 
 impl IndexifyState {
     pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
-        fs::create_dir_all(path.clone())?;
+        fs::create_dir_all(path.clone())
+            .map_err(|e| anyhow!("failed to create state store dir: {}", e))?;
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
         let mut db_opts = Options::default();

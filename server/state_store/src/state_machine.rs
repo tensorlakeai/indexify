@@ -60,6 +60,7 @@ pub enum IndexifyObjectsColumns {
     ComputeGraphVersions, //  Ns_ComputeGraphName_Version -> ComputeGraphVersion
     Tasks,                //  Ns_CG_<Invocation_Id>_Fn_TaskId -> Task
     GraphInvocationCtx,   //  Ns_CG_IngestedId -> GraphInvocationCtx
+    GraphInvocationCtxSecondaryIndex, // NS_CG_InvocationId_CreatedAt -> empty
     ReductionTasks,       //  Ns_CG_Fn_TaskId -> ReduceTask
 
     GraphInvocations, //  Ns_Graph_Id -> InvocationPayload
@@ -130,6 +131,11 @@ pub fn create_invocation(
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
         req.ctx.key(),
         &JsonEncoder::encode(&req.ctx)?,
+    )?;
+    txn.put_cf(
+        &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
+        req.ctx.secondary_index_key(),
+        &[],
     )?;
 
     info!(
@@ -239,9 +245,19 @@ pub(crate) fn delete_invocation(
     }
 
     // Delete Graph Invocation Context
+    // Note We don't delete the secondary index here because it's too much work to
+    // get the invocation id from the secondary index key. We purge all the
+    // secondary index keys for graphs if they are ever deleted.
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
+
+    // Delete Graph Invocation Context Secondary Index
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
         prefix.as_bytes(),
     )?;
 
@@ -530,6 +546,13 @@ pub fn delete_compute_graph(
         };
         delete_invocation(db.clone(), txn, &req)?;
     }
+
+    // Delete Graph Invocation Context Secondary Index
+    delete_cf_prefix(
+        txn,
+        IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
+        prefix.as_bytes(),
+    )?;
 
     for iter in make_prefix_iterator(
         txn,

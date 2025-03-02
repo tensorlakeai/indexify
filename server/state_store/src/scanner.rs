@@ -559,18 +559,38 @@ impl StateReader {
         namespace: &str,
         compute_graph: &str,
         cursor: Option<&[u8]>,
-        limit: Option<usize>,
+        limit: usize,
     ) -> Result<(Vec<GraphInvocationCtx>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_invocations")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{}|{}|", namespace, compute_graph);
-        self.get_rows_from_cf_with_limits::<GraphInvocationCtx>(
-            key.as_bytes(),
+        let key_prefix = [namespace.as_bytes(), b"|", compute_graph.as_bytes()].concat();
+
+        let (rows, cursor) = self.get_raw_rows_from_cf_with_limits(
+            &key_prefix,
             cursor,
+            IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex,
+            Some(limit),
+        )?;
+
+        let mut invocation_prefixes: Vec<Vec<u8>> = Vec::new();
+        for (key, _) in rows {
+            if let Some(invocation_id) =
+                GraphInvocationCtx::get_invocation_id_from_secondary_index_key(&key)
+            {
+                invocation_prefixes.push(
+                    GraphInvocationCtx::key_from(&namespace, &compute_graph, &invocation_id)
+                        .as_bytes()
+                        .to_vec(),
+                );
+            }
+        }
+        let invocations = self.get_rows_from_cf_multi_key::<GraphInvocationCtx>(
+            invocation_prefixes.iter().map(|v| v.as_slice()).collect(),
             IndexifyObjectsColumns::GraphInvocationCtx,
-            limit,
-        )
+        )?;
+
+        Ok((invocations.into_iter().filter_map(|v| v).collect(), cursor))
     }
 
     pub fn list_compute_graphs(
