@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package task_scheduler_service;
+
+// ===== ReportExecutorState RPC =====
+
+enum GPUModel {
+    GPU_MODEL_UNKNOWN = 0;
+    GPU_MODEL_NVIDIA_TESLA_T4_16GB = 10;
+    GPU_MODEL_NVIDIA_TESLA_V100_16GB = 20;
+    GPU_MODEL_NVIDIA_A10_24GB = 30;
+    GPU_MODEL_NVIDIA_A6000_48GB = 40;
+    // A100 GPUs
+    GPU_MODEL_NVIDIA_A100_SXM4_40GB = 50;
+    GPU_MODEL_NVIDIA_A100_SXM4_80GB = 51;
+    GPU_MODEL_NVIDIA_A100_PCI_40GB = 52;
+    // H100 GPUs
+    GPU_MODEL_NVIDIA_H100_SXM5_80GB = 60;
+    GPU_MODEL_NVIDIA_H100_PCI_80GB = 61;
+    GPU_MODEL_NVIDIA_RTX_6000_24GB = 62;
+}
+
+// Free GPUs available at the Executor.
+message GPUResources {
+    optional uint32 count = 1;
+    optional GPUModel model = 2;
+}
+
+// Free host resources available at the Executor.
+message HostResources {
+    optional uint32 cpu_count = 1;
+    optional uint64 memory_bytes = 2;
+    optional uint64 disk_bytes = 3;
+    optional GPUResources gpu = 4;
+}
+
+// Specification of a single function that is allowed to be run on the Executor.
+message AllowedFunction {
+    optional string namespace = 1;
+    optional string graph_name = 2;
+    optional string function_name = 3;
+    // If none then any version of the graph is allowed to run on the Executor.
+    optional string graph_version = 4;
+}
+
+enum FunctionExecutorStatus {
+    FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
+    FUNCTION_EXECUTOR_STATUS_STARTING = 1;
+    FUNCTION_EXECUTOR_STATUS_IDLE = 2;
+    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 3;
+    FUNCTION_EXECUTOR_STATUS_SHUTTING_DOWN = 4;
+    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 5;
+}
+
+// Immutable information that identifies and describes a Function Executor.
+message FunctionExecutorDescription {
+    optional string id = 1;
+    optional string namespace = 2;
+    optional string graph_name = 3;
+    optional string graph_version = 4;
+    optional string function_name = 5;
+}
+
+message FunctionExecutorState {
+    optional FunctionExecutorDescription description = 1;
+    optional FunctionExecutorStatus status = 2;
+}
+
+enum ExecutorStatus {
+    EXECUTOR_STATUS_UNKNOWN = 0;
+    EXECUTOR_STATUS_STARTING = 1;
+    EXECUTOR_STATUS_RUNNING = 2;
+    EXECUTOR_STATUS_DRAINED = 3;
+    EXECUTOR_STATUS_SHUTTING_DOWN = 4;
+}
+
+message ExecutorState {
+    optional string executor_id = 1;
+    optional ExecutorStatus executor_status = 2;
+    optional HostResources host_resources = 3;
+    // Empty allowed_functions list means that any function can run on the Executor.
+    repeated AllowedFunction allowed_functions = 4;
+    repeated FunctionExecutorState function_executor_states = 5;
+}
+
+// A message sent by Executor to report its up to date state to Server.
+message ReportExecutorStateRequest {
+    optional ExecutorState executor_state = 1;
+}
+
+// A message sent by Server to Executor to acknowledge the receipt of Executor state.
+message ReportExecutorStateResponse {
+}
+
+// ===== GetDesiredExecutorStates RPC =====
+message Task {
+    optional string id = 1;
+    optional string namespace = 2;
+    optional string graph_name = 3;
+    optional string graph_version = 4;
+    optional string function_name = 5;
+    optional string graph_invocation_id = 6;
+    optional string input_key = 8;
+    optional string reducer_output_key = 9;
+    optional string image_uri = 10;
+}
+
+message TaskAllocation {
+    optional string function_executor_id = 1;
+    optional Task task = 2;
+}
+
+// A message sent by Executor to Server to open the stream of desired Executor States for the Executor.
+message GetDesiredExecutorStatesRequest {
+    optional string executor_id = 1;
+}
+
+// A message sent from Server to Executor that describes the desired state of the Executor at the moment.
+// Executor compares this state with its current state and make necessary changes to match the desired state.
+message DesiredExecutorState {
+    repeated FunctionExecutorDescription function_executors = 1;
+    repeated TaskAllocation task_allocations = 2;
+    // Server supplied clock value used to deduplicate messages. Executor records max clock value
+    // it observed and ignores all the messages with clock value <= the max observed value.
+    optional uint64 clock = 3;
+}
+
+// Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
+// Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+service TaskSchedulerService {
+    // Called by Executor every 5 seconds to report that it's still alive and provide its current state.
+    //
+    // Missing 3 reports will result in the Executor being deregistered by Server.
+    rpc ReportExecutorState(ReportExecutorStateRequest) returns (ReportExecutorStateResponse) {}
+
+    // Called by Executor to open a stream of its desired states. When Server wants Executor to change something
+    // it puts a message on the stream with the new desired state of the Executor.
+    //
+    // Depricated HTTP API is used to download the serialized graph and task inputs.
+    rpc GetDesiredExecutorStates(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
+
+    // Task outcome is currently reported via depricated HTTP API. We're going to migrate task output reporting to gRPC
+    // when we move S3 downloads and uploads to Executor.
+}

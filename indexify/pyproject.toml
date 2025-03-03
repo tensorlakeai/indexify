@@ -18,7 +18,6 @@ python = "^3.9"
 # structlog is provided by tensorlake
 # pyyaml is provided by tensorlake
 # httpx is provided by tensorlake
-# grpcio is provided by tensorlake
 
 # Executor only
 aiohttp = "^3.11.0"
@@ -27,6 +26,8 @@ prometheus-client = "^0.21.1"
 tensorlake = ">=0.1"
 # pydantic is provided by tensorlake
 # httpx-sse is provided by tensorlake
+# grpcio is provided by tensorlake
+# grpcio-tools is provided by tensorlake
 
 # CLI only
 rich = "^13.9.2"
