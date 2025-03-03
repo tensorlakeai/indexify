@@ -4,7 +4,6 @@ from .api_objects import Task
 from .function_executor.function_executor_state import FunctionExecutorState
 from .function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
-    function_id_with_version,
 )
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
@@ -34,7 +33,6 @@ class TaskRunner:
         executor_id: str,
         function_executor_server_factory: FunctionExecutorServerFactory,
         base_url: str,
-        disable_automatic_function_executor_management: bool,
         function_executor_states: FunctionExecutorStatesContainer,
         config_path: Optional[str],
     ):
@@ -42,9 +40,6 @@ class TaskRunner:
         self._factory: FunctionExecutorServerFactory = function_executor_server_factory
         self._base_url: str = base_url
         self._config_path: Optional[str] = config_path
-        self._disable_automatic_function_executor_management: bool = (
-            disable_automatic_function_executor_management
-        )
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
         )
@@ -90,7 +85,8 @@ class TaskRunner:
         """
         logger.info("task is blocked by policy")
         state = await self._function_executor_states.get_or_create_state(
-            task_input.task
+            id=_function_id_without_version(task_input.task),
+            task=task_input.task,
         )
         await state.lock.acquire()
 
@@ -111,12 +107,9 @@ class TaskRunner:
         #   - Each Function Executor rans at most 1 task concurrently.
         await state.wait_running_tasks_less(1)
 
-        if self._disable_automatic_function_executor_management:
-            return  # Disable Function Executor destroy in manual management mode.
-
-        if state.function_id_with_version != function_id_with_version(task):
+        if state.graph_version != task.graph_version:
             await state.destroy_function_executor()
-            state.function_id_with_version = function_id_with_version(task)
+            state.graph_version = task.graph_version
             # At this point the state belongs to the version of the function from the task
             # and there are no running tasks in the Function Executor.
 
@@ -137,3 +130,7 @@ class TaskRunner:
 
     async def shutdown(self) -> None:
         pass
+
+
+def _function_id_without_version(task: Task) -> str:
+    return f"not_versioned/{task.namespace}/{task.compute_graph}/{task.compute_fn}"

@@ -17,19 +17,21 @@ class FunctionExecutorStatesContainer:
         self._states: Dict[str, FunctionExecutorState] = {}
         self._is_shutdown: bool = False
 
-    async def get_or_create_state(self, task: Task) -> FunctionExecutorState:
-        """Get or create a function executor state for the given task.
+    async def get_or_create_state(self, id: str, task: Task) -> FunctionExecutorState:
+        """Get or create a function executor state with the given ID.
 
+        If the state already exists, it is returned. Otherwise, a new state is created from the supplied task.
         Raises Exception if it's not possible to create a new state at this time."""
         async with self._lock:
             if self._is_shutdown:
                 raise RuntimeError("Task runner is shutting down.")
 
-            id = function_id_without_version(task)
             if id not in self._states:
                 state = FunctionExecutorState(
-                    function_id_with_version=function_id_with_version(task),
-                    function_id_without_version=id,
+                    namespace=task.namespace,
+                    graph_name=task.compute_graph,
+                    graph_version=task.graph_version,
+                    function_name=task.compute_fn,
                 )
                 self._states[id] = state
                 metric_function_executor_states_count.set(len(self._states))
@@ -54,11 +56,3 @@ class FunctionExecutorStatesContainer:
                 async with state.lock:
                     await state.shutdown()
                     # The task running inside the Function Executor will fail because it's destroyed.
-
-
-def function_id_with_version(task: Task) -> str:
-    return f"versioned/{task.namespace}/{task.compute_graph}/{task.graph_version}/{task.compute_fn}"
-
-
-def function_id_without_version(task: Task) -> str:
-    return f"not_versioned/{task.namespace}/{task.compute_graph}/{task.compute_fn}"

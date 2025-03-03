@@ -5,6 +5,7 @@ from pathlib import Path
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
+import grpc
 import structlog
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 from tensorlake.utils.logging import suppress as suppress_logging
@@ -38,9 +39,13 @@ from .monitoring.health_checker.health_checker import HealthChecker
 from .monitoring.prometheus_metrics_handler import PrometheusMetricsHandler
 from .monitoring.server import MonitoringServer
 from .monitoring.startup_probe_handler import StartupProbeHandler
+from .state_reconciler import ExecutorStateReconciler
+from .state_reporter import ExecutorStateReporter
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
+
+EXECUTOR_GRPC_SERVER_READY_TIMEOUT_SEC = 10
 
 metric_executor_state.state("starting")
 
@@ -58,7 +63,7 @@ class Executor:
         config_path: Optional[str],
         monitoring_server_host: str,
         monitoring_server_port: int,
-        disable_automatic_function_executor_management: bool,
+        grpc_server_addr: Optional[str],
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._is_shutdown: bool = False
@@ -83,39 +88,48 @@ class Executor:
         health_checker.set_function_executor_states_container(
             self._function_executor_states
         )
-        self._task_runner = TaskRunner(
-            executor_id=id,
-            function_executor_server_factory=function_executor_server_factory,
-            base_url=self._base_url,
-            disable_automatic_function_executor_management=disable_automatic_function_executor_management,
-            function_executor_states=self._function_executor_states,
-            config_path=config_path,
-        )
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=config_path
-        )
-        self._task_fetcher = TaskFetcher(
-            executor_id=id,
-            executor_version=version,
-            function_allowlist=function_allowlist,
-            protocol=protocol,
-            indexify_server_addr=self._server_addr,
-            config_path=config_path,
         )
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
             executor_id=id,
             config_path=self._config_path,
         )
+        self._grpc_server_addr: Optional[str] = grpc_server_addr
+        if self._grpc_server_addr is None:
+            self._task_runner = TaskRunner(
+                executor_id=id,
+                function_executor_server_factory=function_executor_server_factory,
+                base_url=self._base_url,
+                function_executor_states=self._function_executor_states,
+                config_path=config_path,
+            )
+            self._task_fetcher = TaskFetcher(
+                executor_id=id,
+                executor_version=version,
+                function_allowlist=function_allowlist,
+                protocol=protocol,
+                indexify_server_addr=self._server_addr,
+                config_path=config_path,
+            )
+        else:
+            self._state_reporter = ExecutorStateReporter(self._function_executor_states)
+            self._state_reconciler = ExecutorStateReconciler(
+                executor_id=id,
+                function_executor_server_factory=function_executor_server_factory,
+                base_url=self._base_url,
+                function_executor_states=self._function_executor_states,
+                config_path=config_path,
+            )
+
         executor_info: Dict[str, str] = {
             "id": id,
             "version": version,
             "code_path": str(code_path),
             "server_addr": server_addr,
             "config_path": str(config_path),
-            "disable_automatic_function_executor_management": str(
-                disable_automatic_function_executor_management
-            ),
+            "grpc_server_addr": str(grpc_server_addr),
             "hostname": gethostname(),
         }
         executor_info.update(function_allowlist_to_info_dict(function_allowlist))
@@ -137,9 +151,23 @@ class Executor:
         asyncio.get_event_loop().create_task(self._monitoring_server.run())
 
         try:
-            asyncio.get_event_loop().run_until_complete(self._run_tasks_loop())
+            if self._grpc_server_addr is None:
+                asyncio.get_event_loop().run_until_complete(self._run_tasks_loop())
+            else:
+                asyncio.get_event_loop().run_until_complete(self._run_grpc_mode())
         except asyncio.CancelledError:
             pass  # Suppress this expected exception and return without error (normally).
+
+    async def _run_grpc_mode(self):
+        async with grpc.aio.insecure_channel(self._grpc_server_addr) as channel:
+            await asyncio.wait_for(
+                channel.channel_ready(),
+                timeout=EXECUTOR_GRPC_SERVER_READY_TIMEOUT_SEC,
+            )
+            asyncio.get_event_loop().create_task(
+                self._state_reporter.run(channel=channel, logger=self._logger)
+            )
+            await self._state_reconciler.run(channel=channel, logger=self._logger)
 
     async def _run_tasks_loop(self):
         metric_executor_state.state("running")
@@ -241,7 +269,11 @@ class Executor:
 
         self._is_shutdown = True
         await self._monitoring_server.shutdown()
-        await self._task_runner.shutdown()
+        if self._grpc_server_addr is None:
+            await self._task_runner.shutdown()
+        else:
+            await self._state_reporter.shutdown()
+            await self._state_reconciler.shutdown()
         await self._function_executor_states.shutdown()
         # We mainly need to cancel the task that runs _run_tasks_loop().
         for task in asyncio.all_tasks(loop):
