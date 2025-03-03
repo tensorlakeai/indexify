@@ -15,11 +15,16 @@ class FunctionExecutorState:
     under the lock.
     """
 
-    def __init__(self, function_id_with_version: str, function_id_without_version: str):
-        self.function_id_with_version: str = function_id_with_version
-        self.function_id_without_version: str = function_id_without_version
+    def __init__(
+        self, namespace: str, graph_name: str, graph_version: str, function_name: str
+    ):
+        # Read only fields.
+        self.namespace: str = namespace
+        self.graph_name: str = graph_name
+        self.function_name: str = function_name
         # All the fields below are protected by the lock.
         self.lock: asyncio.Lock = asyncio.Lock()
+        self.graph_version: str = graph_version
         self.is_shutdown: bool = False
         # Set to True if a Function Executor health check ever failed.
         self.health_check_failed: bool = False

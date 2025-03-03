@@ -208,13 +208,17 @@ def executor(
             help="Port where to run Executor Monitoring server",
         ),
     ] = 7000,
-    disable_automatic_function_executor_management: Annotated[
-        bool,
+    grpc_server_addr: Annotated[
+        Optional[str],
         typer.Option(
-            "--disable-automatic-function-executor-management",
-            help="Disable automatic Function Executor management by Executor",
+            "--grpc-server-addr",
+            help=(
+                "(exprimental) Address of server gRPC API to connect to, e.g. 'localhost:8901'.\n"
+                "If set disables automatic Function Executor management on Executor and uses the Server gRPC API\n"
+                "for Function Executor management and placement of tasks on them."
+            ),
         ),
-    ] = False,
+    ] = None,
 ):
     if dev:
         configure_development_mode_logging()
@@ -247,7 +251,7 @@ def executor(
         dev_mode=dev,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        disable_automatic_function_executor_management=disable_automatic_function_executor_management,
+        grpc_server_addr=grpc_server_addr,
     )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
@@ -285,7 +289,7 @@ def executor(
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        disable_automatic_function_executor_management=disable_automatic_function_executor_management,
+        grpc_server_addr=grpc_server_addr,
     ).run()
 
 
