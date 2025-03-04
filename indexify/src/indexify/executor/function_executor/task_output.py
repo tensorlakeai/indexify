@@ -13,7 +13,12 @@ class TaskOutput:
 
     def __init__(
         self,
-        task: Task,
+        task_id: str,
+        namespace: str,
+        graph_name: str,
+        function_name: str,
+        graph_version: str,
+        graph_invocation_id: str,
         function_output: Optional[FunctionOutput] = None,
         router_output: Optional[RouterOutput] = None,
         stdout: Optional[str] = None,
@@ -22,7 +27,12 @@ class TaskOutput:
         success: bool = False,
         is_internal_error: bool = False,
     ):
-        self.task = task
+        self.task_id = task_id
+        self.namespace = namespace
+        self.graph_name = graph_name
+        self.function_name = function_name
+        self.graph_version = graph_version
+        self.graph_invocation_id = graph_invocation_id
         self.function_output = function_output
         self.router_output = router_output
         self.stdout = stdout
@@ -32,11 +42,24 @@ class TaskOutput:
         self.is_internal_error = is_internal_error
 
     @classmethod
-    def internal_error(cls, task: Task) -> "TaskOutput":
+    def internal_error(
+        cls,
+        task_id: str,
+        namespace: str,
+        graph_name: str,
+        function_name: str,
+        graph_version: str,
+        graph_invocation_id: str,
+    ) -> "TaskOutput":
         """Creates a TaskOutput for an internal error."""
         # We are not sharing internal error messages with the customer.
         return TaskOutput(
-            task=task,
+            task_id=task_id,
+            namespace=namespace,
+            graph_name=graph_name,
+            function_name=function_name,
+            graph_version=graph_version,
+            graph_invocation_id=graph_invocation_id,
             stderr="Platform failed to execute the function.",
             is_internal_error=True,
         )
