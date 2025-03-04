@@ -101,13 +101,16 @@ impl TaskAllocationProcessor {
     }
 
     pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<TaskPlacementResult> {
-        let unallocated_task_ids = indexes.unallocated_tasks.keys().cloned().collect_vec();
+        let unallocated_task_ids = indexes.unallocated_tasks.clone();
         let mut tasks = Vec::new();
-        for task_id in &unallocated_task_ids {
-            if let Some(task) = indexes.tasks.get(task_id) {
+        for unallocated_task_id in &unallocated_task_ids {
+            if let Some(task) = indexes.tasks.get(&unallocated_task_id.task_key) {
                 tasks.push(task.clone());
             } else {
-                error!("task not found in indexes: {}", task_id);
+                error!(
+                    task_key=%unallocated_task_id.task_key,
+                    "task not found in indexes for unallocated task"
+                );
             }
         }
         if tasks.is_empty() {
@@ -192,7 +195,9 @@ impl TaskAllocationProcessor {
                         .or_default()
                         .push_back(Box::new(allocation));
                     indexes.tasks.insert(task.key(), task.clone());
-                    indexes.unallocated_tasks.remove(&task.key());
+                    indexes
+                        .unallocated_tasks
+                        .remove(&task.unallocated_task_id());
                     updated_tasks.push(*task);
                 }
                 Ok(None) => {
