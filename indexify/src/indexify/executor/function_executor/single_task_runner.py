@@ -69,7 +69,12 @@ class SingleTaskRunner:
                 await self._create_function_executor()
             except CustomerError as e:
                 return TaskOutput(
-                    task=self._task_input.task,
+                    task_id=self._task_input.task.id,
+                    namespace=self._task_input.task.namespace,
+                    graph_name=self._task_input.task.compute_graph,
+                    function_name=self._task_input.task.compute_fn,
+                    graph_version=self._task_input.task.graph_version,
+                    graph_invocation_id=self._task_input.task.invocation_id,
                     stderr=str(e),
                     success=False,
                 )
@@ -88,6 +93,7 @@ class SingleTaskRunner:
         config: FunctionExecutorServerConfiguration = (
             FunctionExecutorServerConfiguration(
                 executor_id=self._executor_id,
+                function_executor_id=self._state.id,
                 image_uri=self._task_input.task.image_uri,
             )
         )
@@ -220,7 +226,12 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
             raise ValueError(f"Response is missing required field: {field}")
 
     output = TaskOutput(
-        task=task,
+        task_id=task.id,
+        namespace=task.namespace,
+        graph_name=task.compute_graph,
+        function_name=task.compute_fn,
+        graph_version=task.graph_version,
+        graph_invocation_id=task.invocation_id,
         stdout=response.stdout,
         stderr=response.stderr,
         reducer=response.is_reducer,

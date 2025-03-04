@@ -45,11 +45,14 @@ message AllowedFunction {
 
 enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
-    FUNCTION_EXECUTOR_STATUS_STARTING = 1;
-    FUNCTION_EXECUTOR_STATUS_IDLE = 2;
-    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 3;
-    FUNCTION_EXECUTOR_STATUS_SHUTTING_DOWN = 4;
-    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 5;
+    FUNCTION_EXECUTOR_STATUS_STOPPED = 1;
+    FUNCTION_EXECUTOR_STATUS_STARTING_UP = 2;
+    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR = 3;
+    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR = 4;
+    FUNCTION_EXECUTOR_STATUS_IDLE = 5;
+    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 6;
+    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 7;
+    FUNCTION_EXECUTOR_STATUS_STOPPING = 8;
 }
 
 // Immutable information that identifies and describes a Function Executor.
@@ -59,6 +62,7 @@ message FunctionExecutorDescription {
     optional string graph_name = 3;
     optional string graph_version = 4;
     optional string function_name = 5;
+    optional string image_uri = 6;
 }
 
 message FunctionExecutorState {
@@ -102,7 +106,6 @@ message Task {
     optional string graph_invocation_id = 6;
     optional string input_key = 8;
     optional string reducer_output_key = 9;
-    optional string image_uri = 10;
 }
 
 message TaskAllocation {
@@ -131,13 +134,13 @@ service TaskSchedulerService {
     // Called by Executor every 5 seconds to report that it's still alive and provide its current state.
     //
     // Missing 3 reports will result in the Executor being deregistered by Server.
-    rpc ReportExecutorState(ReportExecutorStateRequest) returns (ReportExecutorStateResponse) {}
+    rpc report_executor_state(ReportExecutorStateRequest) returns (ReportExecutorStateResponse) {}
 
     // Called by Executor to open a stream of its desired states. When Server wants Executor to change something
     // it puts a message on the stream with the new desired state of the Executor.
     //
     // Depricated HTTP API is used to download the serialized graph and task inputs.
-    rpc GetDesiredExecutorStates(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
+    rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
 
     // Task outcome is currently reported via depricated HTTP API. We're going to migrate task output reporting to gRPC
     // when we move S3 downloads and uploads to Executor.

@@ -1,7 +1,6 @@
 import asyncio
-from typing import AsyncGenerator, Dict
+from typing import AsyncGenerator, Dict, Optional
 
-from ..api_objects import Task
 from .function_executor_state import FunctionExecutorState
 from .metrics.function_executor_state_container import (
     metric_function_executor_states_count,
@@ -17,21 +16,33 @@ class FunctionExecutorStatesContainer:
         self._states: Dict[str, FunctionExecutorState] = {}
         self._is_shutdown: bool = False
 
-    async def get_or_create_state(self, id: str, task: Task) -> FunctionExecutorState:
+    async def get_or_create_state(
+        self,
+        id: str,
+        namespace: str,
+        graph_name: str,
+        graph_version: str,
+        function_name: str,
+        image_uri: Optional[str],
+    ) -> FunctionExecutorState:
         """Get or create a function executor state with the given ID.
 
         If the state already exists, it is returned. Otherwise, a new state is created from the supplied task.
         Raises Exception if it's not possible to create a new state at this time."""
         async with self._lock:
             if self._is_shutdown:
-                raise RuntimeError("Task runner is shutting down.")
+                raise RuntimeError(
+                    "Function Executor states container is shutting down."
+                )
 
             if id not in self._states:
                 state = FunctionExecutorState(
-                    namespace=task.namespace,
-                    graph_name=task.compute_graph,
-                    graph_version=task.graph_version,
-                    function_name=task.compute_fn,
+                    id=id,
+                    namespace=namespace,
+                    graph_name=graph_name,
+                    graph_version=graph_version,
+                    function_name=function_name,
+                    image_uri=image_uri,
                 )
                 self._states[id] = state
                 metric_function_executor_states_count.set(len(self._states))
@@ -42,6 +53,13 @@ class FunctionExecutorStatesContainer:
         async with self._lock:
             for state in self._states.values():
                 yield state
+
+    async def pop(self, id: str) -> FunctionExecutorState:
+        """Removes the state with the given ID and returns it."""
+        async with self._lock:
+            state = self._states.pop(id)
+            metric_function_executor_states_count.set(len(self._states))
+            return state
 
     async def shutdown(self):
         # Function Executors are outside the Executor process

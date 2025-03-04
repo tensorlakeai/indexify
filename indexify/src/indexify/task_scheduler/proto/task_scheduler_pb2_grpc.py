@@ -42,14 +42,14 @@ class TaskSchedulerServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ReportExecutorState = channel.unary_unary(
-            "/task_scheduler_service.TaskSchedulerService/ReportExecutorState",
+        self.report_executor_state = channel.unary_unary(
+            "/task_scheduler_service.TaskSchedulerService/report_executor_state",
             request_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
             response_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
             _registered_method=True,
         )
-        self.GetDesiredExecutorStates = channel.unary_stream(
-            "/task_scheduler_service.TaskSchedulerService/GetDesiredExecutorStates",
+        self.get_desired_executor_states = channel.unary_stream(
+            "/task_scheduler_service.TaskSchedulerService/get_desired_executor_states",
             request_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
             response_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
             _registered_method=True,
@@ -61,7 +61,7 @@ class TaskSchedulerServiceServicer(object):
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
     """
 
-    def ReportExecutorState(self, request, context):
+    def report_executor_state(self, request, context):
         """Called by Executor every 5 seconds to report that it's still alive and provide its current state.
 
         Missing 3 reports will result in the Executor being deregistered by Server.
@@ -70,7 +70,7 @@ class TaskSchedulerServiceServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def GetDesiredExecutorStates(self, request, context):
+    def get_desired_executor_states(self, request, context):
         """Called by Executor to open a stream of its desired states. When Server wants Executor to change something
         it puts a message on the stream with the new desired state of the Executor.
 
@@ -83,13 +83,13 @@ class TaskSchedulerServiceServicer(object):
 
 def add_TaskSchedulerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-        "ReportExecutorState": grpc.unary_unary_rpc_method_handler(
-            servicer.ReportExecutorState,
+        "report_executor_state": grpc.unary_unary_rpc_method_handler(
+            servicer.report_executor_state,
             request_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.FromString,
             response_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.SerializeToString,
         ),
-        "GetDesiredExecutorStates": grpc.unary_stream_rpc_method_handler(
-            servicer.GetDesiredExecutorStates,
+        "get_desired_executor_states": grpc.unary_stream_rpc_method_handler(
+            servicer.get_desired_executor_states,
             request_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.FromString,
             response_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.SerializeToString,
         ),
@@ -110,7 +110,7 @@ class TaskSchedulerService(object):
     """
 
     @staticmethod
-    def ReportExecutorState(
+    def report_executor_state(
         request,
         target,
         options=(),
@@ -125,7 +125,7 @@ class TaskSchedulerService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/task_scheduler_service.TaskSchedulerService/ReportExecutorState",
+            "/task_scheduler_service.TaskSchedulerService/report_executor_state",
             indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
             indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
             options,
@@ -140,7 +140,7 @@ class TaskSchedulerService(object):
         )
 
     @staticmethod
-    def GetDesiredExecutorStates(
+    def get_desired_executor_states(
         request,
         target,
         options=(),
@@ -155,7 +155,7 @@ class TaskSchedulerService(object):
         return grpc.experimental.unary_stream(
             request,
             target,
-            "/task_scheduler_service.TaskSchedulerService/GetDesiredExecutorStates",
+            "/task_scheduler_service.TaskSchedulerService/get_desired_executor_states",
             indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
             indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
             options,

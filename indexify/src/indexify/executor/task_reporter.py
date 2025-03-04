@@ -13,12 +13,12 @@ from .api_objects import (
     RouterOutput,
     TaskResult,
 )
+from .function_executor.task_output import TaskOutput
 from .metrics.task_reporter import (
     metric_server_ingest_files_errors,
     metric_server_ingest_files_latency,
     metric_server_ingest_files_requests,
 )
-from .task_runner import TaskOutput
 
 
 # https://github.com/psf/requests/issues/1081#issuecomment-428504128
@@ -118,12 +118,12 @@ class TaskReporter:
     ) -> Tuple[TaskResult, List[Any], TaskOutputSummary]:
         task_result = TaskResult(
             outcome="failure",
-            namespace=output.task.namespace,
-            compute_graph=output.task.compute_graph,
-            compute_fn=output.task.compute_fn,
-            invocation_id=output.task.invocation_id,
+            namespace=output.namespace,
+            compute_graph=output.graph_name,
+            compute_fn=output.function_name,
+            invocation_id=output.graph_invocation_id,
             executor_id=self._executor_id,
-            task_id=output.task.id,
+            task_id=output.task_id,
         )
         output_files: List[Any] = []
         summary: TaskOutputSummary = TaskOutputSummary()
