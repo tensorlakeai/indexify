@@ -14,8 +14,11 @@ class FunctionExecutorServerConfiguration:
     configuration parameters or raise an exception if it can't implement
     them."""
 
-    def __init__(self, executor_id: str, image_uri: Optional[str]):
+    def __init__(
+        self, executor_id: str, function_executor_id: str, image_uri: Optional[str]
+    ):
         self.executor_id: str = executor_id
+        self.function_executor_id: str = function_executor_id
         # Container image URI of the Function Executor Server.
         self.image_uri: Optional[str] = image_uri
 

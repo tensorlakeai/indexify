@@ -71,7 +71,14 @@ class TaskRunner:
                 "failed running the task:",
                 exc_info=e,
             )
-            return TaskOutput.internal_error(task_input.task)
+            return TaskOutput.internal_error(
+                task_id=task_input.task.id,
+                namespace=task_input.task.namespace,
+                graph_name=task_input.task.compute_graph,
+                function_name=task_input.task.compute_fn,
+                graph_version=task_input.task.graph_version,
+                graph_invocation_id=task_input.task.invocation_id,
+            )
         finally:
             if state is not None:
                 state.lock.release()
@@ -86,7 +93,11 @@ class TaskRunner:
         logger.info("task is blocked by policy")
         state = await self._function_executor_states.get_or_create_state(
             id=_function_id_without_version(task_input.task),
-            task=task_input.task,
+            namespace=task_input.task.namespace,
+            graph_name=task_input.task.compute_graph,
+            graph_version=task_input.task.graph_version,
+            function_name=task_input.task.compute_fn,
+            image_uri=task_input.task.image_uri,
         )
         await state.lock.acquire()
 

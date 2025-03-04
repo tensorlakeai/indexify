@@ -50,7 +50,7 @@ class TestExecutor(unittest.TestCase):
             config_path=config_path,
             monitoring_server_host="localhost",
             monitoring_server_port=7000,
-            disable_automatic_function_executor_management=False,
+            grpc_server_addr=None,
         )
 
         # Verify that the correct file was loaded from the config_path
@@ -87,7 +87,7 @@ class TestExecutor(unittest.TestCase):
             config_path=None,
             monitoring_server_host="localhost",
             monitoring_server_port=7000,
-            disable_automatic_function_executor_management=False,
+            grpc_server_addr=None,
         )
 
         # Verify the protocol is set to "http"

@@ -28,11 +28,18 @@ class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     FUNCTION_EXECUTOR_STATUS_UNKNOWN: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_STARTING: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_STOPPED: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_STARTING_UP: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: _ClassVar[
+        FunctionExecutorStatus
+    ]
+    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR: _ClassVar[
+        FunctionExecutorStatus
+    ]
     FUNCTION_EXECUTOR_STATUS_IDLE: _ClassVar[FunctionExecutorStatus]
     FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: _ClassVar[FunctionExecutorStatus]
-    FUNCTION_EXECUTOR_STATUS_SHUTTING_DOWN: _ClassVar[FunctionExecutorStatus]
     FUNCTION_EXECUTOR_STATUS_UNHEALTHY: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_STOPPING: _ClassVar[FunctionExecutorStatus]
 
 class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -54,11 +61,14 @@ GPU_MODEL_NVIDIA_H100_SXM5_80GB: GPUModel
 GPU_MODEL_NVIDIA_H100_PCI_80GB: GPUModel
 GPU_MODEL_NVIDIA_RTX_6000_24GB: GPUModel
 FUNCTION_EXECUTOR_STATUS_UNKNOWN: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_STARTING: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_STOPPED: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_STARTING_UP: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_IDLE: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: FunctionExecutorStatus
-FUNCTION_EXECUTOR_STATUS_SHUTTING_DOWN: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_UNHEALTHY: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_STOPPING: FunctionExecutorStatus
 EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
@@ -112,17 +122,26 @@ class AllowedFunction(_message.Message):
     ) -> None: ...
 
 class FunctionExecutorDescription(_message.Message):
-    __slots__ = ("id", "namespace", "graph_name", "graph_version", "function_name")
+    __slots__ = (
+        "id",
+        "namespace",
+        "graph_name",
+        "graph_version",
+        "function_name",
+        "image_uri",
+    )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
     GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
     graph_version: str
     function_name: str
+    image_uri: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -130,6 +149,7 @@ class FunctionExecutorDescription(_message.Message):
         graph_name: _Optional[str] = ...,
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
+        image_uri: _Optional[str] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -199,7 +219,6 @@ class Task(_message.Message):
         "graph_invocation_id",
         "input_key",
         "reducer_output_key",
-        "image_uri",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -209,7 +228,6 @@ class Task(_message.Message):
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
     REDUCER_OUTPUT_KEY_FIELD_NUMBER: _ClassVar[int]
-    IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -218,7 +236,6 @@ class Task(_message.Message):
     graph_invocation_id: str
     input_key: str
     reducer_output_key: str
-    image_uri: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -229,7 +246,6 @@ class Task(_message.Message):
         graph_invocation_id: _Optional[str] = ...,
         input_key: _Optional[str] = ...,
         reducer_output_key: _Optional[str] = ...,
-        image_uri: _Optional[str] = ...,
     ) -> None: ...
 
 class TaskAllocation(_message.Message):

@@ -228,9 +228,7 @@ class TestMetrics(unittest.TestCase):
         info_sample: Sample = info_metric.samples[0]
         self.assertIn("code_path", info_sample.labels)
         self.assertIn("config_path", info_sample.labels)
-        self.assertIn(
-            "disable_automatic_function_executor_management", info_sample.labels
-        )
+        self.assertIn("grpc_server_addr", info_sample.labels)
         self.assertIn("function_allowlist", info_sample.labels)
         self.assertIn("hostname", info_sample.labels)
         self.assertIn("id", info_sample.labels)

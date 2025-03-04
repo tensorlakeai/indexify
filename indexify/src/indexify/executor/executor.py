@@ -97,29 +97,26 @@ class Executor:
             config_path=self._config_path,
         )
         self._grpc_server_addr: Optional[str] = grpc_server_addr
+        self._id = id
+        self._function_allowlist: Optional[List[FunctionURI]] = function_allowlist
+        self._function_executor_server_factory = function_executor_server_factory
+        self._state_reporter: Optional[ExecutorStateReporter] = None
+        self._state_reconciler: Optional[ExecutorStateReconciler] = None
+
         if self._grpc_server_addr is None:
-            self._task_runner = TaskRunner(
+            self._task_runner: Optional[TaskRunner] = TaskRunner(
                 executor_id=id,
                 function_executor_server_factory=function_executor_server_factory,
                 base_url=self._base_url,
                 function_executor_states=self._function_executor_states,
                 config_path=config_path,
             )
-            self._task_fetcher = TaskFetcher(
+            self._task_fetcher: Optional[TaskFetcher] = TaskFetcher(
                 executor_id=id,
                 executor_version=version,
                 function_allowlist=function_allowlist,
                 protocol=protocol,
                 indexify_server_addr=self._server_addr,
-                config_path=config_path,
-            )
-        else:
-            self._state_reporter = ExecutorStateReporter(self._function_executor_states)
-            self._state_reconciler = ExecutorStateReconciler(
-                executor_id=id,
-                function_executor_server_factory=function_executor_server_factory,
-                base_url=self._base_url,
-                function_executor_states=self._function_executor_states,
                 config_path=config_path,
             )
 
@@ -152,24 +149,79 @@ class Executor:
 
         try:
             if self._grpc_server_addr is None:
-                asyncio.get_event_loop().run_until_complete(self._run_tasks_loop())
+                asyncio.get_event_loop().run_until_complete(self._http_mode_loop())
             else:
-                asyncio.get_event_loop().run_until_complete(self._run_grpc_mode())
+                asyncio.get_event_loop().run_until_complete(self._grpc_mode_loop())
         except asyncio.CancelledError:
             pass  # Suppress this expected exception and return without error (normally).
 
-    async def _run_grpc_mode(self):
-        async with grpc.aio.insecure_channel(self._grpc_server_addr) as channel:
+    async def _grpc_mode_loop(self):
+        metric_executor_state.state("running")
+        self._startup_probe_handler.set_ready()
+
+        while not self._is_shutdown:
+            async with self._establish_grpc_server_channel() as server_channel:
+                server_channel: grpc.aio.Channel
+                await self._run_grpc_mode_services(server_channel)
+                self._logger.warning(
+                    "grpc mode services exited, retrying in 5 seconds",
+                )
+                await asyncio.sleep(5)
+
+    async def _establish_grpc_server_channel(self) -> grpc.aio.Channel:
+        try:
+            channel = grpc.aio.insecure_channel(self._grpc_server_addr)
             await asyncio.wait_for(
                 channel.channel_ready(),
                 timeout=EXECUTOR_GRPC_SERVER_READY_TIMEOUT_SEC,
             )
-            asyncio.get_event_loop().create_task(
-                self._state_reporter.run(channel=channel, logger=self._logger)
-            )
-            await self._state_reconciler.run(channel=channel, logger=self._logger)
+            return channel
+        except Exception as e:
+            self._logger.error("failed establishing grpc server channel", exc_info=e)
+            raise
 
-    async def _run_tasks_loop(self):
+    async def _run_grpc_mode_services(self, server_channel: grpc.aio.Channel):
+        """Runs the gRPC mode services.
+
+        Never raises any exceptions."""
+        try:
+            self._state_reporter = ExecutorStateReporter(
+                executor_id=self._id,
+                function_allowlist=self._function_allowlist,
+                function_executor_states=self._function_executor_states,
+                server_channel=server_channel,
+                logger=self._logger,
+            )
+            self._state_reconciler = ExecutorStateReconciler(
+                executor_id=self._id,
+                function_executor_server_factory=self._function_executor_server_factory,
+                base_url=self._base_url,
+                function_executor_states=self._function_executor_states,
+                config_path=self._config_path,
+                downloader=self._downloader,
+                task_reporter=self._task_reporter,
+                server_channel=server_channel,
+                logger=self._logger,
+            )
+
+            # Task group ensures that:
+            # 1. If one of the tasks fails then the other tasks are cancelled.
+            # 2. If Executor shuts down then all the tasks are cancelled and this function returns.
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(self._state_reporter.run())
+                tg.create_task(self._state_reconciler.run())
+        except Exception as e:
+            self._logger.error("failed running grpc mode services", exc_info=e)
+        finally:
+            # Handle task cancellation using finally.
+            if self._state_reporter is not None:
+                self._state_reporter.shutdown()
+                self._state_reporter = None
+            if self._state_reconciler is not None:
+                self._state_reconciler.shutdown()
+                self._state_reconciler = None
+
+    async def _http_mode_loop(self):
         metric_executor_state.state("running")
         self._startup_probe_handler.set_ready()
         while not self._is_shutdown:
@@ -195,7 +247,14 @@ class Executor:
             output = await self._run_task_and_get_output(task, logger)
             logger.info("task execution finished", success=output.success)
         except Exception as e:
-            output = TaskOutput.internal_error(task)
+            output = TaskOutput.internal_error(
+                task_id=task.id,
+                namespace=task.namespace,
+                graph_name=task.compute_graph,
+                function_name=task.compute_fn,
+                graph_version=task.graph_version,
+                graph_invocation_id=task.invocation_id,
+            )
             logger.error("task execution failed", exc_info=e)
 
         with (
@@ -208,12 +267,32 @@ class Executor:
         metric_task_completion_latency.observe(time.monotonic() - start_time)
 
     async def _run_task_and_get_output(self, task: Task, logger: Any) -> TaskOutput:
-        graph: SerializedObject = await self._downloader.download_graph(task)
-        input: SerializedObject = await self._downloader.download_input(task)
+        graph: SerializedObject = await self._downloader.download_graph(
+            namespace=task.namespace,
+            graph_name=task.compute_graph,
+            graph_version=task.graph_version,
+            logger=logger,
+        )
+        input: SerializedObject = await self._downloader.download_input(
+            namespace=task.namespace,
+            graph_name=task.compute_graph,
+            graph_invocation_id=task.invocation_id,
+            input_key=task.input_key,
+            logger=logger,
+        )
         init_value: Optional[SerializedObject] = (
             None
             if task.reducer_output_id is None
-            else (await self._downloader.download_init_value(task))
+            else (
+                await self._downloader.download_init_value(
+                    namespace=task.namespace,
+                    graph_name=task.compute_graph,
+                    function_name=task.compute_fn,
+                    graph_invocation_id=task.invocation_id,
+                    reducer_output_key=task.reducer_output_id,
+                    logger=logger,
+                )
+            )
         )
         return await self._task_runner.run(
             TaskInput(
@@ -269,15 +348,25 @@ class Executor:
 
         self._is_shutdown = True
         await self._monitoring_server.shutdown()
-        if self._grpc_server_addr is None:
+
+        if self._task_runner is not None:
             await self._task_runner.shutdown()
-        else:
+            self._task_runner = None
+        if self._state_reporter is not None:
             await self._state_reporter.shutdown()
+            self._state_reporter = None
+        if self._state_reconciler is not None:
             await self._state_reconciler.shutdown()
+            self._state_reconciler = None
+
+        # We need to shutdown all users of FE states first,
+        # otherwise states might disappear unexpectedly and we might
+        # report errors, etc that are expected.
         await self._function_executor_states.shutdown()
-        # We mainly need to cancel the task that runs _run_tasks_loop().
+        # We mainly need to cancel the task that runs _.*_mode_loop().
         for task in asyncio.all_tasks(loop):
             task.cancel()
+        # The current task is cancelled, the code after this line will not run.
 
     def shutdown(self, loop):
         loop.create_task(self._shutdown(loop))

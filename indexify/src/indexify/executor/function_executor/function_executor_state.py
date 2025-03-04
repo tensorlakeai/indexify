@@ -1,6 +1,8 @@
 import asyncio
 from typing import Optional
 
+from indexify.task_scheduler.proto.task_scheduler_pb2 import FunctionExecutorStatus
+
 from .function_executor import FunctionExecutor
 from .metrics.function_executor_state import (
     metric_function_executor_state_not_locked_errors,
@@ -16,18 +18,30 @@ class FunctionExecutorState:
     """
 
     def __init__(
-        self, namespace: str, graph_name: str, graph_version: str, function_name: str
+        self,
+        id: str,
+        namespace: str,
+        graph_name: str,
+        graph_version: str,
+        function_name: str,
+        image_uri: Optional[str],
     ):
         # Read only fields.
+        self.id: str = id
         self.namespace: str = namespace
         self.graph_name: str = graph_name
         self.function_name: str = function_name
-        # All the fields below are protected by the lock.
+        self.image_uri: Optional[str] = image_uri
+        # The lock must be held while modifying the fields below.
         self.lock: asyncio.Lock = asyncio.Lock()
         self.graph_version: str = graph_version
         self.is_shutdown: bool = False
         # Set to True if a Function Executor health check ever failed.
         self.health_check_failed: bool = False
+        # TODO: remove fields that duplicate this status field.
+        self.status: FunctionExecutorStatus = (
+            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STOPPED
+        )
         self.function_executor: Optional[FunctionExecutor] = None
         self.running_tasks: int = 0
         self.running_tasks_change_notifier: asyncio.Condition = asyncio.Condition(
