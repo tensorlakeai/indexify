@@ -9,6 +9,13 @@ use anyhow::Result;
 use pin_project_lite::pin_project;
 use prometheus::Registry;
 
+pub fn low_latency_boundaries() -> Vec<f64> {
+    vec![
+        0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0,
+        500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
+    ]
+}
+
 pin_project! {
     #[must_use = "futures do nothing unless you `.await` or poll them"]
     pub struct TimedFuture<F, C>
@@ -212,60 +219,10 @@ impl<'a, T: TimerUpdate + Sync> Drop for Timer<'a, T> {
     }
 }
 
-pub mod processors_metrics {
-    use opentelemetry::metrics::{Histogram, UpDownCounter};
-
-    #[derive(Debug)]
-    pub struct Metrics {
-        pub requests_queue_duration: Histogram<f64>,
-        pub requests_inflight: UpDownCounter<i64>,
-        pub processors_process_duration: Histogram<f64>,
-    }
-
-    impl Default for Metrics {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl Metrics {
-        pub fn new() -> Metrics {
-            let meter = opentelemetry::global::meter("dispatcher_metrics");
-            let low_latency_boundaries = vec![
-                0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 75.0,
-                100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0,
-            ];
-
-            let requests_queue_duration = meter
-                .f64_histogram("requests_queue_duration")
-                .with_unit("s")
-                .with_boundaries(low_latency_boundaries.clone())
-                .with_description("time spent waiting for a processor in seconds")
-                .build();
-
-            let requests_inflight = meter
-                .i64_up_down_counter("requests_inflight")
-                .with_description("number of requests in flight")
-                .build();
-
-            let processors_process_duration = meter
-                .f64_histogram("processors_process_duration")
-                .with_unit("s")
-                .with_boundaries(low_latency_boundaries)
-                .with_description("Processors processing latencies in seconds")
-                .build();
-
-            Metrics {
-                requests_queue_duration,
-                requests_inflight,
-                processors_process_duration,
-            }
-        }
-    }
-}
-
 pub mod blob_storage {
     use opentelemetry::metrics::Histogram;
+
+    use crate::low_latency_boundaries;
 
     #[derive(Debug)]
     pub struct Metrics {
@@ -285,6 +242,7 @@ pub mod blob_storage {
             let operations = meter
                 .f64_histogram("blob_operations_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries())
                 .with_description("blob store latencies in seconds")
                 .build();
 
@@ -295,6 +253,8 @@ pub mod blob_storage {
 
 pub mod kv_storage {
     use opentelemetry::metrics::Histogram;
+
+    use crate::low_latency_boundaries;
 
     #[derive(Debug)]
     pub struct Metrics {
@@ -315,12 +275,14 @@ pub mod kv_storage {
             let reads = meter
                 .f64_histogram("kv_storage_read_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries())
                 .with_description("K/V store read latencies in seconds")
                 .build();
 
             let writes = meter
                 .f64_histogram("kv_storage_write_duration")
                 .with_unit("s")
+                .with_boundaries(low_latency_boundaries())
                 .with_description("k/v store write latencies in seconds")
                 .build();
 
@@ -390,18 +352,21 @@ impl StateStoreMetrics {
         let state_write = meter
             .f64_histogram("state_machine_write_duration")
             .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
             .with_description("State machine writing latency in seconds")
             .build();
 
         let state_read = meter
             .f64_histogram("state_machine_read_duration")
             .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
             .with_description("State machine reading latency in seconds")
             .build();
 
         let state_metrics_write = meter
             .f64_histogram("state_metrics_write_duration")
             .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
             .with_description("State metrics writing latency in seconds")
             .build();
 

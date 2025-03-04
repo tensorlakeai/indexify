@@ -406,6 +406,8 @@ impl InMemoryState {
                         .retain(|a| a.task_id != allocation.task_id);
                 }
                 for executor_id in &req.remove_executors {
+                    self.active_allocations_gauge
+                        .record(0, &[KeyValue::new("executor_id", executor_id.to_string())]);
                     self.executors.remove(executor_id.get());
                     self.allocations_by_executor
                         .remove(&executor_id.get().to_string());
