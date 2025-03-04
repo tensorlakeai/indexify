@@ -18,3 +18,4 @@ blob_store.workspace = true
 opentelemetry.workspace = true
 async-trait.workspace = true
 itertools.workspace = true
+indexify_utils.workspace = true

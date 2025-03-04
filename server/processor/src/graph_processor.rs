@@ -2,6 +2,9 @@ use std::{sync::Arc, vec};
 
 use anyhow::Result;
 use data_model::{ChangeType, StateChange};
+use indexify_utils::get_elapsed_time;
+use metrics::{low_latency_boundaries, Timer};
+use opentelemetry::{metrics::Histogram, KeyValue};
 use state_store::{
     requests::{
         DeleteComputeGraphRequest,
@@ -20,6 +23,8 @@ pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
     pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
     pub task_creator: Arc<task_creator::TaskCreator>,
+    pub state_transition_latency: Histogram<f64>,
+    pub processor_processing_latency: Histogram<f64>,
 }
 
 impl GraphProcessor {
@@ -28,10 +33,28 @@ impl GraphProcessor {
         task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
         task_creator: Arc<task_creator::TaskCreator>,
     ) -> Self {
+        let meter = opentelemetry::global::meter("processor_metrics");
+
+        let processor_processing_latency = meter
+            .f64_histogram("processor_processing_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("processor task processing latency in seconds")
+            .build();
+
+        let state_transition_latency = meter
+            .f64_histogram("state_transition_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of state transitions before processing in seconds")
+            .build();
+
         Self {
             indexify_state,
             task_allocator,
             task_creator,
+            state_transition_latency,
+            processor_processing_latency,
         }
     }
 
@@ -75,6 +98,9 @@ impl GraphProcessor {
         last_namespace_state_change_cursor: &mut Option<Vec<u8>>,
         notify: &Arc<Notify>,
     ) -> Result<()> {
+        let timer_kvs = &[KeyValue::new("op", "get")];
+        let _timer_guard = Timer::start_with_labels(&self.processor_processing_latency, timer_kvs);
+
         // 1. First load 100 state changes. Process the `global` state changes first
         // and then the `ns_` state changes
         if cached_state_changes.is_empty() {
@@ -118,6 +144,19 @@ impl GraphProcessor {
         // 4. Process the next state change from the queue
         let state_change = cached_state_changes.pop().unwrap();
         let sm_update = self.handle_state_change(&state_change).await;
+
+        // Record the state transition latency
+        self.state_transition_latency.record(
+            get_elapsed_time(state_change.created_at.into()),
+            &[KeyValue::new(
+                "type",
+                if let Some(_) = state_change.namespace {
+                    "ns"
+                } else {
+                    "global"
+                },
+            )],
+        );
 
         // 5. Write the state change to the state store
         // If there is an error processing the state change, we write a NOOP state

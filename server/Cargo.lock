@@ -2308,6 +2308,7 @@ dependencies = [
  "blob_store",
  "dashmap",
  "data_model",
+ "indexify_utils",
  "itertools 0.14.0",
  "metrics",
  "opentelemetry",
