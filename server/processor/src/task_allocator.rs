@@ -12,7 +12,10 @@ use data_model::{
     Task,
     TaskStatus,
 };
+use indexify_utils::get_elapsed_time;
 use itertools::Itertools;
+use metrics::low_latency_boundaries;
+use opentelemetry::metrics::Histogram;
 use rand::seq::SliceRandom;
 use state_store::{
     in_memory_state::InMemoryState,
@@ -38,11 +41,23 @@ pub struct TaskPlacementResult {
 // - compute node timeout configuration
 const MAX_ALLOCATIONS_PER_EXECUTOR: usize = 20;
 
-pub struct TaskAllocationProcessor {}
+pub struct TaskAllocationProcessor {
+    pub task_queuing_latency: Histogram<f64>,
+}
 
 impl TaskAllocationProcessor {
     pub fn new() -> Self {
-        Self {}
+        let meter = opentelemetry::global::meter("task_allocator");
+        let task_queuing_latency = meter
+            .f64_histogram("task_queuing_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks wait in queue before allocation in seconds")
+            .build();
+
+        Self {
+            task_queuing_latency,
+        }
     }
 }
 impl TaskAllocationProcessor {
@@ -101,13 +116,16 @@ impl TaskAllocationProcessor {
     }
 
     pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<TaskPlacementResult> {
-        let unallocated_task_ids = indexes.unallocated_tasks.keys().cloned().collect_vec();
+        let unallocated_task_ids = indexes.unallocated_tasks.clone();
         let mut tasks = Vec::new();
-        for task_id in &unallocated_task_ids {
-            if let Some(task) = indexes.tasks.get(task_id) {
+        for unallocated_task_id in &unallocated_task_ids {
+            if let Some(task) = indexes.tasks.get(&unallocated_task_id.task_key) {
                 tasks.push(task.clone());
             } else {
-                error!("task not found in indexes: {}", task_id);
+                error!(
+                    task_key=%unallocated_task_id.task_key,
+                    "task not found in indexes for unallocated task"
+                );
             }
         }
         if tasks.is_empty() {
@@ -184,6 +202,8 @@ impl TaskAllocationProcessor {
                         invocation_id = &task.invocation_id,
                         "allocated task"
                     );
+                    self.task_queuing_latency
+                        .record(get_elapsed_time(task.creation_time_ns), &[]);
                     allocations.push(allocation.clone());
                     task.status = TaskStatus::Running;
                     indexes
@@ -192,7 +212,9 @@ impl TaskAllocationProcessor {
                         .or_default()
                         .push_back(Box::new(allocation));
                     indexes.tasks.insert(task.key(), task.clone());
-                    indexes.unallocated_tasks.remove(&task.key());
+                    indexes
+                        .unallocated_tasks
+                        .remove(&task.unallocated_task_id());
                     updated_tasks.push(*task);
                 }
                 Ok(None) => {

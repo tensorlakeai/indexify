@@ -45,11 +45,41 @@ impl<T> OptionInspectNone<T> for &Option<T> {
 }
 
 pub fn get_epoch_time_in_ms() -> u64 {
-    let start = SystemTime::now();
-    let since_the_epoch = start
+    SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("SystemTime before UNIX EPOCH");
-    since_the_epoch.as_millis() as u64
+        .expect("SystemTime before UNIX EPOCH")
+        .as_millis() as u64
+}
+
+/// Calculate elapsed time in seconds between a given timestamp and now
+///
+/// # Arguments
+///
+/// * `at` - A timestamp in Unix epoch milliseconds (u64)
+///
+/// # Returns
+///
+/// * Elapsed time in seconds as an f64
+pub fn get_elapsed_time(at: u128) -> f64 {
+    // Get current system time
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => {
+            // Calculate current time in milliseconds
+            let current_millis = duration.as_millis();
+
+            if current_millis < at {
+                // Handle future times gracefully
+                return 0.0;
+            }
+
+            // Calculate difference and convert to seconds as f64
+            ((current_millis - at) as f64) / 1000.0
+        }
+        Err(_) => {
+            // This should rarely happen, but handle potential time error
+            0.0
+        }
+    }
 }
 
 pub fn default_creation_time() -> SystemTime {
@@ -146,12 +176,45 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    use super::*;
+
     #[test]
     pub fn test_json_to_cbor() {
         let json_str = r#"{"key": "value"}"#;
-        let result = super::text_to_cbor(json_str).unwrap();
+        let result = text_to_cbor(json_str).unwrap();
         assert!(!result.is_empty());
         let data = ciborium::de::from_reader::<serde_json::Value, _>(&*result).unwrap();
         assert_eq!(data["key"], "value");
+    }
+
+    // adding a buffer of 100ms to prevent flakiness
+    #[test]
+    fn test_get_elapsed_time() {
+        {
+            let now = get_epoch_time_in_ms();
+            let elapsed = get_elapsed_time(now.into());
+            assert!(elapsed >= 0.0 && elapsed < 0.1);
+        }
+
+        {
+            let now = get_epoch_time_in_ms();
+            let past = now - 10; // 10ms ago
+            let elapsed = get_elapsed_time(past.into());
+            assert!(elapsed >= 0.01 && elapsed < 0.21, "{}", elapsed);
+        }
+
+        {
+            let now = get_epoch_time_in_ms();
+            let past = now - 5000; // 5 seconds ago
+            let elapsed = get_elapsed_time(past.into());
+            assert!(elapsed >= 5.0 && elapsed < 5.1);
+        }
+
+        {
+            let now = get_epoch_time_in_ms();
+            let future = now + 5000; // 5 seconds in the future
+            let elapsed = get_elapsed_time(future.into());
+            assert_eq!(elapsed, 0.0); // Should handle future times gracefully
+        }
     }
 }

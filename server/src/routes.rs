@@ -778,7 +778,7 @@ async fn list_unallocated_tasks(
         .unallocated_tasks
         .clone()
         .iter()
-        .filter_map(|(task_id, _)| state.tasks.get(task_id))
+        .filter_map(|unallocated_task_id| state.tasks.get(&unallocated_task_id.task_key))
         .map(|t| (**t).clone().into())
         .collect();
 
