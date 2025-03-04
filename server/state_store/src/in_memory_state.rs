@@ -10,9 +10,11 @@ use data_model::{
     ReduceTask,
     Task,
     TaskStatus,
+    UnallocatedTaskId,
 };
 use metrics::{StateStoreMetrics, Timer};
 use opentelemetry::{metrics::Gauge, KeyValue};
+use tracing::error;
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -36,7 +38,7 @@ pub struct InMemoryState {
     pub allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>>,
 
     // TaskKey -> Task
-    pub unallocated_tasks: im::OrdMap<String, [u8; 0]>,
+    pub unallocated_tasks: im::OrdSet<UnallocatedTaskId>,
 
     // Task Key -> Task
     pub tasks: im::OrdMap<String, Box<Task>>,
@@ -125,7 +127,7 @@ impl InMemoryState {
 
         // Creating Tasks
         let mut tasks = im::OrdMap::new();
-        let mut unallocated_tasks = im::OrdMap::new();
+        let mut unallocated_tasks = im::OrdSet::new();
         {
             let all_tasks: Vec<(String, Task)> =
                 reader.get_all_rows_from_cf(IndexifyObjectsColumns::Tasks)?;
@@ -146,7 +148,7 @@ impl InMemoryState {
                     continue;
                 }
                 if task.status == TaskStatus::Pending {
-                    unallocated_tasks.insert(task.key(), [0; 0]);
+                    unallocated_tasks.insert(task.unallocated_task_id());
                 }
                 tasks.insert(task.key(), Box::new(task));
             }
@@ -344,9 +346,9 @@ impl InMemoryState {
             RequestPayload::SchedulerUpdate(req) => {
                 for task in &req.updated_tasks {
                     if task.status == TaskStatus::Pending {
-                        self.unallocated_tasks.insert(task.key(), [0; 0]);
+                        self.unallocated_tasks.insert(task.unallocated_task_id());
                     } else {
-                        self.unallocated_tasks.remove(&task.key());
+                        self.unallocated_tasks.remove(&task.unallocated_task_id());
                     }
                     self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
@@ -381,12 +383,21 @@ impl InMemoryState {
                     }
                 }
                 for allocation in &req.new_allocations {
-                    self.allocations_by_executor
-                        .entry(allocation.executor_id.get().to_string())
-                        .or_default()
-                        .push_back(Box::new(allocation.clone()));
-                    self.unallocated_tasks
-                        .remove(&allocation.task_id.to_string());
+                    if let Some(task) = self.tasks.get(&allocation.task_key()) {
+                        self.allocations_by_executor
+                            .entry(allocation.executor_id.get().to_string())
+                            .or_default()
+                            .push_back(Box::new(allocation.clone()));
+                        self.unallocated_tasks.remove(&task.unallocated_task_id());
+                    } else {
+                        error!(
+                            namespace = &allocation.namespace,
+                            compute_graph = &allocation.compute_graph,
+                            invocation_id = &allocation.invocation_id,
+                            task_id = allocation.task_id.get(),
+                            "task not found for new allocation"
+                        );
+                    }
                 }
                 for allocation in &req.remove_allocations {
                     self.allocations_by_executor
@@ -452,7 +463,7 @@ impl InMemoryState {
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
-            self.unallocated_tasks.remove(&task.key());
+            self.unallocated_tasks.remove(&task.unallocated_task_id());
         }
 
         for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
@@ -486,13 +497,15 @@ impl InMemoryState {
 
         // Remove unallocated tasks
         let mut unallocated_tasks_to_remove = Vec::new();
-        for (k, _v) in self.unallocated_tasks.iter() {
-            if k.starts_with(&key_prefix) {
-                unallocated_tasks_to_remove.push(k.clone());
+        let unallocated_tasks_clone = self.unallocated_tasks.clone();
+        for unallocated_task_id in unallocated_tasks_clone.iter() {
+            let task_key = unallocated_task_id.task_key.clone();
+            if task_key.starts_with(&key_prefix) {
+                unallocated_tasks_to_remove.push(unallocated_task_id);
             }
         }
         for k in unallocated_tasks_to_remove {
-            self.unallocated_tasks.remove(&k);
+            self.unallocated_tasks.remove(k);
         }
 
         // Remove queued reduction tasks

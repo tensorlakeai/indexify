@@ -72,7 +72,7 @@ impl TaskCreator {
                 let result = self.handle_task_finished_inner(ev, indexes).await?;
                 result.tasks.iter().for_each(|t| {
                     indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                    indexes.unallocated_tasks.insert(t.key(), [0; 0]);
+                    indexes.unallocated_tasks.insert(t.unallocated_task_id());
                 });
                 if let Some(ctx) = result.invocation_ctx.clone() {
                     indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
@@ -99,7 +99,7 @@ impl TaskCreator {
                     .await?;
                 result.tasks.iter().for_each(|t| {
                     indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                    indexes.unallocated_tasks.insert(t.key(), [0; 0]);
+                    indexes.unallocated_tasks.insert(t.unallocated_task_id());
                 });
                 if let Some(ctx) = result.invocation_ctx.clone() {
                     indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
