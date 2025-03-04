@@ -25,11 +25,9 @@ Indexify is a versatile data processing framework for all kinds of use cases, in
 ### ⭐ Key Features
 
 * **Multi-Cloud/Datacenter/Region:** Leverage Compute in your workflows from other clouds with very little hassle and configuration.
-
-* **Dynamic Routing:** Route data to different specialized compute functions distributed on a cluster based on conditional branching logic.
-* **Local Inference:** Execute LLMs directly within workflow functions using LLamaCPP, vLLM, or Hugging Face Transformers in Python functions.
 * **Distributed Processing:** Run functions in parallel across machines for scaleouts use-cases.
 * **Resource Allocation:** Span workflows across GPU and CPU instances so that functions can be assigned to their optimal hardware.
+* **Dynamic Routing:** Route data to different specialized compute functions distributed on a cluster based on conditional branching logic.
 
 ## ⚙️ Installation
 
@@ -234,7 +232,7 @@ remote_graph = RemoteGraph.by_name("text_embedder")
 Deploying a workflow to production is a two step process -
 #### 1. Run the server 
 ```bash
-docker run -it --net host tensorlake/indexify-server 
+docker run -it -p 8900:8900 tensorlake/indexify-server 
 ```
 
 ### 2. Building and Deploying Function Containers
@@ -249,9 +247,9 @@ This builds the following image, as defined in the workflow code above - `text_e
 * Next Deploy the Containers 
 
 ```bash
-docker run --it --net host text_embedding_image indexify-cli executor --function default:text_embedder:chunk_document
-docker run --it --net host text_embedding_image indexify-cli executor --function default:text_embedder:embed_chunk
-docker run --it --net host text_embedding_image indexify-cli executor --function default:text_embedder:write_to_db
+docker run --it text_embedding_image indexify-cli executor --function default:text_embedder:chunk_document
+docker run --it text_embedding_image indexify-cli executor --function default:text_embedder:embed_chunk
+docker run --it text_embedding_image indexify-cli executor --function default:text_embedder:write_to_db
 ```
 
 > Containers are treated as ephemeral, only one type of function is ever scheduled on a single container. We are starting two containers for placing one function in each of them.
