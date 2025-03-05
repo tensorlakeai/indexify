@@ -20,16 +20,22 @@ from .server.client_configuration import HEALTH_CHECK_TIMEOUT_SEC
 HEALTH_CHECK_POLL_PERIOD_SEC = 10
 
 
+class HealthCheckResult:
+    def __init__(self, is_healthy: bool, reason: str):
+        self.is_healthy: bool = is_healthy
+        self.reason: str = reason
+
+
 class HealthChecker:
     def __init__(self, stub: FunctionExecutorStub, logger: Any):
         self._stub: FunctionExecutorStub = stub
         self._logger: Any = logger.bind(module=__name__)
         self._health_check_loop_task: Optional[asyncio.Task] = None
-        self._health_check_failed_callback: Optional[Callable[[], Awaitable[None]]] = (
-            None
-        )
+        self._health_check_failed_callback: Optional[
+            Callable[[HealthCheckResult], Awaitable[None]]
+        ] = None
 
-    async def check(self) -> bool:
+    async def check(self) -> HealthCheckResult:
         """Runs the health check once and returns the result.
 
         Does not raise any exceptions."""
@@ -40,17 +46,25 @@ class HealthChecker:
                 )
                 if not response.healthy:
                     metric_failed_health_checks.inc()
-                return response.healthy
-            except AioRpcError:
+                return HealthCheckResult(
+                    is_healthy=response.healthy, reason=response.status_message
+                )
+            except AioRpcError as e:
                 metric_failed_health_checks.inc()
                 # Expected exception when there are problems with communication because e.g. the server is unhealthy.
-                return False
+                return HealthCheckResult(
+                    is_healthy=False,
+                    reason=f"Executor side RPC channel error: {str(e)}",
+                )
             except Exception as e:
                 metric_failed_health_checks.inc()
                 self._logger.warning("Got unexpected exception, ignoring", exc_info=e)
-                return False
+                return HealthCheckResult(
+                    is_healthy=False,
+                    reason=f"Unexpected exception in Executor: {str(e)}",
+                )
 
-    def start(self, callback: Callable[[], Awaitable[None]]) -> None:
+    def start(self, callback: Callable[[HealthCheckResult], Awaitable[None]]) -> None:
         """Starts periodic health checks.
 
         The supplied callback is an async function called in the calling thread's
@@ -81,9 +95,10 @@ class HealthChecker:
 
     async def _health_check_loop(self) -> None:
         while True:
-            if not await self.check():
+            result: HealthCheckResult = await self.check()
+            if not result.is_healthy:
                 break
             await asyncio.sleep(HEALTH_CHECK_POLL_PERIOD_SEC)
 
-        asyncio.create_task(self._health_check_failed_callback())
+        asyncio.create_task(self._health_check_failed_callback(result))
         self._health_check_loop_task = None

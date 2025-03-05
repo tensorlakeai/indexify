@@ -14,6 +14,7 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 from ..api_objects import Task
 from .function_executor import CustomerError, FunctionExecutor
 from .function_executor_state import FunctionExecutorState
+from .health_checker import HealthChecker, HealthCheckResult
 from .metrics.single_task_runner import (
     metric_function_executor_run_task_rpc_errors,
     metric_function_executor_run_task_rpc_latency,
@@ -150,24 +151,32 @@ class SingleTaskRunner:
                 ).run_task(request)
             return _task_output(task=self._task_input.task, response=response)
 
-    async def _health_check_failed_callback(self):
+    async def _health_check_failed_callback(self, result: HealthCheckResult):
         # Function Executor destroy due to the periodic health check failure ensures that
         # a running task RPC stuck in unhealthy Function Executor fails immidiately.
         async with self._state.lock:
             if self._state.function_executor is not None:
-                await self._destroy_function_executor_on_failed_health_check()
+                await self._destroy_function_executor_on_failed_health_check(
+                    result.reason
+                )
 
     async def _destroy_existing_function_executor_if_unhealthy(self):
         self._state.check_locked()
         if self._state.function_executor is None:
             return
-        if await self._state.function_executor.health_checker().check():
+        result: HealthCheckResult = (
+            await self._state.function_executor.health_checker().check()
+        )
+        if result.is_healthy:
             return
-        await self._destroy_function_executor_on_failed_health_check()
+        await self._destroy_function_executor_on_failed_health_check(result.reason)
 
-    async def _destroy_function_executor_on_failed_health_check(self):
+    async def _destroy_function_executor_on_failed_health_check(self, reason: str):
         self._state.check_locked()
-        self._logger.error("Health check failed, destroying FunctionExecutor.")
+        self._logger.error(
+            "Function Executor health check failed, destroying Function Executor",
+            health_check_fail_reason=reason,
+        )
         self._state.health_check_failed = True
         await self._state.destroy_function_executor()
 
