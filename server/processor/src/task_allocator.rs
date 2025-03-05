@@ -18,7 +18,7 @@ use metrics::low_latency_boundaries;
 use opentelemetry::metrics::Histogram;
 use rand::seq::SliceRandom;
 use state_store::{
-    in_memory_state::InMemoryState,
+    in_memory_state::{InMemoryState, UnallocatedTaskId},
     requests::{ReductionTasks, SchedulerUpdateRequest},
 };
 use tracing::{debug, error, info, span};
@@ -214,7 +214,7 @@ impl TaskAllocationProcessor {
                     indexes.tasks.insert(task.key(), task.clone());
                     indexes
                         .unallocated_tasks
-                        .remove(&task.unallocated_task_id());
+                        .remove(&UnallocatedTaskId::new(&task));
                     updated_tasks.push(*task);
                 }
                 Ok(None) => {

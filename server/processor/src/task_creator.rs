@@ -15,7 +15,7 @@ use data_model::{
     TaskOutputsIngestedEvent,
 };
 use state_store::{
-    in_memory_state::InMemoryState,
+    in_memory_state::{InMemoryState, UnallocatedTaskId},
     requests::{ReductionTasks, SchedulerUpdateRequest},
     IndexifyState,
 };
@@ -72,7 +72,7 @@ impl TaskCreator {
                 let result = self.handle_task_finished_inner(ev, indexes).await?;
                 result.tasks.iter().for_each(|t| {
                     indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                    indexes.unallocated_tasks.insert(t.unallocated_task_id());
+                    indexes.unallocated_tasks.insert(UnallocatedTaskId::new(&t));
                 });
                 if let Some(ctx) = result.invocation_ctx.clone() {
                     indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
@@ -99,7 +99,7 @@ impl TaskCreator {
                     .await?;
                 result.tasks.iter().for_each(|t| {
                     indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                    indexes.unallocated_tasks.insert(t.unallocated_task_id());
+                    indexes.unallocated_tasks.insert(UnallocatedTaskId::new(&t));
                 });
                 if let Some(ctx) = result.invocation_ctx.clone() {
                     indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
