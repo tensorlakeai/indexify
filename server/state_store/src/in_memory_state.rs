@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 
 use anyhow::Result;
 use data_model::{
@@ -10,7 +10,6 @@ use data_model::{
     ReduceTask,
     Task,
     TaskStatus,
-    UnallocatedTaskId,
 };
 use metrics::{StateStoreMetrics, Timer};
 use opentelemetry::{metrics::Gauge, KeyValue};
@@ -21,6 +20,43 @@ use crate::{
     scanner::StateReader,
     state_machine::IndexifyObjectsColumns,
 };
+
+/// UnallocatedTaskId is a unique identifier for a task that has not been
+/// allocated to an executor. It is used to order tasks in the unallocated_tasks
+/// queue.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UnallocatedTaskId {
+    pub creation_time_ns: u128,
+    pub task_key: String,
+}
+
+impl UnallocatedTaskId {
+    pub fn new(task: &Task) -> Self {
+        Self {
+            creation_time_ns: task.creation_time_ns,
+            task_key: task.key(),
+        }
+    }
+}
+
+impl PartialOrd for UnallocatedTaskId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for UnallocatedTaskId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // First, compare creation times
+        match self.creation_time_ns.cmp(&other.creation_time_ns) {
+            Ordering::Equal => {
+                // If creation times are equal, compare task keys
+                self.task_key.cmp(&other.task_key)
+            }
+            time_ordering => time_ordering,
+        }
+    }
+}
 
 pub struct InMemoryState {
     pub namespaces: im::HashMap<String, [u8; 0]>,
@@ -148,7 +184,7 @@ impl InMemoryState {
                     continue;
                 }
                 if task.status == TaskStatus::Pending {
-                    unallocated_tasks.insert(task.unallocated_task_id());
+                    unallocated_tasks.insert(UnallocatedTaskId::new(&task));
                 }
                 tasks.insert(task.key(), Box::new(task));
             }
@@ -346,9 +382,10 @@ impl InMemoryState {
             RequestPayload::SchedulerUpdate(req) => {
                 for task in &req.updated_tasks {
                     if task.status == TaskStatus::Pending {
-                        self.unallocated_tasks.insert(task.unallocated_task_id());
+                        self.unallocated_tasks.insert(UnallocatedTaskId::new(&task));
                     } else {
-                        self.unallocated_tasks.remove(&task.unallocated_task_id());
+                        self.unallocated_tasks
+                            .remove(&UnallocatedTaskId::new(&task));
                     }
                     self.tasks.insert(task.key(), Box::new(task.clone()));
                 }
@@ -388,7 +425,8 @@ impl InMemoryState {
                             .entry(allocation.executor_id.get().to_string())
                             .or_default()
                             .push_back(Box::new(allocation.clone()));
-                        self.unallocated_tasks.remove(&task.unallocated_task_id());
+                        self.unallocated_tasks
+                            .remove(&UnallocatedTaskId::new(&task));
                     } else {
                         error!(
                             namespace = &allocation.namespace,
@@ -465,7 +503,8 @@ impl InMemoryState {
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
         for task in tasks.iter() {
             self.tasks.remove(&task.key());
-            self.unallocated_tasks.remove(&task.unallocated_task_id());
+            self.unallocated_tasks
+                .remove(&UnallocatedTaskId::new(&task));
         }
 
         for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
@@ -539,5 +578,88 @@ impl InMemoryState {
             active_invocations_gauge: self.active_invocations_gauge.clone(),
             active_allocations_gauge: self.active_allocations_gauge.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::in_memory_state::UnallocatedTaskId;
+
+    #[test]
+    fn test_unallocated_task_id_ordering() {
+        {
+            let task1 = UnallocatedTaskId {
+                creation_time_ns: 100,
+                task_key: "task1".to_string(),
+            };
+            let task2 = UnallocatedTaskId {
+                creation_time_ns: 200,
+                task_key: "task1".to_string(),
+            };
+            let task3 = UnallocatedTaskId {
+                creation_time_ns: 300,
+                task_key: "task1".to_string(),
+            };
+            let task4 = UnallocatedTaskId {
+                creation_time_ns: 400,
+                task_key: "task1".to_string(),
+            };
+            let task5 = UnallocatedTaskId {
+                creation_time_ns: 1000,
+                task_key: "task1".to_string(),
+            };
+
+            assert!(task1 < task2);
+            assert!(task2 < task3);
+            assert!(task3 < task4);
+            assert!(task3 < task5);
+        }
+
+        {
+            let task1 = UnallocatedTaskId {
+                creation_time_ns: 100,
+                task_key: "task1".to_string(),
+            };
+            let task2 = UnallocatedTaskId {
+                creation_time_ns: 100,
+                task_key: "task2".to_string(),
+            };
+            let task3 = UnallocatedTaskId {
+                creation_time_ns: 100,
+                task_key: "task3".to_string(),
+            };
+            let task4 = UnallocatedTaskId {
+                creation_time_ns: 100,
+                task_key: "task4".to_string(),
+            };
+
+            assert!(task1 < task2);
+            assert!(task2 < task3);
+            assert!(task3 < task4);
+        }
+
+        // test that task key is only used as a tie breaker.
+        {
+            let task1 = UnallocatedTaskId {
+                creation_time_ns: 400,
+                task_key: "task1".to_string(),
+            };
+            let task2 = UnallocatedTaskId {
+                creation_time_ns: 300,
+                task_key: "task2".to_string(),
+            };
+            let task3 = UnallocatedTaskId {
+                creation_time_ns: 200,
+                task_key: "task3".to_string(),
+            };
+            let task4 = UnallocatedTaskId {
+                creation_time_ns: 100,
+                task_key: "task4".to_string(),
+            };
+
+            assert!(task4 < task3);
+            assert!(task3 < task2);
+            assert!(task2 < task1);
+        }
     }
 }

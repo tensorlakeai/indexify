@@ -906,21 +906,6 @@ impl Default for TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UnallocatedTaskId {
-    pub creation_time_ns: u128,
-    pub task_key: String,
-}
-
-impl UnallocatedTaskId {
-    pub fn new(task: &Task) -> Self {
-        Self {
-            creation_time_ns: task.creation_time_ns,
-            task_key: task.key(),
-        }
-    }
-}
-
 #[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct Task {
@@ -1007,10 +992,6 @@ impl Task {
 
     pub fn key_output(&self, output_id: &str) -> String {
         format!("{}|{}|{}", self.namespace, self.id, output_id)
-    }
-
-    pub fn unallocated_task_id(&self) -> UnallocatedTaskId {
-        UnallocatedTaskId::new(self)
     }
 }
 
@@ -1338,7 +1319,6 @@ mod tests {
         GraphVersion,
         Node,
         RuntimeInformation,
-        UnallocatedTaskId,
     };
 
     #[test]
@@ -1825,85 +1805,5 @@ mod tests {
                 ]);
             },
         );
-    }
-
-    #[test]
-    fn test_unallocated_task_id_ordering() {
-        {
-            let task1 = UnallocatedTaskId {
-                creation_time_ns: 100,
-                task_key: "task1".to_string(),
-            };
-            let task2 = UnallocatedTaskId {
-                creation_time_ns: 200,
-                task_key: "task1".to_string(),
-            };
-            let task3 = UnallocatedTaskId {
-                creation_time_ns: 300,
-                task_key: "task1".to_string(),
-            };
-            let task4 = UnallocatedTaskId {
-                creation_time_ns: 400,
-                task_key: "task1".to_string(),
-            };
-            let task5 = UnallocatedTaskId {
-                creation_time_ns: 1000,
-                task_key: "task1".to_string(),
-            };
-
-            assert!(task1 < task2);
-            assert!(task2 < task3);
-            assert!(task3 < task4);
-            assert!(task3 < task5);
-        }
-
-        {
-            let task1 = UnallocatedTaskId {
-                creation_time_ns: 100,
-                task_key: "task1".to_string(),
-            };
-            let task2 = UnallocatedTaskId {
-                creation_time_ns: 100,
-                task_key: "task2".to_string(),
-            };
-            let task3 = UnallocatedTaskId {
-                creation_time_ns: 100,
-                task_key: "task3".to_string(),
-            };
-            let task4 = UnallocatedTaskId {
-                creation_time_ns: 100,
-                task_key: "task4".to_string(),
-            };
-
-            assert!(task1 < task2);
-            assert!(task2 < task3);
-            assert!(task3 < task4);
-        }
-
-        // test that task key is ONLY used as a tie breaker
-        // this depends on the field ordering in the struct
-        // where creation_time_ns needs to be first.
-        {
-            let task1 = UnallocatedTaskId {
-                creation_time_ns: 400,
-                task_key: "task1".to_string(),
-            };
-            let task2 = UnallocatedTaskId {
-                creation_time_ns: 300,
-                task_key: "task2".to_string(),
-            };
-            let task3 = UnallocatedTaskId {
-                creation_time_ns: 200,
-                task_key: "task3".to_string(),
-            };
-            let task4 = UnallocatedTaskId {
-                creation_time_ns: 100,
-                task_key: "task4".to_string(),
-            };
-
-            assert!(task4 < task3);
-            assert!(task3 < task2);
-            assert!(task2 < task1);
-        }
     }
 }
