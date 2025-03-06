@@ -17,7 +17,7 @@ use opentelemetry::{
     metrics::{Gauge, Histogram},
     KeyValue,
 };
-use tracing::{error, info};
+use tracing::error;
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
