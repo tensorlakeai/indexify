@@ -2,7 +2,7 @@ use std::{sync::Arc, vec};
 
 use anyhow::Result;
 use data_model::{ChangeType, StateChange};
-use indexify_utils::get_elapsed_time;
+use indexify_utils::{get_elapsed_time, TimeUnit};
 use metrics::{low_latency_boundaries, Timer};
 use opentelemetry::{metrics::Histogram, KeyValue};
 use state_store::{
@@ -145,19 +145,6 @@ impl GraphProcessor {
         let state_change = cached_state_changes.pop().unwrap();
         let sm_update = self.handle_state_change(&state_change).await;
 
-        // Record the state transition latency
-        self.state_transition_latency.record(
-            get_elapsed_time(state_change.created_at.into()),
-            &[KeyValue::new(
-                "type",
-                if let Some(_) = state_change.namespace {
-                    "ns"
-                } else {
-                    "global"
-                },
-            )],
-        );
-
         // 5. Write the state change to the state store
         // If there is an error processing the state change, we write a NOOP state
         // change That way this problematic state change will never be processed
@@ -200,6 +187,19 @@ impl GraphProcessor {
                 })
                 .await?;
         }
+
+        // Record the state transition latency
+        self.state_transition_latency.record(
+            get_elapsed_time(state_change.created_at.into(), TimeUnit::Milliseconds),
+            &[KeyValue::new(
+                "type",
+                if let Some(_) = state_change.namespace {
+                    "ns"
+                } else {
+                    "global"
+                },
+            )],
+        );
         Ok(())
     }
 
