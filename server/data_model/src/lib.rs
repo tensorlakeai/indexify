@@ -890,7 +890,18 @@ impl TaskOutcome {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq)]
+impl Display for TaskOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str_val = match self {
+            TaskOutcome::Success => "Success",
+            TaskOutcome::Failure => "Failure",
+            TaskOutcome::Unknown => "Unknown",
+        };
+        write!(f, "{}", str_val)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum TaskStatus {
     /// Task is waiting for execution
     Pending,
@@ -903,6 +914,17 @@ pub enum TaskStatus {
 impl Default for TaskStatus {
     fn default() -> Self {
         Self::Completed
+    }
+}
+
+impl Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str_val = match self {
+            TaskStatus::Pending => "Pending",
+            TaskStatus::Running => "Running",
+            TaskStatus::Completed => "Completed",
+        };
+        write!(f, "{}", str_val)
     }
 }
 
@@ -1034,9 +1056,7 @@ impl TaskBuilder {
         let reducer_output_id = self.reducer_output_id.clone().flatten();
         let current_time = SystemTime::now();
         let duration = current_time.duration_since(UNIX_EPOCH).unwrap();
-        let secs = duration.as_secs() as u128;
-        let nsecs = duration.subsec_nanos() as u128;
-        let creation_time_ns = secs * 1_000_000_000 + nsecs;
+        let creation_time_ns = duration.as_nanos();
         let id = uuid::Uuid::new_v4().to_string();
         let task = Task {
             id: TaskId(id),

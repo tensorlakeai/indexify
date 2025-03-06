@@ -51,34 +51,29 @@ pub fn get_epoch_time_in_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// Calculate elapsed time in seconds between a given timestamp and now
-///
-/// # Arguments
-///
-/// * `at` - A timestamp in Unix epoch milliseconds (u64)
-///
-/// # Returns
-///
-/// * Elapsed time in seconds as an f64
-pub fn get_elapsed_time(at: u128) -> f64 {
-    // Get current system time
+pub enum TimeUnit {
+    Milliseconds,
+    Nanoseconds,
+}
+
+pub fn get_elapsed_time(at: u128, unit: TimeUnit) -> f64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => {
-            // Calculate current time in milliseconds
-            let current_millis = duration.as_millis();
+            // Convert both times to the same unit (nanoseconds) for comparison
+            let current_ns = duration.as_nanos();
+            let at_ns = match unit {
+                TimeUnit::Milliseconds => at * 1_000_000,
+                TimeUnit::Nanoseconds => at,
+            };
 
-            if current_millis < at {
-                // Handle future times gracefully
+            if current_ns < at_ns {
                 return 0.0;
             }
 
-            // Calculate difference and convert to seconds as f64
-            ((current_millis - at) as f64) / 1000.0
+            // Calculate difference and convert to seconds
+            ((current_ns - at_ns) as f64) / 1_000_000_000.0
         }
-        Err(_) => {
-            // This should rarely happen, but handle potential time error
-            0.0
-        }
+        Err(_) => 0.0,
     }
 }
 
@@ -192,28 +187,28 @@ pub mod tests {
     fn test_get_elapsed_time() {
         {
             let now = get_epoch_time_in_ms();
-            let elapsed = get_elapsed_time(now.into());
+            let elapsed = get_elapsed_time(now.into(), TimeUnit::Milliseconds);
             assert!(elapsed >= 0.0 && elapsed < 0.1);
         }
 
         {
             let now = get_epoch_time_in_ms();
             let past = now - 10; // 10ms ago
-            let elapsed = get_elapsed_time(past.into());
+            let elapsed = get_elapsed_time(past.into(), TimeUnit::Milliseconds);
             assert!(elapsed >= 0.01 && elapsed < 0.21, "{}", elapsed);
         }
 
         {
             let now = get_epoch_time_in_ms();
             let past = now - 5000; // 5 seconds ago
-            let elapsed = get_elapsed_time(past.into());
+            let elapsed = get_elapsed_time(past.into(), TimeUnit::Milliseconds);
             assert!(elapsed >= 5.0 && elapsed < 5.1);
         }
 
         {
             let now = get_epoch_time_in_ms();
             let future = now + 5000; // 5 seconds in the future
-            let elapsed = get_elapsed_time(future.into());
+            let elapsed = get_elapsed_time(future.into(), TimeUnit::Milliseconds);
             assert_eq!(elapsed, 0.0); // Should handle future times gracefully
         }
     }

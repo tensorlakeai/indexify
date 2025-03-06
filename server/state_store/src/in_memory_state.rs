@@ -11,9 +11,13 @@ use data_model::{
     Task,
     TaskStatus,
 };
-use metrics::{StateStoreMetrics, Timer};
-use opentelemetry::{metrics::Gauge, KeyValue};
-use tracing::error;
+use indexify_utils::{get_elapsed_time, TimeUnit};
+use metrics::{low_latency_boundaries, StateStoreMetrics, Timer};
+use opentelemetry::{
+    metrics::{Gauge, Histogram},
+    KeyValue,
+};
+use tracing::{error, info};
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -91,6 +95,9 @@ pub struct InMemoryState {
     active_tasks_gauge: Gauge<u64>,
     active_invocations_gauge: Gauge<u64>,
     active_allocations_gauge: Gauge<u64>,
+    task_pending_latency: Histogram<f64>,
+    task_running_latency: Histogram<f64>,
+    task_completion_latency: Histogram<f64>,
 }
 
 impl InMemoryState {
@@ -210,24 +217,43 @@ impl InMemoryState {
             }
         }
 
-        let unallocated_tasks_gauge = opentelemetry::global::meter("state_store")
+        let meter = opentelemetry::global::meter("state_store");
+
+        let unallocated_tasks_gauge = meter
             .u64_gauge("un_allocated_tasks")
             .with_description("Number of unallocated tasks, reported from in_memory_state")
             .build();
-
-        let active_tasks_gauge = opentelemetry::global::meter("state_store")
+        let active_tasks_gauge = meter
             .u64_gauge("active_tasks")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
-
-        let active_invocations_gauge = opentelemetry::global::meter("state_store")
+        let active_invocations_gauge = meter
             .u64_gauge("active_invocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
-        let active_allocations_gauge = opentelemetry::global::meter("state_store")
+        let active_allocations_gauge = meter
             .u64_gauge("active_allocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
+        let task_pending_latency = meter
+            .f64_histogram("task_pending_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks spend from creation to running")
+            .build();
+        let task_running_latency = meter
+            .f64_histogram("task_running_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks spend from running to completion")
+            .build();
+        let task_completion_latency = meter
+            .f64_histogram("task_completion_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks spend from creation to completion")
+            .build();
+
         let in_memory_state = Self {
             namespaces,
             compute_graphs,
@@ -243,6 +269,9 @@ impl InMemoryState {
             active_tasks_gauge,
             active_invocations_gauge,
             active_allocations_gauge,
+            task_pending_latency,
+            task_running_latency,
+            task_completion_latency,
         };
         in_memory_state.emit_metrics();
 
@@ -288,7 +317,7 @@ impl InMemoryState {
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
             }
             RequestPayload::IngestTaskOutputs(req) => {
-                let allocation_key = Allocation::id(
+                let allocation_id = Allocation::id(
                     req.executor_id.get(),
                     &req.task.id.to_string(),
                     &req.namespace,
@@ -296,12 +325,35 @@ impl InMemoryState {
                     &req.compute_fn,
                     &req.invocation_id,
                 );
-                self.allocations_by_executor
-                    .entry(req.executor_id.get().to_string())
-                    .or_default()
-                    .retain(|a| a.id != allocation_key);
+
+                // update task
                 self.tasks
                     .insert(req.task.key(), Box::new(req.task.clone()));
+
+                // remove allocation
+                for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
+                    if let Some(index) = allocations.iter().position(|a| a.id == allocation_id) {
+                        let allocation = &allocations[index];
+                        self.task_running_latency.record(
+                            get_elapsed_time(allocation.created_at, TimeUnit::Milliseconds),
+                            &[KeyValue::new("outcome", req.task.outcome.to_string())],
+                        );
+
+                        // Remove the allocation
+                        allocations.remove(index);
+                        break;
+                    }
+                }
+
+                info!(
+                    "TASK LATENCY: elapsed={}, task={}",
+                    get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
+                    req.task.creation_time_ns,
+                );
+                self.task_completion_latency.record(
+                    get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
+                    &[KeyValue::new("outcome", req.task.outcome.to_string())],
+                );
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -427,6 +479,11 @@ impl InMemoryState {
                             .push_back(Box::new(allocation.clone()));
                         self.unallocated_tasks
                             .remove(&UnallocatedTaskId::new(&task));
+
+                        self.task_pending_latency.record(
+                            get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
+                            &[],
+                        );
                     } else {
                         error!(
                             namespace = &allocation.namespace,
@@ -577,6 +634,9 @@ impl InMemoryState {
             active_tasks_gauge: self.active_tasks_gauge.clone(),
             active_invocations_gauge: self.active_invocations_gauge.clone(),
             active_allocations_gauge: self.active_allocations_gauge.clone(),
+            task_pending_latency: self.task_pending_latency.clone(),
+            task_running_latency: self.task_running_latency.clone(),
+            task_completion_latency: self.task_completion_latency.clone(),
         })
     }
 }
