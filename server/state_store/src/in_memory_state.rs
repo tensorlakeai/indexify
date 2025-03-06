@@ -345,11 +345,6 @@ impl InMemoryState {
                     }
                 }
 
-                info!(
-                    "TASK LATENCY: elapsed={}, task={}",
-                    get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
-                    req.task.creation_time_ns,
-                );
                 self.task_completion_latency.record(
                     get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
                     &[KeyValue::new("outcome", req.task.outcome.to_string())],
