@@ -3,6 +3,7 @@ from typing import Optional
 from ...function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
+from ...function_executor.function_executor_status import FunctionExecutorStatus
 from .health_checker import HealthChecker, HealthCheckResult
 
 HEALTH_CHECKER_NAME = "GenericHealthChecker"
@@ -16,6 +17,7 @@ class GenericHealthChecker(HealthChecker):
 
     def __init__(self):
         self._function_executor_states: Optional[FunctionExecutorStatesContainer] = None
+        self._function_executor_health_check_ever_failed = False
 
     def set_function_executor_states_container(
         self, states: FunctionExecutorStatesContainer
@@ -42,17 +44,30 @@ class GenericHealthChecker(HealthChecker):
         # * So we fail whole Executor health check if a Function Executor health check ever failed to hint the users
         #   that we probably need to recreate the Executor machine/VM/container (unless there's a bug in Function
         #   code that user can investigate themself).
+        await self._check_function_executors()
+        if self._function_executor_health_check_ever_failed:
+            return HealthCheckResult(
+                is_success=False,
+                status_message="A Function Executor health check failed",
+                checker_name=HEALTH_CHECKER_NAME,
+            )
+        else:
+            return HealthCheckResult(
+                is_success=True,
+                status_message="All Function Executors pass health checks",
+                checker_name=HEALTH_CHECKER_NAME,
+            )
+
+    async def _check_function_executors(self):
+        if self._function_executor_health_check_ever_failed:
+            return
+
         async for state in self._function_executor_states:
             # No need to async lock the state to read a single value.
-            if state.health_check_failed:
-                return HealthCheckResult(
-                    is_success=False,
-                    status_message="A Function Executor health check failed",
-                    checker_name=HEALTH_CHECKER_NAME,
-                )
-
-        return HealthCheckResult(
-            is_success=True,
-            status_message="All Function Executors pass health checks",
-            checker_name=HEALTH_CHECKER_NAME,
-        )
+            if state.status in [
+                FunctionExecutorStatus.UNHEALTHY,
+                FunctionExecutorStatus.STARTUP_FAILED_CUSTOMER_ERROR,
+                FunctionExecutorStatus.STARTUP_FAILED_PLATFORM_ERROR,
+            ]:
+                self._function_executor_health_check_ever_failed = True
+                return

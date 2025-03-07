@@ -1,26 +1,26 @@
-import os
 import subprocess
 import unittest
 
 import httpx
-from tensorlake import Graph, tensorlake_function
-from tensorlake.remote_graph import RemoteGraph
+import structlog
 from testing import (
     ExecutorProcessContextManager,
-    test_graph_name,
     wait_executor_startup,
 )
 
-
-@tensorlake_function()
-def crash_function(crash: bool) -> str:
-    if crash:
-        # os.kill(getpid(), signal.SIGKILL) won't work for container init process,
-        # see https://stackoverflow.com/questions/21031537/sigkill-init-process-pid-1.
-        # sys.exit(1) hangs the function for some unknown reason,
-        # see some ideas at https://stackoverflow.com/questions/5422831/what-does-sys-exit-do-in-python.
-        os._exit(1)
-    return "success"
+from indexify.executor.function_executor.function_executor_state import (
+    FunctionExecutorState,
+)
+from indexify.executor.function_executor.function_executor_states_container import (
+    FunctionExecutorStatesContainer,
+)
+from indexify.executor.function_executor.function_executor_status import (
+    FunctionExecutorStatus,
+)
+from indexify.executor.monitoring.health_checker.generic_health_checker import (
+    GenericHealthChecker,
+)
+from indexify.executor.monitoring.health_checker.health_checker import HealthCheckResult
 
 
 class TestHealthProbe(unittest.TestCase):
@@ -51,31 +51,29 @@ class TestHealthProbe(unittest.TestCase):
                 },
             )
 
-    def test_failure_after_function_executor_process_crash(self):
-        graph = Graph(
-            name=test_graph_name(self),
-            description="test",
-            start_node=crash_function,
-        )
-        graph = RemoteGraph.deploy(graph)
 
-        # No need to verify if the default Executor health check is successful because other tests might make it fail already.
+class TestGenericHealthChecker(unittest.IsolatedAsyncioTestCase):
+    async def test_failure(self):
+        health_checker = GenericHealthChecker()
+        fe_states_container = FunctionExecutorStatesContainer(structlog.get_logger())
+        health_checker.set_function_executor_states_container(fe_states_container)
 
-        # Create and crash the Function Executor twice.
-        invocation_id = graph.run(block_until_done=True, crash=True)
-        output = graph.output(invocation_id, "crash_function")
-        self.assertEqual(len(output), 0)
-
-        # Verify that the default Executor health check fails after the Function Executor crashed.
-        response = httpx.get("http://localhost:7000/monitoring/health")
-        self.assertEqual(response.status_code, 503)
+        result: HealthCheckResult = await health_checker.check()
+        self.assertTrue(result.is_success)
+        self.assertEqual(result.checker_name, "GenericHealthChecker")
         self.assertEqual(
-            response.json(),
-            {
-                "status": "nok",
-                "message": "A Function Executor health check failed",
-                "checker": "GenericHealthChecker",
-            },
+            result.status_message, "All Function Executors pass health checks"
+        )
+
+        state: FunctionExecutorState = await fe_states_container.get_or_create_state(
+            "1", "ns", "graph", "1", "func", "image"
+        )
+        state.status = FunctionExecutorStatus.UNHEALTHY
+        result: HealthCheckResult = await health_checker.check()
+        self.assertFalse(result.is_success)
+        self.assertEqual(result.checker_name, "GenericHealthChecker")
+        self.assertEqual(
+            result.status_message, "A Function Executor health check failed"
         )
 
 

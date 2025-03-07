@@ -1,7 +1,8 @@
 import asyncio
-from typing import AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from .function_executor_state import FunctionExecutorState
+from .function_executor_status import FunctionExecutorStatus
 from .metrics.function_executor_state_container import (
     metric_function_executor_states_count,
 )
@@ -10,11 +11,12 @@ from .metrics.function_executor_state_container import (
 class FunctionExecutorStatesContainer:
     """An asyncio concurrent container for the function executor states."""
 
-    def __init__(self):
+    def __init__(self, logger: Any):
         # The fields below are protected by the lock.
         self._lock: asyncio.Lock = asyncio.Lock()
         self._states: Dict[str, FunctionExecutorState] = {}
         self._is_shutdown: bool = False
+        self._logger: Any = logger.bind(module=__name__)
 
     async def get_or_create_state(
         self,
@@ -43,6 +45,7 @@ class FunctionExecutorStatesContainer:
                     graph_version=graph_version,
                     function_name=function_name,
                     image_uri=image_uri,
+                    logger=self._logger,
                 )
                 self._states[id] = state
                 metric_function_executor_states_count.set(len(self._states))
@@ -72,5 +75,8 @@ class FunctionExecutorStatesContainer:
                 # Only ongoing tasks who have a reference to the state already can see it.
                 # The state is unlocked while a task is running inside Function Executor.
                 async with state.lock:
-                    await state.shutdown()
-                    # The task running inside the Function Executor will fail because it's destroyed.
+                    await state.set_status(FunctionExecutorStatus.SHUTDOWN)
+                    if state.function_executor is not None:
+                        await state.function_executor.destroy()
+                        state.function_executor = None
+                        # The task running inside the Function Executor will fail because it's destroyed.

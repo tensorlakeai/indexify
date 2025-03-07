@@ -5,10 +5,11 @@ from pathlib import Path
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
-import grpc
 import structlog
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 from tensorlake.utils.logging import suppress as suppress_logging
+
+from indexify.proto.task_scheduler_pb2 import ExecutorStatus
 
 from .api_objects import FunctionURI, Task
 from .downloader import Downloader
@@ -18,6 +19,9 @@ from .function_executor.function_executor_states_container import (
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
+from .grpc.channel_creator import ChannelCreator
+from .grpc.state_reconciler import ExecutorStateReconciler
+from .grpc.state_reporter import ExecutorStateReporter
 from .metrics.executor import (
     METRIC_TASKS_COMPLETED_OUTCOME_ALL,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
@@ -39,13 +43,9 @@ from .monitoring.health_checker.health_checker import HealthChecker
 from .monitoring.prometheus_metrics_handler import PrometheusMetricsHandler
 from .monitoring.server import MonitoringServer
 from .monitoring.startup_probe_handler import StartupProbeHandler
-from .state_reconciler import ExecutorStateReconciler
-from .state_reporter import ExecutorStateReporter
 from .task_fetcher import TaskFetcher
 from .task_reporter import TaskReporter
 from .task_runner import TaskInput, TaskOutput, TaskRunner
-
-EXECUTOR_GRPC_SERVER_READY_TIMEOUT_SEC = 10
 
 metric_executor_state.state("starting")
 
@@ -54,6 +54,7 @@ class Executor:
     def __init__(
         self,
         id: str,
+        development_mode: bool,
         version: str,
         code_path: Path,
         health_checker: HealthChecker,
@@ -64,10 +65,10 @@ class Executor:
         monitoring_server_host: str,
         monitoring_server_port: int,
         grpc_server_addr: Optional[str],
+        enable_grpc_state_reconciler: bool,
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._is_shutdown: bool = False
-        self._config_path = config_path
         protocol: str = "http"
         if config_path:
             self._logger.info("running the extractor with TLS enabled")
@@ -84,7 +85,9 @@ class Executor:
             health_probe_handler=HealthCheckHandler(health_checker),
             metrics_handler=PrometheusMetricsHandler(),
         )
-        self._function_executor_states = FunctionExecutorStatesContainer()
+        self._function_executor_states = FunctionExecutorStatesContainer(
+            logger=self._logger
+        )
         health_checker.set_function_executor_states_container(
             self._function_executor_states
         )
@@ -94,24 +97,54 @@ class Executor:
         self._task_reporter = TaskReporter(
             base_url=self._base_url,
             executor_id=id,
-            config_path=self._config_path,
+            config_path=config_path,
         )
-        self._grpc_server_addr: Optional[str] = grpc_server_addr
-        self._id = id
         self._function_allowlist: Optional[List[FunctionURI]] = function_allowlist
         self._function_executor_server_factory = function_executor_server_factory
+
+        # HTTP mode services
+        self._task_runner: Optional[TaskRunner] = None
+        self._task_fetcher: Optional[TaskFetcher] = None
+        # gRPC mode services
+        self._channel_creator: Optional[ChannelCreator] = None
         self._state_reporter: Optional[ExecutorStateReporter] = None
         self._state_reconciler: Optional[ExecutorStateReconciler] = None
 
-        if self._grpc_server_addr is None:
-            self._task_runner: Optional[TaskRunner] = TaskRunner(
+        if grpc_server_addr is not None:
+            self._channel_creator = ChannelCreator(grpc_server_addr, self._logger)
+            self._state_reporter = ExecutorStateReporter(
+                executor_id=id,
+                development_mode=development_mode,
+                function_allowlist=self._function_allowlist,
+                function_executor_states=self._function_executor_states,
+                channel_creator=self._channel_creator,
+                logger=self._logger,
+            )
+            self._state_reporter.update_executor_status(
+                ExecutorStatus.EXECUTOR_STATUS_STARTING_UP
+            )
+
+        if enable_grpc_state_reconciler:
+            self._state_reconciler = ExecutorStateReconciler(
+                executor_id=id,
+                function_executor_server_factory=self._function_executor_server_factory,
+                base_url=self._base_url,
+                function_executor_states=self._function_executor_states,
+                config_path=config_path,
+                downloader=self._downloader,
+                task_reporter=self._task_reporter,
+                channel_creator=self._channel_creator,
+                logger=self._logger,
+            )
+        else:
+            self._task_runner = TaskRunner(
                 executor_id=id,
                 function_executor_server_factory=function_executor_server_factory,
                 base_url=self._base_url,
                 function_executor_states=self._function_executor_states,
                 config_path=config_path,
             )
-            self._task_fetcher: Optional[TaskFetcher] = TaskFetcher(
+            self._task_fetcher = TaskFetcher(
                 executor_id=id,
                 executor_version=version,
                 function_allowlist=function_allowlist,
@@ -122,11 +155,13 @@ class Executor:
 
         executor_info: Dict[str, str] = {
             "id": id,
+            "dev_mode": str(development_mode),
             "version": version,
             "code_path": str(code_path),
             "server_addr": server_addr,
             "config_path": str(config_path),
             "grpc_server_addr": str(grpc_server_addr),
+            "enable_grpc_state_reconciler": str(enable_grpc_state_reconciler),
             "hostname": gethostname(),
         }
         executor_info.update(function_allowlist_to_info_dict(function_allowlist))
@@ -146,84 +181,35 @@ class Executor:
             )
 
         asyncio.get_event_loop().create_task(self._monitoring_server.run())
+        if self._state_reporter is not None:
+            self._state_reporter.update_executor_status(
+                ExecutorStatus.EXECUTOR_STATUS_RUNNING
+            )
+            asyncio.get_event_loop().create_task(self._state_reporter.run())
+
+        metric_executor_state.state("running")
+        self._startup_probe_handler.set_ready()
 
         try:
-            if self._grpc_server_addr is None:
-                asyncio.get_event_loop().run_until_complete(self._http_mode_loop())
+            if self._state_reconciler is None:
+                asyncio.get_event_loop().run_until_complete(
+                    self._http_task_runner_loop()
+                )
             else:
-                asyncio.get_event_loop().run_until_complete(self._grpc_mode_loop())
+                asyncio.get_event_loop().run_until_complete(
+                    self._grpc_state_reconciler_loop()
+                )
         except asyncio.CancelledError:
             pass  # Suppress this expected exception and return without error (normally).
 
-    async def _grpc_mode_loop(self):
-        metric_executor_state.state("running")
-        self._startup_probe_handler.set_ready()
-
-        while not self._is_shutdown:
-            async with self._establish_grpc_server_channel() as server_channel:
-                server_channel: grpc.aio.Channel
-                await self._run_grpc_mode_services(server_channel)
-                self._logger.warning(
-                    "grpc mode services exited, retrying in 5 seconds",
-                )
-                await asyncio.sleep(5)
-
-    async def _establish_grpc_server_channel(self) -> grpc.aio.Channel:
-        try:
-            channel = grpc.aio.insecure_channel(self._grpc_server_addr)
-            await asyncio.wait_for(
-                channel.channel_ready(),
-                timeout=EXECUTOR_GRPC_SERVER_READY_TIMEOUT_SEC,
-            )
-            return channel
-        except Exception as e:
-            self._logger.error("failed establishing grpc server channel", exc_info=e)
-            raise
-
-    async def _run_grpc_mode_services(self, server_channel: grpc.aio.Channel):
-        """Runs the gRPC mode services.
+    async def _grpc_state_reconciler_loop(self):
+        """Runs the gRPC state reconciler and state reporter.
 
         Never raises any exceptions."""
-        try:
-            self._state_reporter = ExecutorStateReporter(
-                executor_id=self._id,
-                function_allowlist=self._function_allowlist,
-                function_executor_states=self._function_executor_states,
-                server_channel=server_channel,
-                logger=self._logger,
-            )
-            self._state_reconciler = ExecutorStateReconciler(
-                executor_id=self._id,
-                function_executor_server_factory=self._function_executor_server_factory,
-                base_url=self._base_url,
-                function_executor_states=self._function_executor_states,
-                config_path=self._config_path,
-                downloader=self._downloader,
-                task_reporter=self._task_reporter,
-                server_channel=server_channel,
-                logger=self._logger,
-            )
+        asyncio.create_task(self._state_reporter.run())
+        await self._state_reconciler.run()
 
-            # Task group ensures that:
-            # 1. If one of the tasks fails then the other tasks are cancelled.
-            # 2. If Executor shuts down then all the tasks are cancelled and this function returns.
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(self._state_reporter.run())
-                tg.create_task(self._state_reconciler.run())
-        except Exception as e:
-            self._logger.error("failed running grpc mode services", exc_info=e)
-        finally:
-            # Handle task cancellation using finally.
-            if self._state_reporter is not None:
-                self._state_reporter.shutdown()
-                self._state_reporter = None
-            if self._state_reconciler is not None:
-                self._state_reconciler.shutdown()
-                self._state_reconciler = None
-
-    async def _http_mode_loop(self):
-        metric_executor_state.state("running")
-        self._startup_probe_handler.set_ready()
+    async def _http_task_runner_loop(self):
         while not self._is_shutdown:
             try:
                 async for task in self._task_fetcher.run():
@@ -341,6 +327,10 @@ class Executor:
 
     async def _shutdown(self, loop):
         self._logger.info("shutting down")
+        if self._state_reporter is not None:
+            self._state_reporter.update_executor_status(
+                ExecutorStatus.EXECUTOR_STATUS_STOPPING
+            )
         metric_executor_state.state("shutting_down")
         # There will be lots of task cancellation exceptions and "X is shutting down"
         # exceptions logged during Executor shutdown. Suppress their logs as they are
@@ -352,12 +342,13 @@ class Executor:
 
         if self._task_runner is not None:
             await self._task_runner.shutdown()
+
+        if self._channel_creator is not None:
+            await self._channel_creator.shutdown()
         if self._state_reporter is not None:
             await self._state_reporter.shutdown()
-            self._state_reporter = None
         if self._state_reconciler is not None:
             await self._state_reconciler.shutdown()
-            self._state_reconciler = None
 
         # We need to shutdown all users of FE states first,
         # otherwise states might disappear unexpectedly and we might
