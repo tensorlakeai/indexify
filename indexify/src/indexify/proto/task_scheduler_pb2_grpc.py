@@ -4,8 +4,8 @@ import warnings
 
 import grpc
 
-from indexify.task_scheduler.proto import (
-    task_scheduler_pb2 as indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2,
+from indexify.proto import (
+    task_scheduler_pb2 as indexify_dot_proto_dot_task__scheduler__pb2,
 )
 
 GRPC_GENERATED_VERSION = "1.70.0"
@@ -24,7 +24,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f"The grpc package installed is at version {GRPC_VERSION},"
-        + f" but the generated code in indexify/task_scheduler/proto/task_scheduler_pb2_grpc.py depends on"
+        + f" but the generated code in indexify/proto/task_scheduler_pb2_grpc.py depends on"
         + f" grpcio>={GRPC_GENERATED_VERSION}."
         + f" Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}"
         + f" or downgrade your generated code using grpcio-tools<={GRPC_VERSION}."
@@ -44,14 +44,14 @@ class TaskSchedulerServiceStub(object):
         """
         self.report_executor_state = channel.unary_unary(
             "/task_scheduler_service.TaskSchedulerService/report_executor_state",
-            request_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
-            response_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
+            request_serializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
             _registered_method=True,
         )
         self.get_desired_executor_states = channel.unary_stream(
             "/task_scheduler_service.TaskSchedulerService/get_desired_executor_states",
-            request_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
-            response_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
+            request_serializer=indexify_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
             _registered_method=True,
         )
 
@@ -85,13 +85,13 @@ def add_TaskSchedulerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
         "report_executor_state": grpc.unary_unary_rpc_method_handler(
             servicer.report_executor_state,
-            request_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.FromString,
-            response_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.SerializeToString,
+            request_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.SerializeToString,
         ),
         "get_desired_executor_states": grpc.unary_stream_rpc_method_handler(
             servicer.get_desired_executor_states,
-            request_deserializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.FromString,
-            response_serializer=indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.SerializeToString,
+            request_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -126,8 +126,8 @@ class TaskSchedulerService(object):
             request,
             target,
             "/task_scheduler_service.TaskSchedulerService/report_executor_state",
-            indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
-            indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
+            indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
+            indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -156,8 +156,8 @@ class TaskSchedulerService(object):
             request,
             target,
             "/task_scheduler_service.TaskSchedulerService/get_desired_executor_states",
-            indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
-            indexify_dot_task__scheduler_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
+            indexify_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
+            indexify_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
             options,
             channel_credentials,
             insecure,

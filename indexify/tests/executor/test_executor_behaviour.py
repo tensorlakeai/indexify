@@ -41,6 +41,7 @@ class TestExecutor(unittest.TestCase):
         # Create an instance of Executor with the mock config
         executor = Executor(
             id="unit-test",
+            development_mode=False,
             version="0.1.0",
             code_path=Path("test"),
             health_checker=StubHealthChecker(),
@@ -51,6 +52,7 @@ class TestExecutor(unittest.TestCase):
             monitoring_server_host="localhost",
             monitoring_server_port=7000,
             grpc_server_addr=None,
+            enable_grpc_state_reconciler=False,
         )
 
         # Verify that the correct file was loaded from the config_path
@@ -78,6 +80,7 @@ class TestExecutor(unittest.TestCase):
         # Create an instance of Executor without TLS
         executor = Executor(
             id="unit-test",
+            development_mode=False,
             version="0.1.0",
             code_path=Path("test"),
             health_checker=StubHealthChecker(),
@@ -88,6 +91,7 @@ class TestExecutor(unittest.TestCase):
             monitoring_server_host="localhost",
             monitoring_server_port=7000,
             grpc_server_addr=None,
+            enable_grpc_state_reconciler=False,
         )
 
         # Verify the protocol is set to "http"

@@ -208,17 +208,27 @@ def executor(
             help="Port where to run Executor Monitoring server",
         ),
     ] = 7000,
+    # TODO: Figure out mTLS for gRPC.
     grpc_server_addr: Annotated[
         Optional[str],
         typer.Option(
             "--grpc-server-addr",
             help=(
                 "(exprimental) Address of server gRPC API to connect to, e.g. 'localhost:8901'.\n"
-                "If set disables automatic Function Executor management on Executor and uses the Server gRPC API\n"
-                "for Function Executor management and placement of tasks on them."
+                "Enables gRPC state reporter that will periodically report the state of the Function Executors to Server\n"
             ),
         ),
     ] = None,
+    enable_grpc_state_reconciler: Annotated[
+        bool,
+        typer.Option(
+            "--enable-grpc-state-reconciler",
+            help=(
+                "(exprimental) Enable gRPC state reconciler that will reconcile the state of the Function Executors and Task Allocations\n"
+                "with the desired state provided by Server. Required --grpc-server-addr to be set."
+            ),
+        ),
+    ] = False,
 ):
     if dev:
         configure_development_mode_logging()
@@ -234,6 +244,11 @@ def executor(
     elif not re.compile(r"^[a-zA-Z0-9_-]{10,}$").match(executor_id):
         raise typer.BadParameter(
             "--executor-id should be at least 10 characters long and only include characters _-[0-9][a-z][A-Z]"
+        )
+
+    if enable_grpc_state_reconciler and grpc_server_addr is None:
+        raise typer.BadParameter(
+            "--grpc-server-addr must be set when --enable-grpc-state-reconciler is set"
         )
 
     executor_version = version("indexify")
@@ -252,6 +267,7 @@ def executor(
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
         grpc_server_addr=grpc_server_addr,
+        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     )
 
     executor_cache = Path(executor_cache).expanduser().absolute()
@@ -277,6 +293,7 @@ def executor(
 
     Executor(
         id=executor_id,
+        development_mode=dev,
         version=executor_version,
         health_checker=GenericHealthChecker(),
         code_path=executor_cache,
@@ -290,6 +307,7 @@ def executor(
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
         grpc_server_addr=grpc_server_addr,
+        enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     ).run()
 
 

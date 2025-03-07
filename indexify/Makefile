@@ -5,7 +5,7 @@ build: build_proto
 	@poetry install
 	@poetry build
 
-TASK_SCHEDULER_PY_CLIENT_PROTO_DIR_PATH=indexify/task_scheduler/proto
+TASK_SCHEDULER_PY_CLIENT_PROTO_DIR_PATH=indexify/proto
 TASK_SCHEDULER_SERVER_PROTO_DIR_PATH=../server/internal_api/proto
 
 build_proto: ${TASK_SCHEDULER_SERVER_PROTO_DIR_PATH}/task_scheduler.proto

@@ -14,6 +14,7 @@ from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
 from ..api_objects import Task
 from .function_executor import CustomerError, FunctionExecutor
 from .function_executor_state import FunctionExecutorState
+from .function_executor_status import FunctionExecutorStatus
 from .health_checker import HealthChecker, HealthCheckResult
 from .metrics.single_task_runner import (
     metric_function_executor_run_task_rpc_errors,
@@ -40,9 +41,11 @@ class SingleTaskRunner:
         logger: Any,
     ):
         self._executor_id: str = executor_id
-        self._state: FunctionExecutorState = function_executor_state
+        self._function_executor_state: FunctionExecutorState = function_executor_state
         self._task_input: TaskInput = task_input
-        self._factory: FunctionExecutorServerFactory = function_executor_server_factory
+        self._function_executor_server_factory: FunctionExecutorServerFactory = (
+            function_executor_server_factory
+        )
         self._base_url: str = base_url
         self._config_path: Optional[str] = config_path
         self._logger = logger.bind(module=__name__)
@@ -54,18 +57,32 @@ class SingleTaskRunner:
         The lock is released during actual task run in the server.
         The lock is relocked on return.
 
-        Raises an exception if an error occured."""
-        self._state.check_locked()
+        Raises an exception if an error occured.
 
-        if self._state.is_shutdown:
-            raise RuntimeError("Function Executor state is shutting down.")
+        On enter the Function Executor status is either IDLE, UNHEALTHY or DESTROYED.
+        On return the Function Executor status is either IDLE, UNHEALTHY or DESTROYED.
+        """
+        self._function_executor_state.check_locked()
+
+        if self._function_executor_state.status not in [
+            FunctionExecutorStatus.IDLE,
+            FunctionExecutorStatus.UNHEALTHY,
+            FunctionExecutorStatus.DESTROYED,
+        ]:
+            self._logger.error(
+                "Function Executor is not in oneof [IDLE, UNHEALTHY, DESTROYED] state, cannot run the task",
+                status=self._function_executor_state.status,
+            )
+            raise RuntimeError(
+                f"Unexpected Function Executor state {self._function_executor_state.status}"
+            )
 
         # If Function Executor became unhealthy while was idle then destroy it.
         # It'll be recreated below.
         await self._destroy_existing_function_executor_if_unhealthy()
 
         # Create Function Executor if it doesn't exist yet.
-        if self._state.function_executor is None:
+        if self._function_executor_state.status == FunctionExecutorStatus.DESTROYED:
             try:
                 await self._create_function_executor()
             except CustomerError as e:
@@ -87,14 +104,35 @@ class SingleTaskRunner:
             # The periodic health checker might not notice this as it does only periodic checks.
             await self._destroy_existing_function_executor_if_unhealthy()
 
-    async def _create_function_executor(self) -> FunctionExecutor:
-        function_executor: FunctionExecutor = FunctionExecutor(
-            server_factory=self._factory, logger=self._logger
+            if self._function_executor_state.status not in [
+                FunctionExecutorStatus.IDLE,
+                FunctionExecutorStatus.UNHEALTHY,
+                FunctionExecutorStatus.DESTROYED,
+            ]:
+                self._logger.error(
+                    "Function Executor status is not oneof [IDLE, UNHEALTHY, DESTROYED] after running the task, resetting the state to mitigate a possible bug",
+                    status=self._function_executor_state.status,
+                )
+                if self._function_executor_state.function_executor is None:
+                    await self._function_executor_state.set_status(
+                        FunctionExecutorStatus.DESTROYED
+                    )
+                else:
+                    await self._function_executor_state.set_status(
+                        FunctionExecutorStatus.UNHEALTHY
+                    )
+
+    async def _create_function_executor(self) -> None:
+        await self._function_executor_state.set_status(
+            FunctionExecutorStatus.STARTING_UP
+        )
+        self._function_executor_state.function_executor = FunctionExecutor(
+            server_factory=self._function_executor_server_factory, logger=self._logger
         )
         config: FunctionExecutorServerConfiguration = (
             FunctionExecutorServerConfiguration(
                 executor_id=self._executor_id,
-                function_executor_id=self._state.id,
+                function_executor_id=self._function_executor_state.id,
                 image_uri=self._task_input.task.image_uri,
             )
         )
@@ -107,16 +145,28 @@ class SingleTaskRunner:
         )
 
         try:
-            await function_executor.initialize(
+            await self._function_executor_state.function_executor.initialize(
                 config=config,
                 initialize_request=initialize_request,
                 base_url=self._base_url,
                 config_path=self._config_path,
             )
-            self._state.function_executor = function_executor
-        except Exception:
-            await function_executor.destroy()
+        except CustomerError:
+            # We have to follow the valid state transition sequence.
+            await self._function_executor_state.set_status(
+                FunctionExecutorStatus.STARTUP_FAILED_CUSTOMER_ERROR
+            )
+            await self._function_executor_state.destroy_function_executor()
             raise
+        except Exception:
+            # We have to follow the valid state transition sequence.
+            await self._function_executor_state.set_status(
+                FunctionExecutorStatus.STARTUP_FAILED_PLATFORM_ERROR
+            )
+            await self._function_executor_state.destroy_function_executor()
+            raise
+
+        await self._function_executor_state.set_status(FunctionExecutorStatus.IDLE)
 
     async def _run(self) -> TaskOutput:
         request: RunTaskRequest = RunTaskRequest(
@@ -130,13 +180,15 @@ class SingleTaskRunner:
         )
         if self._task_input.init_value is not None:
             request.function_init_value.CopyFrom(self._task_input.init_value)
-        channel: grpc.aio.Channel = self._state.function_executor.channel()
+        channel: grpc.aio.Channel = (
+            self._function_executor_state.function_executor.channel()
+        )
 
         async with _RunningTaskContextManager(
             invocation_id=self._task_input.task.invocation_id,
             task_id=self._task_input.task.id,
             health_check_failed_callback=self._health_check_failed_callback,
-            function_executor_state=self._state,
+            function_executor_state=self._function_executor_state,
         ):
             with (
                 metric_function_executor_run_task_rpc_errors.count_exceptions(),
@@ -154,31 +206,40 @@ class SingleTaskRunner:
     async def _health_check_failed_callback(self, result: HealthCheckResult):
         # Function Executor destroy due to the periodic health check failure ensures that
         # a running task RPC stuck in unhealthy Function Executor fails immidiately.
-        async with self._state.lock:
-            if self._state.function_executor is not None:
-                await self._destroy_function_executor_on_failed_health_check(
-                    result.reason
-                )
+        async with self._function_executor_state.lock:
+            if (
+                self._function_executor_state.status
+                != FunctionExecutorStatus.RUNNING_TASK
+            ):
+                # Protection in case the callback gets delivered after we finished running the task.
+                return
+
+            await self._function_executor_state.set_status(
+                FunctionExecutorStatus.UNHEALTHY
+            )
+            await self._destroy_function_executor_on_failed_health_check(result.reason)
 
     async def _destroy_existing_function_executor_if_unhealthy(self):
-        self._state.check_locked()
-        if self._state.function_executor is None:
-            return
-        result: HealthCheckResult = (
-            await self._state.function_executor.health_checker().check()
-        )
-        if result.is_healthy:
-            return
-        await self._destroy_function_executor_on_failed_health_check(result.reason)
+        self._function_executor_state.check_locked()
+        if self._function_executor_state.status == FunctionExecutorStatus.IDLE:
+            result: HealthCheckResult = (
+                await self._function_executor_state.function_executor.health_checker().check()
+            )
+            if not result.is_healthy:
+                await self._function_executor_state.set_status(
+                    FunctionExecutorStatus.UNHEALTHY
+                )
+
+        if self._function_executor_state.status == FunctionExecutorStatus.UNHEALTHY:
+            await self._destroy_function_executor_on_failed_health_check(result.reason)
 
     async def _destroy_function_executor_on_failed_health_check(self, reason: str):
-        self._state.check_locked()
+        self._function_executor_state.check_locked()
         self._logger.error(
             "Function Executor health check failed, destroying Function Executor",
             health_check_fail_reason=reason,
         )
-        self._state.health_check_failed = True
-        await self._state.destroy_function_executor()
+        await self._function_executor_state.destroy_function_executor()
 
 
 class _RunningTaskContextManager:
@@ -199,7 +260,7 @@ class _RunningTaskContextManager:
         self._state: FunctionExecutorState = function_executor_state
 
     async def __aenter__(self):
-        self._state.increment_running_tasks()
+        await self._state.set_status(FunctionExecutorStatus.RUNNING_TASK)
         self._state.function_executor.invocation_state_client().add_task_to_invocation_id_entry(
             task_id=self._task_id,
             invocation_id=self._invocation_id,
@@ -213,9 +274,9 @@ class _RunningTaskContextManager:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._state.lock.acquire()
-        self._state.decrement_running_tasks()
-        # Health check callback could destroy the FunctionExecutor.
-        if self._state.function_executor is not None:
+        # Health check callback could destroy the FunctionExecutor and set status to UNHEALTHY
+        if self._state.status == FunctionExecutorStatus.RUNNING_TASK:
+            await self._state.set_status(FunctionExecutorStatus.IDLE)
             self._state.function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
                 task_id=self._task_id
             )

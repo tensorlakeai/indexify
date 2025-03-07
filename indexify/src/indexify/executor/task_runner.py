@@ -1,7 +1,10 @@
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from .api_objects import Task
-from .function_executor.function_executor_state import FunctionExecutorState
+from .function_executor.function_executor_state import (
+    FunctionExecutorState,
+    FunctionExecutorStatus,
+)
 from .function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
@@ -109,6 +112,10 @@ class TaskRunner:
             raise
 
     async def _run_task_policy(self, state: FunctionExecutorState, task: Task) -> None:
+        """Runs the task policy until the task can run on the Function Executor.
+
+        On successful return the Function Executor status is either IDLE or DESTROYED.
+        """
         # Current policy for running tasks:
         #   - There can only be a single Function Executor per function regardless of function versions.
         #   --  If a Function Executor already exists for a different function version then wait until
@@ -116,13 +123,30 @@ class TaskRunner:
         #   --  This prevents failed tasks for different versions of the same function continiously
         #       destroying each other's Function Executors.
         #   - Each Function Executor rans at most 1 task concurrently.
-        await state.wait_running_tasks_less(1)
+        await state.wait_status(
+            [
+                FunctionExecutorStatus.DESTROYED,
+                FunctionExecutorStatus.IDLE,
+                FunctionExecutorStatus.UNHEALTHY,
+                FunctionExecutorStatus.SHUTDOWN,
+            ]
+        )
+        # We only shutdown the Function Executor on full Executor shutdown so it's fine to raise error here.
+        if state.status == FunctionExecutorStatus.SHUTDOWN:
+            raise Exception("Function Executor state is shutting down")
 
-        if state.graph_version != task.graph_version:
+        if state.status == FunctionExecutorStatus.UNHEALTHY:
             await state.destroy_function_executor()
-            state.graph_version = task.graph_version
-            # At this point the state belongs to the version of the function from the task
-            # and there are no running tasks in the Function Executor.
+
+        if state.graph_version == task.graph_version:
+            return  # All good, we can run on this Function Executor.
+
+        if state.status in [FunctionExecutorStatus.IDLE]:
+            await state.destroy_function_executor()
+
+        state.graph_version = task.graph_version
+        # At this point the state belongs to the version of the function from the task
+        # and there are no running tasks in the Function Executor.
 
     async def _run_task(
         self, state: FunctionExecutorState, task_input: TaskInput, logger: Any

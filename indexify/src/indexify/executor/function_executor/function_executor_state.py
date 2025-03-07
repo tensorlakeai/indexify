@@ -1,9 +1,8 @@
 import asyncio
-from typing import Optional
-
-from indexify.task_scheduler.proto.task_scheduler_pb2 import FunctionExecutorStatus
+from typing import Any, List, Optional
 
 from .function_executor import FunctionExecutor
+from .function_executor_status import FunctionExecutorStatus, is_status_change_allowed
 from .metrics.function_executor_state import (
     metric_function_executor_state_not_locked_errors,
 )
@@ -25,6 +24,7 @@ class FunctionExecutorState:
         graph_version: str,
         function_name: str,
         image_uri: Optional[str],
+        logger: Any,
     ):
         # Read only fields.
         self.id: str = id
@@ -32,69 +32,65 @@ class FunctionExecutorState:
         self.graph_name: str = graph_name
         self.function_name: str = function_name
         self.image_uri: Optional[str] = image_uri
+        self._logger: Any = logger.bind(
+            module=__name__,
+            function_executor_id=id,
+            namespace=namespace,
+            graph_name=graph_name,
+            graph_version=graph_version,
+            function_name=function_name,
+            image_uri=image_uri,
+        )
         # The lock must be held while modifying the fields below.
         self.lock: asyncio.Lock = asyncio.Lock()
+        # TODO: Move graph_version to immutable fields once we migrate to gRPC State Reconciler.
         self.graph_version: str = graph_version
-        self.is_shutdown: bool = False
-        # Set to True if a Function Executor health check ever failed.
-        self.health_check_failed: bool = False
-        # TODO: remove fields that duplicate this status field.
-        self.status: FunctionExecutorStatus = (
-            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STOPPED
-        )
-        self.function_executor: Optional[FunctionExecutor] = None
-        self.running_tasks: int = 0
-        self.running_tasks_change_notifier: asyncio.Condition = asyncio.Condition(
+        self.status: FunctionExecutorStatus = FunctionExecutorStatus.DESTROYED
+        self.status_change_notifier: asyncio.Condition = asyncio.Condition(
             lock=self.lock
         )
+        self.function_executor: Optional[FunctionExecutor] = None
 
-    def increment_running_tasks(self) -> None:
-        """Increments the number of running tasks.
-
-        The caller must hold the lock.
-        """
-        self.check_locked()
-        self.running_tasks += 1
-        self.running_tasks_change_notifier.notify_all()
-
-    def decrement_running_tasks(self) -> None:
-        """Decrements the number of running tasks.
+    async def wait_status(self, allowlist: List[FunctionExecutorStatus]) -> None:
+        """Waits until Function Executor status reaches one of the allowed values.
 
         The caller must hold the lock.
         """
         self.check_locked()
-        self.running_tasks -= 1
-        self.running_tasks_change_notifier.notify_all()
+        while self.status not in allowlist:
+            await self.status_change_notifier.wait()
 
-    async def wait_running_tasks_less(self, value: int) -> None:
-        """Waits until the number of running tasks is less than the supplied value.
+    async def set_status(self, new_status: FunctionExecutorStatus) -> None:
+        """Sets the status of the Function Executor.
 
         The caller must hold the lock.
+        Raises ValueError if the status change is not allowed.
         """
         self.check_locked()
-        while self.running_tasks >= value:
-            await self.running_tasks_change_notifier.wait()
+        if is_status_change_allowed(self.status, new_status):
+            self._logger.info(
+                "function executor status changed",
+                old_status=self.status.name,
+                new_status=new_status.name,
+            )
+            self.status = new_status
+            self.status_change_notifier.notify_all()
+        else:
+            raise ValueError(
+                f"Invalid status change from {self.status} to {new_status}"
+            )
 
     async def destroy_function_executor(self) -> None:
         """Destroys the Function Executor if it exists.
 
-        The caller must hold the lock."""
-        self.check_locked()
-        if self.function_executor is not None:
-            await self.function_executor.destroy()
-            self.function_executor = None
-
-    async def shutdown(self) -> None:
-        """Shuts down the state.
-
-        Called only during Executor shutdown so it's okay to fail all running and pending
-        Function Executor tasks. The state is not valid anymore after this call.
         The caller must hold the lock.
         """
         self.check_locked()
-        # Pending tasks will not create a new Function Executor and won't run.
-        self.is_shutdown = True
-        await self.destroy_function_executor()
+        await self.set_status(FunctionExecutorStatus.DESTROYING)
+        if self.function_executor is not None:
+            await self.function_executor.destroy()
+            self.function_executor = None
+        await self.set_status(FunctionExecutorStatus.DESTROYED)
 
     def check_locked(self) -> None:
         """Raises an exception if the lock is not held."""

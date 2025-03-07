@@ -7,29 +7,29 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     SerializedObject,
 )
 
-from indexify.task_scheduler.proto.task_scheduler_pb2 import (
+from indexify.proto.task_scheduler_pb2 import (
     DesiredExecutorState,
     FunctionExecutorDescription,
     FunctionExecutorStatus,
     GetDesiredExecutorStatesRequest,
 )
-from indexify.task_scheduler.proto.task_scheduler_pb2_grpc import (
+from indexify.proto.task_scheduler_pb2_grpc import (
     TaskSchedulerServiceStub,
 )
 
-from .downloader import Downloader
-from .function_executor.function_executor import CustomerError, FunctionExecutor
-from .function_executor.function_executor_state import FunctionExecutorState
-from .function_executor.function_executor_states_container import (
+from ..downloader import Downloader
+from ..function_executor.function_executor import CustomerError, FunctionExecutor
+from ..function_executor.function_executor_state import FunctionExecutorState
+from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
-from .function_executor.server.function_executor_server_factory import (
+from ..function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerConfiguration,
     FunctionExecutorServerFactory,
 )
-from .function_executor.task_input import TaskInput
-from .function_executor.task_output import TaskOutput
-from .metrics.executor import (
+from ..function_executor.task_input import TaskInput
+from ..function_executor.task_output import TaskOutput
+from ..metrics.executor import (
     METRIC_TASKS_COMPLETED_OUTCOME_ALL,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
     METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM,
@@ -42,7 +42,10 @@ from .metrics.executor import (
     metric_tasks_fetched,
     metric_tasks_reporting_outcome,
 )
-from .task_reporter import TaskReporter
+from ..task_reporter import TaskReporter
+from .channel_creator import ChannelCreator
+
+_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
 
 
 class ExecutorStateReconciler:
@@ -55,11 +58,13 @@ class ExecutorStateReconciler:
         config_path: Optional[str],
         downloader: Downloader,
         task_reporter: TaskReporter,
-        server_channel: grpc.aio.Channel,
+        channel_creator: ChannelCreator,
         logger: Any,
     ):
         self._executor_id: str = executor_id
-        self._factory: FunctionExecutorServerFactory = function_executor_server_factory
+        self._function_executor_server_factory: FunctionExecutorServerFactory = (
+            function_executor_server_factory
+        )
         self._base_url: str = base_url
         self._config_path: Optional[str] = config_path
         self._downloader: Downloader = downloader
@@ -67,39 +72,60 @@ class ExecutorStateReconciler:
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
         )
-        self._stub: TaskSchedulerServiceStub = TaskSchedulerServiceStub(server_channel)
+        self._channel_creator = channel_creator
         self._logger: Any = logger.bind(module=__name__)
         self._is_shutdown: bool = False
-        self._reconciliation_lock: asyncio.Lock = asyncio.Lock()
         self._server_last_clock: Optional[int] = None
 
     async def run(self):
-        desired_states: AsyncGenerator[DesiredExecutorState, None] = (
-            self._stub.get_desired_executor_states(
-                GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
-            )
-        )
+        """Runs the state reconciler.
+
+        Never raises any exceptions.
+        """
+        while not self._is_shutdown:
+            async with await self._channel_creator.create() as server_channel:
+                server_channel: grpc.aio.Channel
+                stub = TaskSchedulerServiceStub(server_channel)
+                while not self._is_shutdown:
+                    try:
+                        # TODO: Report state once before starting the stream.
+                        desired_states_stream: AsyncGenerator[
+                            DesiredExecutorState, None
+                        ] = stub.get_desired_executor_states(
+                            GetDesiredExecutorStatesRequest(
+                                executor_id=self._executor_id
+                            )
+                        )
+                        await self._process_desired_states_stream(desired_states_stream)
+                    except Exception as e:
+                        self._logger.error(
+                            f"Failed processing desired states stream, reconnecting in {_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC} sec.",
+                            exc_info=e,
+                        )
+                        await asyncio.sleep(_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC)
+                        break
+
+        self._logger.info("State reconciler shutdown.")
+
+    async def _process_desired_states_stream(
+        self, desired_states: AsyncGenerator[DesiredExecutorState, None]
+    ):
         async for new_state in desired_states:
             if self._is_shutdown:
                 return
+
             new_state: DesiredExecutorState
             if self._server_last_clock is not None:
                 if self._server_last_clock >= new_state.clock:
                     continue  # Duplicate or outdated message state sent by Server.
 
             self._server_last_clock = new_state.clock
-            asyncio.create_task(self._reconcile_state(new_state))
+            await self._reconcile_state(new_state)
 
     async def _reconcile_state(self, new_state: DesiredExecutorState):
-        if self._is_shutdown:
-            return
-
-        # Simple non concurrent implementation for now for the PoC.
-        # Obtain this lock to force only a single coroutine doing the reconciliation.
-        async with self._reconciliation_lock:
-            await self._reconcile_function_executors(new_state)
-            # TODO
-            # await self._reconcile_task_allocations(new_state)
+        await self._reconcile_function_executors(new_state)
+        # TODO
+        # await self._reconcile_task_allocations(new_state)
 
     async def shutdown(self):
         """Shuts down the state reconciler.
@@ -203,7 +229,7 @@ class ExecutorStateReconciler:
             logger=logger,
         )
         function_executor: FunctionExecutor = FunctionExecutor(
-            server_factory=self._factory, logger=logger
+            server_factory=self._function_executor_server_factory, logger=logger
         )
         config: FunctionExecutorServerConfiguration = (
             FunctionExecutorServerConfiguration(

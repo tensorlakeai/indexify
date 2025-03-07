@@ -26,7 +26,7 @@ message GPUResources {
     optional GPUModel model = 2;
 }
 
-// Free host resources available at the Executor.
+// Resources that we're currently tracking and limiting on Executor.
 message HostResources {
     optional uint32 cpu_count = 1;
     optional uint64 memory_bytes = 2;
@@ -45,14 +45,14 @@ message AllowedFunction {
 
 enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
-    FUNCTION_EXECUTOR_STATUS_STOPPED = 1;
-    FUNCTION_EXECUTOR_STATUS_STARTING_UP = 2;
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR = 3;
-    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR = 4;
-    FUNCTION_EXECUTOR_STATUS_IDLE = 5;
-    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 6;
-    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 7;
-    FUNCTION_EXECUTOR_STATUS_STOPPING = 8;
+    FUNCTION_EXECUTOR_STATUS_STARTING_UP = 1;
+    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR = 2;
+    FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR = 3;
+    FUNCTION_EXECUTOR_STATUS_IDLE = 4;
+    FUNCTION_EXECUTOR_STATUS_RUNNING_TASK = 5;
+    FUNCTION_EXECUTOR_STATUS_UNHEALTHY = 6;
+    FUNCTION_EXECUTOR_STATUS_STOPPING = 7;
+    FUNCTION_EXECUTOR_STATUS_STOPPED = 8;
 }
 
 // Immutable information that identifies and describes a Function Executor.
@@ -63,6 +63,7 @@ message FunctionExecutorDescription {
     optional string graph_version = 4;
     optional string function_name = 5;
     optional string image_uri = 6;
+    optional HostResources resource_limits = 7;
 }
 
 message FunctionExecutorState {
@@ -72,19 +73,22 @@ message FunctionExecutorState {
 
 enum ExecutorStatus {
     EXECUTOR_STATUS_UNKNOWN = 0;
-    EXECUTOR_STATUS_STARTING = 1;
+    EXECUTOR_STATUS_STARTING_UP = 1;
     EXECUTOR_STATUS_RUNNING = 2;
     EXECUTOR_STATUS_DRAINED = 3;
-    EXECUTOR_STATUS_SHUTTING_DOWN = 4;
+    EXECUTOR_STATUS_STOPPING = 4;
+    EXECUTOR_STATUS_STOPPED = 5;
 }
 
 message ExecutorState {
     optional string executor_id = 1;
-    optional ExecutorStatus executor_status = 2;
-    optional HostResources host_resources = 3;
+    optional bool development_mode = 2;
+    optional ExecutorStatus executor_status = 3;
+    // Free resources available at the Executor.
+    optional HostResources free_resources = 4;
     // Empty allowed_functions list means that any function can run on the Executor.
-    repeated AllowedFunction allowed_functions = 4;
-    repeated FunctionExecutorState function_executor_states = 5;
+    repeated AllowedFunction allowed_functions = 5;
+    repeated FunctionExecutorState function_executor_states = 6;
 }
 
 // A message sent by Executor to report its up to date state to Server.
@@ -106,6 +110,7 @@ message Task {
     optional string graph_invocation_id = 6;
     optional string input_key = 8;
     optional string reducer_output_key = 9;
+    optional string timeout_ms = 10;
 }
 
 message TaskAllocation {

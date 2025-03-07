@@ -18,8 +18,13 @@ def test_graph_name(test_case: unittest.TestCase) -> str:
     return unittest.TestCase.id(test_case).replace(".", "_")
 
 
-def function_uri(namespace: str, graph: str, function: str, version: str) -> str:
-    return ":".join([namespace, graph, function, version])
+def function_uri(
+    namespace: str, graph: str, function: str, version: Optional[str] = None
+) -> str:
+    if version is None:
+        return ":".join([namespace, graph, function])
+    else:
+        return ":".join([namespace, graph, function, version])
 
 
 class ExecutorProcessContextManager:
