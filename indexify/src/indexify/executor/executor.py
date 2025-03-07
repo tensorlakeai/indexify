@@ -228,7 +228,8 @@ class Executor:
             try:
                 async for task in self._task_fetcher.run():
                     metric_tasks_fetched.inc()
-                    asyncio.create_task(self._run_task(task))
+                    if not self._is_shutdown:
+                        asyncio.create_task(self._run_task(task))
             except Exception as e:
                 self._logger.error(
                     "failed fetching tasks, retrying in 5 seconds", exc_info=e
@@ -351,7 +352,6 @@ class Executor:
 
         if self._task_runner is not None:
             await self._task_runner.shutdown()
-            self._task_runner = None
         if self._state_reporter is not None:
             await self._state_reporter.shutdown()
             self._state_reporter = None
