@@ -277,6 +277,7 @@ def executor(
 
     Executor(
         id=executor_id,
+        development_mode=dev,
         version=executor_version,
         health_checker=GenericHealthChecker(),
         code_path=executor_cache,

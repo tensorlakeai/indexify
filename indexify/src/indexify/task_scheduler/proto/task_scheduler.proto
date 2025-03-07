@@ -26,7 +26,7 @@ message GPUResources {
     optional GPUModel model = 2;
 }
 
-// Free host resources available at the Executor.
+// Resources that we're currently tracking and limiting on Executor.
 message HostResources {
     optional uint32 cpu_count = 1;
     optional uint64 memory_bytes = 2;
@@ -63,6 +63,7 @@ message FunctionExecutorDescription {
     optional string graph_version = 4;
     optional string function_name = 5;
     optional string image_uri = 6;
+    optional HostResources resource_limits = 7;
 }
 
 message FunctionExecutorState {
@@ -80,11 +81,13 @@ enum ExecutorStatus {
 
 message ExecutorState {
     optional string executor_id = 1;
-    optional ExecutorStatus executor_status = 2;
-    optional HostResources host_resources = 3;
+    optional bool development_mode = 2;
+    optional ExecutorStatus executor_status = 3;
+    // Free resources available at the Executor.
+    optional HostResources free_resources = 4;
     // Empty allowed_functions list means that any function can run on the Executor.
-    repeated AllowedFunction allowed_functions = 4;
-    repeated FunctionExecutorState function_executor_states = 5;
+    repeated AllowedFunction allowed_functions = 5;
+    repeated FunctionExecutorState function_executor_states = 6;
 }
 
 // A message sent by Executor to report its up to date state to Server.
@@ -106,6 +109,7 @@ message Task {
     optional string graph_invocation_id = 6;
     optional string input_key = 8;
     optional string reducer_output_key = 9;
+    optional string timeout_ms = 10;
 }
 
 message TaskAllocation {

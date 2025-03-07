@@ -129,6 +129,7 @@ class FunctionExecutorDescription(_message.Message):
         "graph_version",
         "function_name",
         "image_uri",
+        "resource_limits",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -136,12 +137,14 @@ class FunctionExecutorDescription(_message.Message):
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
     graph_version: str
     function_name: str
     image_uri: str
+    resource_limits: HostResources
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -150,6 +153,7 @@ class FunctionExecutorDescription(_message.Message):
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         image_uri: _Optional[str] = ...,
+        resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -167,19 +171,22 @@ class FunctionExecutorState(_message.Message):
 class ExecutorState(_message.Message):
     __slots__ = (
         "executor_id",
+        "development_mode",
         "executor_status",
-        "host_resources",
+        "free_resources",
         "allowed_functions",
         "function_executor_states",
     )
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
+    DEVELOPMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     EXECUTOR_STATUS_FIELD_NUMBER: _ClassVar[int]
-    HOST_RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    FREE_RESOURCES_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_STATES_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
+    development_mode: bool
     executor_status: ExecutorStatus
-    host_resources: HostResources
+    free_resources: HostResources
     allowed_functions: _containers.RepeatedCompositeFieldContainer[AllowedFunction]
     function_executor_states: _containers.RepeatedCompositeFieldContainer[
         FunctionExecutorState
@@ -187,8 +194,9 @@ class ExecutorState(_message.Message):
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
+        development_mode: bool = ...,
         executor_status: _Optional[_Union[ExecutorStatus, str]] = ...,
-        host_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
+        free_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
         allowed_functions: _Optional[
             _Iterable[_Union[AllowedFunction, _Mapping]]
         ] = ...,
@@ -219,6 +227,7 @@ class Task(_message.Message):
         "graph_invocation_id",
         "input_key",
         "reducer_output_key",
+        "timeout_ms",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -228,6 +237,7 @@ class Task(_message.Message):
     GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
     REDUCER_OUTPUT_KEY_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -236,6 +246,7 @@ class Task(_message.Message):
     graph_invocation_id: str
     input_key: str
     reducer_output_key: str
+    timeout_ms: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -246,6 +257,7 @@ class Task(_message.Message):
         graph_invocation_id: _Optional[str] = ...,
         input_key: _Optional[str] = ...,
         reducer_output_key: _Optional[str] = ...,
+        timeout_ms: _Optional[str] = ...,
     ) -> None: ...
 
 class TaskAllocation(_message.Message):
