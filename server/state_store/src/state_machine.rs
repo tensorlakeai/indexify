@@ -317,8 +317,20 @@ fn update_task_versions_for_cg(
                 compute_graph.version.0
             );
             task.graph_version = compute_graph.version.clone();
+            if let Some(node) = compute_graph.nodes.get(&task.compute_fn_name) {
+                if let Some(image_uri) = node.image_uri() {
+                    info!(
+                        task_id = task.id.to_string(),
+                        new_image_uri = image_uri,
+                        previous_image_uri =
+                            task.image_uri.unwrap_or_else(|| "default".to_string()),
+                        "updating image uri for task",
+                    );
+                    task.image_uri = Some(image_uri.clone());
+                }
+            }
+            tasks_to_update.insert(key, task);
         }
-        tasks_to_update.insert(key, task);
     }
     info!(
         namespace = compute_graph.namespace,
