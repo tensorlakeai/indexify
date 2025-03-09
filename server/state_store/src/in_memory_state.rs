@@ -328,9 +328,11 @@ impl InMemoryState {
 
     pub fn active_tasks_for_executor(&self, executor_id: &str) -> Vec<Box<Task>> {
         let mut tasks = vec![];
-        for (_, allocations) in self.allocations_by_fn.get(executor_id).unwrap() {
-            for allocation in allocations {
-                tasks.push(self.tasks.get(&allocation.task_key()).unwrap().clone());
+        if let Some(allocations_by_fn) = self.allocations_by_fn.get(executor_id) {
+            for allocations in allocations_by_fn.values() {
+                for allocation in allocations {
+                    tasks.push(self.tasks.get(&allocation.task_key()).unwrap().clone());
+                }
             }
         }
         tasks
