@@ -426,7 +426,7 @@ impl IndexifyState {
     }
 }
 
-pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize) -> TaskStream {
+pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, _limit: usize) -> TaskStream {
     let stream = async_stream::stream! {
         let mut rx = state
         .executor_states
@@ -440,7 +440,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
             // The update thread modifies tasks first and then updates task_ids_sent,
             // this thread does the opposite. This avoids sending the same task multiple times.
             let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
-            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor.to_string(), limit);
+            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor.to_string());
             if active_tasks.len() > 0 {
                 let state = state.clone();
                 let mut filtered_tasks = vec![];
