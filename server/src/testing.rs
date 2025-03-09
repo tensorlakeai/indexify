@@ -228,7 +228,7 @@ impl TestExecutor<'_> {
             .in_memory_state
             .read()
             .await
-            .active_tasks_for_executor(&self.executor.id.get(), 100);
+            .active_tasks_for_executor(&self.executor.id.get());
 
         Ok(tasks.into_iter().map(|task| (*task).clone()).collect())
     }
