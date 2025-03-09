@@ -372,6 +372,13 @@ impl InMemoryState {
                     get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
                     &[KeyValue::new("outcome", req.task.outcome.to_string())],
                 );
+
+                self.allocations_by_fn
+                    .entry(req.executor_id.get().to_string())
+                    .or_default()
+                    .entry(req.task.fn_uri())
+                    .or_default()
+                    .retain(|a| a != &allocation_id);
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
