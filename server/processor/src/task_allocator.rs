@@ -37,7 +37,7 @@ pub struct TaskPlacementResult {
 // - compute node concurrency configuration
 // - compute node batching configuration
 // - compute node timeout configuration
-const MAX_ALLOCATIONS_PER_EXECUTOR: usize = 20;
+const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
 pub struct TaskAllocationProcessor {}
 
@@ -165,10 +165,10 @@ impl TaskAllocationProcessor {
                 .iter()
                 .filter(|(k, _)| {
                     let all_allocations = indexes.allocations_by_fn.get(*k);
-                    let allocations_for_task = all_allocations.map_or(0, |allocs| {
+                    let allocations_for_fn = all_allocations.map_or(0, |allocs| {
                         allocs.get(&task.fn_uri()).unwrap_or(&Vector::new()).len()
                     });
-                    allocations_for_task < MAX_ALLOCATIONS_PER_EXECUTOR
+                    allocations_for_fn < MAX_ALLOCATIONS_PER_FN_EXECUTOR
                 })
                 .map(|(_, v)| v)
                 .collect_vec();
