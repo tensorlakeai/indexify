@@ -98,6 +98,7 @@ pub struct InMemoryState {
     active_tasks_gauge: Gauge<u64>,
     active_invocations_gauge: Gauge<u64>,
     active_allocations_gauge: Gauge<u64>,
+    active_allocations_by_fn_gauge: Gauge<u64>,
     task_pending_latency: Histogram<f64>,
     task_running_latency: Histogram<f64>,
     task_completion_latency: Histogram<f64>,
@@ -259,6 +260,10 @@ impl InMemoryState {
             .u64_gauge("active_allocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
+        let active_allocations_by_fn_gauge = meter
+            .u64_gauge("active_allocations_by_fn_gauge")
+            .with_description("Number of active allocations by function, reported from in_memory_state")
+            .build();
         let task_pending_latency = meter
             .f64_histogram("task_pending_latency")
             .with_unit("s")
@@ -297,6 +302,7 @@ impl InMemoryState {
             task_running_latency,
             task_completion_latency,
             allocations_by_fn,
+            active_allocations_by_fn_gauge,
         };
         in_memory_state.emit_metrics();
 
@@ -543,6 +549,8 @@ impl InMemoryState {
                 for executor_id in &req.remove_executors {
                     self.active_allocations_gauge
                         .record(0, &[KeyValue::new("executor_id", executor_id.to_string())]);
+                    self.active_allocations_by_fn_gauge
+                        .record(0, &[KeyValue::new("executor_id", executor_id.to_string())]);
                     self.executors.remove(executor_id.get());
                     self.allocations_by_executor
                         .remove(&executor_id.get().to_string());
@@ -600,7 +608,7 @@ impl InMemoryState {
 
         for (executor_id, allocations_by_fn) in &self.allocations_by_fn {
             for (fn_uri, allocations) in allocations_by_fn {
-                self.active_allocations_gauge.record(
+                self.active_allocations_by_fn_gauge.record(
                     allocations.len() as u64,
                     &[
                         KeyValue::new("executor_id", executor_id.to_string()),
