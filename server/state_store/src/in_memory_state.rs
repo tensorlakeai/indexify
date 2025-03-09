@@ -711,6 +711,7 @@ impl InMemoryState {
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),
             allocations_by_fn: self.allocations_by_fn.clone(),
+            active_allocations_by_fn_gauge: self.active_allocations_by_fn_gauge.clone(),
         })
     }
 }
