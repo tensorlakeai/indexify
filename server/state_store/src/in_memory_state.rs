@@ -78,7 +78,7 @@ pub struct InMemoryState {
     pub allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>>,
 
     // Executor ID -> (FN URI -> List of Allocation IDs)
-    pub allocations_by_fn: im::HashMap<String, im::HashMap<String, im::Vector<String>>>,
+    pub allocations_by_fn: im::HashMap<String, im::HashMap<String, im::Vector<Box<Allocation>>>>,
 
     // TaskKey -> Task
     pub unallocated_tasks: im::OrdSet<UnallocatedTaskId>,
@@ -159,8 +159,10 @@ impl InMemoryState {
         }
 
         // Creating Allocated Tasks By Function
-        let mut allocations_by_fn: im::HashMap<String, im::HashMap<String, im::Vector<String>>> =
-            im::HashMap::new();
+        let mut allocations_by_fn: im::HashMap<
+            String,
+            im::HashMap<String, im::Vector<Box<Allocation>>>,
+        > = im::HashMap::new();
         {
             let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
                 &[],
@@ -174,7 +176,7 @@ impl InMemoryState {
                     .or_default()
                     .entry(allocation.fn_uri())
                     .or_default()
-                    .push_back(allocation.id.to_string());
+                    .push_back(Box::new(allocation));
             }
         }
         let mut invocation_ctx = im::OrdMap::new();
@@ -378,7 +380,7 @@ impl InMemoryState {
                     .or_default()
                     .entry(req.task.fn_uri())
                     .or_default()
-                    .retain(|a| a != &allocation_id);
+                    .retain(|a| a.id != allocation_id);
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -510,7 +512,7 @@ impl InMemoryState {
                             .or_default()
                             .entry(allocation.fn_uri())
                             .or_default()
-                            .push_back(allocation.id.to_string());
+                            .push_back(Box::new(allocation.clone()));
 
                         self.task_pending_latency.record(
                             get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
@@ -536,7 +538,7 @@ impl InMemoryState {
                         .or_default()
                         .entry(allocation.fn_uri())
                         .or_default()
-                        .retain(|a| a != &allocation.id.to_string());
+                        .retain(|a| a.id != allocation.id);
                 }
                 for executor_id in &req.remove_executors {
                     self.active_allocations_gauge
@@ -595,6 +597,18 @@ impl InMemoryState {
                 &[KeyValue::new("executor_id", executor_id.to_string())],
             );
         }
+
+        for (executor_id, allocations_by_fn) in &self.allocations_by_fn {
+            for (fn_uri, allocations) in allocations_by_fn {
+                self.active_allocations_gauge.record(
+                    allocations.len() as u64,
+                    &[
+                        KeyValue::new("executor_id", executor_id.to_string()),
+                        KeyValue::new("fn_uri", fn_uri.to_string()),
+                    ],
+                );
+            }
+        }
     }
 
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
@@ -606,6 +620,12 @@ impl InMemoryState {
 
         for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
             allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
+        }
+
+        for (_executor, allocations_by_fn) in self.allocations_by_fn.iter_mut() {
+            for (_fn_uri, allocations) in allocations_by_fn.iter_mut() {
+                allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
+            }
         }
     }
 
@@ -631,6 +651,11 @@ impl InMemoryState {
         // Remove allocations
         for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
             allocations.retain(|allocation| allocation.invocation_id != invocation_id);
+        }
+        for (_executor, allocations_by_fn) in self.allocations_by_fn.iter_mut() {
+            for (_fn_uri, allocations) in allocations_by_fn.iter_mut() {
+                allocations.retain(|allocation| allocation.invocation_id != invocation_id);
+            }
         }
 
         // Remove unallocated tasks

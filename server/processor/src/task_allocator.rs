@@ -198,7 +198,7 @@ impl TaskAllocationProcessor {
                         .or_default()
                         .entry(task.fn_uri())
                         .or_default()
-                        .push_back(allocation.id.to_string());
+                        .push_back(Box::new(allocation.clone()));
                     indexes
                         .allocations_by_executor
                         .entry(allocation.executor_id.to_string())
