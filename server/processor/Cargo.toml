@@ -19,3 +19,4 @@ opentelemetry.workspace = true
 async-trait.workspace = true
 itertools.workspace = true
 indexify_utils.workspace = true
+im.workspace = true

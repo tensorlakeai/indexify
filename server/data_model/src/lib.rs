@@ -139,6 +139,13 @@ impl Allocation {
             &self.task_id.to_string(),
         )
     }
+
+    pub fn fn_uri(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, self.compute_graph, self.compute_fn
+        )
+    }
 }
 
 impl AllocationBuilder {
@@ -964,6 +971,13 @@ impl Task {
         format!(
             "{}|{}|{}",
             self.namespace, self.compute_graph_name, self.graph_version.0,
+        )
+    }
+
+    pub fn fn_uri(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, self.compute_graph_name, self.compute_fn_name
         )
     }
 
