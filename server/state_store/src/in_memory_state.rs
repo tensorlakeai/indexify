@@ -326,18 +326,14 @@ impl InMemoryState {
             .collect()
     }
 
-    pub fn active_tasks_for_executor(&self, executor_id: &str, limit: usize) -> Vec<Box<Task>> {
-        self.allocations_by_executor
-            .get(executor_id)
-            .map(|allocations| {
-                allocations
-                    .iter()
-                    .take(limit)
-                    .filter_map(|allocation| self.tasks.get(&allocation.task_key()))
-                    .map(|task| task.clone())
-                    .collect()
-            })
-            .unwrap_or_default()
+    pub fn active_tasks_for_executor(&self, executor_id: &str) -> Vec<Box<Task>> {
+        let mut tasks = vec![];
+        for (_, allocations) in self.allocations_by_fn.get(executor_id).unwrap() {
+            for allocation in allocations {
+                tasks.push(self.tasks.get(&allocation.task_key()).unwrap().clone());
+            }
+        }
+        tasks
     }
 
     pub fn update_state(

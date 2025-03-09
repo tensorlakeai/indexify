@@ -1599,7 +1599,7 @@ mod tests {
             .in_memory_state
             .read()
             .await
-            .active_tasks_for_executor(mock_executor_id().get(), 10);
+            .active_tasks_for_executor(mock_executor_id().get());
         assert_eq!(res.len(), 1);
 
         let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone(), 10);
