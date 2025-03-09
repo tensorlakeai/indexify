@@ -262,7 +262,9 @@ impl InMemoryState {
             .build();
         let active_allocations_by_fn_gauge = meter
             .u64_gauge("active_allocations_by_fn_gauge")
-            .with_description("Number of active allocations by function, reported from in_memory_state")
+            .with_description(
+                "Number of active allocations by function, reported from in_memory_state",
+            )
             .build();
         let task_pending_latency = meter
             .f64_histogram("task_pending_latency")
