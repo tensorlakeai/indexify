@@ -12,6 +12,7 @@ use data_model::{
     Task,
     TaskStatus,
 };
+use im::Vector;
 use itertools::Itertools;
 use rand::seq::SliceRandom;
 use state_store::{
@@ -36,7 +37,7 @@ pub struct TaskPlacementResult {
 // - compute node concurrency configuration
 // - compute node batching configuration
 // - compute node timeout configuration
-const MAX_ALLOCATIONS_PER_EXECUTOR: usize = 20;
+const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
 pub struct TaskAllocationProcessor {}
 
@@ -163,9 +164,11 @@ impl TaskAllocationProcessor {
                 .executors
                 .iter()
                 .filter(|(k, _)| {
-                    let allocations = indexes.allocations_by_executor.get(*k);
-                    let allocation_count = allocations.map_or(0, |allocs| allocs.len());
-                    allocation_count < MAX_ALLOCATIONS_PER_EXECUTOR
+                    let all_allocations = indexes.allocations_by_fn.get(*k);
+                    let allocations_for_fn = all_allocations.map_or(0, |allocs| {
+                        allocs.get(&task.fn_uri()).unwrap_or(&Vector::new()).len()
+                    });
+                    allocations_for_fn < MAX_ALLOCATIONS_PER_FN_EXECUTOR
                 })
                 .map(|(_, v)| v)
                 .collect_vec();
@@ -189,6 +192,13 @@ impl TaskAllocationProcessor {
                     );
                     allocations.push(allocation.clone());
                     task.status = TaskStatus::Running;
+                    indexes
+                        .allocations_by_fn
+                        .entry(allocation.executor_id.to_string())
+                        .or_default()
+                        .entry(task.fn_uri())
+                        .or_default()
+                        .push_back(allocation.id.to_string());
                     indexes
                         .allocations_by_executor
                         .entry(allocation.executor_id.to_string())
