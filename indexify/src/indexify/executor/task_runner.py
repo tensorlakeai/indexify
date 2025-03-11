@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from .api_objects import Task
 from .function_executor.function_executor_state import (

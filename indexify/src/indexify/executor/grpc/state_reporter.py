@@ -32,12 +32,15 @@ from ..function_executor.function_executor_states_container import (
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
 from .channel_creator import ChannelCreator
+from .metrics.state_reporter import (
+    metric_state_report_errors,
+    metric_state_report_latency,
+    metric_state_report_rpcs,
+)
 
 _REPORTING_INTERVAL_SEC = 5
 _REPORT_RPC_TIMEOUT_SEC = 5
 _REPORT_BACKOFF_ON_ERROR_SEC = 5
-
-# TODO: Add metrics for the state reporter.
 
 
 class ExecutorStateReporter:
@@ -90,19 +93,24 @@ class ExecutorStateReporter:
         self._logger.info("State reporter shutdown")
 
     async def _report_state(self, stub: TaskSchedulerServiceStub):
-        state = ExecutorState(
-            executor_id=self._executor_id,
-            development_mode=self._development_mode,
-            executor_status=self._executor_status,
-            free_resources=await self._fetch_free_host_resources(),
-            allowed_functions=self._allowed_functions,
-            function_executor_states=await self._fetch_function_executor_states(),
-        )
+        with (
+            metric_state_report_errors.count_exceptions(),
+            metric_state_report_latency.time(),
+        ):
+            metric_state_report_rpcs.inc()
+            state = ExecutorState(
+                executor_id=self._executor_id,
+                development_mode=self._development_mode,
+                executor_status=self._executor_status,
+                free_resources=await self._fetch_free_host_resources(),
+                allowed_functions=self._allowed_functions,
+                function_executor_states=await self._fetch_function_executor_states(),
+            )
 
-        await stub.report_executor_state(
-            ReportExecutorStateRequest(executor_state=state),
-            timeout=_REPORT_RPC_TIMEOUT_SEC,
-        )
+            await stub.report_executor_state(
+                ReportExecutorStateRequest(executor_state=state),
+                timeout=_REPORT_RPC_TIMEOUT_SEC,
+            )
 
     async def _fetch_free_host_resources(self) -> HostResources:
         # TODO: Implement host resource metrics reporting.
