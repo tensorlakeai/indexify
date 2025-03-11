@@ -9,11 +9,7 @@ configure_logging_early()
 import os
 import re
 import shutil
-import signal
-import subprocess
 import sys
-import threading
-import time
 from importlib.metadata import version
 from pathlib import Path
 from socket import gethostname
@@ -49,91 +45,6 @@ custom_theme = Theme(
 console = Console(theme=custom_theme)
 
 app = typer.Typer(pretty_exceptions_enable=False, no_args_is_help=True)
-
-
-@app.command(
-    help="Run server and executor in dev mode (Not recommended for production.)"
-)
-def server_dev_mode():
-    indexify_server_path = os.path.expanduser("~/.indexify/indexify-server")
-    if not os.path.exists(indexify_server_path):
-        print("indexify-server not found. Downloading...")
-        try:
-            download_command = subprocess.check_output(
-                ["curl", "-s", "https://getindexify.ai"], universal_newlines=True
-            )
-            subprocess.run(download_command, shell=True, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"failed to download indexify-server: {e}")
-            exit(1)
-        try:
-            os.makedirs(os.path.dirname(indexify_server_path), exist_ok=True)
-            shutil.move("indexify-server", indexify_server_path)
-        except Exception as e:
-            print(f"failed to move indexify-server to {indexify_server_path}: {e}")
-            exit(1)
-    print("starting indexify server and executor in dev mode...")
-    print("press Ctrl+C to stop the server and executor.")
-    print(f"server binary path: {indexify_server_path}")
-    commands: List[List[str]] = [
-        [indexify_server_path, "--dev"],
-        ["indexify-cli", "executor", "--dev"],
-    ]
-    processes = []
-    stop_event = threading.Event()
-
-    def handle_output(process):
-        for line in iter(process.stdout.readline, ""):
-            sys.stdout.write(line)
-            sys.stdout.flush()
-
-    def terminate_processes():
-        print("Terminating processes...")
-        stop_event.set()
-        for process in processes:
-            if process.poll() is None:
-                try:
-                    process.terminate()
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    print(f"Force killing process {process.pid}")
-                    process.kill()
-
-    def signal_handler(sig, frame):
-        print("\nCtrl+C pressed. Shutting down...")
-        terminate_processes()
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    for cmd in commands:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=1,
-            universal_newlines=True,
-            preexec_fn=os.setsid if os.name != "nt" else None,
-        )
-        processes.append(process)
-
-        thread = threading.Thread(target=handle_output, args=(process,))
-        thread.daemon = True
-        thread.start()
-
-    try:
-        while True:
-            time.sleep(1)
-            if all(process.poll() is not None for process in processes):
-                print("All processes have finished.")
-                break
-    except KeyboardInterrupt:
-        signal_handler(None, None)
-    finally:
-        terminate_processes()
-
-    print("Script execution completed.")
 
 
 @app.command(help="Build image for function names")
