@@ -14,6 +14,8 @@ class Task(BaseModel):
     graph_version: str
     image_uri: Optional[str] = None
     "image_uri defines the URI of the image of this task. Optional since some executors do not require it."
+    secret_names: Optional[List[str]] = None
+    "secret_names defines the names of the secrets to set on function executor. Optional for backward compatibility."
 
 
 class FunctionURI(BaseModel):

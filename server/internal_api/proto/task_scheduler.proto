@@ -63,7 +63,8 @@ message FunctionExecutorDescription {
     optional string graph_version = 4;
     optional string function_name = 5;
     optional string image_uri = 6;
-    optional HostResources resource_limits = 7;
+    repeated string secret_names = 7;
+    optional HostResources resource_limits = 8;
 }
 
 message FunctionExecutorState {
@@ -144,9 +145,9 @@ service TaskSchedulerService {
     // Called by Executor to open a stream of its desired states. When Server wants Executor to change something
     // it puts a message on the stream with the new desired state of the Executor.
     //
-    // Depricated HTTP API is used to download the serialized graph and task inputs.
+    // Deprecated HTTP API is used to download the serialized graph and task inputs.
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
 
-    // Task outcome is currently reported via depricated HTTP API. We're going to migrate task output reporting to gRPC
+    // Task outcome is currently reported via deprecated HTTP API. We're going to migrate task output reporting to gRPC
     // when we move S3 downloads and uploads to Executor.
 }

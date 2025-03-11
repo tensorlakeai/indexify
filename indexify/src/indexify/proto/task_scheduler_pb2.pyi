@@ -131,6 +131,7 @@ class FunctionExecutorDescription(_message.Message):
         "graph_version",
         "function_name",
         "image_uri",
+        "secret_names",
         "resource_limits",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
@@ -139,6 +140,7 @@ class FunctionExecutorDescription(_message.Message):
     GRAPH_VERSION_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
     IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
+    SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
@@ -146,6 +148,7 @@ class FunctionExecutorDescription(_message.Message):
     graph_version: str
     function_name: str
     image_uri: str
+    secret_names: _containers.RepeatedScalarFieldContainer[str]
     resource_limits: HostResources
     def __init__(
         self,
@@ -155,6 +158,7 @@ class FunctionExecutorDescription(_message.Message):
         graph_version: _Optional[str] = ...,
         function_name: _Optional[str] = ...,
         image_uri: _Optional[str] = ...,
+        secret_names: _Optional[_Iterable[str]] = ...,
         resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
     ) -> None: ...
 

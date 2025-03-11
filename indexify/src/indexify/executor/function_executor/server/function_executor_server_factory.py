@@ -1,8 +1,10 @@
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 from .function_executor_server import FunctionExecutorServer
 
 
+@dataclass
 class FunctionExecutorServerConfiguration:
     """Configuration for creating a FunctionExecutorServer.
 
@@ -14,13 +16,11 @@ class FunctionExecutorServerConfiguration:
     configuration parameters or raise an exception if it can't implement
     them."""
 
-    def __init__(
-        self, executor_id: str, function_executor_id: str, image_uri: Optional[str]
-    ):
-        self.executor_id: str = executor_id
-        self.function_executor_id: str = function_executor_id
-        # Container image URI of the Function Executor Server.
-        self.image_uri: Optional[str] = image_uri
+    executor_id: str
+    function_executor_id: str
+    namespace: str
+    image_uri: Optional[str]
+    secret_names: List[str]
 
 
 class FunctionExecutorServerFactory:
