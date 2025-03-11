@@ -90,7 +90,7 @@ metric_get_info_rpc_errors: prometheus_client.Counter = prometheus_client.Counte
 )
 metric_function_executor_infos: prometheus_client.Counter = prometheus_client.Counter(
     "function_executor_infos",
-    "Number of Function Executors with particular info",
+    "Number of Function Executor creations with particular info",
     ["version", "sdk_version", "sdk_language", "sdk_language_version"],
 )
 

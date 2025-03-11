@@ -150,7 +150,6 @@ class TestMetrics(unittest.TestCase):
             "function_executor_get_info_rpc_latency_seconds_count",
             "function_executor_get_info_rpc_latency_seconds_sum",
             "function_executor_get_info_rpc_errors_total",
-            "function_executor_infos_total",
             #
             "function_executor_initialize_rpc_latency_seconds_count",
             "function_executor_initialize_rpc_latency_seconds_sum",
@@ -174,6 +173,8 @@ class TestMetrics(unittest.TestCase):
             # FE states
             "function_executor_state_not_locked_errors_total",
             "function_executor_states_count",
+            # FE statuses
+            "function_executors_with_status",
             # Executor
             "executor_info",
             "executor_state",
@@ -215,6 +216,16 @@ class TestMetrics(unittest.TestCase):
             "function_executor_run_task_rpc_errors_total",
             "function_executor_run_task_rpc_latency_seconds_count",
             "function_executor_run_task_rpc_latency_seconds_sum",
+            # Server gRPC channel creation
+            "grpc_server_channel_creations_total",
+            "grpc_server_channel_creation_retries_total",
+            "grpc_server_channel_creation_latency_seconds_count",
+            "grpc_server_channel_creation_latency_seconds_sum",
+            # State reporter
+            "state_report_rpcs_total",
+            "state_report_rpc_errors_total",
+            "state_report_rpc_latency_seconds_count",
+            "state_report_rpc_latency_seconds_sum",
         ]
         metrics: Dict[str, Metric] = fetch_metrics(self)
 
@@ -366,6 +377,30 @@ class TestMetrics(unittest.TestCase):
             ),
             # FE states
             SampleDiff("function_executor_state_not_locked_errors_total", {}, 0.0),
+            # FE statuses
+            SampleDiff(
+                "function_executors_with_status",
+                {"status": "STARTING_UP"},
+                0.0,
+            ),
+            SampleDiff(
+                "function_executors_with_status",
+                {"status": "STARTUP_FAILED_CUSTOMER_ERROR"},
+                0.0,
+            ),
+            SampleDiff(
+                "function_executors_with_status",
+                {"status": "STARTUP_FAILED_PLATFORM_ERROR"},
+                0.0,
+            ),
+            # SampleDiff("function_executors_with_status", {"status": "IDLE"} is either 0 or 1 - depends on what was running at Executor.
+            SampleDiff(
+                "function_executors_with_status", {"status": "RUNNING_TASK"}, 0.0
+            ),
+            SampleDiff("function_executors_with_status", {"status": "UNHEALTHY"}, 0.0),
+            SampleDiff("function_executors_with_status", {"status": "DESTROYING"}, 0.0),
+            SampleDiff("function_executors_with_status", {"status": "DESTROYED"}, 0.0),
+            SampleDiff("function_executors_with_status", {"status": "SHUTDOWN"}, 0.0),
             # Executor
             SampleDiff("executor_state", {"executor_state": "starting"}, 0.0),
             SampleDiff("executor_state", {"executor_state": "running"}, 0.0),
@@ -407,6 +442,12 @@ class TestMetrics(unittest.TestCase):
             SampleDiff("function_executor_run_task_rpcs_total", {}, 1.0),
             SampleDiff("function_executor_run_task_rpc_errors_total", {}, 0.0),
             SampleDiff("function_executor_run_task_rpc_latency_seconds_count", {}, 1.0),
+            # Server gRPC channel creation
+            SampleDiff("grpc_server_channel_creations_total", {}, 0.0),
+            SampleDiff("grpc_server_channel_creation_retries_total", {}, 0.0),
+            SampleDiff("grpc_server_channel_creation_latency_seconds_count", {}, 0.0),
+            # State reporter
+            SampleDiff("state_report_rpc_errors_total", {}, 0.0),
         ]
         for expected_diff in expected_sample_diffs:
             sample_before: Sample = get_sample(

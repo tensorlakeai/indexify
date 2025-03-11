@@ -5,6 +5,7 @@ from .function_executor import FunctionExecutor
 from .function_executor_status import FunctionExecutorStatus, is_status_change_allowed
 from .metrics.function_executor_state import (
     metric_function_executor_state_not_locked_errors,
+    metric_function_executors_with_status,
 )
 
 
@@ -50,6 +51,7 @@ class FunctionExecutorState:
             lock=self.lock
         )
         self.function_executor: Optional[FunctionExecutor] = None
+        metric_function_executors_with_status.labels(status=self.status.name).inc()
 
     async def wait_status(self, allowlist: List[FunctionExecutorStatus]) -> None:
         """Waits until Function Executor status reaches one of the allowed values.
@@ -73,6 +75,8 @@ class FunctionExecutorState:
                 old_status=self.status.name,
                 new_status=new_status.name,
             )
+            metric_function_executors_with_status.labels(status=self.status.name).dec()
+            metric_function_executors_with_status.labels(status=new_status.name).inc()
             self.status = new_status
             self.status_change_notifier.notify_all()
         else:
