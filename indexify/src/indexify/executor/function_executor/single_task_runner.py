@@ -133,7 +133,9 @@ class SingleTaskRunner:
             FunctionExecutorServerConfiguration(
                 executor_id=self._executor_id,
                 function_executor_id=self._function_executor_state.id,
+                namespace=self._task_input.task.namespace,
                 image_uri=self._task_input.task.image_uri,
+                secret_names=self._task_input.task.secret_names or [],
             )
         )
         initialize_request: InitializeRequest = InitializeRequest(

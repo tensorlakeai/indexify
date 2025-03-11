@@ -147,6 +147,7 @@ class ExecutorStateReconciler:
                     graph_name=desired_function_executor.graph_name,
                     graph_version=desired_function_executor.graph_version,
                     function_name=desired_function_executor.function_name,
+                    image_uri=desired_function_executor.image_uri,
                 )
             )
 
@@ -235,7 +236,9 @@ class ExecutorStateReconciler:
             FunctionExecutorServerConfiguration(
                 executor_id=self._executor_id,
                 function_executor_id=description.id,
+                namespace=description.namespace,
                 image_uri=description.image_uri,
+                secret_names=list(description.secret_names),
             )
         )
         initialize_request: InitializeRequest = InitializeRequest(

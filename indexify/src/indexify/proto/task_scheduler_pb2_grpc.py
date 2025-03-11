@@ -74,7 +74,7 @@ class TaskSchedulerServiceServicer(object):
         """Called by Executor to open a stream of its desired states. When Server wants Executor to change something
         it puts a message on the stream with the new desired state of the Executor.
 
-        Depricated HTTP API is used to download the serialized graph and task inputs.
+        Deprecated HTTP API is used to download the serialized graph and task inputs.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
