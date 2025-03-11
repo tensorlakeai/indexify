@@ -251,6 +251,7 @@ pub struct DynamicEdgeRouter {
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
     pub image_information: ImageInformation,
+    pub secret_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -265,6 +266,7 @@ pub struct ComputeFn {
     #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
     pub image_information: ImageInformation,
+    pub secret_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -308,6 +310,13 @@ impl Node {
             Node::Compute(compute) => compute.reducer,
         }
     }
+
+    pub fn secret_names(&self) -> Option<Vec<String>> {
+        match self {
+            Node::Router(router) => router.secret_names.clone(),
+            Node::Compute(compute) => compute.secret_names.clone(),
+        }
+    }
 }
 
 impl Node {
@@ -333,6 +342,7 @@ impl Node {
             .reducer_output_id(reducer_output_id)
             .graph_version(graph_version.clone())
             .image_uri(self.image_uri())
+            .secret_names(self.secret_names())
             .build()?;
         Ok(task)
     }
@@ -956,6 +966,7 @@ pub struct Task {
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
     pub image_uri: Option<String>,
+    pub secret_names: Option<Vec<String>>,
 }
 
 impl Task {
@@ -1088,6 +1099,10 @@ impl TaskBuilder {
             graph_version,
             image_uri: self.image_uri.clone().flatten(),
             creation_time_ns,
+            secret_names: self
+                .secret_names
+                .clone()
+                .ok_or(anyhow!("secret_names is required"))?,
         };
         Ok(task)
     }

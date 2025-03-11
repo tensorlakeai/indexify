@@ -46,6 +46,7 @@ pub mod tests {
             .invocation_id(inv_id.to_string())
             .reducer_output_id(None)
             .graph_version(Default::default())
+            .secret_names(None)
             .build()
             .unwrap()
     }
@@ -228,6 +229,7 @@ pub mod tests {
                 image_uri: Some("1234567890.dkr.ecr.us-east-1.amazonaws.com/test".to_string()),
                 sdk_version: Some("1.2.3".to_string()),
             },
+            ..Default::default()
         };
         let fn_b = test_compute_fn("fn_b", "image_hash".to_string());
         let fn_c = test_compute_fn("fn_c", "image_hash".to_string());
