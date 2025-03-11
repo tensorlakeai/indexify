@@ -160,6 +160,8 @@ pub struct ComputeFn {
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
     pub image_information: ImageInformation,
+    #[serde(default)]
+    pub secret_names: Vec<String>,
 }
 
 impl From<ComputeFn> for data_model::ComputeFn {
@@ -173,6 +175,7 @@ impl From<ComputeFn> for data_model::ComputeFn {
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
             image_information: val.image_information.into(),
+            secret_names: Some(val.secret_names),
         }
     }
 }
@@ -187,6 +190,7 @@ impl From<data_model::ComputeFn> for ComputeFn {
             input_encoder: c.input_encoder,
             output_encoder: c.output_encoder,
             image_information: c.image_information.into(),
+            secret_names: c.secret_names.unwrap_or(vec![]),
         }
     }
 }
@@ -202,6 +206,8 @@ pub struct DynamicRouter {
     #[serde(default = "default_encoder")]
     pub output_encoder: String,
     pub image_information: ImageInformation,
+    #[serde(default)]
+    pub secret_names: Vec<String>,
 }
 
 impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
@@ -214,6 +220,7 @@ impl From<DynamicRouter> for data_model::DynamicEdgeRouter {
             input_encoder: val.input_encoder.clone(),
             output_encoder: val.output_encoder.clone(),
             image_information: val.image_information.clone().into(),
+            secret_names: Some(val.secret_names),
         }
     }
 }
@@ -228,6 +235,7 @@ impl From<data_model::DynamicEdgeRouter> for DynamicRouter {
             input_encoder: d.input_encoder,
             output_encoder: d.output_encoder,
             image_information: d.image_information.into(),
+            secret_names: d.secret_names.unwrap_or(vec![]),
         }
     }
 }
@@ -490,6 +498,7 @@ pub struct Task {
     pub reducer_output_id: Option<String>,
     pub graph_version: GraphVersion,
     pub image_uri: Option<String>,
+    pub secret_names: Vec<String>,
 }
 
 impl From<data_model::Task> for Task {
@@ -506,6 +515,7 @@ impl From<data_model::Task> for Task {
             reducer_output_id: task.reducer_output_id,
             graph_version: task.graph_version.into(),
             image_uri: task.image_uri,
+            secret_names: task.secret_names.unwrap_or_default(),
         }
     }
 }
