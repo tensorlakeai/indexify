@@ -22,6 +22,7 @@ from .metrics.task_runner import (
     metric_task_run_platform_errors,
     metric_task_runs,
     metric_tasks_blocked_by_policy,
+    metric_tasks_blocked_by_policy_per_function_name,
     metric_tasks_running,
 )
 
@@ -55,6 +56,9 @@ class TaskRunner:
             with (
                 metric_task_policy_errors.count_exceptions(),
                 metric_tasks_blocked_by_policy.track_inprogress(),
+                metric_tasks_blocked_by_policy_per_function_name.labels(
+                    function_name=task_input.task.compute_fn
+                ).track_inprogress(),
                 metric_task_policy_latency.time(),
             ):
                 metric_task_policy_runs.inc()
