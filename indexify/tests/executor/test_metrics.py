@@ -72,11 +72,11 @@ def assert_sample_exists(
     )
 
 
-class SampleDiff:
-    def __init__(self, name: str, labels: Dict[str, str], value_diff: float):
+class SampleSpec:
+    def __init__(self, name: str, labels: Dict[str, str], value: float):
         self.name = name
         self.labels = labels
-        self.value_diff = value_diff
+        self.value = value
 
 
 class TestMetrics(unittest.TestCase):
@@ -279,175 +279,175 @@ class TestMetrics(unittest.TestCase):
 
         metrics_after: Dict[str, Metric] = fetch_metrics(self)
 
-        expected_sample_diffs: List[SampleDiff] = [
+        expected_sample_diffs: List[SampleSpec] = [
             # graph downloads
-            SampleDiff("task_graph_downloads_total", {}, 1.0),
-            SampleDiff("task_graph_download_errors_total", {}, 0.0),
-            SampleDiff("task_graph_downloads_from_cache_total", {}, 0.0),
-            SampleDiff("task_graph_download_latency_seconds_count", {}, 1.0),
-            SampleDiff("tasks_downloading_graphs", {}, 0.0),
+            SampleSpec("task_graph_downloads_total", {}, 1.0),
+            SampleSpec("task_graph_download_errors_total", {}, 0.0),
+            SampleSpec("task_graph_downloads_from_cache_total", {}, 0.0),
+            SampleSpec("task_graph_download_latency_seconds_count", {}, 1.0),
+            SampleSpec("tasks_downloading_graphs", {}, 0.0),
             # task input downloads
-            SampleDiff("task_input_downloads_total", {}, 1.0),
-            SampleDiff("task_input_download_errors_total", {}, 0.0),
-            SampleDiff("task_input_download_latency_seconds_count", {}, 1.0),
-            SampleDiff("tasks_downloading_inputs", {}, 0.0),
+            SampleSpec("task_input_downloads_total", {}, 1.0),
+            SampleSpec("task_input_download_errors_total", {}, 0.0),
+            SampleSpec("task_input_download_latency_seconds_count", {}, 1.0),
+            SampleSpec("tasks_downloading_inputs", {}, 0.0),
             # task reducer init value downloads
-            SampleDiff("task_reducer_init_value_downloads_total", {}, 0.0),
-            SampleDiff("task_reducer_init_value_download_errors_total", {}, 0.0),
-            SampleDiff(
+            SampleSpec("task_reducer_init_value_downloads_total", {}, 0.0),
+            SampleSpec("task_reducer_init_value_download_errors_total", {}, 0.0),
+            SampleSpec(
                 "task_reducer_init_value_download_latency_seconds_count", {}, 0.0
             ),
-            SampleDiff("tasks_downloading_reducer_init_value", {}, 0.0),
+            SampleSpec("tasks_downloading_reducer_init_value", {}, 0.0),
             # FE health checker
-            SampleDiff("function_executor_failed_health_checks_total", {}, 0.0),
-            SampleDiff(
+            SampleSpec("function_executor_failed_health_checks_total", {}, 0.0),
+            SampleSpec(
                 "function_executor_invocation_state_client_request_read_errors_total",
                 {},
                 0.0,
             ),
             # Server get invocation state API.
-            SampleDiff("server_get_invocation_state_requests_total", {}, 0.0),
-            SampleDiff("server_get_invocation_state_request_errors_total", {}, 0.0),
-            SampleDiff(
+            SampleSpec("server_get_invocation_state_requests_total", {}, 0.0),
+            SampleSpec("server_get_invocation_state_request_errors_total", {}, 0.0),
+            SampleSpec(
                 "server_get_invocation_state_request_latency_seconds_count", {}, 0.0
             ),
-            SampleDiff(
+            SampleSpec(
                 "server_get_invocation_state_request_latency_seconds_sum", {}, 0.0
             ),
             # Server set invocation state API.
-            SampleDiff("server_set_invocation_state_requests_total", {}, 0.0),
-            SampleDiff("server_set_invocation_state_request_errors_total", {}, 0.0),
-            SampleDiff(
+            SampleSpec("server_set_invocation_state_requests_total", {}, 0.0),
+            SampleSpec("server_set_invocation_state_request_errors_total", {}, 0.0),
+            SampleSpec(
                 "server_set_invocation_state_request_latency_seconds_count", {}, 0.0
             ),
-            SampleDiff(
+            SampleSpec(
                 "server_set_invocation_state_request_latency_seconds_sum", {}, 0.0
             ),
             # Function executor create/destroy.
-            SampleDiff("function_executor_creates_total", {}, 1.0),
-            SampleDiff("function_executor_create_latency_seconds_count", {}, 1.0),
-            SampleDiff("function_executor_create_errors_total", {}, 0.0),
+            SampleSpec("function_executor_creates_total", {}, 1.0),
+            SampleSpec("function_executor_create_latency_seconds_count", {}, 1.0),
+            SampleSpec("function_executor_create_errors_total", {}, 0.0),
             #
-            SampleDiff("function_executor_destroy_errors_total", {}, 0.0),
+            SampleSpec("function_executor_destroy_errors_total", {}, 0.0),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_create_server_latency_seconds_count", {}, 1.0
             ),
-            SampleDiff("function_executor_create_server_errors_total", {}, 0.0),
+            SampleSpec("function_executor_create_server_errors_total", {}, 0.0),
             #
-            SampleDiff("function_executor_destroy_server_errors_total", {}, 0.0),
+            SampleSpec("function_executor_destroy_server_errors_total", {}, 0.0),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_establish_channel_latency_seconds_count", {}, 1.0
             ),
-            SampleDiff("function_executor_establish_channel_errors_total", {}, 0.0),
+            SampleSpec("function_executor_establish_channel_errors_total", {}, 0.0),
             #
-            SampleDiff("function_executor_destroy_channel_errors_total", {}, 0.0),
+            SampleSpec("function_executor_destroy_channel_errors_total", {}, 0.0),
             #
-            SampleDiff("function_executor_get_info_rpc_errors_total", {}, 0.0),
-            SampleDiff("function_executor_get_info_rpc_latency_seconds_count", {}, 1.0),
+            SampleSpec("function_executor_get_info_rpc_errors_total", {}, 0.0),
+            SampleSpec("function_executor_get_info_rpc_latency_seconds_count", {}, 1.0),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_initialize_rpc_latency_seconds_count", {}, 1.0
             ),
-            SampleDiff("function_executor_initialize_rpc_errors_total", {}, 0.0),
+            SampleSpec("function_executor_initialize_rpc_errors_total", {}, 0.0),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_create_invocation_state_client_latency_seconds_count",
                 {},
                 1.0,
             ),
-            SampleDiff(
+            SampleSpec(
                 "function_executor_create_invocation_state_client_errors_total", {}, 0.0
             ),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_destroy_invocation_state_client_errors_total",
                 {},
                 0.0,
             ),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_create_health_checker_latency_seconds_count", {}, 1.0
             ),
-            SampleDiff("function_executor_create_health_checker_errors_total", {}, 0.0),
+            SampleSpec("function_executor_create_health_checker_errors_total", {}, 0.0),
             #
-            SampleDiff(
+            SampleSpec(
                 "function_executor_destroy_health_checker_errors_total", {}, 0.0
             ),
             # FE states
-            SampleDiff("function_executor_state_not_locked_errors_total", {}, 0.0),
+            SampleSpec("function_executor_state_not_locked_errors_total", {}, 0.0),
             # FE statuses
-            SampleDiff(
+            SampleSpec(
                 "function_executors_with_status",
                 {"status": "STARTING_UP"},
                 0.0,
             ),
-            SampleDiff(
+            SampleSpec(
                 "function_executors_with_status",
                 {"status": "STARTUP_FAILED_CUSTOMER_ERROR"},
                 0.0,
             ),
-            SampleDiff(
+            SampleSpec(
                 "function_executors_with_status",
                 {"status": "STARTUP_FAILED_PLATFORM_ERROR"},
                 0.0,
             ),
-            # SampleDiff("function_executors_with_status", {"status": "IDLE"} is either 0 or 1 - depends on what was running at Executor.
-            SampleDiff(
+            # SampleSpec("function_executors_with_status", {"status": "IDLE"} is either 0 or 1 - depends on what was running at Executor.
+            SampleSpec(
                 "function_executors_with_status", {"status": "RUNNING_TASK"}, 0.0
             ),
-            SampleDiff("function_executors_with_status", {"status": "UNHEALTHY"}, 0.0),
-            SampleDiff("function_executors_with_status", {"status": "DESTROYING"}, 0.0),
-            SampleDiff("function_executors_with_status", {"status": "DESTROYED"}, 0.0),
-            SampleDiff("function_executors_with_status", {"status": "SHUTDOWN"}, 0.0),
+            SampleSpec("function_executors_with_status", {"status": "UNHEALTHY"}, 0.0),
+            SampleSpec("function_executors_with_status", {"status": "DESTROYING"}, 0.0),
+            SampleSpec("function_executors_with_status", {"status": "DESTROYED"}, 0.0),
+            SampleSpec("function_executors_with_status", {"status": "SHUTDOWN"}, 0.0),
             # Executor
-            SampleDiff("executor_state", {"executor_state": "starting"}, 0.0),
-            SampleDiff("executor_state", {"executor_state": "running"}, 0.0),
-            SampleDiff("executor_state", {"executor_state": "shutting_down"}, 0.0),
+            SampleSpec("executor_state", {"executor_state": "starting"}, 0.0),
+            SampleSpec("executor_state", {"executor_state": "running"}, 0.0),
+            SampleSpec("executor_state", {"executor_state": "shutting_down"}, 0.0),
             # Server registration API
-            SampleDiff("server_registration_requests_total", {}, 0.0),
-            SampleDiff("server_registration_request_errors_total", {}, 0.0),
-            SampleDiff("server_registration_request_latency_seconds_count", {}, 0.0),
-            SampleDiff("server_registration_request_latency_seconds_sum", {}, 0.0),
+            SampleSpec("server_registration_requests_total", {}, 0.0),
+            SampleSpec("server_registration_request_errors_total", {}, 0.0),
+            SampleSpec("server_registration_request_latency_seconds_count", {}, 0.0),
+            SampleSpec("server_registration_request_latency_seconds_sum", {}, 0.0),
             # Task lifecycle steps
-            SampleDiff("tasks_fetched_total", {}, 1.0),
-            SampleDiff("tasks_completed_total", {"outcome": "all"}, 1.0),
-            SampleDiff("tasks_completed_total", {"outcome": "success"}, 1.0),
-            SampleDiff("tasks_completed_total", {"outcome": "error_platform"}, 0.0),
-            SampleDiff(
+            SampleSpec("tasks_fetched_total", {}, 1.0),
+            SampleSpec("tasks_completed_total", {"outcome": "all"}, 1.0),
+            SampleSpec("tasks_completed_total", {"outcome": "success"}, 1.0),
+            SampleSpec("tasks_completed_total", {"outcome": "error_platform"}, 0.0),
+            SampleSpec(
                 "tasks_completed_total", {"outcome": "error_customer_code"}, 0.0
             ),
-            SampleDiff("task_completion_latency_seconds_count", {}, 1.0),
+            SampleSpec("task_completion_latency_seconds_count", {}, 1.0),
             # Task outcome reporting
-            SampleDiff("task_outcome_reports_total", {}, 1.0),
-            SampleDiff("tasks_reporting_outcome", {}, 0.0),
-            SampleDiff("task_outcome_report_latency_seconds_count", {}, 1.0),
-            SampleDiff("tasks_outcome_report_retries_total", {}, 0.0),
+            SampleSpec("task_outcome_reports_total", {}, 1.0),
+            SampleSpec("tasks_reporting_outcome", {}, 0.0),
+            SampleSpec("task_outcome_report_latency_seconds_count", {}, 1.0),
+            SampleSpec("tasks_outcome_report_retries_total", {}, 0.0),
             #
-            SampleDiff("server_ingest_files_requests_total", {}, 1.0),
-            SampleDiff("server_ingest_files_request_errors_total", {}, 0.0),
-            SampleDiff("server_ingest_files_request_latency_seconds_count", {}, 1.0),
+            SampleSpec("server_ingest_files_requests_total", {}, 1.0),
+            SampleSpec("server_ingest_files_request_errors_total", {}, 0.0),
+            SampleSpec("server_ingest_files_request_latency_seconds_count", {}, 1.0),
             # Running a task
-            SampleDiff("task_policy_runs_total", {}, 1.0),
-            SampleDiff("task_policy_errors_total", {}, 0.0),
-            SampleDiff("task_policy_latency_seconds_count", {}, 1.0),
-            SampleDiff("tasks_blocked_by_policy", {}, 0.0),
+            SampleSpec("task_policy_runs_total", {}, 1.0),
+            SampleSpec("task_policy_errors_total", {}, 0.0),
+            SampleSpec("task_policy_latency_seconds_count", {}, 1.0),
+            SampleSpec("tasks_blocked_by_policy", {}, 0.0),
             #
-            SampleDiff("task_runs_total", {}, 1.0),
-            SampleDiff("task_run_platform_errors_total", {}, 0.0),
-            SampleDiff("task_run_latency_seconds_count", {}, 1.0),
-            SampleDiff("tasks_running", {}, 0.0),
+            SampleSpec("task_runs_total", {}, 1.0),
+            SampleSpec("task_run_platform_errors_total", {}, 0.0),
+            SampleSpec("task_run_latency_seconds_count", {}, 1.0),
+            SampleSpec("tasks_running", {}, 0.0),
             #
-            SampleDiff("function_executor_run_task_rpcs_total", {}, 1.0),
-            SampleDiff("function_executor_run_task_rpc_errors_total", {}, 0.0),
-            SampleDiff("function_executor_run_task_rpc_latency_seconds_count", {}, 1.0),
+            SampleSpec("function_executor_run_task_rpcs_total", {}, 1.0),
+            SampleSpec("function_executor_run_task_rpc_errors_total", {}, 0.0),
+            SampleSpec("function_executor_run_task_rpc_latency_seconds_count", {}, 1.0),
             # Server gRPC channel creation
-            SampleDiff("grpc_server_channel_creations_total", {}, 0.0),
-            SampleDiff("grpc_server_channel_creation_retries_total", {}, 0.0),
-            SampleDiff("grpc_server_channel_creation_latency_seconds_count", {}, 0.0),
+            SampleSpec("grpc_server_channel_creations_total", {}, 0.0),
+            SampleSpec("grpc_server_channel_creation_retries_total", {}, 0.0),
+            SampleSpec("grpc_server_channel_creation_latency_seconds_count", {}, 0.0),
             # State reporter
-            SampleDiff("state_report_rpc_errors_total", {}, 0.0),
+            SampleSpec("state_report_rpc_errors_total", {}, 0.0),
         ]
         for expected_diff in expected_sample_diffs:
             sample_before: Sample = get_sample(
@@ -459,8 +459,41 @@ class TestMetrics(unittest.TestCase):
             actual_value_diff: float = sample_after.value - sample_before.value
             self.assertEqual(
                 actual_value_diff,
-                expected_diff.value_diff,
+                expected_diff.value,
                 f"Sample {expected_diff.name} with labels {expected_diff.labels} has value diff {actual_value_diff}",
+            )
+
+    def test_expected_metrics_after_successful_task_run(self):
+        graph = Graph(
+            name=test_graph_name(self),
+            description="test",
+            start_node=successful_function,
+        )
+        graph = RemoteGraph.deploy(graph)
+        invocation_id = graph.run(
+            block_until_done=True,
+            arg="ignored",
+        )
+        output = graph.output(invocation_id, "successful_function")
+        self.assertEqual(output, ["success"])
+
+        metrics: Dict[str, Metric] = fetch_metrics(self)
+        expected_metrics: List[SampleSpec] = [
+            # Running a task
+            SampleSpec(
+                "tasks_blocked_by_policy_per_function_name",
+                {"function_name": "successful_function"},
+                0.0,
+            ),
+        ]
+        for expected_metric in expected_metrics:
+            sample: Sample = get_sample(
+                self, metrics, expected_metric.name, expected_metric.labels
+            )
+            self.assertEqual(
+                sample.value,
+                expected_metric.value,
+                f"Sample {expected_metric.name} with labels {expected_metric.labels} has value {sample.value} instead of {expected_metric.value}",
             )
 
 

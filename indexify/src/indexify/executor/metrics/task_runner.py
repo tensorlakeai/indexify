@@ -23,6 +23,13 @@ metric_tasks_blocked_by_policy: prometheus_client.Gauge = prometheus_client.Gaug
     "tasks_blocked_by_policy",
     "Number of tasks that are ready for execution but are blocked according to the current policy (typically waiting for a free Function Executor)",
 )
+metric_tasks_blocked_by_policy_per_function_name: prometheus_client.Gauge = (
+    prometheus_client.Gauge(
+        "tasks_blocked_by_policy_per_function_name",
+        "Number of tasks that are ready for execution but are blocked according to the current policy (typically waiting for a free Function Executor)",
+        ["function_name"],
+    )
+)
 
 # Metrics for the stage when task is running.
 metric_task_runs: prometheus_client.Counter = prometheus_client.Counter(
