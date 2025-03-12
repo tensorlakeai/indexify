@@ -28,10 +28,16 @@ def function_uri(
 
 
 class ExecutorProcessContextManager:
-    def __init__(self, args: List[str], keep_std_outputs: bool = True):
+    def __init__(
+        self,
+        args: List[str],
+        keep_std_outputs: bool = True,
+        extra_env: Optional[dict] = None,
+    ):
         self._args = ["indexify-cli", "executor"]
         self._args.extend(args)
         self._keep_std_outputs = keep_std_outputs
+        self._extra_env = extra_env
         self._process: Optional[subprocess.Popen] = None
 
     def __enter__(self) -> subprocess.Popen:
@@ -39,6 +45,9 @@ class ExecutorProcessContextManager:
         if not self._keep_std_outputs:
             kwargs["stdout"] = subprocess.DEVNULL
             kwargs["stderr"] = subprocess.DEVNULL
+        if self._extra_env is not None:
+            kwargs["env"] = os.environ.copy()
+            kwargs["env"].update(self._extra_env)
         self._process = subprocess.Popen(self._args, **kwargs)
         return self._process
 

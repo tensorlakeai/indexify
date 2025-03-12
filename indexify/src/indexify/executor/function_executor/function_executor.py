@@ -110,7 +110,7 @@ class FunctionExecutor:
                     config_path=config_path,
                     initialize_request=initialize_request,
                 )
-                await self._create_health_checker(stub)
+                await self._create_health_checker(self._channel, stub)
                 self._initialized = True
         except Exception:
             await self.destroy()
@@ -243,12 +243,15 @@ class FunctionExecutor:
         finally:
             self._invocation_state_client = None
 
-    async def _create_health_checker(self, stub: FunctionExecutorStub) -> None:
+    async def _create_health_checker(
+        self, channel: grpc.aio.Channel, stub: FunctionExecutorStub
+    ) -> None:
         with (
             metric_create_health_checker_errors.count_exceptions(),
             metric_create_health_checker_latency.time(),
         ):
             self._health_checker = HealthChecker(
+                channel=channel,
                 stub=stub,
                 logger=self._logger,
             )
