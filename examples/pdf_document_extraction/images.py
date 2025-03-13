@@ -34,4 +34,5 @@ inkwell_image_gpu = (
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx")
     .run('pip install docling')
+    .run('pip install torch==2.5.1 torchvision==0.2.1')
 )
