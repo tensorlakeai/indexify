@@ -1,6 +1,6 @@
 [package]
 name = "indexify-server"
-version = "0.2.46"
+version = "0.2.47"
 edition = "2021"
 authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache-2.0"
@@ -17,6 +17,7 @@ members = [
     "state_store",
     "processor",
     "utils",
+    "executor_api",
 ]
 
 [workspace.dependencies]
@@ -32,6 +33,7 @@ indexify_ui = { path = "indexify_ui" }
 metrics = { path = "metrics" }
 hyper = "1.6.0"
 state_store = { path = "state_store" }
+executor_api = { path = "executor_api" }
 strum = { version = "0.27.1", features = ["derive"] }
 tracing = "0.1.41"
 rand = "0.8.5"
@@ -89,18 +91,24 @@ dashmap = "6.1.0"
 tower-otel-http-metrics = "0.13.0"
 im = {version="15.1.0"}
 base64 = "0.22.1"
+clap = { version = "4.5.31", features = ["derive"] }
+prost = "0.13.5"
+tonic = "0.12.3"
+tonic-reflection = "0.12.3"
+tonic-build = "0.12.3"
 
 [dependencies]
 async-stream = { workspace = true }
 data_model = { path = "data_model" }
 state_store = { path = "state_store" }
+executor_api = { path = "executor_api" }
 processor = { path = "processor" }
 blob_store = { path = "blob_store" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 figment = { workspace = true }
-clap = { version = "4.5.31", features = ["derive"] }
+clap = { workspace = true }
 tracing = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
@@ -134,6 +142,7 @@ axum-tracing-opentelemetry = { version = "0.26.1", features = [
 ] }
 tower-otel-http-metrics = { workspace = true }
 base64 = {workspace=true}
+tonic = {workspace=true}
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -13,6 +13,7 @@ pub struct ServerConfig {
     pub dev: bool,
     pub state_store_path: String,
     pub listen_addr: String,
+    pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
     pub tracing: TracingConfig,
 }
@@ -24,6 +25,7 @@ impl Default for ServerConfig {
             dev: false,
             state_store_path: state_store_path.to_str().unwrap().to_string(),
             listen_addr: "0.0.0.0:8900".to_string(),
+            listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
             tracing: TracingConfig::default(),
         }
@@ -45,6 +47,12 @@ impl ServerConfig {
             return Err(anyhow::anyhow!(
                 "invalid listen address: {}",
                 self.listen_addr
+            ));
+        }
+        if self.listen_addr_grpc.parse::<SocketAddr>().is_err() {
+            return Err(anyhow::anyhow!(
+                "invalid listen address grpc: {}",
+                self.listen_addr_grpc
             ));
         }
         Ok(())

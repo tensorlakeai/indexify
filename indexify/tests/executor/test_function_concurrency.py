@@ -2,8 +2,7 @@ import threading
 import time
 import unittest
 
-from tensorlake import Graph, tensorlake_function
-from tensorlake.remote_graph import RemoteGraph
+from tensorlake import Graph, RemoteGraph, tensorlake_function
 from testing import test_graph_name
 
 

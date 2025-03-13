@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package task_scheduler_service;
+package executor_api_pb;
 
 // ===== ReportExecutorState RPC =====
 
@@ -84,12 +84,13 @@ enum ExecutorStatus {
 message ExecutorState {
     optional string executor_id = 1;
     optional bool development_mode = 2;
-    optional ExecutorStatus executor_status = 3;
+    optional string hostname = 3;
+    optional ExecutorStatus executor_status = 4;
     // Free resources available at the Executor.
-    optional HostResources free_resources = 4;
+    optional HostResources free_resources = 5;
     // Empty allowed_functions list means that any function can run on the Executor.
-    repeated AllowedFunction allowed_functions = 5;
-    repeated FunctionExecutorState function_executor_states = 6;
+    repeated AllowedFunction allowed_functions = 6;
+    repeated FunctionExecutorState function_executor_states = 7;
 }
 
 // A message sent by Executor to report its up to date state to Server.
@@ -136,7 +137,7 @@ message DesiredExecutorState {
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
 // Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
-service TaskSchedulerService {
+service ExecutorAPI {
     // Called by Executor every 5 seconds to report that it's still alive and provide its current state.
     //
     // Missing 3 reports will result in the Executor being deregistered by Server.

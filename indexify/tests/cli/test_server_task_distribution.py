@@ -26,7 +26,7 @@ def success_func(sleep_secs: float) -> str:
     return "success"
 
 
-class TestServer(unittest.TestCase):
+class TestServerTaskDistribution(unittest.TestCase):
     def test_server_distributes_invocations_fairly_between_two_executors(self):
         print(
             "Waiting for 10 seconds for Server to notice that any previously existing Executors exited."

@@ -9,7 +9,7 @@ import structlog
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
 from tensorlake.utils.logging import suppress as suppress_logging
 
-from indexify.proto.task_scheduler_pb2 import ExecutorStatus
+from indexify.proto.executor_api_pb2 import ExecutorStatus
 
 from .api_objects import FunctionURI, Task
 from .downloader import Downloader
