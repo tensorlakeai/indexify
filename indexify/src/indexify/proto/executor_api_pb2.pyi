@@ -178,6 +178,7 @@ class ExecutorState(_message.Message):
     __slots__ = (
         "executor_id",
         "development_mode",
+        "hostname",
         "executor_status",
         "free_resources",
         "allowed_functions",
@@ -185,12 +186,14 @@ class ExecutorState(_message.Message):
     )
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     DEVELOPMENT_MODE_FIELD_NUMBER: _ClassVar[int]
+    HOSTNAME_FIELD_NUMBER: _ClassVar[int]
     EXECUTOR_STATUS_FIELD_NUMBER: _ClassVar[int]
     FREE_RESOURCES_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_STATES_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
     development_mode: bool
+    hostname: str
     executor_status: ExecutorStatus
     free_resources: HostResources
     allowed_functions: _containers.RepeatedCompositeFieldContainer[AllowedFunction]
@@ -201,6 +204,7 @@ class ExecutorState(_message.Message):
         self,
         executor_id: _Optional[str] = ...,
         development_mode: bool = ...,
+        hostname: _Optional[str] = ...,
         executor_status: _Optional[_Union[ExecutorStatus, str]] = ...,
         free_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
         allowed_functions: _Optional[

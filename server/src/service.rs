@@ -3,6 +3,10 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
+use executor_api::{
+    executor_api_pb::executor_api_server::ExecutorApiServer,
+    service::ExecutorAPIService,
+};
 use metrics::init_provider;
 use processor::{gc::Gc, graph_processor::GraphProcessor, task_allocator, task_creator};
 use prometheus::Registry;
@@ -12,6 +16,7 @@ use tokio::{
     signal,
     sync::{watch, Mutex},
 };
+use tonic::transport::Server;
 use tracing::info;
 
 use super::routes::RouteState;
@@ -119,6 +124,15 @@ impl Service {
             if let Err(err) = kvs.close_db().await {
                 tracing::error!("error closing kv store: {:?}", err);
             }
+        });
+
+        let addr_grpc: SocketAddr = self.config.listen_addr_grpc.parse()?;
+        info!("server grpc listening on {}", self.config.listen_addr_grpc);
+        tokio::spawn(async move {
+            Server::builder()
+                .add_service(ExecutorApiServer::new(ExecutorAPIService::default()))
+                .serve(addr_grpc)
+                .await
         });
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;

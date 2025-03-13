@@ -4,9 +4,7 @@ import warnings
 
 import grpc
 
-from indexify.proto import (
-    task_scheduler_pb2 as indexify_dot_proto_dot_task__scheduler__pb2,
-)
+from indexify.proto import executor_api_pb2 as indexify_dot_proto_dot_executor__api__pb2
 
 GRPC_GENERATED_VERSION = "1.70.0"
 GRPC_VERSION = grpc.__version__
@@ -24,14 +22,14 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f"The grpc package installed is at version {GRPC_VERSION},"
-        + f" but the generated code in indexify/proto/task_scheduler_pb2_grpc.py depends on"
+        + f" but the generated code in indexify/proto/executor_api_pb2_grpc.py depends on"
         + f" grpcio>={GRPC_GENERATED_VERSION}."
         + f" Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}"
         + f" or downgrade your generated code using grpcio-tools<={GRPC_VERSION}."
     )
 
 
-class TaskSchedulerServiceStub(object):
+class ExecutorAPIStub(object):
     """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
     """
@@ -43,20 +41,20 @@ class TaskSchedulerServiceStub(object):
             channel: A grpc.Channel.
         """
         self.report_executor_state = channel.unary_unary(
-            "/task_scheduler_service.TaskSchedulerService/report_executor_state",
-            request_serializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
-            response_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
+            "/executor_api_pb.ExecutorAPI/report_executor_state",
+            request_serializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateResponse.FromString,
             _registered_method=True,
         )
         self.get_desired_executor_states = channel.unary_stream(
-            "/task_scheduler_service.TaskSchedulerService/get_desired_executor_states",
-            request_serializer=indexify_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
-            response_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
+            "/executor_api_pb.ExecutorAPI/get_desired_executor_states",
+            request_serializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
             _registered_method=True,
         )
 
 
-class TaskSchedulerServiceServicer(object):
+class ExecutorAPIServicer(object):
     """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
     """
@@ -81,30 +79,30 @@ class TaskSchedulerServiceServicer(object):
         raise NotImplementedError("Method not implemented!")
 
 
-def add_TaskSchedulerServiceServicer_to_server(servicer, server):
+def add_ExecutorAPIServicer_to_server(servicer, server):
     rpc_method_handlers = {
         "report_executor_state": grpc.unary_unary_rpc_method_handler(
             servicer.report_executor_state,
-            request_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.FromString,
-            response_serializer=indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.SerializeToString,
+            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateResponse.SerializeToString,
         ),
         "get_desired_executor_states": grpc.unary_stream_rpc_method_handler(
             servicer.get_desired_executor_states,
-            request_deserializer=indexify_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.FromString,
-            response_serializer=indexify_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.SerializeToString,
+            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-        "task_scheduler_service.TaskSchedulerService", rpc_method_handlers
+        "executor_api_pb.ExecutorAPI", rpc_method_handlers
     )
     server.add_generic_rpc_handlers((generic_handler,))
     server.add_registered_method_handlers(
-        "task_scheduler_service.TaskSchedulerService", rpc_method_handlers
+        "executor_api_pb.ExecutorAPI", rpc_method_handlers
     )
 
 
 # This class is part of an EXPERIMENTAL API.
-class TaskSchedulerService(object):
+class ExecutorAPI(object):
     """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
     """
@@ -125,9 +123,9 @@ class TaskSchedulerService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/task_scheduler_service.TaskSchedulerService/report_executor_state",
-            indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateRequest.SerializeToString,
-            indexify_dot_proto_dot_task__scheduler__pb2.ReportExecutorStateResponse.FromString,
+            "/executor_api_pb.ExecutorAPI/report_executor_state",
+            indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateRequest.SerializeToString,
+            indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -155,9 +153,9 @@ class TaskSchedulerService(object):
         return grpc.experimental.unary_stream(
             request,
             target,
-            "/task_scheduler_service.TaskSchedulerService/get_desired_executor_states",
-            indexify_dot_proto_dot_task__scheduler__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
-            indexify_dot_proto_dot_task__scheduler__pb2.DesiredExecutorState.FromString,
+            "/executor_api_pb.ExecutorAPI/get_desired_executor_states",
+            indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
+            indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
             options,
             channel_credentials,
             insecure,

@@ -2,7 +2,8 @@ import subprocess
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from typing import List
+from socket import gethostname
+from typing import Generator, List
 
 import grpc
 import testing
@@ -15,29 +16,30 @@ from testing import (
     wait_executor_startup,
 )
 
-from indexify.proto.task_scheduler_pb2 import (
+from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
+    DesiredExecutorState,
     ExecutorStatus,
-    FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorStatus,
+    GetDesiredExecutorStatesRequest,
     GPUModel,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
 )
-from indexify.proto.task_scheduler_pb2_grpc import (
-    TaskSchedulerServiceServicer,
-    add_TaskSchedulerServiceServicer_to_server,
+from indexify.proto.executor_api_pb2_grpc import (
+    ExecutorAPIStub,
+    add_ExecutorAPIServicer_to_server,
 )
 
 
-class ReportExecutorStateRequestRecorder(TaskSchedulerServiceServicer):
+class ReportExecutorStateRequestRecorder(ExecutorAPIStub):
     def __init__(self, grpc_server_addr: str):
         self._requests: List[ReportExecutorStateRequest] = []
         self._server: grpc.Server = grpc.server(
             thread_pool=ThreadPoolExecutor(max_workers=1),
         )
-        add_TaskSchedulerServiceServicer_to_server(self, self._server)
+        add_ExecutorAPIServicer_to_server(self, self._server)
         self._server.add_insecure_port(grpc_server_addr)
         self._server.start()
 
@@ -49,6 +51,11 @@ class ReportExecutorStateRequestRecorder(TaskSchedulerServiceServicer):
     ):
         self._requests.append(request)
         return ReportExecutorStateResponse()
+
+    def get_desired_executor_states(
+        self, request: GetDesiredExecutorStatesRequest, context: grpc.ServicerContext
+    ) -> Generator[DesiredExecutorState, None, None]:
+        raise NotImplementedError()
 
     def get_requests(self):
         return self._requests
@@ -270,6 +277,10 @@ class TestExecutorStateReporter(unittest.TestCase):
 
                 self.assertEqual(request.executor_state.executor_id, "test-executor-id")
                 self.assertEqual(request.executor_state.development_mode, True)
+                self.assertEqual(
+                    request.executor_state.hostname,
+                    gethostname(),
+                )
                 self.assertEqual(
                     request.executor_state.executor_status,
                     ExecutorStatus.EXECUTOR_STATUS_RUNNING,

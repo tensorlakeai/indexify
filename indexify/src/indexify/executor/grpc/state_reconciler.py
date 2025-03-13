@@ -7,14 +7,14 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     SerializedObject,
 )
 
-from indexify.proto.task_scheduler_pb2 import (
+from indexify.proto.executor_api_pb2 import (
     DesiredExecutorState,
     FunctionExecutorDescription,
     FunctionExecutorStatus,
     GetDesiredExecutorStatesRequest,
 )
-from indexify.proto.task_scheduler_pb2_grpc import (
-    TaskSchedulerServiceStub,
+from indexify.proto.executor_api_pb2_grpc import (
+    ExecutorAPIStub,
 )
 
 from ..downloader import Downloader
@@ -85,7 +85,7 @@ class ExecutorStateReconciler:
         while not self._is_shutdown:
             async with await self._channel_creator.create() as server_channel:
                 server_channel: grpc.aio.Channel
-                stub = TaskSchedulerServiceStub(server_channel)
+                stub = ExecutorAPIStub(server_channel)
                 while not self._is_shutdown:
                     try:
                         # TODO: Report state once before starting the stream.

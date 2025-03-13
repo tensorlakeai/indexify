@@ -31,6 +31,8 @@ jobs:
     name: Build Indexify Server
     runs-on: ubuntu-latest
     steps:
+      - name: Install protobuf package
+        run: sudo apt install -y protobuf-compiler
       - uses: actions/checkout@v4
       - name: Copy rust-toolchain
         run: cp server/rust-toolchain.toml .

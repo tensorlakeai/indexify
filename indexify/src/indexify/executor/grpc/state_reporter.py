@@ -1,28 +1,29 @@
 import asyncio
+from socket import gethostname
 from typing import Any, Dict, List, Optional
 
 import grpc
 
-from indexify.proto.task_scheduler_pb2 import (
+from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
     ExecutorState,
     ExecutorStatus,
     FunctionExecutorDescription,
 )
-from indexify.proto.task_scheduler_pb2 import (
+from indexify.proto.executor_api_pb2 import (
     FunctionExecutorState as FunctionExecutorStateProto,
 )
-from indexify.proto.task_scheduler_pb2 import (
+from indexify.proto.executor_api_pb2 import (
     FunctionExecutorStatus as FunctionExecutorStatusProto,
 )
-from indexify.proto.task_scheduler_pb2 import (
+from indexify.proto.executor_api_pb2 import (
     GPUModel,
     GPUResources,
     HostResources,
     ReportExecutorStateRequest,
 )
-from indexify.proto.task_scheduler_pb2_grpc import (
-    TaskSchedulerServiceStub,
+from indexify.proto.executor_api_pb2_grpc import (
+    ExecutorAPIStub,
 )
 
 from ..api_objects import FunctionURI
@@ -55,6 +56,7 @@ class ExecutorStateReporter:
     ):
         self._executor_id: str = executor_id
         self._development_mode: bool = development_mode
+        self._hostname: str = gethostname()
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
         )
@@ -77,7 +79,7 @@ class ExecutorStateReporter:
         while not self._is_shutdown:
             async with await self._channel_creator.create() as server_channel:
                 server_channel: grpc.aio.Channel
-                stub = TaskSchedulerServiceStub(server_channel)
+                stub = ExecutorAPIStub(server_channel)
                 while not self._is_shutdown:
                     try:
                         await self._report_state(stub)
@@ -92,7 +94,7 @@ class ExecutorStateReporter:
 
         self._logger.info("State reporter shutdown")
 
-    async def _report_state(self, stub: TaskSchedulerServiceStub):
+    async def _report_state(self, stub: ExecutorAPIStub):
         with (
             metric_state_report_errors.count_exceptions(),
             metric_state_report_latency.time(),
@@ -101,6 +103,7 @@ class ExecutorStateReporter:
             state = ExecutorState(
                 executor_id=self._executor_id,
                 development_mode=self._development_mode,
+                hostname=self._hostname,
                 executor_status=self._executor_status,
                 free_resources=await self._fetch_free_host_resources(),
                 allowed_functions=self._allowed_functions,
