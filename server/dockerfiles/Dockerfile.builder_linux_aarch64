@@ -5,6 +5,7 @@ RUN apt-get update && \
     ca-certificates \
     build-essential pkg-config clang \
     g++-aarch64-linux-gnu libc6-dev-arm64-cross \
+    protobuf-compiler \
     git curl
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o nodesource_setup.sh && \
