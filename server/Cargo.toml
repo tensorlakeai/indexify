@@ -16,8 +16,7 @@ members = [
     "metrics",
     "state_store",
     "processor",
-    "utils",
-    "executor_api",
+    "utils"
 ]
 
 [workspace.dependencies]
@@ -33,7 +32,6 @@ indexify_ui = { path = "indexify_ui" }
 metrics = { path = "metrics" }
 hyper = "1.6.0"
 state_store = { path = "state_store" }
-executor_api = { path = "executor_api" }
 strum = { version = "0.27.1", features = ["derive"] }
 tracing = "0.1.41"
 rand = "0.8.5"
@@ -101,7 +99,6 @@ tonic-build = "0.12.3"
 async-stream = { workspace = true }
 data_model = { path = "data_model" }
 state_store = { path = "state_store" }
-executor_api = { path = "executor_api" }
 processor = { path = "processor" }
 blob_store = { path = "blob_store" }
 serde = { workspace = true }
@@ -142,7 +139,10 @@ axum-tracing-opentelemetry = { version = "0.26.1", features = [
 ] }
 tower-otel-http-metrics = { workspace = true }
 base64 = {workspace=true}
-tonic = {workspace=true}
+tonic = {workspace = true}
+prost = {workspace = true}
+tonic-reflection = {workspace = true}
+tokio-stream = {workspace=true}
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -150,6 +150,7 @@ tempfile = { workspace = true }
 [build-dependencies]
 # All features enabled
 vergen = { version = "9.0.4", features = ["build", "cargo", "rustc", "si"] }
+tonic-build = {workspace = true}
 
 [package.metadata.deb]
 maintainer = "Diptanu Gon Choudhury <diptanu@tensorlake.ai>"

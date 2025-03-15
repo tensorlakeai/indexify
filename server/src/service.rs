@@ -3,10 +3,6 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
-use executor_api::{
-    executor_api_pb::executor_api_server::ExecutorApiServer,
-    service::ExecutorAPIService,
-};
 use metrics::init_provider;
 use processor::{gc::Gc, graph_processor::GraphProcessor, task_allocator, task_creator};
 use prometheus::Registry;
@@ -20,8 +16,12 @@ use tonic::transport::Server;
 use tracing::info;
 
 use super::routes::RouteState;
-use crate::{config::ServerConfig, executors::ExecutorManager, routes::create_routes};
-
+use crate::{
+    config::ServerConfig,
+    executor_api::{executor_api_pb::executor_api_server::ExecutorApiServer, ExecutorAPIService},
+    executors::ExecutorManager,
+    routes::create_routes,
+};
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Service {
@@ -129,9 +129,14 @@ impl Service {
         let addr_grpc: SocketAddr = self.config.listen_addr_grpc.parse()?;
         info!("server grpc listening on {}", self.config.listen_addr_grpc);
         let mut shutdown_rx = self.shutdown_rx.clone();
+        let indexify_state = self.indexify_state.clone();
+        let executor_manager = self.executor_manager.clone();
         tokio::spawn(async move {
             Server::builder()
-                .add_service(ExecutorApiServer::new(ExecutorAPIService::default()))
+                .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
+                    indexify_state,
+                    executor_manager,
+                )))
                 .serve_with_shutdown(addr_grpc, async move {
                     shutdown_rx.changed().await.ok();
                 })
