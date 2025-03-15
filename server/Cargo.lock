@@ -949,21 +949,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "executor_api"
-version = "0.1.0"
-dependencies = [
- "clap",
- "futures",
- "prost",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-build",
- "tonic-reflection",
- "tracing",
-]
-
-[[package]]
 name = "fail-parallel"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1576,7 +1561,6 @@ dependencies = [
  "ciborium",
  "clap",
  "data_model",
- "executor_api",
  "figment",
  "futures",
  "hex",
@@ -1592,6 +1576,7 @@ dependencies = [
  "opentelemetry_sdk",
  "processor",
  "prometheus",
+ "prost",
  "rand",
  "serde",
  "serde_json",
@@ -1599,7 +1584,10 @@ dependencies = [
  "state_store",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tonic",
+ "tonic-build",
+ "tonic-reflection",
  "tower-http",
  "tower-otel-http-metrics",
  "tracing",
