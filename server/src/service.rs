@@ -128,10 +128,13 @@ impl Service {
 
         let addr_grpc: SocketAddr = self.config.listen_addr_grpc.parse()?;
         info!("server grpc listening on {}", self.config.listen_addr_grpc);
+        let mut shutdown_rx = self.shutdown_rx.clone();
         tokio::spawn(async move {
             Server::builder()
                 .add_service(ExecutorApiServer::new(ExecutorAPIService::default()))
-                .serve(addr_grpc)
+                .serve_with_shutdown(addr_grpc, async move {
+                    shutdown_rx.changed().await.ok();
+                })
                 .await
         });
 
