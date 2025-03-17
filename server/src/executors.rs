@@ -43,6 +43,12 @@ impl ExecutorManager {
         ExecutorManager { indexify_state }
     }
 
+    pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
+        let in_memory_state = self.indexify_state.in_memory_state.read().await;
+        let _executor_state = in_memory_state.executors.get(&executor.id.to_string());
+        Ok(())
+    }
+
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest { executor }),
@@ -132,6 +138,9 @@ mod tests {
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
+            function_executors: Default::default(),
+            host_resources: Default::default(),
+            state: Default::default(),
         };
         executor_manager.register_executor(executor).await?;
 
@@ -162,6 +171,9 @@ mod tests {
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
+            function_executors: Default::default(),
+            host_resources: Default::default(),
+            state: Default::default(),
         };
         executor_manager.register_executor(executor.clone()).await?;
 

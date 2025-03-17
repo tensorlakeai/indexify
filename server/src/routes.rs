@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::{
 };
 use base64::prelude::*;
 use blob_store::PutResult;
-use data_model::{ComputeGraphError, ExecutorId};
+use data_model::{ComputeGraphError, ExecutorId, ExecutorState, FunctionExecutorBuilder, HostResources};
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -794,7 +794,7 @@ async fn executor_tasks(
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
     const TASK_LIMIT: usize = 10;
-    let function_allowlist = payload.function_allowlist.map(|function_uris| {
+    let function_allowlist: Option<Vec<data_model::FunctionURI>> = payload.function_allowlist.map(|function_uris| {
         function_uris
             .iter()
             .map(|f| data_model::FunctionURI {
@@ -805,6 +805,16 @@ async fn executor_tasks(
             })
             .collect()
     });
+    let mut function_executors = HashMap::new();
+    for f in function_allowlist.clone().unwrap_or(vec![]) {
+        function_executors.insert(f.compute_fn_name.clone(), FunctionExecutorBuilder::default()
+            .namespace(f.namespace)
+            .compute_graph_name(f.compute_graph_name)
+            .compute_fn_name(f.compute_fn_name)
+            .version(f.version)
+            .build()
+            .map_err(IndexifyAPIError::internal_error)?);
+    }
     let err = state
         .executor_manager
         .register_executor(data_model::ExecutorMetadata {
@@ -813,6 +823,9 @@ async fn executor_tasks(
             addr: payload.addr.clone(),
             function_allowlist,
             labels: payload.labels.clone(),
+            host_resources: HostResources::default(),
+            state: ExecutorState::default(),
+            function_executors,
         })
         .await;
     if let Err(e) = err {
