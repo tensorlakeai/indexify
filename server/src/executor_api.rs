@@ -241,14 +241,9 @@ impl ExecutorApi for ExecutorAPIService {
             "Got report_executor_state request from Executor with ID {}",
             executor_state.executor_id()
         );
-        // Comment out not finished functionality.
-        // let executor_metadata =
-        ExecutorMetadata::try_from(executor_state)
-            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        // self.executor_manager
-        //     .heartbeat(executor_metadata)
-        //     .await
-        //     .map_err(|e| Status::internal(e.to_string()))?;
+        let _executor_id = executor_state
+            .executor_id
+            .ok_or(Status::invalid_argument("executor_id is required"))?;
         Ok(Response::new(ReportExecutorStateResponse {}))
     }
 
