@@ -172,6 +172,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
 
 pub struct ExecutorAPIService {
     _indexify_state: Arc<IndexifyState>,
+    #[allow(dead_code)]
     executor_manager: Arc<ExecutorManager>,
 }
 
