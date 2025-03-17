@@ -84,8 +84,8 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(executor_id) = executor_state.executor_id {
             executor_metadata.id(ExecutorId::new(executor_id));
         }
-        if let Some(executor_version) = executor_state.executor_version {
-            executor_metadata.executor_version(executor_version);
+        if let Some(flavor_version) = executor_state.flavor_version {
+            executor_metadata.executor_version(flavor_version);
         }
         let mut allowed_functions = Vec::new();
         for function in executor_state.allowed_functions {
@@ -205,7 +205,8 @@ impl ExecutorApi for ExecutorAPIService {
         );
         // Comment out not finished functionality.
         // let executor_metadata =
-        ExecutorMetadata::try_from(executor_state).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        ExecutorMetadata::try_from(executor_state)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
         // self.executor_manager
         //     .heartbeat(executor_metadata)
         //     .await
