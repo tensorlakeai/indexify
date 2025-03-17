@@ -1220,7 +1220,6 @@ pub struct FunctionExecutor {
 
 impl FunctionExecutorBuilder {
     pub fn build(&mut self) -> Result<FunctionExecutor> {
-        let id = self.id.clone().ok_or(anyhow!("id is required"))?;
         let namespace = self
             .namespace
             .clone()
@@ -1235,6 +1234,7 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
+        let id = nanoid::nanoid!();
         Ok(FunctionExecutor {
             id,
             namespace,
