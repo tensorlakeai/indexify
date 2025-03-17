@@ -85,12 +85,14 @@ message ExecutorState {
     optional string executor_id = 1;
     optional bool development_mode = 2;
     optional string hostname = 3;
+    optional string executor_version = 8;
     optional ExecutorStatus executor_status = 4;
     // Free resources available at the Executor.
     optional HostResources free_resources = 5;
     // Empty allowed_functions list means that any function can run on the Executor.
     repeated AllowedFunction allowed_functions = 6;
     repeated FunctionExecutorState function_executor_states = 7;
+    map<string, string> labels = 9;
 }
 
 // A message sent by Executor to report its up to date state to Server.

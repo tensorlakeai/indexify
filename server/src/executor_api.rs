@@ -3,12 +3,27 @@ pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }
 
-use std::{pin::Pin, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::Arc};
 
+use data_model::{
+    ExecutorId,
+    ExecutorMetadata,
+    ExecutorMetadataBuilder,
+    FunctionExecutor,
+    FunctionExecutorStatus,
+    FunctionURI,
+    GpuResources,
+    GraphVersion,
+    HostResources,
+};
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
+    AllowedFunction,
     DesiredExecutorState,
+    ExecutorState,
+    FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
+    GpuModel,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
 };
@@ -20,16 +35,151 @@ use tracing::info;
 
 use crate::executors::ExecutorManager;
 
+impl TryFrom<AllowedFunction> for FunctionURI {
+    type Error = anyhow::Error;
+
+    fn try_from(allowed_function: AllowedFunction) -> Result<Self, Self::Error> {
+        let namespace = allowed_function
+            .namespace
+            .ok_or(anyhow::anyhow!("namespace is required"))?;
+        let compute_graph_name = allowed_function
+            .graph_name
+            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
+        let compute_fn_name = allowed_function
+            .function_name
+            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
+        let version = allowed_function.graph_version.map(|v| GraphVersion(v));
+        Ok(FunctionURI {
+            namespace,
+            compute_graph_name,
+            compute_fn_name,
+            version,
+        })
+    }
+}
+
+impl From<GpuModel> for String {
+    fn from(gpu_model: GpuModel) -> Self {
+        match gpu_model {
+            GpuModel::NvidiaTeslaT416gb => "T4".to_string(),
+            GpuModel::NvidiaTeslaV10016gb => "V100".to_string(),
+            GpuModel::NvidiaA1024gb => "A10".to_string(),
+            GpuModel::NvidiaA600048gb => "A6000".to_string(),
+            GpuModel::NvidiaA100Sxm440gb => "A100".to_string(),
+            GpuModel::NvidiaA100Sxm480gb => "A100".to_string(),
+            GpuModel::NvidiaA100Pci40gb => "A100".to_string(),
+            GpuModel::NvidiaH100Sxm580gb => "H100".to_string(),
+            GpuModel::NvidiaH100Pci80gb => "H100".to_string(),
+            GpuModel::NvidiaRtx600024gb => "RTX6000".to_string(),
+            GpuModel::Unknown => "Unknown".to_string(),
+        }
+    }
+}
+
+impl TryFrom<ExecutorState> for ExecutorMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(executor_state: ExecutorState) -> Result<Self, Self::Error> {
+        let mut executor_metadata = ExecutorMetadataBuilder::default();
+        if let Some(executor_id) = executor_state.executor_id {
+            executor_metadata.id(ExecutorId::new(executor_id));
+        }
+        if let Some(executor_version) = executor_state.executor_version {
+            executor_metadata.executor_version(executor_version);
+        }
+        let mut allowed_functions = Vec::new();
+        for function in executor_state.allowed_functions {
+            allowed_functions.push(FunctionURI::try_from(function)?);
+        }
+        if !allowed_functions.is_empty() {
+            executor_metadata.function_allowlist(Some(allowed_functions));
+        }
+        if let Some(addr) = executor_state.hostname {
+            executor_metadata.addr(addr);
+        }
+        let mut labels = HashMap::new();
+        for (key, value) in executor_state.labels {
+            labels.insert(key, serde_json::Value::String(value));
+        }
+        if !labels.is_empty() {
+            executor_metadata.labels(labels);
+        }
+        let mut function_executors = HashMap::new();
+        for function_executor in executor_state.function_executor_states {
+            let function_executor_description = function_executor
+                .description
+                .ok_or(anyhow::anyhow!("description is required"))?;
+            let mut function_executor = FunctionExecutor::try_from(function_executor_description)?;
+            function_executor.status = FunctionExecutorStatus::try_from(function_executor.status)?;
+            function_executors.insert(function_executor.id.clone(), function_executor);
+        }
+        if let Some(host_resources) = executor_state.free_resources {
+            let cpu = host_resources
+                .cpu_count
+                .ok_or(anyhow::anyhow!("cpu_count is required"))?;
+            let memory = host_resources
+                .memory_bytes
+                .ok_or(anyhow::anyhow!("memory_bytes is required"))?;
+            let disk = host_resources
+                .disk_bytes
+                .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
+            let gpu = host_resources.gpu.map(|g| GpuResources {
+                count: g.count(),
+                model: g.model().into(),
+            });
+            executor_metadata.host_resources(HostResources {
+                cpu_count: cpu,
+                memory_bytes: memory,
+                disk_bytes: disk,
+                gpu,
+            });
+        }
+        Ok(executor_metadata.build()?)
+    }
+}
+
+impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        function_executor_description: FunctionExecutorDescription,
+    ) -> Result<Self, Self::Error> {
+        let id = function_executor_description
+            .id
+            .ok_or(anyhow::anyhow!("id is required"))?;
+        let namespace = function_executor_description
+            .namespace
+            .ok_or(anyhow::anyhow!("namespace is required"))?;
+        let compute_graph_name = function_executor_description
+            .graph_name
+            .ok_or(anyhow::anyhow!("compute_graph_name is required"))?;
+        let compute_fn_name = function_executor_description
+            .function_name
+            .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
+        let version = function_executor_description
+            .graph_version
+            .map(|v| GraphVersion(v));
+        Ok(FunctionExecutor {
+            id,
+            namespace,
+            compute_graph_name,
+            compute_fn_name,
+            version,
+            status: FunctionExecutorStatus::Unknown,
+        })
+    }
+}
+
 pub struct ExecutorAPIService {
     _indexify_state: Arc<IndexifyState>,
-    _executor_manager: Arc<ExecutorManager>,
+    executor_manager: Arc<ExecutorManager>,
 }
 
 impl ExecutorAPIService {
     pub fn new(indexify_state: Arc<IndexifyState>, executor_manager: Arc<ExecutorManager>) -> Self {
         Self {
             _indexify_state: indexify_state,
-            _executor_manager: executor_manager,
+            executor_manager,
         }
     }
 }
@@ -53,9 +203,12 @@ impl ExecutorApi for ExecutorAPIService {
             "Got report_executor_state request from Executor with ID {}",
             executor_state.executor_id()
         );
-        let _executor_id = executor_state
-            .executor_id
-            .ok_or(Status::invalid_argument("executor_id is required"))?;
+        let executor_metadata = ExecutorMetadata::try_from(executor_state)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        self.executor_manager
+            .heartbeat(executor_metadata)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(ReportExecutorStateResponse {}))
     }
 
