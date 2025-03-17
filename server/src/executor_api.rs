@@ -6,37 +6,16 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use data_model::{
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    ExecutorMetadataBuilder,
-    FunctionExecutor,
-    FunctionExecutorStatus,
-    FunctionURI,
-    GpuResources,
-    GraphVersion,
-    HostResources,
-    NodeOutputBuilder,
-    OutputPayload,
-    TaskDiagnostics,
-    TaskOutcome,
-    TaskOutputsIngestionStatus,
+    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionExecutor,
+    FunctionExecutorStatus, FunctionURI, GpuResources, GraphVersion, HostResources,
+    NodeOutputBuilder, OutputPayload, TaskDiagnostics, TaskOutcome, TaskOutputsIngestionStatus,
     TaskStatus,
 };
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
-    AllowedFunction,
-    DesiredExecutorState,
-    ExecutorState,
-    ExecutorStatus,
-    FunctionExecutorDescription,
-    GetDesiredExecutorStatesRequest,
-    GpuModel,
-    OutputEncoding,
-    ReportExecutorStateRequest,
-    ReportExecutorStateResponse,
-    ReportTaskOutcomeRequest,
-    ReportTaskOutcomeResponse,
+    executor_api_server::ExecutorApi, AllowedFunction, DesiredExecutorState, ExecutorState,
+    ExecutorStatus, FunctionExecutorDescription, GetDesiredExecutorStatesRequest, GpuModel,
+    OutputEncoding, ReportExecutorStateRequest, ReportExecutorStateResponse,
+    ReportTaskOutcomeRequest, ReportTaskOutcomeResponse,
 };
 use metrics::api_io_stats;
 use state_store::{
@@ -113,7 +92,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(executor_id) = executor_state.executor_id {
             executor_metadata.id(ExecutorId::new(executor_id));
         }
-        // Ignore Executor flavor for now.
+        // FIXME: ignoring Executor flavor for now.
         if let Some(executor_version) = executor_state.version {
             executor_metadata.executor_version(executor_version);
         }
@@ -190,6 +169,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
         let version = function_executor_description
             .graph_version
             .ok_or(anyhow::anyhow!("version is required"))?;
+
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -203,7 +183,6 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
 
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
-    #[allow(dead_code)]
     executor_manager: Arc<ExecutorManager>,
     api_metrics: Arc<api_io_stats::Metrics>,
 }
@@ -241,9 +220,12 @@ impl ExecutorApi for ExecutorAPIService {
             "Got report_executor_state request from Executor with ID {}",
             executor_state.executor_id()
         );
-        let _executor_id = executor_state
-            .executor_id
-            .ok_or(Status::invalid_argument("executor_id is required"))?;
+        let executor_metadata = ExecutorMetadata::try_from(executor_state)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        self.executor_manager
+            .heartbeat(executor_metadata)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(ReportExecutorStateResponse {}))
     }
 
