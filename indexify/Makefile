@@ -6,7 +6,7 @@ build: build_proto
 	@poetry build
 
 SERVER_API_PY_CLIENT_PROTO_DIR_PATH=indexify/proto
-SERVER_API_PROTO_DIR_PATH=../server/executor_api/proto
+SERVER_API_PROTO_DIR_PATH=../server/proto
 
 build_proto: ${SERVER_API_PROTO_DIR_PATH}/executor_api.proto
 	@poetry install
