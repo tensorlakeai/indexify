@@ -93,6 +93,7 @@ message ExecutorState {
     repeated AllowedFunction allowed_functions = 6;
     repeated FunctionExecutorState function_executor_states = 7;
     map<string, string> labels = 9;
+    optional string state_hash = 10;
 }
 
 // A message sent by Executor to report its up to date state to Server.

@@ -1250,7 +1250,8 @@ impl FunctionExecutorBuilder {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
@@ -1266,6 +1267,41 @@ pub struct ExecutorMetadata {
 impl ExecutorMetadata {
     pub fn key(&self) -> String {
         format!("{}", self.id)
+    }
+}
+
+impl ExecutorMetadataBuilder {
+    pub fn build(&mut self) -> Result<ExecutorMetadata> {
+        let id = self.id.clone().ok_or(anyhow!("id is required"))?;
+        let executor_version = self
+            .executor_version
+            .clone()
+            .ok_or(anyhow!("executor_version is required"))?;
+        let function_allowlist = self
+            .function_allowlist
+            .clone()
+            .ok_or(anyhow!("function_allowlist is required"))?;
+        let addr = self.addr.clone().ok_or(anyhow!("addr is required"))?;
+        let labels = self.labels.clone().ok_or(anyhow!("labels is required"))?;
+        let function_executors = self
+            .function_executors
+            .clone()
+            .ok_or(anyhow!("function_executors is required"))?;
+        let host_resources = self
+            .host_resources
+            .clone()
+            .ok_or(anyhow!("host_resources is required"))?;
+        let state = self.state.clone().ok_or(anyhow!("state is required"))?;
+        Ok(ExecutorMetadata {
+            id,
+            executor_version,
+            function_allowlist,
+            addr,
+            labels,
+            function_executors,
+            host_resources,
+            state,
+        })
     }
 }
 
