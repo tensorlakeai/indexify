@@ -18,6 +18,7 @@ use tracing_subscriber::{
 };
 
 mod config;
+mod executor_api;
 mod executors;
 mod gc_test;
 mod http_objects;

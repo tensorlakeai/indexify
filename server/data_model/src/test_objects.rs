@@ -316,6 +316,9 @@ pub mod tests {
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
+            host_resources: Default::default(),
+            state: Default::default(),
+            function_executors: Default::default(),
         }
     }
 }

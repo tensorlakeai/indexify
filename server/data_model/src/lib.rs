@@ -1154,7 +1154,97 @@ pub struct FunctionURI {
     pub version: Option<GraphVersion>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GpuResources {
+    pub count: u32,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HostResources {
+    pub cpu_count: u32,
+    pub memory_bytes: u64,
+    pub disk_bytes: u64,
+    pub gpu: Option<GpuResources>,
+}
+
+impl Default for HostResources {
+    fn default() -> Self {
+        Self {
+            cpu_count: 1,
+            memory_bytes: 1024 * 1024 * 1024,
+            disk_bytes: 1024 * 1024 * 1024,
+            gpu: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum ExecutorState {
+    #[default]
+    Unknown,
+    StartingUp,
+    Running,
+    Drained,
+    Stopping,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum FunctionExecutorStatus {
+    #[default]
+    Unknown,
+    StartingUp,
+    StartupFailedCustomerError,
+    StartupFailedPlatformError,
+    Idle,
+    RunningTask,
+    Unhealthy,
+    Stopping,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct FunctionExecutor {
+    pub id: String,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub version: Option<GraphVersion>,
+    pub status: FunctionExecutorStatus,
+}
+
+impl FunctionExecutorBuilder {
+    pub fn build(&mut self) -> Result<FunctionExecutor> {
+        let namespace = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is required"))?;
+        let compute_graph_name = self
+            .compute_graph_name
+            .clone()
+            .ok_or(anyhow!("compute_graph_name is required"))?;
+        let compute_fn_name = self
+            .compute_fn_name
+            .clone()
+            .ok_or(anyhow!("compute_fn_name is required"))?;
+        let version = self.version.clone().flatten();
+        let status = self.status.clone().ok_or(anyhow!("status is required"))?;
+        let id = nanoid::nanoid!();
+        Ok(FunctionExecutor {
+            id,
+            namespace,
+            compute_graph_name,
+            compute_fn_name,
+            version,
+            status,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
@@ -1162,11 +1252,49 @@ pub struct ExecutorMetadata {
     pub function_allowlist: Option<Vec<FunctionURI>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
+    pub function_executors: HashMap<String, FunctionExecutor>,
+    pub host_resources: HostResources,
+    pub state: ExecutorState,
 }
 
 impl ExecutorMetadata {
     pub fn key(&self) -> String {
         format!("{}", self.id)
+    }
+}
+
+impl ExecutorMetadataBuilder {
+    pub fn build(&mut self) -> Result<ExecutorMetadata> {
+        let id = self.id.clone().ok_or(anyhow!("id is required"))?;
+        let executor_version = self
+            .executor_version
+            .clone()
+            .ok_or(anyhow!("executor_version is required"))?;
+        let function_allowlist = self
+            .function_allowlist
+            .clone()
+            .ok_or(anyhow!("function_allowlist is required"))?;
+        let addr = self.addr.clone().ok_or(anyhow!("addr is required"))?;
+        let labels = self.labels.clone().ok_or(anyhow!("labels is required"))?;
+        let function_executors = self
+            .function_executors
+            .clone()
+            .ok_or(anyhow!("function_executors is required"))?;
+        let host_resources = self
+            .host_resources
+            .clone()
+            .ok_or(anyhow!("host_resources is required"))?;
+        let state = self.state.clone().ok_or(anyhow!("state is required"))?;
+        Ok(ExecutorMetadata {
+            id,
+            executor_version,
+            function_allowlist,
+            addr,
+            labels,
+            function_executors,
+            host_resources,
+            state,
+        })
     }
 }
 
