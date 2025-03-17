@@ -13,7 +13,7 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 from socket import gethostname
-from typing import Annotated, List, Optional, Tuple
+from typing import Annotated, Dict, List, Optional, Tuple
 
 import nanoid
 import prometheus_client
@@ -26,6 +26,7 @@ from tensorlake.functions_sdk.image import Image
 
 from indexify.executor.api_objects import FunctionURI
 from indexify.executor.executor import Executor
+from indexify.executor.executor_flavor import ExecutorFlavor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
     SubprocessFunctionExecutorServerFactory,
 )
@@ -140,6 +141,15 @@ def executor(
             ),
         ),
     ] = False,
+    labels: Annotated[
+        List[str],
+        typer.Option(
+            "--label",
+            "-l",
+            help="Executor key-value label to be sent to the Server. "
+            "Specified as <key>=<value>",
+        ),
+    ] = [],
 ):
     if dev:
         configure_development_mode_logging()
@@ -162,6 +172,11 @@ def executor(
             "--grpc-server-addr must be set when --enable-grpc-state-reconciler is set"
         )
 
+    kv_labels: Dict[str, str] = {}
+    for label in labels:
+        key, value = label.split("=")
+        kv_labels[key] = value
+
     executor_version = version("indexify")
     logger = structlog.get_logger(module=__name__, executor_id=executor_id)
 
@@ -171,6 +186,7 @@ def executor(
         server_addr=server_addr,
         config_path=config_path,
         executor_version=executor_version,
+        labels=kv_labels,
         executor_cache=executor_cache,
         ports=ports,
         functions=function_uris,
@@ -205,7 +221,9 @@ def executor(
     Executor(
         id=executor_id,
         development_mode=dev,
+        flavor=ExecutorFlavor.OSS,
         version=executor_version,
+        labels=kv_labels,
         health_checker=GenericHealthChecker(),
         code_path=executor_cache,
         function_allowlist=_parse_function_uris(function_uris),

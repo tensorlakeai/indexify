@@ -92,8 +92,8 @@ message ExecutorState {
     optional bool development_mode = 2;
     optional string hostname = 3;
     optional ExecutorFlavor flavor = 4;
-    optional string flavor_version = 5;
-    optional ExecutorStatus executor_status = 6;
+    optional string version = 5;
+    optional ExecutorStatus status = 6;
     // Free resources available at the Executor.
     optional HostResources free_resources = 7;
     // Empty allowed_functions list means that any function can run on the Executor.

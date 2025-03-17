@@ -5,6 +5,7 @@ from unittest.mock import mock_open, patch
 from constants import ca_bundle_path, cert_path, config_path, key_path, server_address
 
 from indexify.executor.executor import Executor
+from indexify.executor.executor_flavor import ExecutorFlavor
 from indexify.executor.monitoring.health_checker.health_checker import (
     HealthChecker,
     HealthCheckResult,
@@ -23,7 +24,7 @@ class StubHealthChecker(HealthChecker):
         )
 
 
-class TestExecutor(unittest.TestCase):
+class TestExecutorTLSConfiguration(unittest.TestCase):
     @patch(
         "builtins.open",
         new_callable=mock_open,
@@ -42,7 +43,9 @@ class TestExecutor(unittest.TestCase):
         executor = Executor(
             id="unit-test",
             development_mode=False,
+            flavor=ExecutorFlavor.OSS,
             version="0.1.0",
+            labels={},
             code_path=Path("test"),
             health_checker=StubHealthChecker(),
             function_allowlist=None,
@@ -81,7 +84,9 @@ class TestExecutor(unittest.TestCase):
         executor = Executor(
             id="unit-test",
             development_mode=False,
+            flavor=ExecutorFlavor.OSS,
             version="0.1.0",
+            labels={},
             code_path=Path("test"),
             health_checker=StubHealthChecker(),
             function_allowlist=None,

@@ -13,6 +13,7 @@ from indexify.proto.executor_api_pb2 import ExecutorStatus
 
 from .api_objects import FunctionURI, Task
 from .downloader import Downloader
+from .executor_flavor import ExecutorFlavor
 from .function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
@@ -55,7 +56,9 @@ class Executor:
         self,
         id: str,
         development_mode: bool,
+        flavor: ExecutorFlavor,
         version: str,
+        labels: Dict[str, str],
         code_path: Path,
         health_checker: HealthChecker,
         function_allowlist: Optional[List[FunctionURI]],
@@ -114,6 +117,9 @@ class Executor:
             self._channel_creator = ChannelCreator(grpc_server_addr, self._logger)
             self._state_reporter = ExecutorStateReporter(
                 executor_id=id,
+                flavor=flavor,
+                version=version,
+                labels=labels,
                 development_mode=development_mode,
                 function_allowlist=self._function_allowlist,
                 function_executor_states=self._function_executor_states,
@@ -147,6 +153,7 @@ class Executor:
             self._task_fetcher = TaskFetcher(
                 executor_id=id,
                 executor_version=version,
+                labels=labels,
                 function_allowlist=function_allowlist,
                 protocol=protocol,
                 indexify_server_addr=self._server_addr,

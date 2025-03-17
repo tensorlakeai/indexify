@@ -1,6 +1,7 @@
 import json
 import time
-from typing import AsyncGenerator, List, Optional
+from socket import gethostname
+from typing import AsyncGenerator, Dict, List, Optional
 
 import structlog
 from httpx_sse import aconnect_sse
@@ -22,6 +23,7 @@ class TaskFetcher:
         self,
         executor_id: str,
         executor_version: str,
+        labels: Dict[str, str],
         function_allowlist: Optional[List[FunctionURI]],
         protocol: str,
         indexify_server_addr: str,
@@ -33,12 +35,15 @@ class TaskFetcher:
         self._logger = structlog.get_logger(module=__name__)
 
         probe_info: ProbeInfo = RuntimeProbes().probe()
+        all_labels = probe_info.labels.copy()
+        all_labels.update(labels)
+
         self._executor_metadata: ExecutorMetadata = ExecutorMetadata(
             id=executor_id,
             executor_version=executor_version,
-            addr="",
+            addr=gethostname(),
             function_allowlist=function_allowlist,
-            labels=probe_info.labels,
+            labels=all_labels,
         )
 
     async def run(self) -> AsyncGenerator[Task, None]:
