@@ -81,16 +81,25 @@ enum ExecutorStatus {
     EXECUTOR_STATUS_STOPPED = 5;
 }
 
+enum ExecutorFlavor {
+    EXECUTOR_FLAVOR_UNKNOWN = 0;
+    EXECUTOR_FLAVOR_OSS = 1;
+    EXECUTOR_FLAVOR_PLATFORM = 2;
+}
+
 message ExecutorState {
     optional string executor_id = 1;
     optional bool development_mode = 2;
     optional string hostname = 3;
-    optional ExecutorStatus executor_status = 4;
+    optional ExecutorFlavor flavor = 4;
+    optional string flavor_version = 5;
+    optional ExecutorStatus executor_status = 6;
     // Free resources available at the Executor.
-    optional HostResources free_resources = 5;
+    optional HostResources free_resources = 7;
     // Empty allowed_functions list means that any function can run on the Executor.
-    repeated AllowedFunction allowed_functions = 6;
-    repeated FunctionExecutorState function_executor_states = 7;
+    repeated AllowedFunction allowed_functions = 8;
+    repeated FunctionExecutorState function_executor_states = 9;
+    map<string, string> labels = 10;
 }
 
 // A message sent by Executor to report its up to date state to Server.
