@@ -5,8 +5,11 @@ import grpc
 
 from indexify.proto.executor_api_pb2 import (
     DesiredExecutorState,
+    ExecutorFlavor,
     ExecutorState,
+    ExecutorStatus,
     GetDesiredExecutorStatesRequest,
+    HostResources,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
 )
@@ -22,6 +25,21 @@ class TestServerExecutorGRPCAPI(unittest.TestCase):
                 ReportExecutorStateRequest(
                     executor_state=ExecutorState(
                         executor_id="test-executor-id",
+                        development_mode=False,
+                        hostname="localhost",
+                        flavor=ExecutorFlavor.EXECUTOR_FLAVOR_OSS,
+                        version="0.0.1",
+                        status=ExecutorStatus.EXECUTOR_STATUS_RUNNING,
+                        free_resources=HostResources(
+                            cpu_count=0,
+                            memory_bytes=0,
+                            disk_bytes=0,
+                            gpu=None,
+                        ),
+                        allowed_functions=[],
+                        function_executor_states=[],
+                        labels={},
+                        state_hash="1234567890",
                     ),
                 ),
                 timeout=5,

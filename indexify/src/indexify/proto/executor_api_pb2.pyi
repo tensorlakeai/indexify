@@ -50,6 +50,12 @@ class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EXECUTOR_STATUS_STOPPING: _ClassVar[ExecutorStatus]
     EXECUTOR_STATUS_STOPPED: _ClassVar[ExecutorStatus]
 
+class ExecutorFlavor(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    EXECUTOR_FLAVOR_UNKNOWN: _ClassVar[ExecutorFlavor]
+    EXECUTOR_FLAVOR_OSS: _ClassVar[ExecutorFlavor]
+    EXECUTOR_FLAVOR_PLATFORM: _ClassVar[ExecutorFlavor]
+
 GPU_MODEL_UNKNOWN: GPUModel
 GPU_MODEL_NVIDIA_TESLA_T4_16GB: GPUModel
 GPU_MODEL_NVIDIA_TESLA_V100_16GB: GPUModel
@@ -76,6 +82,9 @@ EXECUTOR_STATUS_RUNNING: ExecutorStatus
 EXECUTOR_STATUS_DRAINED: ExecutorStatus
 EXECUTOR_STATUS_STOPPING: ExecutorStatus
 EXECUTOR_STATUS_STOPPED: ExecutorStatus
+EXECUTOR_FLAVOR_UNKNOWN: ExecutorFlavor
+EXECUTOR_FLAVOR_OSS: ExecutorFlavor
+EXECUTOR_FLAVOR_PLATFORM: ExecutorFlavor
 
 class GPUResources(_message.Message):
     __slots__ = ("count", "model")
@@ -179,33 +188,58 @@ class ExecutorState(_message.Message):
         "executor_id",
         "development_mode",
         "hostname",
-        "executor_status",
+        "flavor",
+        "version",
+        "status",
         "free_resources",
         "allowed_functions",
         "function_executor_states",
+        "labels",
+        "state_hash",
     )
+
+    class LabelsEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(
+            self, key: _Optional[str] = ..., value: _Optional[str] = ...
+        ) -> None: ...
+
     EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
     DEVELOPMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     HOSTNAME_FIELD_NUMBER: _ClassVar[int]
-    EXECUTOR_STATUS_FIELD_NUMBER: _ClassVar[int]
+    FLAVOR_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
     FREE_RESOURCES_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_EXECUTOR_STATES_FIELD_NUMBER: _ClassVar[int]
+    LABELS_FIELD_NUMBER: _ClassVar[int]
+    STATE_HASH_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
     development_mode: bool
     hostname: str
-    executor_status: ExecutorStatus
+    flavor: ExecutorFlavor
+    version: str
+    status: ExecutorStatus
     free_resources: HostResources
     allowed_functions: _containers.RepeatedCompositeFieldContainer[AllowedFunction]
     function_executor_states: _containers.RepeatedCompositeFieldContainer[
         FunctionExecutorState
     ]
+    labels: _containers.ScalarMap[str, str]
+    state_hash: str
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
         development_mode: bool = ...,
         hostname: _Optional[str] = ...,
-        executor_status: _Optional[_Union[ExecutorStatus, str]] = ...,
+        flavor: _Optional[_Union[ExecutorFlavor, str]] = ...,
+        version: _Optional[str] = ...,
+        status: _Optional[_Union[ExecutorStatus, str]] = ...,
         free_resources: _Optional[_Union[HostResources, _Mapping]] = ...,
         allowed_functions: _Optional[
             _Iterable[_Union[AllowedFunction, _Mapping]]
@@ -213,6 +247,8 @@ class ExecutorState(_message.Message):
         function_executor_states: _Optional[
             _Iterable[_Union[FunctionExecutorState, _Mapping]]
         ] = ...,
+        labels: _Optional[_Mapping[str, str]] = ...,
+        state_hash: _Optional[str] = ...,
     ) -> None: ...
 
 class ReportExecutorStateRequest(_message.Message):

@@ -21,6 +21,7 @@ use executor_api_pb::{
     AllowedFunction,
     DesiredExecutorState,
     ExecutorState,
+    ExecutorStatus,
     FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
     GpuModel,
@@ -76,22 +77,39 @@ impl From<GpuModel> for String {
     }
 }
 
+impl From<ExecutorStatus> for data_model::ExecutorState {
+    fn from(status: ExecutorStatus) -> Self {
+        match status {
+            ExecutorStatus::StartingUp => data_model::ExecutorState::StartingUp,
+            ExecutorStatus::Running => data_model::ExecutorState::Running,
+            ExecutorStatus::Drained => data_model::ExecutorState::Drained,
+            ExecutorStatus::Stopping => data_model::ExecutorState::Stopping,
+            ExecutorStatus::Stopped => data_model::ExecutorState::Stopped,
+            ExecutorStatus::Unknown => data_model::ExecutorState::Unknown,
+        }
+    }
+}
+
 impl TryFrom<ExecutorState> for ExecutorMetadata {
     type Error = anyhow::Error;
 
     fn try_from(executor_state: ExecutorState) -> Result<Self, Self::Error> {
         let mut executor_metadata = ExecutorMetadataBuilder::default();
+        executor_metadata.state(executor_state.status().into());
         if let Some(executor_id) = executor_state.executor_id {
             executor_metadata.id(ExecutorId::new(executor_id));
         }
-        if let Some(flavor_version) = executor_state.flavor_version {
-            executor_metadata.executor_version(flavor_version);
+        // Ignore Executor flavor for now.
+        if let Some(executor_version) = executor_state.version {
+            executor_metadata.executor_version(executor_version);
         }
         let mut allowed_functions = Vec::new();
         for function in executor_state.allowed_functions {
             allowed_functions.push(FunctionURI::try_from(function)?);
         }
-        if !allowed_functions.is_empty() {
+        if allowed_functions.is_empty() {
+            executor_metadata.function_allowlist(None);
+        } else {
             executor_metadata.function_allowlist(Some(allowed_functions));
         }
         if let Some(addr) = executor_state.hostname {
@@ -101,9 +119,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         for (key, value) in executor_state.labels {
             labels.insert(key, serde_json::Value::String(value));
         }
-        if !labels.is_empty() {
-            executor_metadata.labels(labels);
-        }
+        executor_metadata.labels(labels);
         let mut function_executors = HashMap::new();
         for function_executor in executor_state.function_executor_states {
             let function_executor_description = function_executor
@@ -113,6 +129,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             function_executor.status = FunctionExecutorStatus::try_from(function_executor.status)?;
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
+        executor_metadata.function_executors(function_executors);
         if let Some(host_resources) = executor_state.free_resources {
             let cpu = host_resources
                 .cpu_count

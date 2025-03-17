@@ -2,6 +2,7 @@ import subprocess
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import version
 from socket import gethostname
 from typing import Generator, List
 
@@ -19,6 +20,7 @@ from testing import (
 from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
     DesiredExecutorState,
+    ExecutorFlavor,
     ExecutorStatus,
     FunctionExecutorState,
     FunctionExecutorStatus,
@@ -104,8 +106,14 @@ class TestExecutorStateReporter(unittest.TestCase):
     def verify_new_executor_state(self, request: ReportExecutorStateRequest) -> None:
         self.assertEqual(request.executor_state.executor_id, "test-executor-id")
         self.assertEqual(request.executor_state.development_mode, True)
+        self.assertEqual(request.executor_state.hostname, gethostname())
         self.assertEqual(
-            request.executor_state.executor_status,
+            request.executor_state.flavor,
+            ExecutorFlavor.EXECUTOR_FLAVOR_OSS,
+        )
+        self.assertEqual(request.executor_state.version, version("indexify"))
+        self.assertEqual(
+            request.executor_state.status,
             ExecutorStatus.EXECUTOR_STATUS_RUNNING,
         )
         self.assertEqual(request.executor_state.free_resources.cpu_count, 0)
@@ -123,6 +131,9 @@ class TestExecutorStateReporter(unittest.TestCase):
         self.assertEqual(allowed_function.graph_name, "test_graph_name")
         self.assertEqual(allowed_function.function_name, "test_function_name")
         self.assertFalse(allowed_function.HasField("graph_version"))
+
+        self.assertEqual(len(request.executor_state.labels), 6)
+        self.assertEqual(request.executor_state.labels["test_label"], "test_value")
 
         self.assertEqual(len(request.executor_state.function_executor_states), 0)
 
@@ -147,6 +158,8 @@ class TestExecutorStateReporter(unittest.TestCase):
                         "test_graph_name",
                         "test_function_name",
                     ),
+                    "--label",
+                    "test_label=test_value",
                 ]
             ) as executor_a,
         ):
@@ -184,6 +197,8 @@ class TestExecutorStateReporter(unittest.TestCase):
                     "test_graph_name",
                     "test_function_name",
                 ),
+                "--label",
+                "test_label=test_value",
             ],
             keep_std_outputs=False,
         ) as executor_a:
@@ -282,7 +297,12 @@ class TestExecutorStateReporter(unittest.TestCase):
                     gethostname(),
                 )
                 self.assertEqual(
-                    request.executor_state.executor_status,
+                    request.executor_state.flavor,
+                    ExecutorFlavor.EXECUTOR_FLAVOR_OSS,
+                )
+                self.assertEqual(request.executor_state.version, version("indexify"))
+                self.assertEqual(
+                    request.executor_state.status,
                     ExecutorStatus.EXECUTOR_STATUS_RUNNING,
                 )
                 self.assertEqual(request.executor_state.free_resources.cpu_count, 0)
@@ -293,6 +313,7 @@ class TestExecutorStateReporter(unittest.TestCase):
                     request.executor_state.free_resources.gpu.model,
                     GPUModel.GPU_MODEL_UNKNOWN,
                 )
+                self.assertEqual(len(request.executor_state.labels), 5)
 
                 self.assertEqual(len(request.executor_state.allowed_functions), 0)
 

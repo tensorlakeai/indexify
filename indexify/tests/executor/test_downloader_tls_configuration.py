@@ -13,7 +13,7 @@ from constants import (
 from indexify.executor.downloader import Downloader
 
 
-class TestDownloaderBehaviour(unittest.TestCase):
+class TestDownloaderTLSConfiguration(unittest.TestCase):
     @patch("httpx.AsyncClient")
     @patch(
         "builtins.open",

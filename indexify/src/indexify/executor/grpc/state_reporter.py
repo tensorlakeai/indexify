@@ -6,6 +6,9 @@ import grpc
 
 from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
+)
+from indexify.proto.executor_api_pb2 import ExecutorFlavor as ExecutorFlavorProto
+from indexify.proto.executor_api_pb2 import (
     ExecutorState,
     ExecutorStatus,
     FunctionExecutorDescription,
@@ -27,11 +30,13 @@ from indexify.proto.executor_api_pb2_grpc import (
 )
 
 from ..api_objects import FunctionURI
+from ..executor_flavor import ExecutorFlavor
 from ..function_executor.function_executor_state import FunctionExecutorState
 from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
+from ..runtime_probes import RuntimeProbes
 from .channel_creator import ChannelCreator
 from .metrics.state_reporter import (
     metric_state_report_errors,
@@ -48,6 +53,9 @@ class ExecutorStateReporter:
     def __init__(
         self,
         executor_id: str,
+        flavor: ExecutorFlavor,
+        version: str,
+        labels: Dict[str, str],
         development_mode: bool,
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_states: FunctionExecutorStatesContainer,
@@ -55,6 +63,9 @@ class ExecutorStateReporter:
         logger: Any,
     ):
         self._executor_id: str = executor_id
+        self._flavor: ExecutorFlavor = flavor
+        self._version: str = version
+        self._labels: Dict[str, str] = labels.copy()
         self._development_mode: bool = development_mode
         self._hostname: str = gethostname()
         self._function_executor_states: FunctionExecutorStatesContainer = (
@@ -67,6 +78,7 @@ class ExecutorStateReporter:
         self._allowed_functions: List[AllowedFunction] = _to_grpc_allowed_functions(
             function_allowlist
         )
+        self._labels.update(_label_values_to_strings(RuntimeProbes().probe().labels))
 
     def update_executor_status(self, value: ExecutorStatus):
         self._executor_status = value
@@ -104,10 +116,15 @@ class ExecutorStateReporter:
                 executor_id=self._executor_id,
                 development_mode=self._development_mode,
                 hostname=self._hostname,
-                executor_status=self._executor_status,
+                flavor=_to_grpc_executor_flavor(self._flavor, self._logger),
+                version=self._version,
+                status=self._executor_status,
                 free_resources=await self._fetch_free_host_resources(),
                 allowed_functions=self._allowed_functions,
                 function_executor_states=await self._fetch_function_executor_states(),
+                labels=self._labels,
+                # TODO: Implement state_hash calculation.
+                state_hash="",
             )
 
             await stub.report_executor_state(
@@ -200,3 +217,26 @@ def _to_grpc_function_executor_status(
         logger.error("Unexpected Function Executor status", status=status)
 
     return result
+
+
+_FLAVOR_MAPPING = {
+    ExecutorFlavor.OSS: ExecutorFlavorProto.EXECUTOR_FLAVOR_OSS,
+    ExecutorFlavor.PLATFORM: ExecutorFlavorProto.EXECUTOR_FLAVOR_PLATFORM,
+}
+
+
+def _to_grpc_executor_flavor(
+    flavor: ExecutorFlavor, logger: Any
+) -> ExecutorFlavorProto:
+    result: ExecutorFlavorProto = _FLAVOR_MAPPING.get(
+        flavor, ExecutorFlavorProto.EXECUTOR_FLAVOR_UNKNOWN
+    )
+
+    if result == ExecutorFlavorProto.EXECUTOR_FLAVOR_UNKNOWN:
+        logger.error("Unexpected Executor flavor", flavor=flavor)
+
+    return result
+
+
+def _label_values_to_strings(labels: Dict[str, Any]) -> Dict[str, str]:
+    return {k: str(v) for k, v in labels.items()}
