@@ -790,6 +790,7 @@ dependencies = [
  "anyhow",
  "derive_builder",
  "indexify_utils",
+ "nanoid",
  "rand",
  "serde",
  "serde_json",

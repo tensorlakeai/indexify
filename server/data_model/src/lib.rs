@@ -1231,14 +1231,7 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().flatten();
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        compute_graph_name.hash(&mut hasher);
-        compute_fn_name.hash(&mut hasher);
-        if let Some(version) = &version {
-            version.0.hash(&mut hasher);
-        }
-        let id = format!("{:x}", hasher.finish());
+        let id = nanoid::nanoid!();
         Ok(FunctionExecutor {
             id,
             namespace,
