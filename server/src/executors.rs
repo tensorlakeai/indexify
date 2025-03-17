@@ -132,6 +132,9 @@ mod tests {
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
+            function_executors: Default::default(),
+            host_resources: Default::default(),
+            state: Default::default(),
         };
         executor_manager.register_executor(executor).await?;
 
@@ -162,6 +165,9 @@ mod tests {
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
+            function_executors: Default::default(),
+            host_resources: Default::default(),
+            state: Default::default(),
         };
         executor_manager.register_executor(executor.clone()).await?;
 

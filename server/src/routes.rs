@@ -813,6 +813,10 @@ async fn executor_tasks(
             addr: payload.addr.clone(),
             function_allowlist,
             labels: payload.labels.clone(),
+            // TODO: Implement.
+            function_executors: Default::default(),
+            host_resources: Default::default(),
+            state: Default::default(),
         })
         .await;
     if let Err(e) = err {
