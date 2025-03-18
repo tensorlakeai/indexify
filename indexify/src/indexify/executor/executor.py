@@ -346,6 +346,7 @@ class Executor:
 
         self._is_shutdown = True
         await self._monitoring_server.shutdown()
+        await self._task_reporter.shutdown()
 
         if self._task_runner is not None:
             await self._task_runner.shutdown()
