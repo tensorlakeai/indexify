@@ -1,8 +1,16 @@
-use std::sync::Arc;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use data_model::{GraphInvocationCtx, StateMachineMetadata};
-use rocksdb::{IteratorMode, ReadOptions, Transaction, TransactionDB};
+use rocksdb::{
+    IteratorMode,
+    Options,
+    ReadOptions,
+    Transaction,
+    TransactionDB,
+    TransactionDBOptions,
+    DB,
+};
 use tracing::info;
 
 use crate::{
@@ -14,7 +22,18 @@ const SERVER_DB_VERSION: u64 = 4;
 
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
-pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
+pub fn migrate(path: &Path) -> Result<StateMachineMetadata> {
+    let mut db_opts = Options::default();
+    // don't create missing column families during migration
+    db_opts.create_missing_column_families(false);
+    db_opts.create_if_missing(true);
+    let cfs = DB::list_cf(&db_opts, &path).context("listing column families")?;
+    let mut db = TransactionDB::open_cf(&db_opts, &TransactionDBOptions::default(), path, &cfs)
+        .map_err(|e| anyhow::anyhow!("failed to open db for migration: {}", e))?;
+
+    // Drop column families before migrations
+    drop_cfs(&cfs, &mut db).context("dropping column families before migration")?;
+
     let mut sm_meta = read_sm_meta(&db).context("reading current state machine metadata")?;
     let current_db_version = sm_meta.db_version;
 
@@ -23,6 +42,7 @@ pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
             "no state store migration needed, already at version {}",
             SERVER_DB_VERSION
         );
+        return Ok(sm_meta);
     }
 
     info!(
@@ -41,17 +61,17 @@ pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
     {
         if sm_meta.db_version == 1 {
             sm_meta.db_version += 1;
-            migrate_v1_to_v2(db.clone(), &txn).context("migrating from v1 to v2")?;
+            migrate_v1_to_v2(&db, &txn).context("migrating from v1 to v2")?;
         }
 
         if sm_meta.db_version == 2 {
             sm_meta.db_version += 1;
-            migrate_v2_to_v3(db.clone(), &txn).context("migrating from v2 to v3")?;
+            migrate_v2_to_v3(&db, &txn).context("migrating from v2 to v3")?;
         }
 
         if sm_meta.db_version == 3 {
             sm_meta.db_version += 1;
-            migrate_v3_to_v4(db.clone(), &txn).context("migrating from v3 to v4")?;
+            migrate_v3_to_v4(&db, &txn).context("migrating from v3 to v4")?;
         }
 
         // add new migrations before this line
@@ -67,7 +87,7 @@ pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
     }
 
     // saving db version
-    write_sm_meta(db.clone(), &txn, &sm_meta)?;
+    write_sm_meta(&db, &txn, &sm_meta)?;
 
     info!("committing migration");
     txn.commit().context("committing migration")?;
@@ -77,7 +97,7 @@ pub fn migrate(db: Arc<TransactionDB>) -> Result<StateMachineMetadata> {
 }
 
 #[tracing::instrument(skip(db, txn))]
-pub fn migrate_v1_to_v2(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>) -> Result<()> {
+pub fn migrate_v1_to_v2(db: &TransactionDB, txn: &Transaction<TransactionDB>) -> Result<()> {
     let mut num_total_tasks: usize = 0;
     let mut num_migrated_tasks: usize = 0;
     let mut read_options = ReadOptions::default();
@@ -163,7 +183,7 @@ pub fn migrate_v1_to_v2(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>
 }
 
 #[tracing::instrument(skip(db, txn))]
-pub fn migrate_v2_to_v3(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>) -> Result<()> {
+pub fn migrate_v2_to_v3(db: &TransactionDB, txn: &Transaction<TransactionDB>) -> Result<()> {
     let mut num_total_invocation_ctx: usize = 0;
     let mut num_migrated_invocation_ctx: usize = 0;
     let mut read_options = ReadOptions::default();
@@ -233,7 +253,7 @@ pub fn migrate_v2_to_v3(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>
 }
 
 #[tracing::instrument(skip(db, txn))]
-pub fn migrate_v3_to_v4(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>) -> Result<()> {
+pub fn migrate_v3_to_v4(db: &TransactionDB, txn: &Transaction<TransactionDB>) -> Result<()> {
     let mut num_total_invocation_ctx: usize = 0;
     let mut num_migrated_invocation_ctx: usize = 0;
 
@@ -273,8 +293,17 @@ pub fn migrate_v3_to_v4(db: Arc<TransactionDB>, txn: &Transaction<TransactionDB>
     Ok(())
 }
 
+/// Remove the executors column family
+#[tracing::instrument(skip(db, _txn))]
+pub fn migrate_v4_to_v5(db: &mut TransactionDB, _txn: &Transaction<TransactionDB>) -> Result<()> {
+    db.drop_cf("Executors")
+        .context("dropping executors column family")?;
+
+    Ok(())
+}
+
 pub fn write_sm_meta(
-    db: Arc<TransactionDB>,
+    db: &TransactionDB,
     txn: &Transaction<TransactionDB>,
     sm_meta: &StateMachineMetadata,
 ) -> Result<()> {
@@ -299,6 +328,20 @@ pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
             last_change_idx: 0,
         }),
     }
+}
+
+#[tracing::instrument(skip(db))]
+pub fn drop_cfs(existing_cfs: &Vec<String>, db: &mut TransactionDB) -> Result<()> {
+    if existing_cfs.contains(&"Executors".to_string()) {
+        info!("Dropping Executors column family during migration");
+        db.drop_cf("Executors")?;
+    }
+
+    if existing_cfs.contains(&"UnallocatedTasks".to_string()) {
+        info!("Dropping UnallocatedTasks column family during migration");
+        db.drop_cf("UnallocatedTasks")?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -330,15 +373,13 @@ mod tests {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
-        let db = Arc::new(
-            TransactionDB::open_cf_descriptors(
-                &db_opts,
-                &TransactionDBOptions::default(),
-                path,
-                sm_column_families,
-            )
-            .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
-        );
+        let db = TransactionDB::open_cf_descriptors(
+            &db_opts,
+            &TransactionDBOptions::default(),
+            path,
+            sm_column_families,
+        )
+        .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?;
 
         // Create tasks with different outcomes and no status
         let tasks = vec![
@@ -396,7 +437,7 @@ mod tests {
 
         // Perform migration
         let txn = db.transaction();
-        migrate_v1_to_v2(db.clone(), &txn)?;
+        migrate_v1_to_v2(&db, &txn)?;
         txn.commit()?;
 
         // Verify migration
@@ -447,15 +488,13 @@ mod tests {
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
-        let db = Arc::new(
-            TransactionDB::open_cf_descriptors(
-                &db_opts,
-                &TransactionDBOptions::default(),
-                path,
-                sm_column_families,
-            )
-            .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
-        );
+        let db = TransactionDB::open_cf_descriptors(
+            &db_opts,
+            &TransactionDBOptions::default(),
+            path,
+            sm_column_families,
+        )
+        .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?;
 
         // Create invocation payloads and invocation contexts without created_at
         let invocations = vec![
@@ -540,7 +579,7 @@ mod tests {
 
         // Perform migration
         let txn = db.transaction();
-        migrate_v2_to_v3(db.clone(), &txn)?;
+        migrate_v2_to_v3(&db, &txn)?;
         txn.commit()?;
 
         // Verify migration
@@ -570,7 +609,7 @@ mod tests {
     #[tokio::test]
     async fn test_migrate_logic() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let path = temp_dir.path().to_str().unwrap();
+        let path = temp_dir.path();
 
         let sm_column_families = vec![rocksdb::ColumnFamilyDescriptor::new(
             IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
@@ -596,10 +635,10 @@ mod tests {
             last_change_idx: 0,
         };
         let txn = db.transaction();
-        write_sm_meta(db.clone(), &txn, &sm_meta)?;
+        write_sm_meta(&db, &txn, &sm_meta)?;
         txn.commit()?;
 
-        let result = migrate(db.clone());
+        let result = migrate(path);
         assert!(result.is_ok());
         let sm_meta = result.unwrap();
         assert_eq!(sm_meta.db_version, SERVER_DB_VERSION);
@@ -610,10 +649,10 @@ mod tests {
             last_change_idx: 0,
         };
         let txn = db.transaction();
-        write_sm_meta(db.clone(), &txn, &sm_meta)?;
+        write_sm_meta(&db, &txn, &sm_meta)?;
         txn.commit()?;
 
-        let result = migrate(db.clone());
+        let result = migrate(path);
         assert!(result.is_ok());
         let sm_meta = result.unwrap();
         assert_eq!(sm_meta.db_version, SERVER_DB_VERSION);

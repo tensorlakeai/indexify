@@ -64,41 +64,70 @@ impl TaskAllocationProcessor {
                     remove_executors: vec![],
                 });
             }
-            ChangeType::TombStoneExecutor(ev) => {
-                let mut updated_tasks = Vec::new();
-                let mut remove_allocations = Vec::new();
-                let allocations = indexes.allocations_by_executor.get(ev.executor_id.get());
-                if let Some(allocations) = allocations {
-                    remove_allocations.extend(allocations.iter().map(|a| *a.clone()));
-                    for allocation in allocations {
-                        let task = indexes.tasks.get(&allocation.task_key());
-                        if let Some(task) = task.cloned() {
-                            let mut task = *task;
-                            task.status = TaskStatus::Pending;
-                            updated_tasks.push(task);
-                        } else {
-                            error!(
-                                "task of allocation not found in indexes: {}",
-                                allocation.task_key(),
-                            );
-                        }
-                    }
-                }
-
-                return Ok(SchedulerUpdateRequest {
+            ChangeType::HandleAbandonedAllocations => {
+                // Get all executor IDs from allocation_by_executor that aren't in executor_ids
+                let missing_executors: Vec<String> = indexes
+                    .allocations_by_executor
+                    .keys()
+                    .filter(|id| !indexes.executors.contains_key(&**id))
+                    .cloned()
+                    .collect();
+                let mut update = SchedulerUpdateRequest {
                     new_allocations: vec![],
-                    remove_allocations,
-                    updated_tasks,
+                    remove_allocations: vec![],
+                    updated_tasks: vec![],
                     updated_invocations_states: vec![],
                     reduction_tasks: ReductionTasks::default(),
-                    remove_executors: vec![ev.executor_id.clone()],
-                });
+                    remove_executors: vec![],
+                };
+                for executor_id in missing_executors {
+                    let update_result =
+                        self.unallocate(ExecutorId::new(executor_id.clone()), indexes)?;
+                    update.merge(&update_result);
+                }
+                Ok(update)
             }
+            ChangeType::TombStoneExecutor(ev) => self.unallocate(ev.executor_id.clone(), indexes),
             _ => {
                 error!("unhandled change type: {:?}", change);
                 return Err(anyhow!("unhandled change type"));
             }
         }
+    }
+
+    pub fn unallocate(
+        &self,
+        executor_id: ExecutorId,
+        indexes: &mut Box<InMemoryState>,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut updated_tasks = Vec::new();
+        let mut remove_allocations = Vec::new();
+        let allocations = indexes.allocations_by_executor.get(executor_id.get());
+        if let Some(allocations) = allocations {
+            remove_allocations.extend(allocations.iter().map(|a| *a.clone()));
+            for allocation in allocations {
+                let task = indexes.tasks.get(&allocation.task_key());
+                if let Some(task) = task.cloned() {
+                    let mut task = *task;
+                    task.status = TaskStatus::Pending;
+                    updated_tasks.push(task);
+                } else {
+                    error!(
+                        "task of allocation not found in indexes: {}",
+                        allocation.task_key(),
+                    );
+                }
+            }
+        }
+
+        return Ok(SchedulerUpdateRequest {
+            new_allocations: vec![],
+            remove_allocations,
+            updated_tasks,
+            updated_invocations_states: vec![],
+            reduction_tasks: ReductionTasks::default(),
+            remove_executors: vec![executor_id.clone()],
+        });
     }
 
     pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<TaskPlacementResult> {
