@@ -30,7 +30,7 @@ lance_image = (
 inkwell_image_gpu = (
     Image()
     .name("tensorlake/pdf-blueprint-pdf-parser-gpu")
-    .base_image("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime")
+    .base_image("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel")
     .run("apt update")
     .run("apt install -y libgl1-mesa-glx")
     .run('pip install docling')
