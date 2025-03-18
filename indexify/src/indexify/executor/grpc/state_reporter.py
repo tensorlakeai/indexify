@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
@@ -123,9 +124,8 @@ class ExecutorStateReporter:
                 allowed_functions=self._allowed_functions,
                 function_executor_states=await self._fetch_function_executor_states(),
                 labels=self._labels,
-                # TODO: Implement state_hash calculation.
-                state_hash="",
             )
+            state.state_hash = _state_hash(state)
 
             await stub.report_executor_state(
                 ReportExecutorStateRequest(executor_state=state),
@@ -240,3 +240,10 @@ def _to_grpc_executor_flavor(
 
 def _label_values_to_strings(labels: Dict[str, Any]) -> Dict[str, str]:
     return {k: str(v) for k, v in labels.items()}
+
+
+def _state_hash(state: ExecutorState) -> str:
+    serialized_state: bytes = state.SerializeToString(deterministic=True)
+    hasher = hashlib.sha256(usedforsecurity=False)
+    hasher.update(serialized_state)
+    return hasher.hexdigest()

@@ -1,3 +1,4 @@
+import hashlib
 import subprocess
 import time
 import unittest
@@ -21,6 +22,7 @@ from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
     DesiredExecutorState,
     ExecutorFlavor,
+    ExecutorState,
     ExecutorStatus,
     FunctionExecutorState,
     FunctionExecutorStatus,
@@ -102,6 +104,15 @@ def executor_pid_func_5(prev_pid: int) -> int:
     return executor_pid()
 
 
+def expected_executor_state_hash(executor_state: ExecutorState) -> str:
+    hashed_state = ExecutorState()
+    hashed_state.MergeFrom(executor_state)
+    hashed_state.ClearField("state_hash")
+    return hashlib.sha256(
+        hashed_state.SerializeToString(deterministic=True), usedforsecurity=False
+    ).hexdigest()
+
+
 class TestExecutorStateReporter(unittest.TestCase):
     def verify_new_executor_state(self, request: ReportExecutorStateRequest) -> None:
         self.assertEqual(request.executor_state.executor_id, "test-executor-id")
@@ -136,6 +147,12 @@ class TestExecutorStateReporter(unittest.TestCase):
         self.assertEqual(request.executor_state.labels["test_label"], "test_value")
 
         self.assertEqual(len(request.executor_state.function_executor_states), 0)
+
+        # Verify that the hash is deterministic even when computed in a different process and matches the expected hash.
+        self.assertEqual(
+            request.executor_state.state_hash,
+            expected_executor_state_hash(request.executor_state),
+        )
 
     def test_expected_executor_state_from_new_executor(self) -> None:
         with (
@@ -353,6 +370,12 @@ class TestExecutorStateReporter(unittest.TestCase):
                     self.assertFalse(
                         function_executor_state.description.HasField("resource_limits")
                     )
+
+                # Verify that the hash is deterministic even when computed in a different process and matches the expected hash.
+                self.assertEqual(
+                    request.executor_state.state_hash,
+                    expected_executor_state_hash(request.executor_state),
+                )
 
 
 if __name__ == "__main__":
