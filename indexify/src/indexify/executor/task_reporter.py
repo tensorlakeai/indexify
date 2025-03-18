@@ -49,6 +49,7 @@ class TaskReporter:
     ):
         self._base_url = base_url
         self._executor_id = executor_id
+        self._is_shutdown = False
         # Use thread-safe sync client due to issues with async client.
         # Async client attempts to use connections it already closed.
         # See e.g. https://github.com/encode/httpx/issues/2337.
@@ -56,9 +57,25 @@ class TaskReporter:
         # results in not reusing established TCP connections to server.
         self._client = get_httpx_client(config_path, make_async=False)
 
+    async def shutdown(self):
+        """Shuts down the task reporter.
+
+        Task reporter stops reporting all task outcomes to the Server.
+        There are many task failures due to Executor shutdown. We give wrong
+        signals to Server if we report such failures.
+        """
+        self._is_shutdown = True
+
     async def report(self, output: TaskOutput, logger: Any):
         """Reports result of the supplied task."""
         logger = logger.bind(module=__name__)
+
+        if self._is_shutdown:
+            logger.warning(
+                "task reporter got shutdown, skipping task outcome reporting"
+            )
+            return
+
         task_result, output_files, output_summary = self._process_task_output(output)
         task_result_data = task_result.model_dump_json(exclude_none=True)
 
