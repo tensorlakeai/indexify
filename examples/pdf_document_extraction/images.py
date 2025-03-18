@@ -11,7 +11,7 @@ chroma_image = (
 st_image = (
     Image()
     .name("tensorlake/pdf-blueprint-st")
-    .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime")
+    .base_image("pytorch/pytorch:2.4.1-cuda11.8-cudnn9-devel")
     .run("pip install sentence-transformers")
     .run("pip install langchain")
     .run("pip install pillow")
