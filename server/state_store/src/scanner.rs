@@ -5,7 +5,6 @@ use data_model::{
     ComputeGraph,
     ComputeGraphVersion,
     DataPayload,
-    ExecutorMetadata,
     GraphInvocationCtx,
     GraphVersion,
     InvocationPayload,
@@ -823,19 +822,6 @@ impl StateReader {
             .filter_map(|v| v)
             .collect();
         Ok(data_objects)
-    }
-
-    pub fn get_all_executors(&self) -> Result<Vec<ExecutorMetadata>> {
-        let kvs = &[KeyValue::new("op", "get_all_executors")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let (executors, _) = self.get_rows_from_cf_with_limits::<ExecutorMetadata>(
-            &[],
-            None,
-            IndexifyObjectsColumns::Executors,
-            None,
-        )?;
-        Ok(executors)
     }
 
     pub fn invocation_ctx(

@@ -104,6 +104,12 @@ impl IndexifyState {
     pub async fn new(path: PathBuf) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {}", e))?;
+
+        // Migrate the db before opening with all column families.
+        // This is because the migration process may delete older column families.
+        // If we open the db with all column families, it would fail to open.
+        let sm_meta = migrations::migrate(&path)?;
+
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
         let mut db_opts = Options::default();
@@ -118,7 +124,6 @@ impl IndexifyState {
             )
             .map_err(|e| anyhow!("failed to open db: {}", e))?,
         );
-        let sm_meta = migrations::migrate(db.clone())?;
         let (gc_tx, gc_rx) = tokio::sync::watch::channel(());
         let (task_event_tx, _) = tokio::sync::broadcast::channel(100);
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
@@ -150,15 +155,6 @@ impl IndexifyState {
         );
         info!("db version discovered: {}", sm_meta.db_version);
 
-        let executors = s.reader().get_all_executors()?;
-        for executor in executors.iter() {
-            s.executor_states
-                .write()
-                .await
-                .entry(executor.id.clone())
-                .or_default()
-                .num_registered += 1;
-        }
         Ok(s)
     }
 
@@ -290,7 +286,7 @@ impl IndexifyState {
                     let entry = states.entry(request.executor.id.clone()).or_default();
                     entry.num_registered += 1;
                 }
-                state_machine::register_executor(self.db.clone(), &txn, &request)?;
+                // state_machine::register_executor(self.db.clone(), &txn, &request)?;
 
                 state_changes::register_executor(&self.last_state_change_id, &request)
                     .map_err(|e| anyhow!("error getting state changes {}", e))?
@@ -322,6 +318,9 @@ impl IndexifyState {
                     vec![]
                 }
             }
+            RequestPayload::HandleAbandonedAllocations => {
+                state_changes::handle_abandoned_allocations(&self.last_state_change_id)?
+            }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
                 vec![]
@@ -337,7 +336,7 @@ impl IndexifyState {
             &request.processed_state_changes,
         )?;
         migrations::write_sm_meta(
-            self.db.clone(),
+            &self.db,
             &txn,
             &StateMachineMetadata {
                 last_change_idx: self.last_state_change_id.load(atomic::Ordering::Relaxed),

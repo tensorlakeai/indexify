@@ -188,3 +188,18 @@ pub fn register_executor(
 
     Ok(vec![state_change])
 }
+
+pub fn handle_abandoned_allocations(last_state_change_id: &AtomicU64) -> Result<Vec<StateChange>> {
+    let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .change_type(ChangeType::HandleAbandonedAllocations)
+        .namespace(None)
+        .compute_graph(None)
+        .invocation(None)
+        .created_at(get_epoch_time_in_ms())
+        .object_id(format!("handle-abandoned-allocations-{}", last_change_id))
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}

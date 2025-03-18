@@ -229,7 +229,7 @@ impl GraphProcessor {
                         processed_state_changes: vec![state_change.clone()],
                     })
                 } else {
-                    error!("error creating tasks: {:?}", scheduler_update.err());
+                    error!("error invoking task creator: {:?}", scheduler_update.err());
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::Noop,
                         processed_state_changes: vec![state_change.clone()],
@@ -238,7 +238,8 @@ impl GraphProcessor {
             }
             ChangeType::ExecutorAdded(_) |
             ChangeType::ExecutorRemoved(_) |
-            ChangeType::TombStoneExecutor(_) => {
+            ChangeType::TombStoneExecutor(_) |
+            ChangeType::HandleAbandonedAllocations => {
                 let scheduler_update = self
                     .task_allocator
                     .invoke(&state_change.change_type, &mut indexes);
@@ -249,7 +250,7 @@ impl GraphProcessor {
                     })
                 } else {
                     error!(
-                        "error scheduling unplaced tasks: {:?}",
+                        "error invoking task allocator: {:?}",
                         scheduler_update.err()
                     );
                     Ok(StateMachineUpdateRequest {

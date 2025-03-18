@@ -35,7 +35,6 @@ use crate::requests::{
     InvokeComputeGraphRequest,
     NamespaceRequest,
     ReductionTasks,
-    RegisterExecutorRequest,
     SchedulerUpdateRequest,
 };
 pub type ContentId = String;
@@ -50,7 +49,6 @@ pub type SchemaId = String;
 #[derive(AsRefStr, strum::Display, strum::EnumIter)]
 pub enum IndexifyObjectsColumns {
     StateMachineMetadata, //  StateMachineMetadata
-    Executors,            //  ExecutorId -> Executor Metadata
     Namespaces,           //  Namespaces
     ComputeGraphs,        //  Ns_ComputeGraphName -> ComputeGraph
     /// Compute graph versions
@@ -70,7 +68,6 @@ pub enum IndexifyObjectsColumns {
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
     TaskAllocations,         //  ExecutorId -> Task_Key
-    UnallocatedTasks,        //  Task_Key -> Empty
 
     GcUrls, // List of URLs pending deletion
 
@@ -702,13 +699,6 @@ pub(crate) fn handle_scheduler_update(
         )?;
     }
 
-    for executor_id in &request.remove_executors {
-        info!(executor_id = executor_id.get(), "remove executor");
-        txn.delete_cf(
-            &IndexifyObjectsColumns::Executors.cf_db(&db),
-            executor_id.get(),
-        )?;
-    }
     Ok(())
 }
 
@@ -866,20 +856,6 @@ pub(crate) fn mark_state_changes_processed(
             key,
         )?;
     }
-    Ok(())
-}
-
-pub(crate) fn register_executor(
-    db: Arc<TransactionDB>,
-    txn: &Transaction<TransactionDB>,
-    req: &RegisterExecutorRequest,
-) -> Result<()> {
-    let serialized_executor_metadata = JsonEncoder::encode(&req.executor)?;
-    txn.put_cf(
-        &IndexifyObjectsColumns::Executors.cf_db(&db),
-        req.executor.key(),
-        serialized_executor_metadata,
-    )?;
     Ok(())
 }
 

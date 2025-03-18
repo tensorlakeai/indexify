@@ -13,7 +13,7 @@ use state_store::{
 };
 use tracing::error;
 
-pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(5);
+pub const EXECUTOR_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct ExecutorManager {
     indexify_state: Arc<IndexifyState>,
 }
@@ -21,22 +21,17 @@ pub struct ExecutorManager {
 impl ExecutorManager {
     pub async fn new(indexify_state: Arc<IndexifyState>) -> Self {
         let cs = indexify_state.clone();
-        let executors = cs.reader().get_all_executors().unwrap_or_default();
         tokio::spawn(async move {
             tokio::time::sleep(EXECUTOR_TIMEOUT).await;
-            for executor in executors {
-                let sm_req = StateMachineUpdateRequest {
-                    payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                        executor_id: executor.id.clone(),
-                    }),
-                    processed_state_changes: vec![],
-                };
-                if let Err(err) = cs.write(sm_req).await {
-                    error!(
-                        "failed to deregister executor on startup {}: {:?}",
-                        executor.id, err
-                    );
-                }
+            let sm_req = StateMachineUpdateRequest {
+                payload: RequestPayload::HandleAbandonedAllocations,
+                processed_state_changes: vec![],
+            };
+            if let Err(err) = cs.write(sm_req).await {
+                error!(
+                    "failed triggering handling of abandoned allocations at startup: {:?}",
+                    err,
+                );
             }
         });
 
@@ -138,7 +133,12 @@ mod tests {
         };
         executor_manager.register_executor(executor).await?;
 
-        let executors = indexify_state.reader().get_all_executors()?;
+        let executors = indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .executors
+            .clone();
 
         assert_eq!(executors.len(), 1);
         Ok(())
@@ -171,7 +171,12 @@ mod tests {
         };
         executor_manager.register_executor(executor.clone()).await?;
 
-        let executors = indexify_state.reader().get_all_executors()?;
+        let executors = indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .executors
+            .clone();
 
         assert_eq!(executors.len(), 1);
 
@@ -187,12 +192,22 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let executors = indexify_state.reader().get_all_executors()?;
-
+        let executors = indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .executors
+            .clone();
         assert_eq!(executors.len(), 1);
+
         let time = std::time::Instant::now();
         loop {
-            let executors = indexify_state.reader().get_all_executors()?;
+            let executors = indexify_state
+                .in_memory_state
+                .read()
+                .await
+                .executors
+                .clone();
             if executors.is_empty() {
                 break;
             }

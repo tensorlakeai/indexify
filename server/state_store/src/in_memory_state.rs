@@ -132,15 +132,6 @@ impl InMemoryState {
             }
         }
 
-        // Creating Executors
-        let mut executors = im::HashMap::new();
-        {
-            let all_executors = reader.get_all_executors()?;
-            for executor in &all_executors {
-                executors.insert(executor.id.get().to_string(), Box::new(executor.clone()));
-            }
-        }
-
         // Creating Allocated Tasks By Executor
         let mut allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>> =
             im::HashMap::new();
@@ -289,7 +280,7 @@ impl InMemoryState {
             namespaces,
             compute_graphs,
             compute_graph_versions,
-            executors,
+            executors: im::HashMap::new(),
             allocations_by_executor,
             tasks,
             unallocated_tasks,
