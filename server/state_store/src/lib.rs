@@ -224,11 +224,17 @@ impl IndexifyState {
                 for allocation in &request.new_allocations {
                     allocated_tasks_by_executor.push(allocation.executor_id.clone());
                 }
-                // trigger deregister executor events if this update removed any executors.
-                state_changes::deregister_executor_events(
-                    &self.last_state_change_id,
-                    &request.remove_executors,
-                )?
+
+                // Trigger the executor deregistration state change only once even if multiple
+                // executors are removed.
+                if let Some(executor_id) = request.remove_executors.first() {
+                    state_changes::deregister_executor_event(
+                        &self.last_state_change_id,
+                        executor_id.clone(),
+                    )?
+                } else {
+                    vec![]
+                }
             }
             RequestPayload::IngestTaskOutputs(task_outputs) => {
                 let ingested = state_machine::ingest_task_outputs(
@@ -286,7 +292,6 @@ impl IndexifyState {
                     let entry = states.entry(request.executor.id.clone()).or_default();
                     entry.num_registered += 1;
                 }
-                // state_machine::register_executor(self.db.clone(), &txn, &request)?;
 
                 state_changes::register_executor(&self.last_state_change_id, &request)
                     .map_err(|e| anyhow!("error getting state changes {}", e))?
@@ -400,7 +405,7 @@ impl IndexifyState {
                             },
                         ));
                 }
-                for task in &sched_update.updated_tasks {
+                for (_, task) in &sched_update.updated_tasks {
                     let _ = self
                         .task_event_tx
                         .send(InvocationStateChangeEvent::TaskCreated(

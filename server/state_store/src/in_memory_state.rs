@@ -74,9 +74,6 @@ pub struct InMemoryState {
     // ExecutorId -> ExecutorMetadata
     pub executors: im::HashMap<String, Box<ExecutorMetadata>>,
 
-    // Executor Id -> List of Task IDs
-    pub allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>>,
-
     // Executor ID -> (FN URI -> List of Allocation IDs)
     pub allocations_by_fn: im::HashMap<String, im::HashMap<String, im::Vector<Box<Allocation>>>>,
 
@@ -98,7 +95,6 @@ pub struct InMemoryState {
     active_tasks_gauge: Gauge<u64>,
     active_invocations_gauge: Gauge<u64>,
     active_allocations_gauge: Gauge<u64>,
-    active_allocations_by_fn_gauge: Gauge<u64>,
     task_pending_latency: Histogram<f64>,
     task_running_latency: Histogram<f64>,
     task_completion_latency: Histogram<f64>,
@@ -132,25 +128,7 @@ impl InMemoryState {
             }
         }
 
-        // Creating Allocated Tasks By Executor
-        let mut allocations_by_executor: im::HashMap<String, im::Vector<Box<Allocation>>> =
-            im::HashMap::new();
-        {
-            let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
-                &[],
-                None,
-                IndexifyObjectsColumns::Allocations,
-                None,
-            )?;
-            for allocation in allocations {
-                allocations_by_executor
-                    .entry(allocation.executor_id.get().to_string())
-                    .or_default()
-                    .push_back(Box::new(allocation));
-            }
-        }
-
-        // Creating Allocated Tasks By Function
+        // Creating Allocated Tasks By Function by Executor
         let mut allocations_by_fn: im::HashMap<
             String,
             im::HashMap<String, im::Vector<Box<Allocation>>>,
@@ -171,6 +149,7 @@ impl InMemoryState {
                     .push_back(Box::new(allocation));
             }
         }
+
         let mut invocation_ctx = im::OrdMap::new();
         {
             let all_graph_invocation_ctx: Vec<(String, GraphInvocationCtx)> =
@@ -251,12 +230,6 @@ impl InMemoryState {
             .u64_gauge("active_allocations_gauge")
             .with_description("Number of active tasks, reported from in_memory_state")
             .build();
-        let active_allocations_by_fn_gauge = meter
-            .u64_gauge("active_allocations_by_fn_gauge")
-            .with_description(
-                "Number of active allocations by function, reported from in_memory_state",
-            )
-            .build();
         let task_pending_latency = meter
             .f64_histogram("task_pending_latency")
             .with_unit("s")
@@ -281,7 +254,6 @@ impl InMemoryState {
             compute_graphs,
             compute_graph_versions,
             executors: im::HashMap::new(),
-            allocations_by_executor,
             tasks,
             unallocated_tasks,
             invocation_ctx,
@@ -295,7 +267,6 @@ impl InMemoryState {
             task_running_latency,
             task_completion_latency,
             allocations_by_fn,
-            active_allocations_by_fn_gauge,
         };
         in_memory_state.emit_metrics();
 
@@ -352,32 +323,43 @@ impl InMemoryState {
                 self.tasks
                     .insert(req.task.key(), Box::new(req.task.clone()));
 
-                // remove allocation
-                for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
-                    if let Some(index) = allocations.iter().position(|a| a.id == allocation_id) {
-                        let allocation = &allocations[index];
-                        self.task_running_latency.record(
-                            get_elapsed_time(allocation.created_at, TimeUnit::Milliseconds),
-                            &[KeyValue::new("outcome", req.task.outcome.to_string())],
-                        );
+                // Remove the allocation
+                {
+                    self.allocations_by_fn
+                        .entry(req.executor_id.get().to_string())
+                        .and_modify(|allocation_map| {
+                            allocation_map
+                                .entry(req.task.fn_uri())
+                                .and_modify(|allocations| {
+                                    if let Some(index) =
+                                        allocations.iter().position(|a| a.id == allocation_id)
+                                    {
+                                        let allocation = &allocations[index];
+                                        self.task_running_latency.record(
+                                            get_elapsed_time(
+                                                allocation.created_at,
+                                                TimeUnit::Milliseconds,
+                                            ),
+                                            &[KeyValue::new(
+                                                "outcome",
+                                                req.task.outcome.to_string(),
+                                            )],
+                                        );
 
-                        // Remove the allocation
-                        allocations.remove(index);
-                        break;
-                    }
+                                        // Remove the allocation
+                                        allocations.remove(index);
+                                    }
+                                });
+
+                            // Remove the function if no allocations left
+                            allocation_map.retain(|_, f| !f.is_empty());
+                        });
                 }
 
                 self.task_completion_latency.record(
                     get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
                     &[KeyValue::new("outcome", req.task.outcome.to_string())],
                 );
-
-                self.allocations_by_fn
-                    .entry(req.executor_id.get().to_string())
-                    .or_default()
-                    .entry(req.task.fn_uri())
-                    .or_default()
-                    .retain(|a| a.id != allocation_id);
             }
             RequestPayload::CreateNameSpace(req) => {
                 self.namespaces.insert(req.name.clone(), [0; 0]);
@@ -456,7 +438,7 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate(req) => {
-                for task in &req.updated_tasks {
+                for (_, task) in &req.updated_tasks {
                     if task.status == TaskStatus::Pending {
                         self.unallocated_tasks.insert(UnallocatedTaskId::new(&task));
                     } else {
@@ -495,12 +477,12 @@ impl InMemoryState {
                         // TODO: delete cached queued reduction tasks
                     }
                 }
+
+                // Note: We don't need to process req.remove_allocations here, as they are
+                // already removed when removing an executor.
+
                 for allocation in &req.new_allocations {
                     if let Some(task) = self.tasks.get(&allocation.task_key()) {
-                        self.allocations_by_executor
-                            .entry(allocation.executor_id.get().to_string())
-                            .or_default()
-                            .push_back(Box::new(allocation.clone()));
                         self.unallocated_tasks
                             .remove(&UnallocatedTaskId::new(&task));
 
@@ -525,26 +507,9 @@ impl InMemoryState {
                         );
                     }
                 }
-                for allocation in &req.remove_allocations {
-                    self.allocations_by_executor
-                        .entry(allocation.executor_id.get().to_string())
-                        .or_default()
-                        .retain(|a| a.task_id != allocation.task_id);
-                    self.allocations_by_fn
-                        .entry(allocation.executor_id.get().to_string())
-                        .or_default()
-                        .entry(allocation.fn_uri())
-                        .or_default()
-                        .retain(|a| a.id != allocation.id);
-                }
+
                 for executor_id in &req.remove_executors {
-                    self.active_allocations_gauge
-                        .record(0, &[KeyValue::new("executor_id", executor_id.to_string())]);
-                    self.active_allocations_by_fn_gauge
-                        .record(0, &[KeyValue::new("executor_id", executor_id.to_string())]);
                     self.executors.remove(executor_id.get());
-                    self.allocations_by_executor
-                        .remove(&executor_id.get().to_string());
                     self.allocations_by_fn
                         .remove(&executor_id.get().to_string());
                 }
@@ -590,16 +555,10 @@ impl InMemoryState {
             self.invocation_ctx.len() as u64,
             &[KeyValue::new("global", "active_invocations")],
         );
-        for (executor_id, allocations) in &self.allocations_by_executor {
-            self.active_allocations_gauge.record(
-                allocations.len() as u64,
-                &[KeyValue::new("executor_id", executor_id.to_string())],
-            );
-        }
 
         for (executor_id, allocations_by_fn) in &self.allocations_by_fn {
             for (fn_uri, allocations) in allocations_by_fn {
-                self.active_allocations_by_fn_gauge.record(
+                self.active_allocations_gauge.record(
                     allocations.len() as u64,
                     &[
                         KeyValue::new("executor_id", executor_id.to_string()),
@@ -615,10 +574,6 @@ impl InMemoryState {
             self.tasks.remove(&task.key());
             self.unallocated_tasks
                 .remove(&UnallocatedTaskId::new(&task));
-        }
-
-        for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
-            allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
         }
 
         for (_executor, allocations_by_fn) in self.allocations_by_fn.iter_mut() {
@@ -648,9 +603,6 @@ impl InMemoryState {
         self.invocation_ctx.remove(&key_prefix);
 
         // Remove allocations
-        for (_executor, allocations) in self.allocations_by_executor.iter_mut() {
-            allocations.retain(|allocation| allocation.invocation_id != invocation_id);
-        }
         for (_executor, allocations_by_fn) in self.allocations_by_fn.iter_mut() {
             for (_fn_uri, allocations) in allocations_by_fn.iter_mut() {
                 allocations.retain(|allocation| allocation.invocation_id != invocation_id);
@@ -688,7 +640,6 @@ impl InMemoryState {
             compute_graphs: self.compute_graphs.clone(),
             compute_graph_versions: self.compute_graph_versions.clone(),
             executors: self.executors.clone(),
-            allocations_by_executor: self.allocations_by_executor.clone(),
             tasks: self.tasks.clone(),
             unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
@@ -702,7 +653,6 @@ impl InMemoryState {
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),
             allocations_by_fn: self.allocations_by_fn.clone(),
-            active_allocations_by_fn_gauge: self.active_allocations_by_fn_gauge.clone(),
         })
     }
 }

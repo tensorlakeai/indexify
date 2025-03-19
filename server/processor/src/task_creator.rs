@@ -78,9 +78,11 @@ impl TaskCreator {
                     indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
                 }
                 return Ok(SchedulerUpdateRequest {
-                    new_allocations: vec![],
-                    remove_allocations: vec![],
-                    updated_tasks: result.tasks,
+                    updated_tasks: result
+                        .tasks
+                        .into_iter()
+                        .map(|t| (t.id.clone(), t))
+                        .collect(),
                     updated_invocations_states: result
                         .invocation_ctx
                         .map(|ctx| ctx.clone())
@@ -90,7 +92,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
-                    remove_executors: vec![],
+                    ..Default::default()
                 });
             }
             ChangeType::InvokeComputeGraph(ev) => {
@@ -105,9 +107,11 @@ impl TaskCreator {
                     indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
                 }
                 return Ok(SchedulerUpdateRequest {
-                    new_allocations: vec![],
-                    remove_allocations: vec![],
-                    updated_tasks: result.tasks,
+                    updated_tasks: result
+                        .tasks
+                        .into_iter()
+                        .map(|t| (t.id.clone(), t))
+                        .collect(),
                     updated_invocations_states: result
                         .invocation_ctx
                         .map(|ctx| ctx.clone())
@@ -117,7 +121,7 @@ impl TaskCreator {
                         new_reduction_tasks: result.new_reduction_tasks,
                         processed_reduction_tasks: result.processed_reduction_tasks,
                     },
-                    remove_executors: vec![],
+                    ..Default::default()
                 });
             }
             _ => {

@@ -69,20 +69,27 @@ impl ExecutorManager {
         Ok(executors)
     }
 
-    pub async fn list_allocations(&self) -> HashMap<String, Vec<Allocation>> {
+    pub async fn list_allocations(&self) -> HashMap<String, HashMap<String, Vec<Allocation>>> {
         self.indexify_state
             .in_memory_state
             .read()
             .await
-            .allocations_by_executor
+            .allocations_by_fn
             .iter()
-            .map(|(executor_id, allocations)| {
+            .map(|(executor_id, fns)| {
                 let executor_id = executor_id.clone();
-                let mut allocs = vec![];
-                for allocation in allocations {
-                    allocs.push(*allocation.clone());
-                }
-                (executor_id, allocs)
+                let fns = fns
+                    .iter()
+                    .map(|(fn_name, allocations)| {
+                        let fn_name = fn_name.clone();
+                        let mut allocs: Vec<Allocation> = vec![];
+                        for allocation in allocations {
+                            allocs.push((**allocation).clone());
+                        }
+                        (fn_name, allocs)
+                    })
+                    .collect();
+                (executor_id, fns)
             })
             .collect()
     }

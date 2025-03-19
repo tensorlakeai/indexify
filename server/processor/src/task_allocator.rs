@@ -1,4 +1,4 @@
-use std::vec;
+use std::{collections::HashMap, vec};
 
 use anyhow::{anyhow, Result};
 use data_model::{
@@ -10,6 +10,7 @@ use data_model::{
     ExecutorMetadata,
     Node,
     Task,
+    TaskId,
     TaskStatus,
 };
 use im::Vector;
@@ -17,7 +18,7 @@ use itertools::Itertools;
 use rand::seq::SliceRandom;
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
-    requests::{ReductionTasks, SchedulerUpdateRequest},
+    requests::SchedulerUpdateRequest,
 };
 use tracing::{debug, error, info, span};
 
@@ -27,16 +28,15 @@ pub struct FilteredExecutors {
 
 pub struct TaskPlacementResult {
     pub new_allocations: Vec<Allocation>,
-    pub remove_allocations: Vec<Allocation>,
-    pub updated_tasks: Vec<Task>,
+    pub updated_tasks: HashMap<TaskId, Task>,
 }
 
 // Maximum number of allocations per executor.
 //
 // In the future, this should be a dynamic value based on:
-// - compute node concurrency configuration
-// - compute node batching configuration
-// - compute node timeout configuration
+// - function concurrency configuration
+// - function batching configuration
+// - function timeout configuration
 const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
 pub struct TaskAllocationProcessor {}
@@ -57,37 +57,29 @@ impl TaskAllocationProcessor {
                 let task_allocation_results = self.allocate(indexes)?;
                 return Ok(SchedulerUpdateRequest {
                     new_allocations: task_allocation_results.new_allocations,
-                    remove_allocations: task_allocation_results.remove_allocations,
                     updated_tasks: task_allocation_results.updated_tasks,
-                    updated_invocations_states: vec![],
-                    reduction_tasks: ReductionTasks::default(),
-                    remove_executors: vec![],
+                    ..Default::default()
                 });
             }
             ChangeType::HandleAbandonedAllocations => {
-                // Get all executor IDs from allocation_by_executor that aren't in executor_ids
-                let missing_executors: Vec<String> = indexes
-                    .allocations_by_executor
+                // Get all executor IDs of executors that haven't registered.
+                let missing_executor_ids: Vec<String> = indexes
+                    .allocations_by_fn
                     .keys()
                     .filter(|id| !indexes.executors.contains_key(&**id))
                     .cloned()
                     .collect();
-                let mut update = SchedulerUpdateRequest {
-                    new_allocations: vec![],
-                    remove_allocations: vec![],
-                    updated_tasks: vec![],
-                    updated_invocations_states: vec![],
-                    reduction_tasks: ReductionTasks::default(),
-                    remove_executors: vec![],
-                };
-                for executor_id in missing_executors {
-                    let update_result =
-                        self.unallocate(ExecutorId::new(executor_id.clone()), indexes)?;
-                    update.merge(&update_result);
+
+                if missing_executor_ids.is_empty() {
+                    info!("no abandoned allocations to handle");
+                    return Ok(SchedulerUpdateRequest::default());
                 }
-                Ok(update)
+
+                self.deregister_executors(missing_executor_ids, indexes)
             }
-            ChangeType::TombStoneExecutor(ev) => self.unallocate(ev.executor_id.clone(), indexes),
+            ChangeType::TombStoneExecutor(ev) => {
+                self.deregister_executors(vec![ev.executor_id.get().to_string()], indexes)
+            }
             _ => {
                 error!("unhandled change type: {:?}", change);
                 return Err(anyhow!("unhandled change type"));
@@ -95,39 +87,76 @@ impl TaskAllocationProcessor {
         }
     }
 
-    pub fn unallocate(
+    pub fn deregister_executors(
         &self,
-        executor_id: ExecutorId,
+        executor_ids: Vec<String>,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
-        let mut updated_tasks = Vec::new();
-        let mut remove_allocations = Vec::new();
-        let allocations = indexes.allocations_by_executor.get(executor_id.get());
-        if let Some(allocations) = allocations {
-            remove_allocations.extend(allocations.iter().map(|a| *a.clone()));
-            for allocation in allocations {
-                let task = indexes.tasks.get(&allocation.task_key());
-                if let Some(task) = task.cloned() {
-                    let mut task = *task;
-                    task.status = TaskStatus::Pending;
-                    updated_tasks.push(task);
-                } else {
-                    error!(
-                        "task of allocation not found in indexes: {}",
-                        allocation.task_key(),
-                    );
-                }
+        let mut update = SchedulerUpdateRequest {
+            remove_executors: executor_ids
+                .iter()
+                .map(|id| ExecutorId::new(id.clone()))
+                .collect(),
+            ..Default::default()
+        };
+
+        // Get all allocations for the executors that are being deregistered.
+        let allocations = indexes
+            .allocations_by_fn
+            .iter()
+            .filter(|(executor_id, _)| executor_ids.contains(executor_id))
+            .flat_map(|(_, allocations)| allocations.values().cloned())
+            .flatten()
+            .collect_vec();
+
+        // Remove the allocations from the store.
+        update.remove_allocations = allocations.clone().iter().map(|a| *a.clone()).collect();
+
+        // Remove the executors from the indexes.
+        indexes
+            .executors
+            .retain(|executor_id, _| !executor_ids.contains(executor_id));
+
+        // Remove the allocations from the indexes.
+        indexes
+            .allocations_by_fn
+            .retain(|executor_id, _| !executor_ids.contains(executor_id));
+
+        // Mark all tasks being unallocated as pending.
+        for allocation in allocations {
+            let task = indexes.tasks.get(&allocation.task_key());
+            if let Some(task) = task.cloned() {
+                let mut task = *task;
+                task.status = TaskStatus::Pending;
+                indexes.tasks.insert(task.key(), Box::new(task.clone()));
+                update.updated_tasks.insert(task.id.clone(), task);
+            } else {
+                error!(
+                    "task of allocation not found in indexes: {}",
+                    allocation.task_key(),
+                );
             }
         }
 
-        return Ok(SchedulerUpdateRequest {
-            new_allocations: vec![],
-            remove_allocations,
-            updated_tasks,
-            updated_invocations_states: vec![],
-            reduction_tasks: ReductionTasks::default(),
-            remove_executors: vec![executor_id.clone()],
-        });
+        // Immediately attempt to reallocate tasks that were unallocated due to executor
+        // deregistration.
+        {
+            let placement_result = self.allocate_tasks(
+                update
+                    .updated_tasks
+                    .iter()
+                    .map(|(_, t)| Box::new(t.clone()))
+                    .collect(),
+                indexes,
+            )?;
+
+            update
+                .new_allocations
+                .extend(placement_result.new_allocations);
+            update.updated_tasks.extend(placement_result.updated_tasks);
+        }
+
+        return Ok(update);
     }
 
     pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<TaskPlacementResult> {
@@ -146,26 +175,24 @@ impl TaskAllocationProcessor {
         if tasks.is_empty() {
             return Ok(TaskPlacementResult {
                 new_allocations: vec![],
-                remove_allocations: vec![],
-                updated_tasks: vec![],
+                updated_tasks: HashMap::new(),
             });
         }
-        self.schedule_tasks(tasks, indexes)
+        self.allocate_tasks(tasks, indexes)
     }
 
-    pub fn schedule_tasks(
+    pub fn allocate_tasks(
         &self,
         tasks: Vec<Box<Task>>,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskPlacementResult> {
         let mut allocations = Vec::new();
-        let mut updated_tasks: Vec<Task> = Vec::new();
+        let mut updated_tasks: HashMap<TaskId, Task> = HashMap::new();
 
         if indexes.executors.is_empty() {
             info!("no executors available for task allocation");
             return Ok(TaskPlacementResult {
                 new_allocations: vec![],
-                remove_allocations: vec![],
                 updated_tasks,
             });
         }
@@ -228,16 +255,11 @@ impl TaskAllocationProcessor {
                         .entry(task.fn_uri())
                         .or_default()
                         .push_back(Box::new(allocation.clone()));
-                    indexes
-                        .allocations_by_executor
-                        .entry(allocation.executor_id.to_string())
-                        .or_default()
-                        .push_back(Box::new(allocation));
                     indexes.tasks.insert(task.key(), task.clone());
                     indexes
                         .unallocated_tasks
                         .remove(&UnallocatedTaskId::new(&task));
-                    updated_tasks.push(*task);
+                    updated_tasks.insert(task.id.clone(), *task.clone());
                 }
                 Ok(None) => {
                     debug!(
@@ -256,7 +278,6 @@ impl TaskAllocationProcessor {
         }
         Ok(TaskPlacementResult {
             new_allocations: allocations,
-            remove_allocations: vec![],
             updated_tasks,
         })
     }
