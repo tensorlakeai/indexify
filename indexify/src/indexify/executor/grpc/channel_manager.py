@@ -1,9 +1,10 @@
 import asyncio
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import grpc.aio
+import yaml
 
-from .metrics.channel_creator import (
+from .metrics.channel_manager import (
     metric_grpc_server_channel_creation_latency,
     metric_grpc_server_channel_creation_retries,
     metric_grpc_server_channel_creations,
@@ -15,12 +16,58 @@ _CONNECT_TIMEOUT_SEC = 5
 
 class ChannelManager:
     def __init__(self, server_address: str, config_path: Optional[str], logger: Any):
-        self._logger: Any = logger.bind(module=__name__)
+        self._logger: Any = logger.bind(module=__name__, server_address=server_address)
         self._server_address: str = server_address
-        self._config_path: Optional[str] = config_path
+        self._channel_credentials: Optional[grpc.ChannelCredentials] = None
         # This lock protects the fields below.
         self._lock = asyncio.Lock()
         self._channel: Optional[grpc.aio.Channel] = None
+
+        self._init_tls(config_path)
+
+    def _init_tls(self, config_path: Optional[str]):
+        if config_path is None:
+            return
+
+        # The same config file format as in Tensorlake SDK HTTP client, see:
+        # https://github.com/tensorlakeai/tensorlake/blob/main/src/tensorlake/utils/http_client.py
+        with open(config_path, "r") as config_file:
+            config = yaml.safe_load(config_file)
+
+        if not config.get("use_tls", False):
+            return
+
+        tls_config: Dict[str, str] = config["tls_config"]
+        cert_path: Optional[str] = tls_config.get("cert_path", None)
+        key_path: Optional[str] = tls_config.get("key_path", None)
+        ca_bundle_path: Optional[str] = tls_config.get("ca_bundle_path", None)
+
+        self._logger = self._logger.bind(
+            cert_path=cert_path,
+            key_path=key_path,
+            ca_bundle_path=ca_bundle_path,
+        )
+        self._logger.info("TLS is enabled for grpc channels to server")
+
+        private_key: Optional[bytes] = None
+        certificate_chain: Optional[bytes] = None
+        root_certificates: Optional[bytes] = None
+
+        if cert_path is not None:
+            with open(cert_path, "rb") as cert_file:
+                certificate_chain = cert_file.read()
+        if key_path is not None:
+            with open(key_path, "rb") as key_file:
+                private_key = key_file.read()
+        if ca_bundle_path is not None:
+            with open(ca_bundle_path, "rb") as ca_bundle_file:
+                root_certificates = ca_bundle_file.read()
+
+        self._channel_credentials = grpc.ssl_channel_credentials(
+            root_certificates=root_certificates,
+            private_key=private_key,
+            certificate_chain=certificate_chain,
+        )
 
     async def get_channel(self) -> grpc.aio.Channel:
         """Returns a channel to the gRPC server.
@@ -30,6 +77,7 @@ class ChannelManager:
         If previously returned channel is healthy then returns it again.
         Otherwise, returns a new channel but closes the previously returned one.
         """
+        # Use the lock to ensure that we only create one channel without race conditions.
         async with self._lock:
             if self._channel is None:
                 self._channel = await self._create_channel()
@@ -41,23 +89,25 @@ class ChannelManager:
             return self._channel
 
     async def _create_channel(self) -> grpc.aio.Channel:
-        # TODO: Use TLS credentials if provided
         """Creates a new channel to the gRPC server."
 
         Returns a ready to use channel. Blocks until the channel
         is ready, never raises any exceptions.
         """
-        self._logger.info(
-            "creating new grpc server channel",
-            server_address=self._server_address,
-            config_path=self._config_path,
-        )
+        self._logger.info("creating new grpc server channel")
 
         with metric_grpc_server_channel_creation_latency.time():
             metric_grpc_server_channel_creations.inc()
             while True:
                 try:
-                    channel = grpc.aio.insecure_channel(self._server_address)
+                    if self._channel_credentials is None:
+                        channel = grpc.aio.insecure_channel(target=self._server_address)
+                    else:
+                        channel = grpc.aio.secure_channel(
+                            target=self._server_address,
+                            credentials=self._channel_credentials,
+                        )
+
                     await asyncio.wait_for(
                         channel.channel_ready(),
                         timeout=_CONNECT_TIMEOUT_SEC,
