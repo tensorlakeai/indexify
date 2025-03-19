@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use data_model::{
     Allocation,
     ComputeGraph,
@@ -10,6 +12,7 @@ use data_model::{
     StateChange,
     Task,
     TaskDiagnostics,
+    TaskId,
 };
 
 #[derive(Debug)]
@@ -36,32 +39,14 @@ pub enum RequestPayload {
     Noop,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub remove_allocations: Vec<Allocation>,
-    pub updated_tasks: Vec<Task>,
+    pub updated_tasks: HashMap<TaskId, Task>,
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
     pub remove_executors: Vec<ExecutorId>,
-}
-
-impl SchedulerUpdateRequest {
-    pub fn merge(&mut self, other: &SchedulerUpdateRequest) {
-        self.new_allocations.extend(other.new_allocations.clone());
-        self.remove_allocations
-            .extend(other.remove_allocations.clone());
-        self.updated_tasks.extend(other.updated_tasks.clone());
-        self.updated_invocations_states
-            .extend(other.updated_invocations_states.clone());
-        self.reduction_tasks
-            .new_reduction_tasks
-            .extend(other.reduction_tasks.new_reduction_tasks.clone());
-        self.reduction_tasks
-            .processed_reduction_tasks
-            .extend(other.reduction_tasks.processed_reduction_tasks.clone());
-        self.remove_executors.extend(other.remove_executors.clone());
-    }
 }
 
 #[derive(Debug, Clone)]

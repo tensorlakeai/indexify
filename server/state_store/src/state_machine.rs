@@ -642,6 +642,19 @@ pub(crate) fn handle_scheduler_update(
     txn: &Transaction<TransactionDB>,
     request: &SchedulerUpdateRequest,
 ) -> Result<()> {
+    for alloc in &request.remove_allocations {
+        info!(
+            namespace = alloc.namespace,
+            graph = alloc.compute_graph,
+            invocation_id = alloc.invocation_id,
+            function_name = alloc.compute_fn,
+            task_id = alloc.id.to_string(),
+            allocation_id = alloc.id,
+            "delete_allocation",
+        );
+        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.id)?;
+    }
+
     for alloc in &request.new_allocations {
         info!(
             namespace = alloc.namespace,
@@ -659,19 +672,8 @@ pub(crate) fn handle_scheduler_update(
             serialized_alloc,
         )?;
     }
-    for alloc in &request.remove_allocations {
-        info!(
-            namespace = alloc.namespace,
-            graph = alloc.compute_graph,
-            invocation_id = alloc.invocation_id,
-            function_name = alloc.compute_fn,
-            task_id = alloc.id.to_string(),
-            allocation_id = alloc.id,
-            "delete_allocation",
-        );
-        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.id)?;
-    }
-    for task in &request.updated_tasks {
+
+    for (_, task) in &request.updated_tasks {
         info!(
             namespace = task.namespace,
             graph = task.compute_graph_name,

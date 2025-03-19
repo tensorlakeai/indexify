@@ -46,6 +46,7 @@ use crate::{
     executors::{self, EXECUTOR_TIMEOUT},
     http_objects::{
         ExecutorAllocations,
+        ExecutorFns,
         Invocation,
         InvocationStatus,
         StateChangesResponse,
@@ -77,7 +78,7 @@ use crate::{
         CursorDirection,
         DynamicRouter,
         ExecutorMetadata,
-        ExecutorsAllocations,
+        ExecutorsAllocationsResponse,
         FnOutputs,
         GraphInvocations,
         GraphVersion,
@@ -138,7 +139,7 @@ use crate::{
                 GraphInvocations,
                 GraphVersion,
                 Allocation,
-                ExecutorsAllocations,
+                ExecutorsAllocationsResponse,
                 UnallocatedTasks,
                 StateChangesResponse,
             )
@@ -708,28 +709,30 @@ async fn list_executors(
     path = "/internal/allocations",
     tag = "operations",
     responses(
-        (status = 200, description = "List all allocations", body = HashMap<String, Vec<Allocation>>),
+        (status = 200, description = "List all allocations", body = HashMap<String, HashMap<String, Vec<Allocation>>>),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
 async fn list_allocations(
     State(state): State<RouteState>,
-) -> Result<Json<ExecutorsAllocations>, IndexifyAPIError> {
+) -> Result<Json<ExecutorsAllocationsResponse>, IndexifyAPIError> {
     let allocations = state.executor_manager.list_allocations().await;
-    Ok(Json(ExecutorsAllocations {
+    Ok(Json(ExecutorsAllocationsResponse {
         allocations: allocations
             .into_iter()
-            .map(|(executor_id, allocations)| {
-                let executor_id = executor_id.clone();
-                let mut allocs = vec![];
-                for allocation in allocations {
-                    allocs.push(allocation.clone().into());
-                }
+            .map(|(executor_id, fns)| {
                 (
-                    executor_id,
+                    executor_id.clone(),
                     ExecutorAllocations {
-                        count: allocs.len(),
-                        allocations: allocs,
+                        total: fns.iter().map(|(_, allocations)| allocations.len()).sum(),
+                        executor_fns: fns
+                            .iter()
+                            .map(|(fn_name, allocations)| ExecutorFns {
+                                count: allocations.len(),
+                                fn_name: fn_name.clone(),
+                                allocations: allocations.iter().map(|a| a.clone().into()).collect(),
+                            })
+                            .collect(),
                     },
                 )
             })

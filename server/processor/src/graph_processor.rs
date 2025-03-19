@@ -220,9 +220,6 @@ impl GraphProcessor {
                     result
                         .new_allocations
                         .extend(placement_result.new_allocations);
-                    result
-                        .remove_allocations
-                        .extend(placement_result.remove_allocations);
                     result.updated_tasks.extend(placement_result.updated_tasks);
                     Ok(StateMachineUpdateRequest {
                         payload: RequestPayload::SchedulerUpdate(Box::new(result)),

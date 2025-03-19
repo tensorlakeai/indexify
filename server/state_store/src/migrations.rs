@@ -27,12 +27,33 @@ pub fn migrate(path: &Path) -> Result<StateMachineMetadata> {
     // don't create missing column families during migration
     db_opts.create_missing_column_families(false);
     db_opts.create_if_missing(true);
-    let cfs = DB::list_cf(&db_opts, &path).context("listing column families")?;
-    let mut db = TransactionDB::open_cf(&db_opts, &TransactionDBOptions::default(), path, &cfs)
-        .map_err(|e| anyhow::anyhow!("failed to open db for migration: {}", e))?;
 
-    // Drop column families before migrations
-    drop_cfs(&cfs, &mut db).context("dropping column families before migration")?;
+    // Fetch existing column families
+    let existing_cfs = match DB::list_cf(&db_opts, &path) {
+        Ok(cfs) => cfs,
+        Err(e) if e.kind() == rocksdb::ErrorKind::IOError => {
+            // No migration needed, just return the default metadata.
+            return Ok(StateMachineMetadata {
+                db_version: 0,
+                last_change_idx: 0,
+            });
+        }
+        Err(e) => return Err(anyhow::anyhow!("listing column families: {}", e)),
+    };
+
+    // Open the database with the existing column families
+    let mut db = TransactionDB::open_cf(
+        &db_opts,
+        &TransactionDBOptions::default(),
+        path,
+        &existing_cfs,
+    )
+    .map_err(|e| anyhow::anyhow!("failed to open db for migration: {}", e))?;
+
+    // Drop column families before starting migrations transaction
+    // Dropping column families cannot be done in a transaction and requires
+    // borrowing with mut.
+    drop_unused_cfs(&existing_cfs, &mut db).context("dropping column families before migration")?;
 
     let mut sm_meta = read_sm_meta(&db).context("reading current state machine metadata")?;
     let current_db_version = sm_meta.db_version;
@@ -331,7 +352,7 @@ pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
 }
 
 #[tracing::instrument(skip(db))]
-pub fn drop_cfs(existing_cfs: &Vec<String>, db: &mut TransactionDB) -> Result<()> {
+pub fn drop_unused_cfs(existing_cfs: &Vec<String>, db: &mut TransactionDB) -> Result<()> {
     if existing_cfs.contains(&"Executors".to_string()) {
         info!("Dropping Executors column family during migration");
         db.drop_cf("Executors")?;
@@ -611,11 +632,6 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
-        let sm_column_families = vec![rocksdb::ColumnFamilyDescriptor::new(
-            IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
-            Options::default(),
-        )];
-
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
@@ -624,7 +640,10 @@ mod tests {
                 &db_opts,
                 &TransactionDBOptions::default(),
                 path,
-                sm_column_families,
+                vec![rocksdb::ColumnFamilyDescriptor::new(
+                    IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+                    Options::default(),
+                )],
             )
             .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
         );
@@ -638,9 +657,9 @@ mod tests {
         write_sm_meta(&db, &txn, &sm_meta)?;
         txn.commit()?;
 
-        let result = migrate(path);
-        assert!(result.is_ok());
-        let sm_meta = result.unwrap();
+        drop(db);
+
+        let sm_meta = migrate(path)?;
         assert_eq!(sm_meta.db_version, SERVER_DB_VERSION);
 
         // Test case where the database is empty
@@ -648,13 +667,25 @@ mod tests {
             db_version: 0,
             last_change_idx: 0,
         };
+
+        let db = Arc::new(
+            TransactionDB::open_cf_descriptors(
+                &db_opts,
+                &TransactionDBOptions::default(),
+                path,
+                vec![rocksdb::ColumnFamilyDescriptor::new(
+                    IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+                    Options::default(),
+                )],
+            )
+            .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?,
+        );
         let txn = db.transaction();
         write_sm_meta(&db, &txn, &sm_meta)?;
         txn.commit()?;
+        drop(db);
 
-        let result = migrate(path);
-        assert!(result.is_ok());
-        let sm_meta = result.unwrap();
+        let sm_meta = migrate(path)?;
         assert_eq!(sm_meta.db_version, SERVER_DB_VERSION);
 
         Ok(())
