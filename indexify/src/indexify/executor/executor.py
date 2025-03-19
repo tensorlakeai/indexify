@@ -20,7 +20,7 @@ from .function_executor.function_executor_states_container import (
 from .function_executor.server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
-from .grpc.channel_creator import ChannelCreator
+from .grpc.channel_manager import ChannelManager
 from .grpc.state_reconciler import ExecutorStateReconciler
 from .grpc.state_reporter import ExecutorStateReporter
 from .metrics.executor import (
@@ -109,12 +109,16 @@ class Executor:
         self._task_runner: Optional[TaskRunner] = None
         self._task_fetcher: Optional[TaskFetcher] = None
         # gRPC mode services
-        self._channel_creator: Optional[ChannelCreator] = None
+        self._channel_manager: Optional[ChannelManager] = None
         self._state_reporter: Optional[ExecutorStateReporter] = None
         self._state_reconciler: Optional[ExecutorStateReconciler] = None
 
         if grpc_server_addr is not None:
-            self._channel_creator = ChannelCreator(grpc_server_addr, self._logger)
+            self._channel_manager = ChannelManager(
+                server_address=grpc_server_addr,
+                config_path=config_path,
+                logger=self._logger,
+            )
             self._state_reporter = ExecutorStateReporter(
                 executor_id=id,
                 flavor=flavor,
@@ -123,7 +127,7 @@ class Executor:
                 development_mode=development_mode,
                 function_allowlist=self._function_allowlist,
                 function_executor_states=self._function_executor_states,
-                channel_creator=self._channel_creator,
+                channel_manager=self._channel_manager,
                 logger=self._logger,
             )
             self._state_reporter.update_executor_status(
@@ -139,7 +143,8 @@ class Executor:
                 config_path=config_path,
                 downloader=self._downloader,
                 task_reporter=self._task_reporter,
-                channel_creator=self._channel_creator,
+                channel_manager=self._channel_manager,
+                state_reporter=self._state_reporter,
                 logger=self._logger,
             )
         else:
@@ -333,7 +338,9 @@ class Executor:
             ).inc()
 
     async def _shutdown(self, loop):
-        self._logger.info("shutting down")
+        self._logger.info(
+            "shutting down, all Executor logs are suppressed, no task outcomes will be reported to Server from this point"
+        )
         if self._state_reporter is not None:
             self._state_reporter.update_executor_status(
                 ExecutorStatus.EXECUTOR_STATUS_STOPPING
@@ -351,8 +358,8 @@ class Executor:
         if self._task_runner is not None:
             await self._task_runner.shutdown()
 
-        if self._channel_creator is not None:
-            await self._channel_creator.shutdown()
+        if self._channel_manager is not None:
+            await self._channel_manager.shutdown()
         if self._state_reporter is not None:
             await self._state_reporter.shutdown()
         if self._state_reconciler is not None:

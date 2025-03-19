@@ -70,8 +70,10 @@ class HealthChecker:
                 # code is not involved when TCP connections are established to FE. Problems reestablishing
                 # the TCP connection are usually due to the FE process crashing and its gRPC server socket
                 # not being available anymore or due to prolonged local networking failures on Executor.
-                channel_connectivity = self._channel.get_state()
-                if channel_connectivity == grpc.ChannelConnectivity.TRANSIENT_FAILURE:
+                if (
+                    _channel_state(self._channel, self._logger)
+                    == grpc.ChannelConnectivity.TRANSIENT_FAILURE
+                ):
                     return HealthCheckResult(
                         is_healthy=False,
                         reason="Channel is in TRANSIENT_FAILURE state, assuming Function Executor crashed.",
@@ -126,3 +128,19 @@ class HealthChecker:
 
         asyncio.create_task(self._health_check_failed_callback(result))
         self._health_check_loop_task = None
+
+
+def _channel_state(channel: grpc.aio.Channel, logger: Any) -> grpc.ChannelConnectivity:
+    """Get channel connectivity state and suppresses all exceptions.
+
+    Suppressing the exceptions is important because the channel connectivity state is an experimental
+    feature. On error fallse back to READY state which assumes that the channel is okay.
+    """
+    try:
+        return channel.get_state()
+    except Exception as e:
+        logger.error(
+            "Failed getting channel state, falling back to default READY state",
+            exc_info=e,
+        )
+        return grpc.ChannelConnectivity.READY
