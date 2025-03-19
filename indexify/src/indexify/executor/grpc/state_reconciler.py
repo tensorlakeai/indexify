@@ -43,7 +43,8 @@ from ..metrics.executor import (
     metric_tasks_reporting_outcome,
 )
 from ..task_reporter import TaskReporter
-from .channel_creator import ChannelCreator
+from .channel_manager import ChannelManager
+from .state_reporter import ExecutorStateReporter
 
 _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
 
@@ -58,7 +59,8 @@ class ExecutorStateReconciler:
         config_path: Optional[str],
         downloader: Downloader,
         task_reporter: TaskReporter,
-        channel_creator: ChannelCreator,
+        channel_manager: ChannelManager,
+        state_reporter: ExecutorStateReporter,
         logger: Any,
     ):
         self._executor_id: str = executor_id
@@ -72,7 +74,8 @@ class ExecutorStateReconciler:
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
         )
-        self._channel_creator = channel_creator
+        self._channel_manager: ChannelManager = channel_manager
+        self._state_reporter: ExecutorStateReporter = state_reporter
         self._logger: Any = logger.bind(module=__name__)
         self._is_shutdown: bool = False
         self._server_last_clock: Optional[int] = None
@@ -83,12 +86,14 @@ class ExecutorStateReconciler:
         Never raises any exceptions.
         """
         while not self._is_shutdown:
-            async with await self._channel_creator.create() as server_channel:
+            async with await self._channel_manager.get_channel() as server_channel:
                 server_channel: grpc.aio.Channel
                 stub = ExecutorAPIStub(server_channel)
                 while not self._is_shutdown:
                     try:
-                        # TODO: Report state once before starting the stream.
+                        # Report state once before starting the stream so Server
+                        # doesn't use old state it knew about this Executor in the past.
+                        await self._state_reporter.report_state(stub)
                         desired_states_stream: AsyncGenerator[
                             DesiredExecutorState, None
                         ] = stub.get_desired_executor_states(

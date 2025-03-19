@@ -38,7 +38,7 @@ from ..function_executor.function_executor_states_container import (
 )
 from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..runtime_probes import RuntimeProbes
-from .channel_creator import ChannelCreator
+from .channel_manager import ChannelManager
 from .metrics.state_reporter import (
     metric_state_report_errors,
     metric_state_report_latency,
@@ -60,7 +60,7 @@ class ExecutorStateReporter:
         development_mode: bool,
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_states: FunctionExecutorStatesContainer,
-        channel_creator: ChannelCreator,
+        channel_manager: ChannelManager,
         logger: Any,
     ):
         self._executor_id: str = executor_id
@@ -72,7 +72,7 @@ class ExecutorStateReporter:
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
         )
-        self._channel_creator = channel_creator
+        self._channel_manager = channel_manager
         self._logger: Any = logger.bind(module=__name__)
         self._is_shutdown: bool = False
         self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
@@ -90,12 +90,16 @@ class ExecutorStateReporter:
         Never raises any exceptions.
         """
         while not self._is_shutdown:
-            async with await self._channel_creator.create() as server_channel:
+            async with await self._channel_manager.get_channel() as server_channel:
                 server_channel: grpc.aio.Channel
                 stub = ExecutorAPIStub(server_channel)
                 while not self._is_shutdown:
                     try:
-                        await self._report_state(stub)
+                        # The periodic state reports serve as channel health monitoring requests
+                        # (same as TCP keep-alive). Channel Manager returns the same healthy channel
+                        # for all RPCs that we do from Executor to Server. So all the RPCs benefit
+                        # from this channel health monitoring.
+                        await self.report_state(stub)
                         await asyncio.sleep(_REPORTING_INTERVAL_SEC)
                     except Exception as e:
                         self._logger.error(
@@ -107,7 +111,11 @@ class ExecutorStateReporter:
 
         self._logger.info("State reporter shutdown")
 
-    async def _report_state(self, stub: ExecutorAPIStub):
+    async def report_state(self, stub: ExecutorAPIStub):
+        """Reports the current state to the server represented by the supplied stub.
+
+        Raises exceptions on failure.
+        """
         with (
             metric_state_report_errors.count_exceptions(),
             metric_state_report_latency.time(),
