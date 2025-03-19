@@ -32,6 +32,10 @@ if _version_not_supported:
 class ExecutorAPIStub(object):
     """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+
+    Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
+    might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
+    at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
     """
 
     def __init__(self, channel):
@@ -57,6 +61,10 @@ class ExecutorAPIStub(object):
 class ExecutorAPIServicer(object):
     """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+
+    Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
+    might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
+    at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
     """
 
     def report_executor_state(self, request, context):
@@ -105,6 +113,10 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
 class ExecutorAPI(object):
     """Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+
+    Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
+    might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
+    at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
     """
 
     @staticmethod

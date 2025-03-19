@@ -120,7 +120,6 @@ def executor(
             help="Port where to run Executor Monitoring server",
         ),
     ] = 7000,
-    # TODO: Figure out mTLS for gRPC.
     grpc_server_addr: Annotated[
         Optional[str],
         typer.Option(

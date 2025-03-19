@@ -217,7 +217,7 @@ class TestExecutorStateReporter(unittest.TestCase):
                 "--label",
                 "test_label=test_value",
             ],
-            # keep_std_outputs=False,
+            keep_std_outputs=False,
         ) as executor_a:
             executor_a: subprocess.Popen
             wait_executor_startup(7002)

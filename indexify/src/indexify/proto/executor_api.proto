@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+// Rename with caution. The package name is part of gRPC service name.
+// Existing clients won't find the service if the package name changes.
 package executor_api_pb;
 
 // ===== ReportExecutorState RPC =====
@@ -147,6 +149,10 @@ message DesiredExecutorState {
 
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
 // Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
+//
+// Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
+// might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
+// at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
 service ExecutorAPI {
     // Called by Executor every 5 seconds to report that it's still alive and provide its current state.
     //
