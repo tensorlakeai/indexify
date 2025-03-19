@@ -25,6 +25,12 @@ class SubprocessFunctionExecutorServerFactory(FunctionExecutorServerFactory):
         logger = logger.bind(module=__name__)
         port: Optional[int] = None
 
+        if len(config.secret_names) > 0:
+            logger.warning(
+                "Subprocess Function Executor does not support secrets. Please supply secrets as environment variables.",
+                secret_names=config.secret_names,
+            )
+
         try:
             port = self._allocate_port()
             args = [
