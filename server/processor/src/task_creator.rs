@@ -19,36 +19,14 @@ use state_store::{
     requests::{ReductionTasks, SchedulerUpdateRequest},
     IndexifyState,
 };
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, trace};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TaskCreationResult {
-    pub namespace: String,
-    pub compute_graph: String,
     pub tasks: Vec<Task>,
     pub new_reduction_tasks: Vec<ReduceTask>,
     pub processed_reduction_tasks: Vec<String>,
-    pub invocation_id: String,
     pub invocation_ctx: Option<GraphInvocationCtx>,
-}
-
-impl TaskCreationResult {
-    pub fn no_tasks(
-        namespace: &str,
-        compute_graph: &str,
-        invocation_id: &str,
-        invocation_ctx: Option<GraphInvocationCtx>,
-    ) -> Self {
-        Self {
-            namespace: namespace.to_string(),
-            compute_graph: compute_graph.to_string(),
-            invocation_id: invocation_id.to_string(),
-            tasks: vec![],
-            new_reduction_tasks: vec![],
-            processed_reduction_tasks: vec![],
-            invocation_ctx,
-        }
-    }
 }
 
 pub struct TaskCreator {
@@ -142,6 +120,22 @@ impl TaskCreator {
         task_finished_event: &TaskOutputsIngestedEvent,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
+        let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
+            &task_finished_event.namespace,
+            &task_finished_event.compute_graph,
+            &task_finished_event.invocation_id,
+        ));
+
+        let Some(invocation_ctx) = invocation_ctx else {
+            trace!("no invocation ctx, stopping scheduling of child tasks");
+            return Ok(TaskCreationResult::default());
+        };
+
+        if invocation_ctx.completed {
+            trace!("invocation already completed, stopping scheduling of child tasks");
+            return Ok(TaskCreationResult::default());
+        }
+
         let task = indexes.tasks.get(&Task::key_from(
             &task_finished_event.namespace,
             &task_finished_event.compute_graph,
@@ -154,12 +148,7 @@ impl TaskCreator {
                 "task not found for task finished event: {}",
                 task_finished_event.task_id
             );
-            return Ok(TaskCreationResult::no_tasks(
-                &task_finished_event.namespace,
-                &task_finished_event.compute_graph,
-                &task_finished_event.invocation_id,
-                None,
-            ));
+            return Ok(TaskCreationResult::default());
         };
 
         let compute_graph_version = indexes
@@ -170,12 +159,7 @@ impl TaskCreator {
                 "compute graph version not found: {:?} {:?}",
                 task.namespace, task.compute_graph_name
             );
-            return Ok(TaskCreationResult::no_tasks(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                None,
-            ));
+            return Ok(TaskCreationResult::default());
         }
         let compute_graph_version = compute_graph_version.ok_or(anyhow!(
             "compute graph version not found: {:?} {:?}",
@@ -183,6 +167,7 @@ impl TaskCreator {
             task.compute_graph_name
         ))?;
         self.handle_task_finished(
+            invocation_ctx.deref().clone(),
             task.clone().deref().clone(),
             *compute_graph_version.clone(),
             indexes,
@@ -201,12 +186,7 @@ impl TaskCreator {
             &event.invocation_id,
         ));
         if invocation_ctx.is_none() {
-            return Ok(TaskCreationResult::no_tasks(
-                &event.namespace,
-                &event.compute_graph,
-                &event.invocation_id,
-                None,
-            ));
+            return Ok(TaskCreationResult::default());
         }
         let mut invocation_ctx = invocation_ctx
             .ok_or(anyhow!(
@@ -229,12 +209,7 @@ impl TaskCreator {
                 "compute graph version not found: {:?} {:?} {:?}",
                 event.namespace, event.compute_graph, invocation_ctx.graph_version,
             );
-            return Ok(TaskCreationResult::no_tasks(
-                &event.namespace,
-                &event.compute_graph,
-                &event.invocation_id,
-                None,
-            ));
+            return Ok(TaskCreationResult::default());
         }
         let compute_graph_version = compute_graph_version.ok_or(anyhow!(
             "compute graph version not found: {:?} {:?} {:?}",
@@ -259,9 +234,6 @@ impl TaskCreator {
             "Creating a standard task to start compute graph"
         );
         Ok(TaskCreationResult {
-            namespace: event.namespace.clone(),
-            compute_graph: event.compute_graph.clone(),
-            invocation_id: event.invocation_id.clone(),
             tasks: vec![task],
             new_reduction_tasks: vec![],
             processed_reduction_tasks: vec![],
@@ -271,49 +243,22 @@ impl TaskCreator {
 
     pub async fn handle_task_finished(
         &self,
+        invocation_ctx: GraphInvocationCtx,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
-            &task.namespace,
-            &task.compute_graph_name,
-            &task.invocation_id,
-        ));
-
-        let Some(invocation_ctx) = invocation_ctx else {
-            trace!("no invocation ctx, stopping scheduling of child tasks");
-            return Ok(TaskCreationResult::no_tasks(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                None,
-            ));
-        };
-
-        if invocation_ctx.completed {
-            warn!("invocation already completed, stopping scheduling of child tasks");
-            return Ok(TaskCreationResult::no_tasks(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                None,
-            ));
-        }
-
         trace!("invocation context: {:?}", invocation_ctx);
-        let mut invocation_ctx = invocation_ctx.deref().clone();
+        let mut invocation_ctx = invocation_ctx.clone();
         invocation_ctx.update_analytics(&task);
 
         if task.outcome == TaskOutcome::Failure {
             trace!("task failed, stopping scheduling of child tasks");
             invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
-            return Ok(TaskCreationResult::no_tasks(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                Some(invocation_ctx),
-            ));
+            return Ok(TaskCreationResult {
+                invocation_ctx: Some(invocation_ctx),
+                ..Default::default()
+            });
         }
         let outputs = self
             .indexify_state
@@ -355,9 +300,6 @@ impl TaskCreator {
                 invocation_ctx.create_tasks(&new_tasks);
 
                 return Ok(TaskCreationResult {
-                    namespace: task.namespace.clone(),
-                    compute_graph: task.compute_graph_name.clone(),
-                    invocation_id: task.invocation_id.clone(),
                     tasks: new_tasks,
                     new_reduction_tasks: vec![],
                     processed_reduction_tasks: vec![],
@@ -384,12 +326,10 @@ impl TaskCreator {
                                 compute_fn_name = compute_fn.name,
                                 "Waiting for pending reducer tasks to finish before unqueuing"
                             );
-                            return Ok(TaskCreationResult::no_tasks(
-                                &task.namespace,
-                                &task.compute_graph_name,
-                                &task.invocation_id,
-                                Some(invocation_ctx),
-                            ));
+                            return Ok(TaskCreationResult {
+                                invocation_ctx: Some(invocation_ctx),
+                                ..Default::default()
+                            });
                         }
                     }
                     let reduction_task = indexes.next_reduction_task(
@@ -416,9 +356,6 @@ impl TaskCreator {
                         );
                         invocation_ctx.create_tasks(&vec![new_task.clone()]);
                         return Ok(TaskCreationResult {
-                            namespace: task.namespace.clone(),
-                            compute_graph: task.compute_graph_name.clone(),
-                            invocation_id: task.invocation_id.clone(),
                             tasks: vec![new_task],
                             new_reduction_tasks: vec![],
                             processed_reduction_tasks: vec![reduction_task.key()],
@@ -450,12 +387,10 @@ impl TaskCreator {
                             compute_fn_name = compute_fn.name,
                             "Waiting for parent tasks to finish before starting a new reducer task"
                         );
-                        return Ok(TaskCreationResult::no_tasks(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &task.invocation_id,
-                            Some(invocation_ctx),
-                        ));
+                        return Ok(TaskCreationResult {
+                            invocation_ctx: Some(invocation_ctx),
+                            ..Default::default()
+                        });
                     }
                 }
             }
@@ -470,12 +405,10 @@ impl TaskCreator {
                 "No more edges to schedule tasks for, waiting for outstanding tasks to finalize"
             );
             invocation_ctx.complete_invocation(false, GraphInvocationOutcome::Success);
-            return Ok(TaskCreationResult::no_tasks(
-                &task.namespace,
-                &task.compute_graph_name,
-                &task.invocation_id,
-                Some(invocation_ctx),
-            ));
+            return Ok(TaskCreationResult {
+                invocation_ctx: Some(invocation_ctx),
+                ..Default::default()
+            });
         }
 
         // Create new tasks for the edges of the node of the current task.
@@ -503,12 +436,7 @@ impl TaskCreator {
                                 compute_fn_name = task.compute_fn_name,
                                 "Reducer parent node has failing tasks, not scheduling more tasks"
                             );
-                            return Ok(TaskCreationResult::no_tasks(
-                                &task.namespace,
-                                &task.compute_graph_name,
-                                &task.invocation_id,
-                                None,
-                            ));
+                            return Ok(TaskCreationResult::default());
                         }
                     }
 
@@ -542,12 +470,7 @@ impl TaskCreator {
                             "Found previously failed reducer task, stopping reducers",
                         );
                         invocation_ctx.complete_invocation(true, GraphInvocationOutcome::Failure);
-                        return Ok(TaskCreationResult::no_tasks(
-                            &task.namespace,
-                            &task.compute_graph_name,
-                            &task.invocation_id,
-                            None,
-                        ));
+                        return Ok(TaskCreationResult::default());
                     }
 
                     // In order to ensure sequential execution of reducer tasks, we queue a
@@ -641,9 +564,6 @@ impl TaskCreator {
 
         invocation_ctx.create_tasks(&new_tasks);
         Ok(TaskCreationResult {
-            namespace: task.namespace.clone(),
-            compute_graph: task.compute_graph_name.clone(),
-            invocation_id: task.invocation_id.clone(),
             tasks: new_tasks,
             new_reduction_tasks,
             processed_reduction_tasks: vec![],
