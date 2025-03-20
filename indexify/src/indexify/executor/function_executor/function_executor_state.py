@@ -25,6 +25,7 @@ class FunctionExecutorState:
         graph_version: str,
         function_name: str,
         image_uri: Optional[str],
+        secret_names: List[str],
         logger: Any,
     ):
         # Read only fields.
@@ -33,6 +34,7 @@ class FunctionExecutorState:
         self.graph_name: str = graph_name
         self.function_name: str = function_name
         self.image_uri: Optional[str] = image_uri
+        self.secret_names: List[str] = secret_names
         self._logger: Any = logger.bind(
             module=__name__,
             function_executor_id=id,

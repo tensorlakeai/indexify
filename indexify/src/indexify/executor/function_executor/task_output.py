@@ -5,8 +5,6 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
     RouterOutput,
 )
 
-from ..api_objects import Task
-
 
 class TaskOutput:
     """Result of running a task."""
@@ -62,4 +60,27 @@ class TaskOutput:
             graph_invocation_id=graph_invocation_id,
             stderr="Platform failed to execute the function.",
             is_internal_error=True,
+        )
+
+    @classmethod
+    def function_timeout(
+        cls,
+        task_id: str,
+        namespace: str,
+        graph_name: str,
+        function_name: str,
+        graph_version: str,
+        graph_invocation_id: str,
+    ) -> "TaskOutput":
+        """Creates a TaskOutput for an function timeout error."""
+        # Task stdout, stderr is not available.
+        return TaskOutput(
+            task_id=task_id,
+            namespace=namespace,
+            graph_name=graph_name,
+            function_name=function_name,
+            graph_version=graph_version,
+            graph_invocation_id=graph_invocation_id,
+            stderr="Function execution timed out.",
+            is_internal_error=False,
         )

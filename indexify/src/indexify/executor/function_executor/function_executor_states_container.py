@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from .function_executor_state import FunctionExecutorState
 from .function_executor_status import FunctionExecutorStatus
@@ -26,6 +26,7 @@ class FunctionExecutorStatesContainer:
         graph_version: str,
         function_name: str,
         image_uri: Optional[str],
+        secret_names: List[str],
     ) -> FunctionExecutorState:
         """Get or create a function executor state with the given ID.
 
@@ -45,6 +46,7 @@ class FunctionExecutorStatesContainer:
                     graph_version=graph_version,
                     function_name=function_name,
                     image_uri=image_uri,
+                    secret_names=secret_names,
                     logger=self._logger,
                 )
                 self._states[id] = state

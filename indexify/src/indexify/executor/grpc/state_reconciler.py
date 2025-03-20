@@ -30,17 +30,7 @@ from ..function_executor.server.function_executor_server_factory import (
 from ..function_executor.task_input import TaskInput
 from ..function_executor.task_output import TaskOutput
 from ..metrics.executor import (
-    METRIC_TASKS_COMPLETED_OUTCOME_ALL,
-    METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE,
-    METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM,
-    METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS,
-    metric_task_completion_latency,
-    metric_task_outcome_report_latency,
-    metric_task_outcome_report_retries,
-    metric_task_outcome_reports,
-    metric_tasks_completed,
     metric_tasks_fetched,
-    metric_tasks_reporting_outcome,
 )
 from ..task_reporter import TaskReporter
 from .channel_manager import ChannelManager
@@ -153,6 +143,7 @@ class ExecutorStateReconciler:
                     graph_version=desired_function_executor.graph_version,
                     function_name=desired_function_executor.function_name,
                     image_uri=desired_function_executor.image_uri,
+                    secret_names=list(desired_function_executor.secret_names),
                 )
             )
 

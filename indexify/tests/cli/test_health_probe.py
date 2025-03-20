@@ -66,7 +66,13 @@ class TestGenericHealthChecker(unittest.IsolatedAsyncioTestCase):
         )
 
         state: FunctionExecutorState = await fe_states_container.get_or_create_state(
-            "1", "ns", "graph", "1", "func", "image"
+            "1",
+            "ns",
+            "graph",
+            "1",
+            "func",
+            "image",
+            [],
         )
         state.status = FunctionExecutorStatus.UNHEALTHY
         result: HealthCheckResult = await health_checker.check()
