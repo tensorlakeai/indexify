@@ -367,6 +367,9 @@ class TestExecutorStateReporter(unittest.TestCase):
                     self.assertFalse(
                         function_executor_state.description.HasField("image_uri")
                     )
+                    self.assertEqual(
+                        function_executor_state.description.secret_names, []
+                    )
                     self.assertFalse(
                         function_executor_state.description.HasField("resource_limits")
                     )

@@ -157,20 +157,24 @@ class ExecutorStateReporter:
 
         async for function_executor_state in self._function_executor_states:
             function_executor_state: FunctionExecutorState
-            states.append(
-                FunctionExecutorStateProto(
-                    description=FunctionExecutorDescription(
-                        id=function_executor_state.id,
-                        namespace=function_executor_state.namespace,
-                        graph_name=function_executor_state.graph_name,
-                        graph_version=function_executor_state.graph_version,
-                        function_name=function_executor_state.function_name,
-                    ),
-                    status=_to_grpc_function_executor_status(
-                        function_executor_state.status, self._logger
-                    ),
-                )
+            function_executor_state_proto = FunctionExecutorStateProto(
+                description=FunctionExecutorDescription(
+                    id=function_executor_state.id,
+                    namespace=function_executor_state.namespace,
+                    graph_name=function_executor_state.graph_name,
+                    graph_version=function_executor_state.graph_version,
+                    function_name=function_executor_state.function_name,
+                    secret_names=function_executor_state.secret_names,
+                ),
+                status=_to_grpc_function_executor_status(
+                    function_executor_state.status, self._logger
+                ),
             )
+            if function_executor_state.image_uri:
+                function_executor_state_proto.description.image_uri = (
+                    function_executor_state.image_uri
+                )
+            states.append(function_executor_state_proto)
 
         return states
 

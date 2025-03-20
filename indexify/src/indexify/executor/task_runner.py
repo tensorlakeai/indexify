@@ -105,6 +105,7 @@ class TaskRunner:
             graph_version=task_input.task.graph_version,
             function_name=task_input.task.compute_fn,
             image_uri=task_input.task.image_uri,
+            secret_names=task_input.task.secret_names or [],
         )
         await state.lock.acquire()
 
