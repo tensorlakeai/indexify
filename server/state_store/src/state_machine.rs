@@ -67,7 +67,6 @@ pub enum IndexifyObjectsColumns {
 
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
-    TaskAllocations,         //  ExecutorId -> Task_Key
 
     GcUrls, // List of URLs pending deletion
 

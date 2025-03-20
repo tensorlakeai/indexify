@@ -1375,7 +1375,6 @@ pub enum ChangeType {
     ExecutorAdded(ExecutorAddedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
     ExecutorRemoved(ExecutorRemovedEvent),
-    HandleAbandonedAllocations,
 }
 
 impl fmt::Display for ChangeType {
@@ -1412,9 +1411,6 @@ impl fmt::Display for ChangeType {
                 "TombstoneInvocation, ns: {}, compute_graph: {}, invocation_id: {}",
                 ev.namespace, ev.compute_graph, ev.invocation_id
             ),
-            ChangeType::HandleAbandonedAllocations => {
-                write!(f, "HandleAbandonedAllocations")
-            }
         }
     }
 }

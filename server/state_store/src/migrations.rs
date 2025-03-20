@@ -351,17 +351,17 @@ pub fn read_sm_meta(db: &TransactionDB) -> Result<StateMachineMetadata> {
     }
 }
 
-#[tracing::instrument(skip(db))]
+#[tracing::instrument(skip(db, existing_cfs))]
 pub fn drop_unused_cfs(existing_cfs: &Vec<String>, db: &mut TransactionDB) -> Result<()> {
-    if existing_cfs.contains(&"Executors".to_string()) {
-        info!("Dropping Executors column family during migration");
-        db.drop_cf("Executors")?;
+    let cfs_to_drop = vec!["Executors", "UnallocatedTasks", "TaskAllocations"];
+
+    for cf_name in cfs_to_drop {
+        if existing_cfs.contains(&cf_name.to_string()) {
+            info!("Dropping unused {} column family", cf_name);
+            db.drop_cf(cf_name)?;
+        }
     }
 
-    if existing_cfs.contains(&"UnallocatedTasks".to_string()) {
-        info!("Dropping UnallocatedTasks column family during migration");
-        db.drop_cf("UnallocatedTasks")?;
-    }
     Ok(())
 }
 

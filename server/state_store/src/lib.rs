@@ -323,9 +323,6 @@ impl IndexifyState {
                     vec![]
                 }
             }
-            RequestPayload::HandleAbandonedAllocations => {
-                state_changes::handle_abandoned_allocations(&self.last_state_change_id)?
-            }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;
                 vec![]

@@ -61,25 +61,7 @@ impl TaskAllocationProcessor {
                     ..Default::default()
                 });
             }
-            ChangeType::HandleAbandonedAllocations => {
-                // Get all executor IDs of executors that haven't registered.
-                let missing_executor_ids: Vec<String> = indexes
-                    .allocations_by_fn
-                    .keys()
-                    .filter(|id| !indexes.executors.contains_key(&**id))
-                    .cloned()
-                    .collect();
-
-                if missing_executor_ids.is_empty() {
-                    info!("no abandoned allocations to handle");
-                    return Ok(SchedulerUpdateRequest::default());
-                }
-
-                self.deregister_executors(missing_executor_ids, indexes)
-            }
-            ChangeType::TombStoneExecutor(ev) => {
-                self.deregister_executors(vec![ev.executor_id.get().to_string()], indexes)
-            }
+            ChangeType::TombStoneExecutor(ev) => self.deregister_executor(&ev.executor_id, indexes),
             _ => {
                 error!("unhandled change type: {:?}", change);
                 return Err(anyhow!("unhandled change type"));
@@ -87,40 +69,37 @@ impl TaskAllocationProcessor {
         }
     }
 
-    pub fn deregister_executors(
+    pub fn deregister_executor(
         &self,
-        executor_ids: Vec<String>,
+        executor_id: &ExecutorId,
         indexes: &mut Box<InMemoryState>,
     ) -> Result<SchedulerUpdateRequest> {
+        let executor_id_str = executor_id.get().to_string();
         let mut update = SchedulerUpdateRequest {
-            remove_executors: executor_ids
-                .iter()
-                .map(|id| ExecutorId::new(id.clone()))
-                .collect(),
+            remove_executors: vec![executor_id.clone()],
             ..Default::default()
         };
 
-        // Get all allocations for the executors that are being deregistered.
-        let allocations = indexes
-            .allocations_by_fn
-            .iter()
-            .filter(|(executor_id, _)| executor_ids.contains(executor_id))
-            .flat_map(|(_, allocations)| allocations.values().cloned())
-            .flatten()
-            .collect_vec();
+        // Get all allocations for the executor that are being deregistered.
+        let allocations =
+            indexes
+                .allocations_by_fn
+                .get(&executor_id_str)
+                .map_or(vec![], |fn_allocations| {
+                    fn_allocations
+                        .values()
+                        .flat_map(|vec| vec.clone())
+                        .collect_vec()
+                });
 
         // Remove the allocations from the store.
         update.remove_allocations = allocations.clone().iter().map(|a| *a.clone()).collect();
 
-        // Remove the executors from the indexes.
-        indexes
-            .executors
-            .retain(|executor_id, _| !executor_ids.contains(executor_id));
+        // Remove the executor from the indexes.
+        indexes.executors.remove(&executor_id_str);
 
         // Remove the allocations from the indexes.
-        indexes
-            .allocations_by_fn
-            .retain(|executor_id, _| !executor_ids.contains(executor_id));
+        indexes.allocations_by_fn.remove(&executor_id_str);
 
         // Mark all tasks being unallocated as pending.
         for allocation in allocations {

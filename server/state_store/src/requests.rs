@@ -32,7 +32,6 @@ pub enum RequestPayload {
     SchedulerUpdate(Box<SchedulerUpdateRequest>),
     RegisterExecutor(RegisterExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
-    HandleAbandonedAllocations,
     RemoveGcUrls(Vec<String>),
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
     DeleteInvocationRequest(DeleteInvocationRequest),
