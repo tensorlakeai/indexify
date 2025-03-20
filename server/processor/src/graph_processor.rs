@@ -235,8 +235,7 @@ impl GraphProcessor {
             }
             ChangeType::ExecutorAdded(_) |
             ChangeType::ExecutorRemoved(_) |
-            ChangeType::TombStoneExecutor(_) |
-            ChangeType::HandleAbandonedAllocations => {
+            ChangeType::TombStoneExecutor(_) => {
                 let scheduler_update = self
                     .task_allocator
                     .invoke(&state_change.change_type, &mut indexes);

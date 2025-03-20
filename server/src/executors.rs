@@ -20,18 +20,36 @@ pub struct ExecutorManager {
 
 impl ExecutorManager {
     pub async fn new(indexify_state: Arc<IndexifyState>) -> Self {
-        let cs = indexify_state.clone();
+        let state = indexify_state.clone();
         tokio::spawn(async move {
             tokio::time::sleep(EXECUTOR_TIMEOUT).await;
-            let sm_req = StateMachineUpdateRequest {
-                payload: RequestPayload::HandleAbandonedAllocations,
-                processed_state_changes: vec![],
+
+            // Get all executor IDs of executors that haven't registered.
+            let missing_executor_ids: Vec<String> = {
+                let indexes = state.in_memory_state.read().await;
+
+                indexes
+                    .allocations_by_fn
+                    .keys()
+                    .filter(|id| !indexes.executors.contains_key(&**id))
+                    .cloned()
+                    .collect()
             };
-            if let Err(err) = cs.write(sm_req).await {
-                error!(
-                    "failed triggering handling of abandoned allocations at startup: {:?}",
-                    err,
-                );
+
+            // Deregister all executors that haven't registered.
+            for executor_id in missing_executor_ids {
+                let sm_req = StateMachineUpdateRequest {
+                    payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                        executor_id: ExecutorId::new(executor_id.clone()),
+                    }),
+                    processed_state_changes: vec![],
+                };
+                if let Err(err) = state.write(sm_req).await {
+                    error!(
+                        executor_id = executor_id,
+                        "failed to deregister lapsed executor: {:?}", err
+                    );
+                }
             }
         });
 
@@ -100,7 +118,10 @@ pub fn schedule_deregister(ex: Arc<ExecutorManager>, executor_id: ExecutorId, du
         tokio::time::sleep(duration).await;
         let ret = ex.deregister_executor(executor_id.clone()).await;
         if let Err(e) = ret {
-            error!("failed to deregister executor {}: {:?}", executor_id, e);
+            error!(
+                executor_id = executor_id.get(),
+                "failed to deregister executor: {:?}", e
+            );
         }
     });
 }
