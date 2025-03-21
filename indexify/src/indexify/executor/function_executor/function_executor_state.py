@@ -49,6 +49,7 @@ class FunctionExecutorState:
         # TODO: Move graph_version to immutable fields once we migrate to gRPC State Reconciler.
         self.graph_version: str = graph_version
         self.status: FunctionExecutorStatus = FunctionExecutorStatus.DESTROYED
+        self.status_message: str = ""
         self.status_change_notifier: asyncio.Condition = asyncio.Condition(
             lock=self.lock
         )
@@ -64,7 +65,9 @@ class FunctionExecutorState:
         while self.status not in allowlist:
             await self.status_change_notifier.wait()
 
-    async def set_status(self, new_status: FunctionExecutorStatus) -> None:
+    async def set_status(
+        self, new_status: FunctionExecutorStatus, status_message: str = ""
+    ) -> None:
         """Sets the status of the Function Executor.
 
         The caller must hold the lock.
@@ -72,6 +75,7 @@ class FunctionExecutorState:
         """
         self.check_locked()
         if is_status_change_allowed(self.status, new_status):
+            # If status didn't change then still log it for visibility.
             self._logger.info(
                 "function executor status changed",
                 old_status=self.status.name,
@@ -80,12 +84,14 @@ class FunctionExecutorState:
             metric_function_executors_with_status.labels(status=self.status.name).dec()
             metric_function_executors_with_status.labels(status=new_status.name).inc()
             self.status = new_status
+            self.status_message = status_message
             self.status_change_notifier.notify_all()
         else:
             raise ValueError(
                 f"Invalid status change from {self.status} to {new_status}"
             )
 
+    # TODO: Delete this method once HTTP protocol is removed as it's used only there.
     async def destroy_function_executor(self) -> None:
         """Destroys the Function Executor if it exists.
 
