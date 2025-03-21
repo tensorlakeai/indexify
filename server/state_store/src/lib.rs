@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, ExecutorTask, StateMachineMetadata, TaskId};
+use data_model::{ExecutorId, ExecutorTask, OutputPayload, StateMachineMetadata, TaskId};
 use futures::Stream;
 use in_memory_state::InMemoryState;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
@@ -449,15 +449,22 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, _limit: usiz
                     let executor_s = executor_state.get_mut(&executor).unwrap();
                     for task in &active_tasks{
                         if !task_ids_sent.contains(&task.id) {
-                            let urls = state.reader().fn_output_payload_by_key(&task.input_node_output_key)
-                            .map(|payload| payload.output_urls.clone());
-                            if let Err(e) = urls {
+                            let output_payload = state.reader().fn_output_payload_by_key(&task.input_node_output_key)
+                            .map(|node_output| node_output.payload);
+                            if let Err(e) = output_payload {
                                 error!(executor_id=executor.get(), "error getting fn output payload: {}", e);
                                 continue;
                             }
-                            let executor_task = ExecutorTask::from_task(task, urls.unwrap());
-                            filtered_tasks.push(executor_task);
-                            executor_s.added(&vec![task.id.clone()]);
+                            match &output_payload.unwrap() {
+                                OutputPayload::Fn(payload) => {
+                                    let executor_task = ExecutorTask::from_task(task, payload.clone());
+                                    filtered_tasks.push(executor_task);
+                                    executor_s.added(&vec![task.id.clone()]);
+                                }
+                                _ => {
+                                    error!(executor_id=executor.get(), "unexpected output payload type");
+                                }
+                            };
                         }
                     }
                 }
