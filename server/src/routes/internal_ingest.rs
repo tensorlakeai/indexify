@@ -58,6 +58,12 @@ pub struct TaskResult {
     invocation_id: String,
     executor_id: String,
     reducer: bool,
+    #[serde(default = "default_output_encoding")]
+    output_encoding: String,
+}
+
+fn default_output_encoding() -> String {
+    "application/octet-stream".to_string()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,7 +106,7 @@ pub async fn ingest_files_from_executor(
     let mut stdout_msg: Option<PutResult> = None;
     let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
-    let mut output_urls: Vec<String> = vec![];
+    let mut output_urls: Vec<PutResult> = vec![];
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
@@ -169,7 +175,9 @@ pub async fn ingest_files_from_executor(
                     .text()
                     .await
                     .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
-                output_urls.push(text);
+                let put_result = serde_json::from_str::<PutResult>(&text)
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                output_urls.push(put_result);
             }
         }
     }
@@ -201,7 +209,6 @@ pub async fn ingest_files_from_executor(
             .compute_fn_name(task_result.compute_fn.to_string())
             .payload(OutputPayload::Fn(data_payload))
             .encoding(output_encoding[index].to_string())
-            .output_urls(output_urls.clone())
             .build()
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))

@@ -568,8 +568,6 @@ pub struct NodeOutput {
     pub reduced_state: bool,
     pub created_at: u64,
     pub encoding: String,
-    #[serde(default)]
-    pub output_urls: Vec<String>,
     #[serde(default = "default_output_encoding_version")]
     pub output_encoding_version: u64,
 }
@@ -629,7 +627,6 @@ impl NodeOutputBuilder {
             .output_encoding_version
             .clone()
             .unwrap_or_else(default_output_encoding_version);
-        let output_urls = self.output_urls.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
         let created_at: u64 = get_epoch_time_in_ms();
@@ -658,7 +655,6 @@ impl NodeOutputBuilder {
             reduced_state,
             created_at,
             encoding,
-            output_urls,
             output_encoding_version,
         })
     }
@@ -974,12 +970,12 @@ pub struct ExecutorTask {
     pub graph_version: GraphVersion,
     pub image_uri: Option<String>,
     pub secret_names: Option<Vec<String>>,
-    pub input_urls: Option<Vec<String>>,
+    pub input: DataPayload,
     pub input_encoding_version: u64,
 }
 
 impl ExecutorTask {
-    pub fn from_task(task: &Task, input_urls: Vec<String>) -> Self {
+    pub fn from_task(task: &Task, input: DataPayload) -> Self {
         ExecutorTask {
             id: task.id.clone(),
             namespace: task.namespace.clone(),
@@ -992,7 +988,7 @@ impl ExecutorTask {
             graph_version: task.graph_version.clone(),
             image_uri: task.image_uri.clone(),
             secret_names: task.secret_names.clone(),
-            input_urls: Some(input_urls),
+            input,
             input_encoding_version: 0,
         }
     }
