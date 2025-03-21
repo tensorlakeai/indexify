@@ -22,7 +22,7 @@ use state_store::{
     },
     state_machine::IndexifyObjectsColumns,
 };
-use tracing::{info, subscriber};
+use tracing::subscriber;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 use crate::{config::ServerConfig, service::Service};
@@ -60,7 +60,6 @@ impl TestService {
             },
             ..Default::default()
         };
-        info!("Config: {:#?}", cfg);
         let srv = Service::new(cfg).await?;
 
         Ok(Self {

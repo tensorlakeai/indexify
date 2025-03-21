@@ -18,7 +18,7 @@ use crate::{
     state_machine::IndexifyObjectsColumns,
 };
 
-const SERVER_DB_VERSION: u64 = 5;
+const SERVER_DB_VERSION: u64 = 6;
 
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
@@ -102,10 +102,11 @@ pub fn migrate(path: &Path) -> Result<StateMachineMetadata> {
 
         if sm_meta.db_version == 5 {
             sm_meta.db_version += 1;
-            migrate_v5_to_v6(&db, &txn).context("migrating from v5 to v6")?;
+            migrate_v5_to_v6_migrate_allocations(&db, &txn).context("migrating from v5 to v6")?;
+            migrate_v5_to_v6_clean_orphaned_tasks(&db, &txn).context("migrating from v5 to v6")?;
         }
 
-        // add new migrations before this line
+        // add new migrations before this line and increment SERVER_DB_VERSION
     }
 
     // assert we migrated all the way to the expected server version
@@ -332,7 +333,10 @@ fn get_string_val(val: &serde_json::Value, key: &str) -> Result<String> {
 }
 
 #[tracing::instrument(skip(db, txn))]
-pub fn migrate_v5_to_v6(db: &TransactionDB, txn: &Transaction<TransactionDB>) -> Result<()> {
+pub fn migrate_v5_to_v6_migrate_allocations(
+    db: &TransactionDB,
+    txn: &Transaction<TransactionDB>,
+) -> Result<()> {
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(10_194_304); // 10MB
 
@@ -344,8 +348,10 @@ pub fn migrate_v5_to_v6(db: &TransactionDB, txn: &Transaction<TransactionDB>) ->
 
     let mut num_migrated_allocations = 0;
     let mut num_deleted_allocations = 0;
+    let mut num_total_allocations = 0;
 
     for kv in iter {
+        num_total_allocations += 1;
         let (key, val_bytes) = kv?;
         let allocation: serde_json::Value = serde_json::from_slice(&val_bytes)
             .map_err(|e| anyhow::anyhow!("error deserializing Allocations json bytes, {:#?}", e))?;
@@ -366,7 +372,8 @@ pub fn migrate_v5_to_v6(db: &TransactionDB, txn: &Transaction<TransactionDB>) ->
         // Delete the old allocation using id as key
         txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
 
-        // Check if the allocation is orphaned by ensuring it has a graph invocation
+        // Check if the allocation is orphaned by ensuring it has a graph invocation and
+        // ctx
         if db
             .get_cf(
                 &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
@@ -387,8 +394,57 @@ pub fn migrate_v5_to_v6(db: &TransactionDB, txn: &Transaction<TransactionDB>) ->
     }
 
     info!(
-        "Migrated {} allocations and deleted {} orphaned allocations from v5 to v6",
-        num_migrated_allocations, num_deleted_allocations
+        "Migrated {} allocations and deleted {} orphaned allocations from {} total allocations",
+        num_migrated_allocations, num_deleted_allocations, num_total_allocations
+    );
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(db, txn))]
+pub fn migrate_v5_to_v6_clean_orphaned_tasks(
+    db: &TransactionDB,
+    txn: &Transaction<TransactionDB>,
+) -> Result<()> {
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(10_194_304); // 10MB
+
+    let iter = db.iterator_cf_opt(
+        IndexifyObjectsColumns::Tasks.cf_db(&db),
+        read_options,
+        IteratorMode::Start,
+    );
+
+    let mut num_deleted_tasks = 0;
+    let mut num_total_tasks = 0;
+
+    for kv in iter {
+        num_total_tasks += 1;
+        let (key, val_bytes) = kv?;
+        let task: serde_json::Value = serde_json::from_slice(&val_bytes)
+            .map_err(|e| anyhow::anyhow!("error deserializing Tasks json bytes, {:#?}", e))?;
+
+        let namespace = get_string_val(&task, "namespace")?;
+        let compute_graph = get_string_val(&task, "compute_graph_name")?;
+        let invocation_id = get_string_val(&task, "invocation_id")?;
+
+        // Check if the task is orphaned by ensuring it has a graph invocation
+        if db
+            .get_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+                format!("{}|{}|{}", namespace, compute_graph, invocation_id),
+            )?
+            .is_none()
+        {
+            // Delete the orphaned task
+            txn.delete_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), &key)?;
+            num_deleted_tasks += 1;
+        }
+    }
+
+    info!(
+        "Deleted {} orphaned tasks out of {}",
+        num_deleted_tasks, num_total_tasks
     );
 
     Ok(())
@@ -777,10 +833,6 @@ mod tests {
                 Options::default(),
             ),
             rocksdb::ColumnFamilyDescriptor::new(
-                IndexifyObjectsColumns::GraphInvocations.as_ref(),
-                Options::default(),
-            ),
-            rocksdb::ColumnFamilyDescriptor::new(
                 IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
                 Options::default(),
             ),
@@ -858,7 +910,7 @@ mod tests {
 
         // Perform migration
         let txn = db.transaction();
-        migrate_v5_to_v6(&db, &txn)?;
+        migrate_v5_to_v6_migrate_allocations(&db, &txn)?;
         txn.commit()?;
 
         let all_allocations = &db
@@ -884,6 +936,136 @@ mod tests {
             .unwrap(),
         )?;
         assert_eq!(allocation1["invocation_id"], "invocation1");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_migrate_v5_to_v6_clean_orphaned_tasks() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let path = temp_dir.path().to_str().unwrap();
+
+        let sm_column_families = vec![
+            rocksdb::ColumnFamilyDescriptor::new(
+                IndexifyObjectsColumns::Tasks.as_ref(),
+                Options::default(),
+            ),
+            rocksdb::ColumnFamilyDescriptor::new(
+                IndexifyObjectsColumns::GraphInvocationCtx.as_ref(),
+                Options::default(),
+            ),
+            rocksdb::ColumnFamilyDescriptor::new(
+                IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+                Options::default(),
+            ),
+        ];
+
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        let db = TransactionDB::open_cf_descriptors(
+            &db_opts,
+            &TransactionDBOptions::default(),
+            path,
+            sm_column_families,
+        )
+        .map_err(|e| anyhow::anyhow!("failed to open db: {}", e))?;
+
+        // Create tasks with different invocation statuses
+        let tasks = vec![
+            json!({
+                "id": "task1",
+                "namespace": "test_ns",
+                "compute_fn_name": "test_fn",
+                "compute_graph_name": "test_graph",
+                "invocation_id": "invocation1",
+                "input_node_output_key": "test_input",
+                "graph_version": "1",
+                "outcome": "Success",
+                "creation_time_ns": 0,
+            }),
+            json!({
+                "id": "task2",
+                "namespace": "test_ns",
+                "compute_fn_name": "test_fn",
+                "compute_graph_name": "test_graph",
+                "invocation_id": "invocation2",
+                "input_node_output_key": "test_input",
+                "graph_version": "1",
+                "outcome": "Failure",
+                "creation_time_ns": 0,
+            }),
+        ];
+
+        for task in tasks {
+            let task_key = format!(
+                "{}|{}|{}|{}|{}",
+                task["namespace"].as_str().unwrap(),
+                task["compute_graph_name"].as_str().unwrap(),
+                task["invocation_id"].as_str().unwrap(),
+                task["compute_fn_name"].as_str().unwrap(),
+                task["id"].as_str().unwrap()
+            );
+            let task_bytes = serde_json::to_vec(&task)?;
+            db.put_cf(
+                &IndexifyObjectsColumns::Tasks.cf_db(&db),
+                &task_key,
+                &task_bytes,
+            )?;
+        }
+
+        // Create invocation contexts
+        let invocation_ctxs = vec![json!({
+            "namespace": "test_ns",
+            "compute_graph_name": "test_graph",
+            "graph_version": "1",
+            "invocation_id": "invocation1",
+            "completed": false,
+            "outcome": "Undefined",
+            "outstanding_tasks": 0,
+            "fn_task_analytics": {}
+        })];
+
+        for ctx in invocation_ctxs {
+            let key = format!(
+                "{}|{}|{}",
+                ctx["namespace"].as_str().unwrap(),
+                ctx["compute_graph_name"].as_str().unwrap(),
+                ctx["invocation_id"].as_str().unwrap()
+            );
+            let bytes = serde_json::to_vec(&ctx)?;
+            db.put_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+                &key,
+                &bytes,
+            )?;
+        }
+
+        // Perform migration
+        let txn = db.transaction();
+        migrate_v5_to_v6_clean_orphaned_tasks(&db, &txn)?;
+        txn.commit()?;
+
+        // Verify migration
+
+        let all_tasks = &db
+            .full_iterator_cf(
+                &IndexifyObjectsColumns::Tasks.cf_db(&db),
+                IteratorMode::Start,
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(all_tasks.len(), 1, "tasks: {:#?}", all_tasks);
+
+        let task1_key = "test_ns|test_graph|invocation1|test_fn|task1";
+        let task1: serde_json::Value = serde_json::from_slice(
+            &db.get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task1_key)?
+                .unwrap(),
+        )?;
+        assert_eq!(task1["invocation_id"], "invocation1");
+
+        let task2_key = "test_ns|test_graph|invocation2|test_fn|task2";
+        let task2 = db.get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task2_key)?;
+        assert!(task2.is_none(), "task2 should be deleted");
 
         Ok(())
     }

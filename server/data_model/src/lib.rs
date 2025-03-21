@@ -24,40 +24,6 @@ pub struct StateMachineMetadata {
     pub last_change_idx: u64,
 }
 
-// Invoke graph for all existing payloads
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemTask {
-    pub namespace: String,
-    pub compute_graph_name: String,
-    pub graph_version: GraphVersion,
-    pub waiting_for_running_invocations: bool,
-    /// key for the next invocation id to process
-    pub restart_key: Option<Vec<u8>>,
-    /// Number of currently running invocations for this system task.
-    pub num_running_invocations: usize,
-}
-
-impl SystemTask {
-    pub fn new(namespace: String, compute_graph_name: String, graph_version: GraphVersion) -> Self {
-        Self {
-            namespace,
-            compute_graph_name,
-            waiting_for_running_invocations: false,
-            graph_version,
-            restart_key: None,
-            num_running_invocations: 0,
-        }
-    }
-
-    pub fn key(&self) -> String {
-        SystemTask::key_from(&self.namespace, &self.compute_graph_name)
-    }
-
-    pub fn key_from(namespace: &str, compute_graph: &str) -> String {
-        format!("{}|{}", namespace, compute_graph)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ExecutorId(String);
 
