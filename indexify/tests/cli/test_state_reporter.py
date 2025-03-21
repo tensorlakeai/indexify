@@ -373,6 +373,7 @@ class TestExecutorStateReporter(unittest.TestCase):
                     self.assertFalse(
                         function_executor_state.description.HasField("resource_limits")
                     )
+                    self.assertEqual(function_executor_state.status_message, "")
 
                 # Verify that the hash is deterministic even when computed in a different process and matches the expected hash.
                 self.assertEqual(
