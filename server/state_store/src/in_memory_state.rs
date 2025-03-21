@@ -311,8 +311,8 @@ impl InMemoryState {
             }
             RequestPayload::IngestTaskOutputs(req) => {
                 let allocation_id = Allocation::id(
-                    req.executor_id.get(),
-                    &req.task.id.to_string(),
+                    &req.executor_id,
+                    &req.task.id,
                     &req.namespace,
                     &req.compute_graph,
                     &req.compute_fn,

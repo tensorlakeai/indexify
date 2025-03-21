@@ -12,7 +12,6 @@ use data_model::{
     NodeOutput,
     ReduceTask,
     StateChange,
-    SystemTask,
     Task,
     TaskAnalytics,
     TaskOutputsIngestedEvent,
@@ -391,31 +390,6 @@ impl StateReader {
         }
 
         Ok(None)
-    }
-
-    pub fn get_system_task(&self, namespace: &str, name: &str) -> Result<Option<SystemTask>> {
-        let kvs = &[KeyValue::new("op", "get_system_task")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let key = SystemTask::key_from(namespace, name);
-        let system_task = self.get_from_cf(&IndexifyObjectsColumns::SystemTasks, key)?;
-        Ok(system_task)
-    }
-
-    pub fn get_system_tasks(
-        &self,
-        limit: Option<usize>,
-    ) -> Result<(Vec<SystemTask>, Option<Vec<u8>>)> {
-        let kvs = &[KeyValue::new("op", "get_system_tasks")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let (tasks, restart_key) = self.get_rows_from_cf_with_limits::<SystemTask>(
-            &[],
-            None,
-            IndexifyObjectsColumns::SystemTasks,
-            limit,
-        )?;
-        Ok((tasks, restart_key))
     }
 
     pub fn get_gc_urls(&self, limit: Option<usize>) -> Result<Vec<String>> {
