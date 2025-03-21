@@ -113,8 +113,8 @@ pub struct Allocation {
 
 impl Allocation {
     pub fn id(
-        executor_id: &str,
-        task_id: &str,
+        executor_id: &ExecutorId,
+        task_id: &TaskId,
         namespace: &str,
         compute_graph: &str,
         compute_fn: &str,
@@ -124,10 +124,40 @@ impl Allocation {
         namespace.hash(&mut hasher);
         compute_graph.hash(&mut hasher);
         compute_fn.hash(&mut hasher);
-        task_id.hash(&mut hasher);
+        task_id.get().hash(&mut hasher);
         invocation_id.hash(&mut hasher);
-        executor_id.hash(&mut hasher);
+        executor_id.get().hash(&mut hasher);
         format!("{:x}", hasher.finish())
+    }
+
+    pub fn key(&self) -> String {
+        Allocation::key_from(
+            &self.namespace,
+            &self.compute_graph,
+            &self.invocation_id,
+            &self.compute_fn,
+            &self.task_id,
+            &self.executor_id,
+        )
+    }
+
+    pub fn key_from(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+        compute_fn: &str,
+        task_id: &TaskId,
+        executor_id: &ExecutorId,
+    ) -> String {
+        format!(
+            "{}|{}|{}|{}|{}|{}",
+            namespace,
+            compute_graph,
+            invocation_id,
+            compute_fn,
+            task_id.get(),
+            executor_id.get(),
+        )
     }
 
     pub fn task_key(&self) -> String {
@@ -174,8 +204,8 @@ impl AllocationBuilder {
         let created_at: u128 = get_epoch_time_in_ms() as u128;
         Ok(Allocation {
             id: Allocation::id(
-                executor_id.get(),
-                task_id.get(),
+                &executor_id,
+                &task_id,
                 &namespace,
                 &compute_graph,
                 &compute_fn,

@@ -4,9 +4,11 @@ use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use data_model::{
     test_objects::tests::{mock_executor, mock_node_fn_output},
+    DataPayload,
     ExecutorId,
     ExecutorMetadata,
     Task,
+    TaskDiagnostics,
     TaskOutcome,
     TaskStatus,
 };
@@ -20,13 +22,16 @@ use state_store::{
     },
     state_machine::IndexifyObjectsColumns,
 };
-use tracing::subscriber;
+use tracing::{info, subscriber};
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 use crate::{config::ServerConfig, service::Service};
 
 pub struct TestService {
     pub service: Service,
+    // keeping a reference to the temp dir to ensure it is not deleted
+    #[allow(dead_code)]
+    temp_dir: tempfile::TempDir,
 }
 
 impl TestService {
@@ -55,9 +60,13 @@ impl TestService {
             },
             ..Default::default()
         };
+        info!("Config: {:#?}", cfg);
         let srv = Service::new(cfg).await?;
 
-        Ok(Self { service: srv })
+        Ok(Self {
+            service: srv,
+            temp_dir,
+        })
     }
 
     pub async fn process_all_state_changes(&self) -> Result<()> {
@@ -134,9 +143,10 @@ impl TestService {
         assert_eq!(
             allocated_tasks.len(),
             allocated,
-            "Allocated tasks: {:#?}/{:#?}",
+            "Allocated tasks: {}/{} - {:#?}",
+            allocated_tasks.len(),
+            tasks.len(),
             allocated_tasks,
-            tasks,
         );
 
         let unallocated_tasks = tasks
@@ -183,6 +193,7 @@ pub struct FinalizeTaskArgs {
     pub num_outputs: i32,
     pub task_outcome: TaskOutcome,
     pub reducer_fn: Option<String>,
+    pub diagnostics: Option<TaskDiagnostics>,
 }
 
 impl FinalizeTaskArgs {
@@ -191,11 +202,36 @@ impl FinalizeTaskArgs {
             num_outputs: 1,
             task_outcome: TaskOutcome::Success,
             reducer_fn: None,
+            diagnostics: None,
         }
     }
 
     pub fn task_outcome(mut self, task_outcome: TaskOutcome) -> FinalizeTaskArgs {
         self.task_outcome = task_outcome;
+        self
+    }
+
+    pub fn diagnostics(mut self, stdout: bool, stderr: bool) -> FinalizeTaskArgs {
+        self.diagnostics = Some(TaskDiagnostics {
+            stdout: if stdout {
+                Some(DataPayload {
+                    path: "stdout".to_string(),
+                    size: 0,
+                    sha256_hash: "".to_string(),
+                })
+            } else {
+                None
+            },
+            stderr: if stderr {
+                Some(DataPayload {
+                    path: "stderr".to_string(),
+                    size: 0,
+                    sha256_hash: "".to_string(),
+                })
+            } else {
+                None
+            },
+        });
         self
     }
 }
@@ -248,6 +284,7 @@ impl TestExecutor<'_> {
         let mut task = task.clone();
         task.outcome = args.task_outcome.clone();
         task.status = TaskStatus::Completed;
+        task.diagnostics = args.diagnostics.clone();
 
         self.service
             .service
@@ -261,7 +298,6 @@ impl TestExecutor<'_> {
                     task,
                     node_outputs,
                     executor_id: self.executor.id.clone(),
-                    diagnostics: None,
                 }),
                 processed_state_changes: vec![],
             })

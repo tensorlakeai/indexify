@@ -43,7 +43,6 @@ impl Default for BlobStorageConfig {
                 .to_str()
                 .expect("unable to get path as string")
         );
-        debug!("using blob store path: {}", blob_store_path);
         BlobStorageConfig {
             path: blob_store_path,
         }
@@ -66,6 +65,7 @@ pub struct BlobStorage {
 impl BlobStorage {
     pub fn new(config: BlobStorageConfig) -> Result<Self> {
         let url = &config.path.clone();
+        debug!("using blob store path: {}", url);
         let (object_store, path) = Self::build_object_store(url)?;
         Ok(Self {
             object_store: Arc::new(object_store),

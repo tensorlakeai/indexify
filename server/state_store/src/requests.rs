@@ -11,7 +11,6 @@ use data_model::{
     ReduceTask,
     StateChange,
     Task,
-    TaskDiagnostics,
     TaskId,
 };
 
@@ -56,7 +55,6 @@ pub struct IngestTaskOutputsRequest {
     pub invocation_id: String,
     pub task: Task,
     pub node_outputs: Vec<NodeOutput>,
-    pub diagnostics: Option<TaskDiagnostics>,
     pub executor_id: ExecutorId,
 }
 
