@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    ops::Deref,
     path::PathBuf,
     pin::Pin,
     sync::{
@@ -12,7 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
+use data_model::{ExecutorId, ExecutorTask, StateMachineMetadata, TaskId};
 use futures::Stream;
 use in_memory_state::InMemoryState;
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
@@ -23,7 +22,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
-use tracing::{debug, info, span};
+use tracing::{debug, error, info, span};
 
 pub mod in_memory_state;
 pub mod invocation_events;
@@ -80,7 +79,7 @@ impl Default for ExecutorState {
     }
 }
 
-pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<Task>>> + Send + Sync>>;
+pub type TaskStream = Pin<Box<dyn Stream<Item = Result<Vec<ExecutorTask>>> + Send + Sync>>;
 pub type StateChangeStream =
     Pin<Box<dyn Stream<Item = Result<InvocationStateChangeEvent>> + Send + Sync>>;
 
@@ -450,7 +449,14 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, _limit: usiz
                     let executor_s = executor_state.get_mut(&executor).unwrap();
                     for task in &active_tasks{
                         if !task_ids_sent.contains(&task.id) {
-                            filtered_tasks.push(task.deref().clone());
+                            let urls = state.reader().fn_output_payload_by_key(&task.input_node_output_key)
+                            .map(|payload| payload.output_urls.clone());
+                            if let Err(e) = urls {
+                                error!(executor_id=executor.get(), "error getting fn output payload: {}", e);
+                                continue;
+                            }
+                            let executor_task = ExecutorTask::from_task(task, urls.unwrap());
+                            filtered_tasks.push(executor_task);
                             executor_s.added(&vec![task.id.clone()]);
                         }
                     }

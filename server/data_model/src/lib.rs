@@ -568,6 +568,14 @@ pub struct NodeOutput {
     pub reduced_state: bool,
     pub created_at: u64,
     pub encoding: String,
+    #[serde(default)]
+    pub output_urls: Vec<String>,
+    #[serde(default = "default_output_encoding_version")]
+    pub output_encoding_version: u64,
+}
+
+fn default_output_encoding_version() -> u64 {
+    0
 }
 
 impl NodeOutput {
@@ -617,6 +625,11 @@ impl NodeOutputBuilder {
             .encoding
             .clone()
             .unwrap_or_else(|| "application/octet-stream".to_string());
+        let output_encoding_version = self
+            .output_encoding_version
+            .clone()
+            .unwrap_or_else(default_output_encoding_version);
+        let output_urls = self.output_urls.clone().unwrap_or_default();
         let payload = self.payload.clone().ok_or(anyhow!("payload is required"))?;
         let reduced_state = self.reduced_state.clone().unwrap_or(false);
         let created_at: u64 = get_epoch_time_in_ms();
@@ -645,6 +658,8 @@ impl NodeOutputBuilder {
             reduced_state,
             created_at,
             encoding,
+            output_urls,
+            output_encoding_version,
         })
     }
 }
@@ -942,6 +957,44 @@ impl Display for TaskStatus {
             TaskStatus::Completed => "Completed",
         };
         write!(f, "{}", str_val)
+    }
+}
+
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct ExecutorTask {
+    pub id: TaskId,
+    pub namespace: String,
+    pub compute_fn_name: String,
+    pub compute_graph_name: String,
+    pub invocation_id: String,
+    pub input_node_output_key: String,
+    pub creation_time_ns: u128,
+    pub reducer_output_id: Option<String>,
+    pub graph_version: GraphVersion,
+    pub image_uri: Option<String>,
+    pub secret_names: Option<Vec<String>>,
+    pub input_urls: Option<Vec<String>>,
+    pub input_encoding_version: u64,
+}
+
+impl ExecutorTask {
+    pub fn from_task(task: &Task, input_urls: Vec<String>) -> Self {
+        ExecutorTask {
+            id: task.id.clone(),
+            namespace: task.namespace.clone(),
+            compute_fn_name: task.compute_fn_name.clone(),
+            compute_graph_name: task.compute_graph_name.clone(),
+            invocation_id: task.invocation_id.clone(),
+            input_node_output_key: task.input_node_output_key.clone(),
+            creation_time_ns: task.creation_time_ns,
+            reducer_output_id: task.reducer_output_id.clone(),
+            graph_version: task.graph_version.clone(),
+            image_uri: task.image_uri.clone(),
+            secret_names: task.secret_names.clone(),
+            input_urls: Some(input_urls),
+            input_encoding_version: 0,
+        }
     }
 }
 

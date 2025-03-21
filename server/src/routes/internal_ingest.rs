@@ -100,6 +100,7 @@ pub async fn ingest_files_from_executor(
     let mut stdout_msg: Option<PutResult> = None;
     let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
+    let mut output_urls: Vec<String> = vec![];
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
@@ -163,6 +164,12 @@ pub async fn ingest_files_from_executor(
                     .await
                     .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
                 task_result.replace(serde_json::from_str::<TaskResult>(&text)?);
+            } else if name == "output_urls" {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                output_urls.push(text);
             }
         }
     }
@@ -194,6 +201,7 @@ pub async fn ingest_files_from_executor(
             .compute_fn_name(task_result.compute_fn.to_string())
             .payload(OutputPayload::Fn(data_payload))
             .encoding(output_encoding[index].to_string())
+            .output_urls(output_urls.clone())
             .build()
             .map_err(|e| {
                 IndexifyAPIError::internal_error(anyhow!("failed to upload content: {}", e))
