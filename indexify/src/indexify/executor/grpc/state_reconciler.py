@@ -118,6 +118,7 @@ class ExecutorStateReconciler:
             await self._reconcile_state(new_state)
 
     async def _reconcile_state(self, new_state: DesiredExecutorState):
+        # TODO: use completed_tasks_container to ignore tasks that were already completed.
         await self._reconcile_function_executors(new_state)
         # TODO
         # await self._reconcile_task_allocations(new_state)

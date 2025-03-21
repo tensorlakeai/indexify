@@ -169,6 +169,7 @@ class ExecutorStateReporter:
                 status=_to_grpc_function_executor_status(
                     function_executor_state.status, self._logger
                 ),
+                status_message=function_executor_state.status_message,
             )
             if function_executor_state.image_uri:
                 function_executor_state_proto.description.image_uri = (
@@ -214,7 +215,7 @@ _STATUS_MAPPING: Dict[FunctionExecutorStatus, Any] = {
     FunctionExecutorStatus.UNHEALTHY: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_UNHEALTHY,
     FunctionExecutorStatus.DESTROYING: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_STOPPING,
     FunctionExecutorStatus.DESTROYED: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_STOPPED,
-    FunctionExecutorStatus.SHUTDOWN: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_STOPPED,
+    FunctionExecutorStatus.SHUTDOWN: FunctionExecutorStatusProto.FUNCTION_EXECUTOR_STATUS_SHUTDOWN,
 }
 
 

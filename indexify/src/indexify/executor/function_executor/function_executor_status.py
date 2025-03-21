@@ -23,6 +23,7 @@ class FunctionExecutorStatus(Enum):
     UNHEALTHY = "Unhealthy"
     # STARTUP_FAILED_CUSTOMER_ERROR -> DESTROYING
     # STARTUP_FAILED_PLATFORM_ERROR -> DESTROYING
+    # RUNNING_TASK -> DESTROYING
     # UNHEALTHY -> DESTROYING
     # IDLE -> DESTROYING
     DESTROYING = "Destroying"
@@ -69,6 +70,7 @@ def is_status_change_allowed(
         ],
         FunctionExecutorStatus.RUNNING_TASK: [
             FunctionExecutorStatus.RUNNING_TASK,
+            FunctionExecutorStatus.DESTROYING,
             FunctionExecutorStatus.IDLE,
             FunctionExecutorStatus.UNHEALTHY,
             FunctionExecutorStatus.SHUTDOWN,

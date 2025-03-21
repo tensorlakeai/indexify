@@ -40,6 +40,7 @@ class FunctionExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FUNCTION_EXECUTOR_STATUS_UNHEALTHY: _ClassVar[FunctionExecutorStatus]
     FUNCTION_EXECUTOR_STATUS_STOPPING: _ClassVar[FunctionExecutorStatus]
     FUNCTION_EXECUTOR_STATUS_STOPPED: _ClassVar[FunctionExecutorStatus]
+    FUNCTION_EXECUTOR_STATUS_SHUTDOWN: _ClassVar[FunctionExecutorStatus]
 
 class ExecutorStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -76,6 +77,7 @@ FUNCTION_EXECUTOR_STATUS_RUNNING_TASK: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_UNHEALTHY: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STOPPING: FunctionExecutorStatus
 FUNCTION_EXECUTOR_STATUS_STOPPED: FunctionExecutorStatus
+FUNCTION_EXECUTOR_STATUS_SHUTDOWN: FunctionExecutorStatus
 EXECUTOR_STATUS_UNKNOWN: ExecutorStatus
 EXECUTOR_STATUS_STARTING_UP: ExecutorStatus
 EXECUTOR_STATUS_RUNNING: ExecutorStatus
@@ -172,15 +174,18 @@ class FunctionExecutorDescription(_message.Message):
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
-    __slots__ = ("description", "status")
+    __slots__ = ("description", "status", "status_message")
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
+    STATUS_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
+    status_message: str
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
         status: _Optional[_Union[FunctionExecutorStatus, str]] = ...,
+        status_message: _Optional[str] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):
