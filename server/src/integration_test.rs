@@ -1607,7 +1607,18 @@ mod tests {
         let res = stream.next().await.unwrap()?;
         assert_eq!(res.len(), 1);
 
-        let mut task = res.first().unwrap().clone();
+        let executor_task = res.first().unwrap().clone();
+        let mut task = indexify_state
+            .reader()
+            .get_task(
+                &executor_task.namespace,
+                &executor_task.compute_graph_name,
+                &executor_task.invocation_id,
+                &executor_task.compute_fn_name,
+                &executor_task.id.get(),
+            )
+            .unwrap()
+            .unwrap();
         task.status = TaskStatus::Completed;
         task.outcome = TaskOutcome::Success;
 

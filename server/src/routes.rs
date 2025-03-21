@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::{
 };
 use base64::prelude::*;
 use blob_store::PutResult;
-use data_model::{ComputeGraphError, ExecutorId};
+use data_model::{ComputeGraphError, ExecutorId, ExecutorTask};
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -831,7 +831,7 @@ async fn executor_tasks(
     let stream = stream
         .map(|item| match item {
             Ok(item) => {
-                let item: Vec<Task> = item.into_iter().map(Into::into).collect();
+                let item: Vec<ExecutorTask> = item.into_iter().map(Into::into).collect();
                 axum::response::sse::Event::default().json_data(item)
             }
             Err(e) => {

@@ -58,6 +58,12 @@ pub struct TaskResult {
     invocation_id: String,
     executor_id: String,
     reducer: bool,
+    #[serde(default = "default_output_encoding")]
+    output_encoding: String,
+}
+
+fn default_output_encoding() -> String {
+    "application/octet-stream".to_string()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,6 +106,7 @@ pub async fn ingest_files_from_executor(
     let mut stdout_msg: Option<PutResult> = None;
     let mut stderr_msg: Option<PutResult> = None;
     let mut task_result: Option<TaskResult> = None;
+    let mut output_urls: Vec<PutResult> = vec![];
 
     // Write data object to blob store.
     let mut node_output_sequence: usize = 0;
@@ -163,6 +170,14 @@ pub async fn ingest_files_from_executor(
                     .await
                     .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
                 task_result.replace(serde_json::from_str::<TaskResult>(&text)?);
+            } else if name == "output_urls" {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                let put_result = serde_json::from_str::<PutResult>(&text)
+                    .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
+                output_urls.push(put_result);
             }
         }
     }

@@ -50,7 +50,7 @@ impl Default for BlobStorageConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PutResult {
     pub url: String,
     pub size_bytes: u64,
