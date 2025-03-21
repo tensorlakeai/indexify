@@ -99,7 +99,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(executor_id) = executor_state.executor_id {
             executor_metadata.id(ExecutorId::new(executor_id));
         }
-        // Ignore Executor flavor for now.
+        // FIXME: ignoring Executor flavor for now.
         if let Some(executor_version) = executor_state.version {
             executor_metadata.executor_version(executor_version);
         }
@@ -176,6 +176,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
         let version = function_executor_description
             .graph_version
             .ok_or(anyhow::anyhow!("version is required"))?;
+
         Ok(FunctionExecutor {
             id,
             namespace,
@@ -189,7 +190,6 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
 
 pub struct ExecutorAPIService {
     _indexify_state: Arc<IndexifyState>,
-    #[allow(dead_code)]
     executor_manager: Arc<ExecutorManager>,
 }
 
@@ -221,14 +221,12 @@ impl ExecutorApi for ExecutorAPIService {
             "Got report_executor_state request from Executor with ID {}",
             executor_state.executor_id()
         );
-        // Comment out not finished functionality.
-        // let executor_metadata =
-        ExecutorMetadata::try_from(executor_state)
+        let executor_metadata = ExecutorMetadata::try_from(executor_state)
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        // self.executor_manager
-        //     .heartbeat(executor_metadata)
-        //     .await
-        //     .map_err(|e| Status::internal(e.to_string()))?;
+        self.executor_manager
+            .heartbeat(executor_metadata)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(ReportExecutorStateResponse {}))
     }
 

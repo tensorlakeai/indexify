@@ -56,6 +56,13 @@ impl ExecutorManager {
         ExecutorManager { indexify_state }
     }
 
+    #[allow(dead_code)]
+    pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
+        let in_memory_state = self.indexify_state.in_memory_state.read().await;
+        let _executor_state = in_memory_state.executors.get(&executor.id.to_string());
+        Ok(())
+    }
+
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest { executor }),
