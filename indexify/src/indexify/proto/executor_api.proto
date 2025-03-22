@@ -156,6 +156,59 @@ message DesiredExecutorState {
     optional uint64 clock = 3;
 }
 
+enum TaskOutcome {
+    TASK_OUTCOME_UNKNOWN = 0;
+    TASK_OUTCOME_SUCCESS = 1;
+    TASK_OUTCOME_FAILURE = 2;
+}
+
+message DataPayload {
+    optional string path = 1;
+    optional uint64 size = 2;
+    optional string sha256_hash = 3;
+}
+
+enum OutputEncoding {
+    OUTPUT_ENCODING_UNKNOWN = 0;
+    OUTPUT_ENCODING_JSON = 1;
+    OUTPUT_ENCODING_PICKLE = 2;
+    OUTPUT_ENCODING_BINARY = 3;
+}
+
+message ReportTaskOutcomeRequest {
+    optional string task_id = 1;
+    optional string namespace = 2;
+    optional string graph_name = 3;
+    optional string function_name = 4;
+    optional string graph_invocation_id = 6;
+    optional TaskOutcome outcome = 7;
+    optional string invocation_id = 8;
+    optional string executor_id = 9;
+    optional bool reducer = 10;
+
+    // Edges that the function wants the invocation to be routed to.
+    // Previously called router_edges.
+    repeated string next_functions = 11;
+
+    // Outputs of the function.
+    repeated DataPayload fn_outputs = 12;
+
+    // Standard output and error streams of the function.
+    optional DataPayload stdout = 14;
+    optional DataPayload stderr = 15;
+ 
+
+    // Output encoding of all the outputs of a function have to be same.
+    optional OutputEncoding output_encoding = 13;
+
+    // This allows us to change how we encode the output from functions
+    // and serialize them into storage.
+    optional uint64 output_encoding_version = 5;
+}
+
+message ReportTaskOutcomeResponse {
+}
+
 // Internal API for scheduling and running tasks on Executors. Executors are acting as clients of this API.
 // Server is responsible for scheduling tasks on Executors and Executors are responsible for running the tasks.
 //
@@ -174,6 +227,6 @@ service ExecutorAPI {
     // Deprecated HTTP API is used to download the serialized graph and task inputs.
     rpc get_desired_executor_states(GetDesiredExecutorStatesRequest) returns (stream DesiredExecutorState) {}
 
-    // Task outcome is currently reported via deprecated HTTP API. We're going to migrate task output reporting to gRPC
-    // when we move S3 downloads and uploads to Executor.
+    // Report the outcome of a task.
+    rpc report_task_outcome(ReportTaskOutcomeRequest) returns (ReportTaskOutcomeResponse) {}
 }
