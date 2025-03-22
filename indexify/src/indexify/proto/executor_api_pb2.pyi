@@ -57,6 +57,19 @@ class ExecutorFlavor(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     EXECUTOR_FLAVOR_OSS: _ClassVar[ExecutorFlavor]
     EXECUTOR_FLAVOR_PLATFORM: _ClassVar[ExecutorFlavor]
 
+class TaskOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    TASK_OUTCOME_UNKNOWN: _ClassVar[TaskOutcome]
+    TASK_OUTCOME_SUCCESS: _ClassVar[TaskOutcome]
+    TASK_OUTCOME_FAILURE: _ClassVar[TaskOutcome]
+
+class OutputEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    OUTPUT_ENCODING_UNKNOWN: _ClassVar[OutputEncoding]
+    OUTPUT_ENCODING_JSON: _ClassVar[OutputEncoding]
+    OUTPUT_ENCODING_PICKLE: _ClassVar[OutputEncoding]
+    OUTPUT_ENCODING_BINARY: _ClassVar[OutputEncoding]
+
 GPU_MODEL_UNKNOWN: GPUModel
 GPU_MODEL_NVIDIA_TESLA_T4_16GB: GPUModel
 GPU_MODEL_NVIDIA_TESLA_V100_16GB: GPUModel
@@ -87,6 +100,13 @@ EXECUTOR_STATUS_STOPPED: ExecutorStatus
 EXECUTOR_FLAVOR_UNKNOWN: ExecutorFlavor
 EXECUTOR_FLAVOR_OSS: ExecutorFlavor
 EXECUTOR_FLAVOR_PLATFORM: ExecutorFlavor
+TASK_OUTCOME_UNKNOWN: TaskOutcome
+TASK_OUTCOME_SUCCESS: TaskOutcome
+TASK_OUTCOME_FAILURE: TaskOutcome
+OUTPUT_ENCODING_UNKNOWN: OutputEncoding
+OUTPUT_ENCODING_JSON: OutputEncoding
+OUTPUT_ENCODING_PICKLE: OutputEncoding
+OUTPUT_ENCODING_BINARY: OutputEncoding
 
 class GPUResources(_message.Message):
     __slots__ = ("count", "model")
@@ -351,3 +371,89 @@ class DesiredExecutorState(_message.Message):
         task_allocations: _Optional[_Iterable[_Union[TaskAllocation, _Mapping]]] = ...,
         clock: _Optional[int] = ...,
     ) -> None: ...
+
+class DataPayload(_message.Message):
+    __slots__ = ("path", "size", "sha256_hash")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    size: int
+    sha256_hash: str
+    def __init__(
+        self,
+        path: _Optional[str] = ...,
+        size: _Optional[int] = ...,
+        sha256_hash: _Optional[str] = ...,
+    ) -> None: ...
+
+class ReportTaskOutcomeRequest(_message.Message):
+    __slots__ = (
+        "task_id",
+        "namespace",
+        "graph_name",
+        "function_name",
+        "graph_invocation_id",
+        "outcome",
+        "invocation_id",
+        "executor_id",
+        "reducer",
+        "next_functions",
+        "fn_outputs",
+        "stdout",
+        "stderr",
+        "output_encoding",
+        "output_encoding_version",
+    )
+    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_NAME_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    INVOCATION_ID_FIELD_NUMBER: _ClassVar[int]
+    EXECUTOR_ID_FIELD_NUMBER: _ClassVar[int]
+    REDUCER_FIELD_NUMBER: _ClassVar[int]
+    NEXT_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    FN_OUTPUTS_FIELD_NUMBER: _ClassVar[int]
+    STDOUT_FIELD_NUMBER: _ClassVar[int]
+    STDERR_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_ENCODING_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    task_id: str
+    namespace: str
+    graph_name: str
+    function_name: str
+    graph_invocation_id: str
+    outcome: TaskOutcome
+    invocation_id: str
+    executor_id: str
+    reducer: bool
+    next_functions: _containers.RepeatedScalarFieldContainer[str]
+    fn_outputs: _containers.RepeatedCompositeFieldContainer[DataPayload]
+    stdout: DataPayload
+    stderr: DataPayload
+    output_encoding: OutputEncoding
+    output_encoding_version: int
+    def __init__(
+        self,
+        task_id: _Optional[str] = ...,
+        namespace: _Optional[str] = ...,
+        graph_name: _Optional[str] = ...,
+        function_name: _Optional[str] = ...,
+        graph_invocation_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[TaskOutcome, str]] = ...,
+        invocation_id: _Optional[str] = ...,
+        executor_id: _Optional[str] = ...,
+        reducer: bool = ...,
+        next_functions: _Optional[_Iterable[str]] = ...,
+        fn_outputs: _Optional[_Iterable[_Union[DataPayload, _Mapping]]] = ...,
+        stdout: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        stderr: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        output_encoding: _Optional[_Union[OutputEncoding, str]] = ...,
+        output_encoding_version: _Optional[int] = ...,
+    ) -> None: ...
+
+class ReportTaskOutcomeResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
