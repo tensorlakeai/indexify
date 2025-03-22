@@ -15,7 +15,7 @@ from ..api_objects import Task
 from .function_executor import CustomerError, FunctionExecutor
 from .function_executor_state import FunctionExecutorState
 from .function_executor_status import FunctionExecutorStatus
-from .health_checker import HealthChecker, HealthCheckResult
+from .health_checker import HealthCheckResult
 from .metrics.single_task_runner import (
     metric_function_executor_run_task_rpc_errors,
     metric_function_executor_run_task_rpc_latency,
@@ -26,7 +26,7 @@ from .server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
 from .task_input import TaskInput
-from .task_output import TaskOutput
+from .task_output import TaskOutput, TaskMetrics
 
 
 class SingleTaskRunner:
@@ -308,6 +308,10 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
         stderr=response.stderr,
         reducer=response.is_reducer,
         success=response.success,
+        metrics=TaskMetrics(
+            counters=response.metrics.counters,
+            timers=response.metrics.timers,
+        ),
     )
 
     if response.HasField("function_output"):

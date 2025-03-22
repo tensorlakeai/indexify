@@ -1,10 +1,17 @@
-from typing import Optional
+from typing import Dict, Optional
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     RouterOutput,
 )
 
+
+class TaskMetrics:
+    """Metrics for a task."""
+
+    def __init__(self, counters: Dict[str, int], timers: Dict[str, float]):
+        self.counters = counters
+        self.timers = timers
 
 class TaskOutput:
     """Result of running a task."""
@@ -24,6 +31,7 @@ class TaskOutput:
         reducer: bool = False,
         success: bool = False,
         is_internal_error: bool = False,
+        metrics: Optional[TaskMetrics] = None,
     ):
         self.task_id = task_id
         self.namespace = namespace
@@ -38,6 +46,7 @@ class TaskOutput:
         self.reducer = reducer
         self.success = success
         self.is_internal_error = is_internal_error
+        self.metrics = metrics
 
     @classmethod
     def internal_error(
