@@ -13,6 +13,7 @@ class TaskMetrics:
         self.counters = counters
         self.timers = timers
 
+
 class TaskOutput:
     """Result of running a task."""
 
