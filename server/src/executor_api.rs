@@ -198,7 +198,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
 }
 
 pub struct ExecutorAPIService {
-    _indexify_state: Arc<IndexifyState>,
+    indexify_state: Arc<IndexifyState>,
     #[allow(dead_code)]
     executor_manager: Arc<ExecutorManager>,
     api_metrics: Arc<api_io_stats::Metrics>,
@@ -211,7 +211,7 @@ impl ExecutorAPIService {
         api_metrics: Arc<api_io_stats::Metrics>,
     ) -> Self {
         Self {
-            _indexify_state: indexify_state,
+            indexify_state: indexify_state,
             executor_manager,
             api_metrics,
         }
@@ -330,7 +330,7 @@ impl ExecutorApi for ExecutorAPIService {
             .clone()
             .ok_or(Status::invalid_argument("invocation_id is required"))?;
         let task = self
-            ._indexify_state
+            .indexify_state
             .reader()
             .get_task(
                 &namespace,
@@ -398,7 +398,7 @@ impl ExecutorApi for ExecutorAPIService {
             processed_state_changes: vec![],
         };
 
-        self._indexify_state
+        self.indexify_state
             .write(sm_req)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
