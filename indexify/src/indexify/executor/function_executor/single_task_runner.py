@@ -26,7 +26,7 @@ from .server.function_executor_server_factory import (
     FunctionExecutorServerFactory,
 )
 from .task_input import TaskInput
-from .task_output import TaskOutput
+from .task_output import TaskMetrics, TaskOutput
 
 
 class SingleTaskRunner:
