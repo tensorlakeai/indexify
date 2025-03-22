@@ -107,13 +107,15 @@ impl Service {
                 .build()
                 .unwrap();
 
+        let api_metrics = Arc::new(metrics::api_io_stats::Metrics::new());
+
         let route_state = RouteState {
             indexify_state: self.indexify_state.clone(),
             kvs: self.kvs.clone(),
             blob_storage: self.blob_storage.clone(),
             executor_manager: self.executor_manager.clone(),
             registry: self.metrics_registry.clone(),
-            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+            metrics: api_metrics.clone(),
         };
         let gc_executor = self.gc_executor.clone();
         tokio::spawn(async move {
@@ -143,6 +145,7 @@ impl Service {
                 .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
                     indexify_state,
                     executor_manager,
+                    api_metrics,
                 )))
                 .serve_with_shutdown(addr_grpc, async move {
                     shutdown_rx.changed().await.ok();
