@@ -211,7 +211,7 @@ impl ExecutorAPIService {
         api_metrics: Arc<api_io_stats::Metrics>,
     ) -> Self {
         Self {
-            indexify_state: indexify_state,
+            indexify_state,
             executor_manager,
             api_metrics,
         }
