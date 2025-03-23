@@ -18,7 +18,10 @@ use data_model::{
     HostResources,
     NodeOutputBuilder,
     OutputPayload,
-    TaskDiagnostics, TaskOutcome, TaskStatus, TaskOutputsIngestionStatus,
+    TaskDiagnostics,
+    TaskOutcome,
+    TaskOutputsIngestionStatus,
+    TaskStatus,
 };
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
@@ -29,6 +32,7 @@ use executor_api_pb::{
     FunctionExecutorDescription,
     GetDesiredExecutorStatesRequest,
     GpuModel,
+    OutputEncoding,
     ReportExecutorStateRequest,
     ReportExecutorStateResponse,
     ReportTaskOutcomeRequest,
@@ -42,7 +46,7 @@ use state_store::{
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::executors::ExecutorManager;
 
@@ -305,9 +309,9 @@ impl ExecutorApi for ExecutorAPIService {
             .clone()
             .ok_or(Status::invalid_argument("task_id is required"))?;
 
-        let task_outcome = executor_api_pb::TaskOutcome::try_from(request.get_ref().outcome.unwrap_or(0))
-            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-
+        let task_outcome =
+            executor_api_pb::TaskOutcome::try_from(request.get_ref().outcome.unwrap_or(0))
+                .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         let executor_id = request
             .get_ref()
@@ -353,6 +357,14 @@ impl ExecutorApi for ExecutorAPIService {
             warn!("Task not found for task_id: {}", task_id);
             return Ok(Response::new(ReportTaskOutcomeResponse {}));
         }
+        let encoding = OutputEncoding::try_from(output_encoding)
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        let encoding_str = match encoding {
+            OutputEncoding::Json => "application/json",
+            OutputEncoding::Pickle => "application/octet-stream",
+            OutputEncoding::Binary => "application/octet-stream",
+            OutputEncoding::Unknown => "unknown",
+        };
         let mut task = task.unwrap();
         match task_outcome {
             executor_api_pb::TaskOutcome::Success => {
@@ -390,7 +402,21 @@ impl ExecutorApi for ExecutorAPIService {
                 .invocation_id(invocation_id.to_string())
                 .compute_fn_name(compute_fn.to_string())
                 .payload(OutputPayload::Fn(data_payload))
-                .encoding(output_encoding.to_string())
+                .encoding(encoding_str.to_string())
+                .build()
+                .map_err(|e| Status::internal(e.to_string()))?;
+            node_outputs.push(node_output);
+        }
+
+        if request.get_ref().next_functions.len() > 0 {
+            let node_output = NodeOutputBuilder::default()
+                .namespace(namespace.to_string())
+                .compute_graph_name(compute_graph.to_string())
+                .invocation_id(invocation_id.to_string())
+                .compute_fn_name(compute_fn.to_string())
+                .payload(OutputPayload::Router(data_model::RouterOutput {
+                    edges: request.get_ref().next_functions.clone(),
+                }))
                 .build()
                 .map_err(|e| Status::internal(e.to_string()))?;
             node_outputs.push(node_output);
