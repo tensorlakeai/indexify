@@ -4,7 +4,7 @@ syntax = "proto3";
 // Existing clients won't find the service if the package name changes.
 package executor_api_pb;
 
-// ===== ReportExecutorState RPC =====
+// ===== report_executor_state RPC =====
 
 enum GPUModel {
     GPU_MODEL_UNKNOWN = 0;
@@ -123,7 +123,7 @@ message ReportExecutorStateRequest {
 message ReportExecutorStateResponse {
 }
 
-// ===== GetDesiredExecutorStates RPC =====
+// ===== get_desired_executor_states RPC =====
 message Task {
     optional string id = 1;
     optional string namespace = 2;
@@ -156,6 +156,7 @@ message DesiredExecutorState {
     optional uint64 clock = 3;
 }
 
+// ===== report_task_outcome RPC =====
 enum TaskOutcome {
     TASK_OUTCOME_UNKNOWN = 0;
     TASK_OUTCOME_SUCCESS = 1;
@@ -189,18 +190,13 @@ message ReportTaskOutcomeRequest {
     // Edges that the function wants the invocation to be routed to.
     // Previously called router_edges.
     repeated string next_functions = 11;
-
     // Outputs of the function.
     repeated DataPayload fn_outputs = 12;
-
     // Standard output and error streams of the function.
     optional DataPayload stdout = 14;
     optional DataPayload stderr = 15;
- 
-
     // Output encoding of all the outputs of a function have to be same.
     optional OutputEncoding output_encoding = 13;
-
     // This allows us to change how we encode the output from functions
     // and serialize them into storage.
     optional uint64 output_encoding_version = 5;

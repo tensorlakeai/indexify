@@ -49,5 +49,17 @@ class TaskResult(BaseModel):
     reducer: bool = False
 
 
+class DataPayload(BaseModel):
+    path: str
+    size: int
+    sha256_hash: str
+
+
+class IngestFnOutputsResponse(BaseModel):
+    data_payloads: List[DataPayload]
+    stdout: Optional[DataPayload] = None
+    stderr: Optional[DataPayload] = None
+
+
 TASK_OUTCOME_SUCCESS = "success"
 TASK_OUTCOME_FAILURE = "failure"

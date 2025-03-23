@@ -25,6 +25,7 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
+        output_encoding: Optional[str] = None,
         function_output: Optional[FunctionOutput] = None,
         router_output: Optional[RouterOutput] = None,
         stdout: Optional[str] = None,
@@ -48,6 +49,7 @@ class TaskOutput:
         self.success = success
         self.is_internal_error = is_internal_error
         self.metrics = metrics
+        self.output_encoding = output_encoding
 
     @classmethod
     def internal_error(

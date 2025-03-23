@@ -2,18 +2,29 @@ import asyncio
 import time
 from typing import Any, List, Optional, Tuple
 
+import grpc
 import nanoid
 from httpx import Timeout
 from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOutput
 from tensorlake.utils.http_client import get_httpx_client
 
+from indexify.proto.executor_api_pb2 import (
+    DataPayload,
+    OutputEncoding,
+    ReportTaskOutcomeRequest,
+    TaskOutcome,
+)
+from indexify.proto.executor_api_pb2_grpc import ExecutorAPIStub
+
 from .api_objects import (
     TASK_OUTCOME_FAILURE,
     TASK_OUTCOME_SUCCESS,
+    IngestFnOutputsResponse,
     RouterOutput,
     TaskResult,
 )
 from .function_executor.task_output import TaskOutput
+from .grpc.channel_manager import ChannelManager
 from .metrics.task_reporter import (
     metric_server_ingest_files_errors,
     metric_server_ingest_files_latency,
@@ -45,7 +56,11 @@ class TaskOutputSummary:
 
 class TaskReporter:
     def __init__(
-        self, base_url: str, executor_id: str, config_path: Optional[str] = None
+        self,
+        base_url: str,
+        executor_id: str,
+        channel_manager: ChannelManager,
+        config_path: Optional[str] = None,
     ):
         self._base_url = base_url
         self._executor_id = executor_id
@@ -56,6 +71,7 @@ class TaskReporter:
         # Creating a new async client for each request fixes this but it
         # results in not reusing established TCP connections to server.
         self._client = get_httpx_client(config_path, make_async=False)
+        self._channel_manager = channel_manager
 
     async def shutdown(self):
         """Shuts down the task reporter.
@@ -109,7 +125,7 @@ class TaskReporter:
             # Run in a separate thread to not block the main event loop.
             response = await asyncio.to_thread(
                 self._client.post,
-                url=f"{self._base_url}/internal/ingest_files",
+                url=f"{self._base_url}/internal/ingest_fn_outputs",
                 **kwargs,
             )
         end_time = time.time()
@@ -125,10 +141,66 @@ class TaskReporter:
             metric_server_ingest_files_errors.inc()
             # Caller catches and logs the exception.
             raise Exception(
-                "failed to report task outcome. "
+                "failed to upload files. "
                 f"Response code: {response.status_code}. "
                 f"Response text: '{response.text}'."
             ) from e
+
+        # TODO: If the files are uploaded successfully,
+        # we should record that so that if we fail to report
+        # the task outcome, we don't retry the upload.
+        # This will save us some time and resources.
+
+        ingested_files_response = response.json()
+        ingested_files = IngestFnOutputsResponse.model_validate(ingested_files_response)
+        fn_outputs = []
+        for data_payload in ingested_files.data_payloads:
+            fn_outputs.append(
+                DataPayload(
+                    path=data_payload.path,
+                    size=data_payload.size,
+                    sha256_hash=data_payload.sha256_hash,
+                )
+            )
+        stdout, stderr = None, None
+        if ingested_files.stdout:
+            stdout = DataPayload(
+                path=ingested_files.stdout.path,
+                size=ingested_files.stdout.size,
+                sha256_hash=ingested_files.stdout.sha256_hash,
+            )
+        if ingested_files.stderr:
+            stderr = DataPayload(
+                path=ingested_files.stderr.path,
+                size=ingested_files.stderr.size,
+                sha256_hash=ingested_files.stderr.sha256_hash,
+            )
+
+        request = ReportTaskOutcomeRequest(
+            task_id=output.task_id,
+            namespace=output.namespace,
+            graph_name=output.graph_name,
+            function_name=output.function_name,
+            graph_invocation_id=output.graph_invocation_id,
+            outcome=_to_grpc_task_outcome(output),
+            invocation_id=output.graph_invocation_id,
+            executor_id=self._executor_id,
+            reducer=output.reducer,
+            next_functions=(
+                output.router_output.edges if output.router_output else []
+            ),
+            fn_outputs=fn_outputs,
+            stdout=stdout,
+            stderr=stderr,
+            output_encoding=_to_grpc_output_encoding(output),
+            output_encoding_version=0,
+        )
+        try:
+            stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+            await stub.report_task_outcome(request)
+        except Exception as e:
+            logger.error("failed to report task outcome", error=e)
+            raise e
 
     def _process_task_output(
         self, output: TaskOutput
@@ -246,3 +318,17 @@ def _process_stderr(
     )
     summary.stderr_count += 1
     summary.stderr_total_bytes += len(stderr)
+
+
+def _to_grpc_task_outcome(task_output: TaskOutput) -> TaskOutcome:
+    if task_output.success:
+        return TaskOutcome.TASK_OUTCOME_SUCCESS
+    else:
+        return TaskOutcome.TASK_OUTCOME_FAILURE
+
+
+def _to_grpc_output_encoding(task_output: TaskOutput) -> OutputEncoding:
+    if task_output.output_encoding == "json":
+        return OutputEncoding.OUTPUT_ENCODING_JSON
+    else:
+        return OutputEncoding.OUTPUT_ENCODING_PICKLE

@@ -315,6 +315,7 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
 
     if response.HasField("function_output"):
         output.function_output = response.function_output
+        output.output_encoding = response.function_output.output_encoding
     if response.HasField("router_output"):
         output.router_output = response.router_output
 

@@ -76,29 +76,27 @@ class ExecutorStateReconciler:
         Never raises any exceptions.
         """
         while not self._is_shutdown:
-            async with await self._channel_manager.get_channel() as server_channel:
-                server_channel: grpc.aio.Channel
-                stub = ExecutorAPIStub(server_channel)
-                while not self._is_shutdown:
-                    try:
-                        # Report state once before starting the stream so Server
-                        # doesn't use old state it knew about this Executor in the past.
-                        await self._state_reporter.report_state(stub)
-                        desired_states_stream: AsyncGenerator[
-                            DesiredExecutorState, None
-                        ] = stub.get_desired_executor_states(
-                            GetDesiredExecutorStatesRequest(
-                                executor_id=self._executor_id
-                            )
+            stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+            while not self._is_shutdown:
+                try:
+                    # Report state once before starting the stream so Server
+                    # doesn't use old state it knew about this Executor in the past.
+                    await self._state_reporter.report_state(stub)
+                    desired_states_stream: AsyncGenerator[
+                        DesiredExecutorState, None
+                    ] = stub.get_desired_executor_states(
+                        GetDesiredExecutorStatesRequest(
+                            executor_id=self._executor_id
                         )
-                        await self._process_desired_states_stream(desired_states_stream)
-                    except Exception as e:
-                        self._logger.error(
-                            f"Failed processing desired states stream, reconnecting in {_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC} sec.",
-                            exc_info=e,
-                        )
-                        await asyncio.sleep(_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC)
-                        break
+                    )
+                    await self._process_desired_states_stream(desired_states_stream)
+                except Exception as e:
+                    self._logger.error(
+                        f"Failed processing desired states stream, reconnecting in {_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC} sec.",
+                        exc_info=e,
+                    )
+                    await asyncio.sleep(_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC)
+                    break
 
         self._logger.info("State reconciler shutdown.")
 
@@ -288,7 +286,9 @@ class ExecutorStateReconciler:
         while True:
             logger = logger.bind(retries=reporting_retries)
             try:
-                await self._task_reporter.report(output=task_output, logger=logger)
+                await self._task_reporter.report(
+                    data_payload=task_output, logger=logger
+                )
                 break
             except Exception as e:
                 logger.error(
