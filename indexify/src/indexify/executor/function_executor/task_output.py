@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
