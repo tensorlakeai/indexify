@@ -18,7 +18,7 @@ use data_model::{
     HostResources,
     NodeOutputBuilder,
     OutputPayload,
-    TaskDiagnostics,
+    TaskDiagnostics, TaskOutcome, TaskStatus, TaskOutputsIngestionStatus,
 };
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
@@ -42,7 +42,7 @@ use state_store::{
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status};
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 
 use crate::executors::ExecutorManager;
 
@@ -233,7 +233,7 @@ impl ExecutorApi for ExecutorAPIService {
             .executor_state
             .clone()
             .ok_or(Status::invalid_argument("executor_state is required"))?;
-        info!(
+        debug!(
             "Got report_executor_state request from Executor with ID {}",
             executor_state.executor_id()
         );
@@ -304,6 +304,11 @@ impl ExecutorApi for ExecutorAPIService {
             .task_id
             .clone()
             .ok_or(Status::invalid_argument("task_id is required"))?;
+
+        let task_outcome = executor_api_pb::TaskOutcome::try_from(request.get_ref().outcome.unwrap_or(0))
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+
         let executor_id = request
             .get_ref()
             .executor_id
@@ -348,7 +353,20 @@ impl ExecutorApi for ExecutorAPIService {
             warn!("Task not found for task_id: {}", task_id);
             return Ok(Response::new(ReportTaskOutcomeResponse {}));
         }
-        let task = task.unwrap();
+        let mut task = task.unwrap();
+        match task_outcome {
+            executor_api_pb::TaskOutcome::Success => {
+                task.outcome = TaskOutcome::Success;
+            }
+            executor_api_pb::TaskOutcome::Failure => {
+                task.outcome = TaskOutcome::Failure;
+            }
+            executor_api_pb::TaskOutcome::Unknown => {
+                task.outcome = TaskOutcome::Unknown;
+            }
+        }
+        task.output_status = TaskOutputsIngestionStatus::Ingested;
+        task.status = TaskStatus::Completed;
 
         let mut node_outputs = Vec::new();
         for output in request.get_ref().fn_outputs.clone() {
@@ -381,7 +399,7 @@ impl ExecutorApi for ExecutorAPIService {
             stdout: prepare_data_payload(request.get_ref().stdout.clone()),
             stderr: prepare_data_payload(request.get_ref().stderr.clone()),
         };
-
+        task.diagnostics = Some(task_diagnostic.clone());
         let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
             namespace: namespace.to_string(),
             compute_graph: compute_graph.to_string(),
@@ -390,7 +408,6 @@ impl ExecutorApi for ExecutorAPIService {
             task: task.clone(),
             node_outputs,
             executor_id: ExecutorId::new(executor_id.clone()),
-            diagnostics: Some(task_diagnostic),
         });
 
         let sm_req = StateMachineUpdateRequest {

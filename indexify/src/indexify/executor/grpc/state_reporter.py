@@ -90,24 +90,22 @@ class ExecutorStateReporter:
         Never raises any exceptions.
         """
         while not self._is_shutdown:
-            async with await self._channel_manager.get_channel() as server_channel:
-                server_channel: grpc.aio.Channel
-                stub = ExecutorAPIStub(server_channel)
-                while not self._is_shutdown:
-                    try:
-                        # The periodic state reports serve as channel health monitoring requests
-                        # (same as TCP keep-alive). Channel Manager returns the same healthy channel
-                        # for all RPCs that we do from Executor to Server. So all the RPCs benefit
-                        # from this channel health monitoring.
-                        await self.report_state(stub)
-                        await asyncio.sleep(_REPORTING_INTERVAL_SEC)
-                    except Exception as e:
-                        self._logger.error(
-                            f"Failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
-                            exc_info=e,
-                        )
-                        await asyncio.sleep(_REPORT_BACKOFF_ON_ERROR_SEC)
-                        break
+            stub = ExecutorAPIStub(await self._channel_manager.get_channel())
+            while not self._is_shutdown:
+                try:
+                    # The periodic state reports serve as channel health monitoring requests
+                    # (same as TCP keep-alive). Channel Manager returns the same healthy channel
+                    # for all RPCs that we do from Executor to Server. So all the RPCs benefit
+                    # from this channel health monitoring.
+                    await self.report_state(stub)
+                    await asyncio.sleep(_REPORTING_INTERVAL_SEC)
+                except Exception as e:
+                    self._logger.error(
+                        f"Failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
+                        exc_info=e,
+                    )
+                    await asyncio.sleep(_REPORT_BACKOFF_ON_ERROR_SEC)
+                    break
 
         self._logger.info("State reporter shutdown")
 

@@ -63,7 +63,7 @@ use download::{
     download_fn_output_payload,
     download_invocation_payload,
 };
-use internal_ingest::ingest_files_from_executor;
+use internal_ingest::{ingest_files_from_executor, ingest_fn_outputs};
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
 use logs::download_task_logs;
 
@@ -193,6 +193,10 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/ingest_files",
             post(ingest_files_from_executor).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/ingest_fn_outputs",
+            post(ingest_fn_outputs).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors",

@@ -97,11 +97,6 @@ class Executor:
         self._downloader = Downloader(
             code_path=code_path, base_url=self._base_url, config_path=config_path
         )
-        self._task_reporter = TaskReporter(
-            base_url=self._base_url,
-            executor_id=id,
-            config_path=config_path,
-        )
         self._function_allowlist: Optional[List[FunctionURI]] = function_allowlist
         self._function_executor_server_factory = function_executor_server_factory
         self._channel_manager = ChannelManager(
@@ -122,6 +117,12 @@ class Executor:
         )
         self._state_reporter.update_executor_status(
             ExecutorStatus.EXECUTOR_STATUS_STARTING_UP
+        )
+        self._task_reporter = TaskReporter(
+            base_url=self._base_url,
+            executor_id=id,
+            config_path=config_path,
+            channel_manager=self._channel_manager,
         )
 
         # HTTP mode task runner
