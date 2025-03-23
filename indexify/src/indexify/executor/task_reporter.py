@@ -2,7 +2,6 @@ import asyncio
 import time
 from typing import Any, List, Optional, Tuple
 
-import grpc
 import nanoid
 from httpx import Timeout
 from tensorlake.function_executor.proto.function_executor_pb2 import FunctionOutput
@@ -29,6 +28,9 @@ from .metrics.task_reporter import (
     metric_server_ingest_files_errors,
     metric_server_ingest_files_latency,
     metric_server_ingest_files_requests,
+    metric_report_task_outcome_rpcs,
+    metric_report_task_outcome_errors,
+    metric_report_task_outcome_latency,
 )
 
 
@@ -130,7 +132,7 @@ class TaskReporter:
             )
         end_time = time.time()
         logger.info(
-            "task outcome reported",
+            "files uploaded",
             response_time=end_time - start_time,
             response_code=response.status_code,
         )
@@ -197,7 +199,10 @@ class TaskReporter:
         )
         try:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
-            await stub.report_task_outcome(request)
+            with (metric_report_task_outcome_latency.time(),
+                  metric_report_task_outcome_errors.count_exceptions()):
+                metric_report_task_outcome_rpcs.inc()
+                await stub.report_task_outcome(request, timeout=5.0)
         except Exception as e:
             logger.error("failed to report task outcome", error=e)
             raise e
