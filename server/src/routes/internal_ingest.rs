@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::{anyhow, Result};
-use axum::{extract::{multipart::Field, Multipart, State}, response::Json};
+use axum::{
+    extract::{multipart::Field, Multipart, State},
+    response::Json,
+};
 use blob_store::{BlobStorage, PutResult};
 use data_model::{
     DataPayload,
@@ -142,16 +145,20 @@ pub async fn ingest_fn_outputs(
                 );
                 let res = write_to_disk(state.clone().blob_storage, &mut field, &file_name).await?;
                 match name_ref.as_str() {
-                    "stdout" => stdout = Some(DataPayload {
-                        path: res.url,
-                        size: res.size_bytes,
-                        sha256_hash: res.sha256_hash,
-                    }),
-                    "stderr" => stderr = Some(DataPayload {
-                        path: res.url,
-                        size: res.size_bytes,
-                        sha256_hash: res.sha256_hash,
-                    }),
+                    "stdout" => {
+                        stdout = Some(DataPayload {
+                            path: res.url,
+                            size: res.size_bytes,
+                            sha256_hash: res.sha256_hash,
+                        })
+                    }
+                    "stderr" => {
+                        stderr = Some(DataPayload {
+                            path: res.url,
+                            size: res.size_bytes,
+                            sha256_hash: res.sha256_hash,
+                        })
+                    }
                     _ => {
                         error!("unknown field name {}", name_ref);
                     }
@@ -167,11 +174,14 @@ pub async fn ingest_fn_outputs(
     }
 
     return Ok(Json(IngestFnOutputsResponse {
-        data_payloads: output_objects.iter().map(|e| DataPayload {
-            path: e.url.clone(),
-            size: e.size_bytes,
-            sha256_hash: e.sha256_hash.clone(),
-        }).collect(),
+        data_payloads: output_objects
+            .iter()
+            .map(|e| DataPayload {
+                path: e.url.clone(),
+                size: e.size_bytes,
+                sha256_hash: e.sha256_hash.clone(),
+            })
+            .collect(),
         stdout,
         stderr,
     }));
