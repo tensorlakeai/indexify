@@ -180,9 +180,10 @@ pub(crate) fn delete_invocation(
         prefix.as_bytes(),
         &None,
     ) {
-        let (_key, value) = iter?;
+        let (key, value) = iter?;
         let value = Box::new(JsonEncoder::decode::<Task>(&value)?);
         tasks_deleted.push(value);
+        txn.delete_cf(IndexifyObjectsColumns::Tasks.cf_db(&db), &key)?;
     }
 
     // delete all task outputs for this invocation
@@ -651,7 +652,7 @@ pub(crate) fn handle_scheduler_update(
             allocation_id = alloc.id,
             "delete_allocation",
         );
-        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.id)?;
+        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &alloc.key())?;
     }
 
     for alloc in &request.new_allocations {
@@ -667,7 +668,7 @@ pub(crate) fn handle_scheduler_update(
         let serialized_alloc = JsonEncoder::encode(&alloc)?;
         txn.put_cf(
             &IndexifyObjectsColumns::Allocations.cf_db(&db),
-            &alloc.id,
+            &alloc.key(),
             serialized_alloc,
         )?;
     }
@@ -768,13 +769,13 @@ pub fn ingest_task_outputs(
 
     txn.delete_cf(
         &IndexifyObjectsColumns::Allocations.cf_db(&db),
-        Allocation::id(
-            &req.executor_id.get(),
-            &existing_task.id.to_string(),
+        Allocation::key_from(
             &req.namespace,
             &req.compute_graph,
-            &req.compute_fn,
             &req.invocation_id,
+            &req.compute_fn,
+            &existing_task.id,
+            &req.executor_id,
         ),
     )?;
 

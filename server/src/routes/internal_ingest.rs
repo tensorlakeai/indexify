@@ -257,7 +257,6 @@ pub async fn ingest_files_from_executor(
         task: task.clone(),
         node_outputs,
         executor_id: ExecutorId::new(task_result.executor_id.clone()),
-        diagnostics: Some(task_diagnostic),
     });
 
     let sm_req = StateMachineUpdateRequest {

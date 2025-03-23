@@ -216,7 +216,6 @@ pub async fn finalize_task(
         task: task.clone(),
         node_outputs,
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-        diagnostics: None,
     };
 
     indexify_state
@@ -244,7 +243,6 @@ pub async fn finalize_task_graph_b(
         task: task.clone(),
         node_outputs: vec![mock_node_fn_output_fn_a(&invocation_id, "graph_B", None)],
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-        diagnostics: None,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
@@ -271,7 +269,6 @@ pub async fn finalize_router_x(
         task: task.clone(),
         node_outputs: vec![mock_node_router_output_x(&invocation_id, "graph_B")],
         executor_id: ExecutorId::new(TEST_EXECUTOR_ID.to_string()),
-        diagnostics: None,
     };
     indexify_state
         .write(StateMachineUpdateRequest {
