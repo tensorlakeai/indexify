@@ -241,7 +241,10 @@ class Downloader:
 def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
     # We're hardcoding the content type currently used by Python SDK. It might change in the future.
     # There's no other way for now to determine if the response is a bytes or string.
-    if response.headers["content-type"] in ["application/octet-stream", "application/pickle"]:
+    if response.headers["content-type"] in [
+        "application/octet-stream",
+        "application/pickle",
+    ]:
         return SerializedObject(
             bytes=response.content, content_type=response.headers["content-type"]
         )

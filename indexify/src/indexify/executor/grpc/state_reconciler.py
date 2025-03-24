@@ -85,9 +85,7 @@ class ExecutorStateReconciler:
                     desired_states_stream: AsyncGenerator[
                         DesiredExecutorState, None
                     ] = stub.get_desired_executor_states(
-                        GetDesiredExecutorStatesRequest(
-                            executor_id=self._executor_id
-                        )
+                        GetDesiredExecutorStatesRequest(executor_id=self._executor_id)
                     )
                     await self._process_desired_states_stream(desired_states_stream)
                 except Exception as e:
