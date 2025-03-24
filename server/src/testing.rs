@@ -214,7 +214,7 @@ impl FinalizeTaskArgs {
         self.diagnostics = Some(TaskDiagnostics {
             stdout: if stdout {
                 Some(DataPayload {
-                    path: "stdout".to_string(),
+                    path: format!("stdout_{}", uuid::Uuid::new_v4().to_string()),
                     size: 0,
                     sha256_hash: "".to_string(),
                 })
@@ -223,7 +223,7 @@ impl FinalizeTaskArgs {
             },
             stderr: if stderr {
                 Some(DataPayload {
-                    path: "stderr".to_string(),
+                    path: format!("stderr_{}", uuid::Uuid::new_v4().to_string()),
                     size: 0,
                     sha256_hash: "".to_string(),
                 })

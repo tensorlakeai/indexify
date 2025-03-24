@@ -414,8 +414,8 @@ mod tests {
             assert_cf_counts(
                 indexify_state.db.clone(),
                 HashMap::from([
-                    (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 6), /* 1x input, 3x
-                                                                               * output, 2x
+                    (IndexifyObjectsColumns::GcUrls.as_ref().to_string(), 8), /* 1x input, 3x
+                                                                               * output, 4x
                                                                                * diagnostics */
                 ]),
             )?;
