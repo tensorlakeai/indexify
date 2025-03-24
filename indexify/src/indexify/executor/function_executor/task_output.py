@@ -32,6 +32,7 @@ class TaskOutput:
         reducer: bool = False,
         success: bool = False,
         is_internal_error: bool = False,
+        metrics: Optional[Dict[str, float]] = None,
     ):
         self.task_id = task_id
         self.namespace = namespace
@@ -46,6 +47,7 @@ class TaskOutput:
         self.reducer = reducer
         self.success = success
         self.is_internal_error = is_internal_error
+        self.metrics = metrics
 
     @classmethod
     def internal_error(
