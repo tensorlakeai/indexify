@@ -1,7 +1,11 @@
 import os
 import subprocess
+import time
 import unittest
-from typing import List, Optional
+from typing import Any, List, Optional
+
+from tensorlake import RemoteGraph
+from tensorlake.error import GraphStillProcessing
 
 
 def test_graph_name(test_case: unittest.TestCase) -> str:
@@ -86,3 +90,11 @@ def executor_pid() -> int:
 def function_executor_id() -> str:
     # PIDs are good for Subprocess Function Executors.
     return os.getpid()
+
+
+def wait_function_output(graph: RemoteGraph, invocation_id: str, func_name: str) -> Any:
+    while True:
+        try:
+            return graph.output(invocation_id, func_name)
+        except GraphStillProcessing:
+            time.sleep(1)

@@ -64,10 +64,10 @@ class Executor:
         function_allowlist: Optional[List[FunctionURI]],
         function_executor_server_factory: FunctionExecutorServerFactory,
         server_addr: str,
+        grpc_server_addr: str,
         config_path: Optional[str],
         monitoring_server_host: str,
         monitoring_server_port: int,
-        grpc_server_addr: Optional[str],
         enable_grpc_state_reconciler: bool,
     ):
         self._logger = structlog.get_logger(module=__name__)
@@ -104,35 +104,31 @@ class Executor:
         )
         self._function_allowlist: Optional[List[FunctionURI]] = function_allowlist
         self._function_executor_server_factory = function_executor_server_factory
+        self._channel_manager = ChannelManager(
+            server_address=grpc_server_addr,
+            config_path=config_path,
+            logger=self._logger,
+        )
+        self._state_reporter = ExecutorStateReporter(
+            executor_id=id,
+            flavor=flavor,
+            version=version,
+            labels=labels,
+            development_mode=development_mode,
+            function_allowlist=self._function_allowlist,
+            function_executor_states=self._function_executor_states,
+            channel_manager=self._channel_manager,
+            logger=self._logger,
+        )
+        self._state_reporter.update_executor_status(
+            ExecutorStatus.EXECUTOR_STATUS_STARTING_UP
+        )
 
-        # HTTP mode services
+        # HTTP mode task runner
         self._task_runner: Optional[TaskRunner] = None
         self._task_fetcher: Optional[TaskFetcher] = None
-        # gRPC mode services
-        self._channel_manager: Optional[ChannelManager] = None
-        self._state_reporter: Optional[ExecutorStateReporter] = None
+        # gRPC mode state reconciler that runs tasks
         self._state_reconciler: Optional[ExecutorStateReconciler] = None
-
-        if grpc_server_addr is not None:
-            self._channel_manager = ChannelManager(
-                server_address=grpc_server_addr,
-                config_path=config_path,
-                logger=self._logger,
-            )
-            self._state_reporter = ExecutorStateReporter(
-                executor_id=id,
-                flavor=flavor,
-                version=version,
-                labels=labels,
-                development_mode=development_mode,
-                function_allowlist=self._function_allowlist,
-                function_executor_states=self._function_executor_states,
-                channel_manager=self._channel_manager,
-                logger=self._logger,
-            )
-            self._state_reporter.update_executor_status(
-                ExecutorStatus.EXECUTOR_STATUS_STARTING_UP
-            )
 
         if enable_grpc_state_reconciler:
             self._state_reconciler = ExecutorStateReconciler(
@@ -171,8 +167,8 @@ class Executor:
             "version": version,
             "code_path": str(code_path),
             "server_addr": server_addr,
-            "config_path": str(config_path),
             "grpc_server_addr": str(grpc_server_addr),
+            "config_path": str(config_path),
             "enable_grpc_state_reconciler": str(enable_grpc_state_reconciler),
             "hostname": gethostname(),
         }

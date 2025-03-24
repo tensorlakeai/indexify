@@ -24,6 +24,8 @@ aiohttp = "^3.11.0"
 prometheus-client = "^0.21.1"
 # Adds function-executor binary and utils lib.
 tensorlake = ">=0.1"
+# Uncomment the next line to use local tensorlake package (only for development!)
+# tensorlake = { path = "../tensorlake", develop = true }
 # pydantic is provided by tensorlake
 # httpx-sse is provided by tensorlake
 # grpcio is provided by tensorlake

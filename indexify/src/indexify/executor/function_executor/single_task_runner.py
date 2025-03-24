@@ -10,6 +10,7 @@ from tensorlake.function_executor.proto.function_executor_pb2 import (
 from tensorlake.function_executor.proto.function_executor_pb2_grpc import (
     FunctionExecutorStub,
 )
+from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from ..api_objects import Task
 from .function_executor import CustomerError, FunctionExecutor
@@ -286,16 +287,17 @@ class _RunningTaskContextManager:
 
 
 def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
-    required_fields = [
-        "stdout",
-        "stderr",
-        "is_reducer",
-        "success",
-    ]
+    response_validator = MessageValidator(response)
+    response_validator.required_field("stdout")
+    response_validator.required_field("stderr")
+    response_validator.required_field("is_reducer")
+    response_validator.required_field("success")
 
-    for field in required_fields:
-        if not response.HasField(field):
-            raise ValueError(f"Response is missing required field: {field}")
+    metrics = TaskMetrics(counters={}, timers={})
+    if response.HasField("metrics"):
+        # Can be None if e.g. function failed.
+        metrics.counters = dict(response.metrics.counters)
+        metrics.timers = dict(response.metrics.timers)
 
     output = TaskOutput(
         task_id=task.id,
@@ -308,10 +310,7 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
         stderr=response.stderr,
         reducer=response.is_reducer,
         success=response.success,
-        metrics=TaskMetrics(
-            counters=response.metrics.counters,
-            timers=response.metrics.timers,
-        ),
+        metrics=metrics,
     )
 
     if response.HasField("function_output"):

@@ -78,6 +78,7 @@ def build_image(
 )
 def executor(
     server_addr: str = "localhost:8900",
+    grpc_server_addr: str = "localhost:8901",
     dev: Annotated[
         bool, typer.Option("--dev", "-d", help="Run the executor in development mode")
     ] = False,
@@ -120,16 +121,6 @@ def executor(
             help="Port where to run Executor Monitoring server",
         ),
     ] = 7000,
-    grpc_server_addr: Annotated[
-        Optional[str],
-        typer.Option(
-            "--grpc-server-addr",
-            help=(
-                "(exprimental) Address of server gRPC API to connect to, e.g. 'localhost:8901'.\n"
-                "Enables gRPC state reporter that will periodically report the state of the Function Executors to Server\n"
-            ),
-        ),
-    ] = None,
     enable_grpc_state_reconciler: Annotated[
         bool,
         typer.Option(
@@ -166,11 +157,6 @@ def executor(
             "--executor-id should be at least 10 characters long and only include characters _-[0-9][a-z][A-Z]"
         )
 
-    if enable_grpc_state_reconciler and grpc_server_addr is None:
-        raise typer.BadParameter(
-            "--grpc-server-addr must be set when --enable-grpc-state-reconciler is set"
-        )
-
     kv_labels: Dict[str, str] = {}
     for label in labels:
         key, value = label.split("=")
@@ -183,6 +169,7 @@ def executor(
         "starting executor",
         hostname=gethostname(),
         server_addr=server_addr,
+        grpc_server_addr=grpc_server_addr,
         config_path=config_path,
         executor_version=executor_version,
         labels=kv_labels,
@@ -192,7 +179,6 @@ def executor(
         dev_mode=dev,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        grpc_server_addr=grpc_server_addr,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     )
 
@@ -231,10 +217,10 @@ def executor(
             server_ports=range(ports[0], ports[1]),
         ),
         server_addr=server_addr,
+        grpc_server_addr=grpc_server_addr,
         config_path=config_path,
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
-        grpc_server_addr=grpc_server_addr,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
     ).run()
 

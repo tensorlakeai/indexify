@@ -11,6 +11,7 @@ from testing import (
     executor_pid,
     test_graph_name,
     wait_executor_startup,
+    wait_function_output,
 )
 
 
@@ -62,13 +63,8 @@ class TestServerTaskDistribution(unittest.TestCase):
                 invocation_id = graph.run(block_until_done=False, sleep_secs=0)
                 invocation_ids.append(invocation_id)
 
-            # Let all the invocations finish in at least (0.02 sec * 200) = 4 seconds + 1 sec
-            # for any overheads.
-            print("Waiting 5 secs for all invocations to finish.")
-            time.sleep(5)
-
             for invocation_id in invocation_ids:
-                output = graph.output(invocation_id, "get_executor_pid")
+                output = wait_function_output(graph, invocation_id, "get_executor_pid")
                 self.assertEqual(len(output), 1)
                 executor_pid = output[0]
                 if executor_pid not in invocations_per_pid:
@@ -118,13 +114,8 @@ class TestServerTaskDistribution(unittest.TestCase):
             print(f"Started Executor A with PID: {executor_a.pid}")
             wait_executor_startup(7001)
 
-            # Let all the invocations finish in at least (0.1 sec * 200) = 20 seconds + 10 sec
-            # for any overheads.
-            print("Waiting 30 secs for all invocations to finish.")
-            time.sleep(30)
-
             for invocation_id in invocation_ids:
-                output = graph.output(invocation_id, "get_executor_pid")
+                output = wait_function_output(graph, invocation_id, "get_executor_pid")
                 self.assertEqual(len(output), 1)
                 executor_pid = output[0]
                 if executor_pid not in invocations_per_pid:
@@ -173,13 +164,8 @@ class TestServerTaskDistribution(unittest.TestCase):
     #             invocation_id = graph.run(block_until_done=False, sleep_secs=0.1)
     #             invocation_ids.append(invocation_id)
 
-    #     # Let all the invocations finish in at least (0.1 sec * 200) = 20 seconds + 10 sec
-    #     # for any overheads.
-    #     print("Waiting 30 secs for all invocations to finish.")
-    #     time.sleep(30)
-
     #     for invocation_id in invocation_ids:
-    #         output = graph.output(invocation_id, "success_func")
+    #         output = wait_function_output(graph, invocation_id, "success_func")
     #         self.assertEqual(len(output), 1)
     #         self.assertEqual(output[0], "success")
 
