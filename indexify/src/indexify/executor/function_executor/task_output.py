@@ -1,10 +1,17 @@
-from typing import Optional
+from typing import Optional, Dict
 
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     RouterOutput,
 )
 
+
+class TaskMetrics:
+    """Metrics for a task."""
+
+    def __init__(self, counters: Dict[str, int], timers: Dict[str, float]):
+        self.counters = counters
+        self.timers = timers
 
 class TaskOutput:
     """Result of running a task."""
