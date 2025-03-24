@@ -23,7 +23,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
-use tracing::{debug, info, span};
+use tracing::{debug, error, info, span, trace};
 
 pub mod in_memory_state;
 pub mod invocation_events;
@@ -174,10 +174,7 @@ impl IndexifyState {
     )]
     pub async fn write(&self, request: StateMachineUpdateRequest) -> Result<()> {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
-        debug!(
-            "writing state machine update request: {}",
-            request.payload.to_string(),
-        );
+        debug!("writing state machine update request",);
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
         let mut allocated_tasks_by_executor = Vec::new();
         let mut tasks_finalized: HashMap<ExecutorId, Vec<TaskId>> = HashMap::new();
@@ -286,39 +283,57 @@ impl IndexifyState {
                 self.gc_tx.send(()).unwrap();
                 vec![]
             }
-            RequestPayload::RegisterExecutor(request) => {
+            RequestPayload::UpsertExecutor(request) => {
+                if !self
+                    .in_memory_state
+                    .read()
+                    .await
+                    .executors
+                    .contains_key(&request.executor.id.get().to_string())
                 {
-                    let mut states = self.executor_states.write().await;
-                    let entry = states.entry(request.executor.id.clone()).or_default();
-                    entry.num_registered += 1;
-                }
+                    // Only mutating the executor_states and triggering a state change for newly
+                    // registered executors.
+                    {
+                        let mut states = self.executor_states.write().await;
+                        let entry = states.entry(request.executor.id.clone()).or_default();
+                        entry.num_registered += 1;
+                    }
 
-                state_changes::register_executor(&self.last_state_change_id, &request)
-                    .map_err(|e| anyhow!("error getting state changes {}", e))?
+                    state_changes::register_executor(&self.last_state_change_id, &request)
+                        .map_err(|e| anyhow!("error getting state changes {}", e))?
+                } else {
+                    vec![]
+                }
             }
             RequestPayload::DeregisterExecutor(request) => {
-                let new_state_changes =
-                    state_changes::tombstone_executor(&self.last_state_change_id, &request)?;
                 let removed = {
                     let mut states = self.executor_states.write().await;
                     if let Some(s) = states.get_mut(&request.executor_id) {
                         s.num_registered -= 1;
                         if s.num_registered == 0 {
+                            trace!(
+                                executor_id = request.executor_id.get(),
+                                "executor state removed"
+                            );
                             states.remove(&request.executor_id);
                             true
                         } else {
                             false
                         }
                     } else {
+                        // Executor state not found, we still trigger a tombstone state change
+                        // to ensure the executor and its tasks are removed.
+                        // This can happen if the executor was never registered after server
+                        // startup.
                         true
                     }
                 };
                 if removed {
                     info!(
-                        executor_id = request.executor_id.to_string(),
-                        "de-registering executor: {}", request.executor_id
+                        executor_id = request.executor_id.get(),
+                        "marking executor as tombstoned"
                     );
-                    new_state_changes
+                    state_changes::tombstone_executor(&self.last_state_change_id, &request)?
                 } else {
                     vec![]
                 }
@@ -350,7 +365,7 @@ impl IndexifyState {
             .write()
             .await
             .update_state(&request)
-            .map_err(|e| anyhow!("error updating in memory state: {}", e))?;
+            .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
         self.in_memory_state.read().await.emit_metrics();
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
@@ -427,42 +442,54 @@ impl IndexifyState {
     }
 }
 
-pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, _limit: usize) -> TaskStream {
+pub fn task_stream(state: Arc<IndexifyState>, executor_id: ExecutorId) -> TaskStream {
     let stream = async_stream::stream! {
-        let mut rx = state
-        .executor_states
-        .write()
-        .await
-        .entry(executor.clone())
-        .or_default()
-        .subscribe();
+        let mut rx = if let Some(rx) = state
+            .executor_states
+            .write()
+            .await
+            .get_mut(&executor_id)
+            .map(|s| s.subscribe()) {
+            rx
+        } else {
+            // Executor not found, return empty stream.
+            error!(executor_id=executor_id.get(), "executor not found, stopping task stream");
+            return;
+        };
+
         loop {
             // Copy the task_ids_sent before reading the tasks.
             // The update thread modifies tasks first and then updates task_ids_sent,
             // this thread does the opposite. This avoids sending the same task multiple times.
-            let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
-            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor.to_string());
+            let task_ids_sent = state.executor_states.read().await.get(&executor_id).map(|s| {
+                s.task_ids_sent.clone()
+            }).unwrap_or_default();
+            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor_id.to_string());
             if active_tasks.len() > 0 {
                 let state = state.clone();
                 let mut filtered_tasks = vec![];
                 {
-                    let mut executor_state = state.executor_states.write().await;
-                    let executor_s = executor_state.get_mut(&executor).unwrap();
-                    for task in &active_tasks{
-                        if !task_ids_sent.contains(&task.id) {
-                            filtered_tasks.push(task.deref().clone());
-                            executor_s.added(&vec![task.id.clone()]);
+                    if let Some(executor) = state.executor_states.write().await.get_mut(&executor_id) {
+                        for task in &active_tasks{
+                            if !task_ids_sent.contains(&task.id) {
+                                filtered_tasks.push(task.deref().clone());
+                                executor.added(&vec![task.id.clone()]);
+                            }
                         }
+                    } else {
+                        error!(executor_id=executor_id.get(), "executor removed, stopping task stream");
+                        break;
                     }
                 }
+
                 yield Ok(filtered_tasks);
             }
+
             if let Err(_) = rx.changed().await {
-                info!(executor_id=executor.get(), "executor channel closed, stopping task stream");
+                info!(executor_id=executor_id.get(), "executor channel closed, stopping task stream");
                 break;
             }
         }
-        info!(executor_id=executor.get(), "task stream stopped");
     };
 
     Box::pin(stream)
@@ -487,7 +514,7 @@ mod tests {
         CreateOrUpdateComputeGraphRequest,
         InvokeComputeGraphRequest,
         NamespaceRequest,
-        RegisterExecutorRequest,
+        UpsertExecutorRequest,
     };
     use test_state_store::TestStateStore;
     use tokio;
@@ -601,7 +628,7 @@ mod tests {
         let tx = indexify_state.db.transaction();
         let state_change_2 = state_changes::register_executor(
             &indexify_state.last_state_change_id,
-            &RegisterExecutorRequest {
+            &UpsertExecutorRequest {
                 executor: mock_executor(),
             },
         )

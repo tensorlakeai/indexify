@@ -806,7 +806,6 @@ async fn executor_tasks(
     State(state): State<RouteState>,
     Json(payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    const TASK_LIMIT: usize = 10;
     let function_allowlist: Option<Vec<data_model::FunctionURI>> =
         payload.function_allowlist.map(|function_uris| {
             function_uris
@@ -844,13 +843,14 @@ async fn executor_tasks(
             host_resources: HostResources::default(),
             state: ExecutorState::default(),
             function_executors,
+            tombstoned: false,
         })
         .await;
     if let Err(e) = err {
         error!("failed to register executor {}: {:?}", executor_id, e);
         return Err(IndexifyAPIError::internal_error_str(&e.to_string()));
     }
-    let stream = state_store::task_stream(state.indexify_state, executor_id.clone(), TASK_LIMIT);
+    let stream = state_store::task_stream(state.indexify_state, executor_id.clone());
     let executor_manager = state.executor_manager.clone();
     let stream = stream
         .map(|item| match item {

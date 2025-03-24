@@ -93,10 +93,10 @@ impl Service {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let shutdown_rx = self.shutdown_rx.clone();
-        let graph_processor = self.graph_processor.clone();
-
         let tokio_rt = tokio::runtime::Handle::current();
+
+        let graph_processor = self.graph_processor.clone();
+        let shutdown_rx = self.shutdown_rx.clone();
         // spawn the graph processor in a blocking thread
         // to avoid blocking the tokio runtime when working with
         // in-memory data structures.
@@ -104,6 +104,13 @@ impl Service {
             tokio_rt.block_on(async move {
                 graph_processor.start(shutdown_rx).await;
             });
+        });
+
+        // Spawn monitoring task with shutdown receiver
+        let monitor = self.executor_manager.clone();
+        let shutdown_rx = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            monitor.start_heartbeat_monitor(shutdown_rx).await;
         });
 
         let global_meter = opentelemetry::global::meter("server-http");

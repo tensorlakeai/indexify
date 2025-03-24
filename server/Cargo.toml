@@ -143,11 +143,13 @@ tonic = { workspace = true }
 prost = { workspace = true }
 tonic-reflection = { workspace = true }
 tokio-stream = { workspace = true }
+priority-queue = "2.3.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }
 strum = { workspace = true }
 rocksdb = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [build-dependencies]
 # All features enabled

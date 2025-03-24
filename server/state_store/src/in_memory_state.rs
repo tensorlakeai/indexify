@@ -514,11 +514,17 @@ impl InMemoryState {
                         .remove(&executor_id.get().to_string());
                 }
             }
-            RequestPayload::RegisterExecutor(req) => {
+            RequestPayload::UpsertExecutor(req) => {
                 self.executors.insert(
                     req.executor.id.get().to_string(),
                     Box::new(req.executor.clone()),
                 );
+            }
+            RequestPayload::DeregisterExecutor(req) => {
+                let executor = self.executors.get_mut(&req.executor_id.get().to_string());
+                if let Some(executor) = executor {
+                    executor.tombstoned = true;
+                }
             }
             _ => {}
         }

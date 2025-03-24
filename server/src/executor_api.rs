@@ -6,16 +6,37 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use data_model::{
-    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionExecutor,
-    FunctionExecutorStatus, FunctionURI, GpuResources, GraphVersion, HostResources,
-    NodeOutputBuilder, OutputPayload, TaskDiagnostics, TaskOutcome, TaskOutputsIngestionStatus,
+    DataPayload,
+    ExecutorId,
+    ExecutorMetadata,
+    ExecutorMetadataBuilder,
+    FunctionExecutor,
+    FunctionExecutorStatus,
+    FunctionURI,
+    GpuResources,
+    GraphVersion,
+    HostResources,
+    NodeOutputBuilder,
+    OutputPayload,
+    TaskDiagnostics,
+    TaskOutcome,
+    TaskOutputsIngestionStatus,
     TaskStatus,
 };
 use executor_api_pb::{
-    executor_api_server::ExecutorApi, AllowedFunction, DesiredExecutorState, ExecutorState,
-    ExecutorStatus, FunctionExecutorDescription, GetDesiredExecutorStatesRequest, GpuModel,
-    OutputEncoding, ReportExecutorStateRequest, ReportExecutorStateResponse,
-    ReportTaskOutcomeRequest, ReportTaskOutcomeResponse,
+    executor_api_server::ExecutorApi,
+    AllowedFunction,
+    DesiredExecutorState,
+    ExecutorState,
+    ExecutorStatus,
+    FunctionExecutorDescription,
+    GetDesiredExecutorStatesRequest,
+    GpuModel,
+    OutputEncoding,
+    ReportExecutorStateRequest,
+    ReportExecutorStateResponse,
+    ReportTaskOutcomeRequest,
+    ReportTaskOutcomeResponse,
 };
 use metrics::api_io_stats;
 use state_store::{

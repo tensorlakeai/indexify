@@ -28,9 +28,9 @@ mod tests {
             DeleteComputeGraphRequest,
             IngestTaskOutputsRequest,
             InvokeComputeGraphRequest,
-            RegisterExecutorRequest,
             RequestPayload,
             StateMachineUpdateRequest,
+            UpsertExecutorRequest,
         },
         state_machine::IndexifyObjectsColumns,
         task_stream,
@@ -1846,7 +1846,7 @@ mod tests {
 
         indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                     executor: mock_executor(),
                 }),
                 processed_state_changes: vec![],
@@ -1862,7 +1862,7 @@ mod tests {
             .active_tasks_for_executor(mock_executor_id().get());
         assert_eq!(res.len(), 1);
 
-        let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone(), 10);
+        let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone());
 
         let res = stream.next().await.unwrap()?;
         assert_eq!(res.len(), 1);

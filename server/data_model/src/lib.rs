@@ -1254,12 +1254,7 @@ pub struct ExecutorMetadata {
     pub function_executors: HashMap<String, FunctionExecutor>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
-}
-
-impl ExecutorMetadata {
-    pub fn key(&self) -> String {
-        format!("{}", self.id)
-    }
+    pub tombstoned: bool,
 }
 
 impl ExecutorMetadataBuilder {
@@ -1284,6 +1279,7 @@ impl ExecutorMetadataBuilder {
             .clone()
             .ok_or(anyhow!("host_resources is required"))?;
         let state = self.state.clone().ok_or(anyhow!("state is required"))?;
+        let tombstoned = self.tombstoned.unwrap_or(false);
         Ok(ExecutorMetadata {
             id,
             executor_version,
@@ -1293,6 +1289,7 @@ impl ExecutorMetadataBuilder {
             function_executors,
             host_resources,
             state,
+            tombstoned,
         })
     }
 }

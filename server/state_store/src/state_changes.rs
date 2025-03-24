@@ -25,7 +25,7 @@ use crate::requests::{
     DeregisterExecutorRequest,
     IngestTaskOutputsRequest,
     InvokeComputeGraphRequest,
-    RegisterExecutorRequest,
+    UpsertExecutorRequest,
 };
 
 pub fn invoke_compute_graph(
@@ -163,7 +163,7 @@ pub fn tombstone_executor(
 
 pub fn register_executor(
     last_state_change_id: &AtomicU64,
-    request: &RegisterExecutorRequest,
+    request: &UpsertExecutorRequest,
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_state_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
