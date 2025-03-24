@@ -23,8 +23,7 @@ from ..function_executor.metrics.single_task_runner import (
     metric_function_executor_run_task_rpc_latency,
     metric_function_executor_run_task_rpcs,
 )
-from ..function_executor.task_input import TaskInput
-from ..function_executor.task_output import TaskOutput
+from ..function_executor.task_output import TaskMetrics, TaskOutput
 
 # TODO: combine these metrics into a single python file once gRPC migration is over and old code is removed.
 from ..metrics.executor import (
@@ -218,6 +217,8 @@ class TaskController:
                         status=self._function_executor_state.status,
                     )
 
+        _log_function_metrics(self._output, self._logger)
+
         with (
             metric_tasks_reporting_outcome.track_inprogress(),
             metric_task_outcome_report_latency.time(),
@@ -283,6 +284,7 @@ class TaskController:
 
         timeout_sec: Optional[float] = None
         if self._task.HasField("timeout_ms"):
+            # TODO: Add integration tests with function timeout when end-to-end implementation is done.
             timeout_sec = self._task.timeout_ms / 1000.0
 
         async with _RunningTaskContextManager(
@@ -368,16 +370,17 @@ def _validate_task(task: Task) -> None:
 
 
 def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
-    required_fields = [
-        "stdout",
-        "stderr",
-        "is_reducer",
-        "success",
-    ]
+    response_validator = MessageValidator(response)
+    response_validator.required_field("stdout")
+    response_validator.required_field("stderr")
+    response_validator.required_field("is_reducer")
+    response_validator.required_field("success")
 
-    for field in required_fields:
-        if not response.HasField(field):
-            raise ValueError(f"Response is missing required field: {field}")
+    metrics = TaskMetrics(counters={}, timers={})
+    if response.HasField("metrics"):
+        # Can be None if e.g. function failed.
+        metrics.counters = dict(response.metrics.counters)
+        metrics.timers = dict(response.metrics.timers)
 
     output = TaskOutput(
         task_id=task.id,
@@ -390,6 +393,7 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
         stderr=response.stderr,
         reducer=response.is_reducer,
         success=response.success,
+        metrics=metrics,
     )
 
     if response.HasField("function_output"):
@@ -398,6 +402,27 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
         output.router_output = response.router_output
 
     return output
+
+
+# Temporary workaround is logging customer metrics until we store them somewhere
+# for future retrieval and processing.
+def _log_function_metrics(output: TaskOutput, logger: Any):
+    if output.metrics is None:
+        return
+
+    logger = logger.bind(
+        invocation_id=output.graph_invocation_id,
+        function_name=output.function_name,
+        graph_name=output.graph_name,
+        namespace=output.namespace,
+    )
+
+    for counter_name, counter_value in output.metrics.counters.items():
+        logger.info(
+            "function_metric", counter_name=counter_name, counter_value=counter_value
+        )
+    for timer_name, timer_value in output.metrics.timers.items():
+        logger.info("function_metric", timer_name=timer_name, timer_value=timer_value)
 
 
 class _RunningTaskContextManager:

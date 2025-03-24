@@ -32,7 +32,7 @@ class TaskOutput:
         reducer: bool = False,
         success: bool = False,
         is_internal_error: bool = False,
-        metrics: Optional[Dict[str, float]] = None,
+        metrics: Optional[TaskMetrics] = None,
     ):
         self.task_id = task_id
         self.namespace = namespace

@@ -334,7 +334,7 @@ async def _create_function_executor(
     """Creates a function executor.
 
     Raises Exception in case of failure.
-    Raises CustomerError customer code failed during FE creation.
+    Raises CustomerError if customer code failed during FE creation.
     """
     graph: SerializedObject = await downloader.download_graph(
         namespace=function_executor_description.namespace,
@@ -359,18 +359,26 @@ async def _create_function_executor(
         function_name=function_executor_description.function_name,
         graph=graph,
     )
+    customer_code_timeout_sec: Optional[float] = None
+    if function_executor_description.HasField("customer_code_timeout_ms"):
+        # TODO: Add integration tests with FE customer code initialization timeout
+        # when end-to-end implementation is done.
+        customer_code_timeout_sec = (
+            function_executor_description.customer_code_timeout_ms / 1000.0
+        )
 
     function_executor: FunctionExecutor = FunctionExecutor(
         server_factory=function_executor_server_factory, logger=logger
     )
 
     try:
-        # Raises CustomerError if initialization failed.
+        # Raises CustomerError if initialization failed in customer code or customer code timed out.
         await function_executor.initialize(
             config=config,
             initialize_request=initialize_request,
             base_url=base_url,
             config_path=config_path,
+            customer_code_timeout_sec=customer_code_timeout_sec,
         )
         return function_executor
     except Exception:

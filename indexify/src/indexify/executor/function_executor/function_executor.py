@@ -88,6 +88,7 @@ class FunctionExecutor:
         initialize_request: InitializeRequest,
         base_url: str,
         config_path: Optional[str],
+        customer_code_timeout_sec: Optional[float] = None,
     ):
         """Creates and initializes a FunctionExecutorServer and all resources associated with it.
 
@@ -103,7 +104,9 @@ class FunctionExecutor:
                 await self._establish_channel()
                 stub: FunctionExecutorStub = FunctionExecutorStub(self._channel)
                 await _collect_server_info(stub)
-                await _initialize_server(stub, initialize_request)
+                await _initialize_server(
+                    stub, initialize_request, customer_code_timeout_sec
+                )
                 await self._create_invocation_state_client(
                     stub=stub,
                     base_url=base_url,
@@ -293,18 +296,28 @@ async def _collect_server_info(stub: FunctionExecutorStub) -> None:
 
 
 async def _initialize_server(
-    stub: FunctionExecutorStub, initialize_request: InitializeRequest
+    stub: FunctionExecutorStub,
+    initialize_request: InitializeRequest,
+    customer_code_timeout_sec: Optional[float],
 ) -> None:
     with (
         metric_initialize_rpc_errors.count_exceptions(),
         metric_initialize_rpc_latency.time(),
     ):
-        initialize_response: InitializeResponse = await stub.initialize(
-            initialize_request
-        )
-        if initialize_response.success:
-            return
-        if initialize_response.HasField("customer_error"):
-            raise CustomerError(initialize_response.customer_error)
-        else:
-            raise Exception("initialize RPC failed at function executor server")
+        try:
+            initialize_response: InitializeResponse = await stub.initialize(
+                initialize_request,
+                timeout=customer_code_timeout_sec,
+            )
+            if initialize_response.success:
+                return
+            if initialize_response.HasField("customer_error"):
+                raise CustomerError(initialize_response.customer_error)
+            else:
+                raise Exception("initialize RPC failed at function executor server")
+        except grpc.aio.AioRpcError as e:
+            if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                raise CustomerError(
+                    f"Customer code timeout {customer_code_timeout_sec} sec expired"
+                ) from e
+            raise

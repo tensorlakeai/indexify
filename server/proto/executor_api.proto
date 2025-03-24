@@ -70,6 +70,8 @@ message FunctionExecutorDescription {
     optional string image_uri = 6;
     repeated string secret_names = 7;
     optional HostResources resource_limits = 8;
+    // Timeout for customer code duration during FE creation.
+    optional uint32 customer_code_timeout_ms = 9;
 }
 
 message FunctionExecutorState {
@@ -131,7 +133,7 @@ message Task {
     optional string graph_invocation_id = 6;
     optional string input_key = 8;
     optional string reducer_output_key = 9;
-    optional string timeout_ms = 10;
+    optional uint32 timeout_ms = 10;
 }
 
 message TaskAllocation {
