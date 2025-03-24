@@ -25,12 +25,12 @@ from .api_objects import (
 from .function_executor.task_output import TaskOutput
 from .grpc.channel_manager import ChannelManager
 from .metrics.task_reporter import (
+    metric_report_task_outcome_errors,
+    metric_report_task_outcome_latency,
+    metric_report_task_outcome_rpcs,
     metric_server_ingest_files_errors,
     metric_server_ingest_files_latency,
     metric_server_ingest_files_requests,
-    metric_report_task_outcome_rpcs,
-    metric_report_task_outcome_errors,
-    metric_report_task_outcome_latency,
 )
 
 
@@ -188,9 +188,7 @@ class TaskReporter:
             invocation_id=output.graph_invocation_id,
             executor_id=self._executor_id,
             reducer=output.reducer,
-            next_functions=(
-                output.router_output.edges if output.router_output else []
-            ),
+            next_functions=(output.router_output.edges if output.router_output else []),
             fn_outputs=fn_outputs,
             stdout=stdout,
             stderr=stderr,
@@ -199,8 +197,10 @@ class TaskReporter:
         )
         try:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
-            with (metric_report_task_outcome_latency.time(),
-                  metric_report_task_outcome_errors.count_exceptions()):
+            with (
+                metric_report_task_outcome_latency.time(),
+                metric_report_task_outcome_errors.count_exceptions(),
+            ):
                 metric_report_task_outcome_rpcs.inc()
                 await stub.report_task_outcome(request, timeout=5.0)
         except Exception as e:
