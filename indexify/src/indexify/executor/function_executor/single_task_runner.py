@@ -308,6 +308,10 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
         stderr=response.stderr,
         reducer=response.is_reducer,
         success=response.success,
+        metrics=TaskMetrics(
+            counters=response.metrics.counters,
+            timers=response.metrics.timers,
+        ),
     )
 
     if response.HasField("function_output"):

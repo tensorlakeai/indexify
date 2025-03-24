@@ -256,6 +256,9 @@ class Executor:
             )
             logger.error("task execution failed", exc_info=e)
 
+        if output.metrics is not None:
+            self.log_function_metrics(output)
+
         with (
             metric_tasks_reporting_outcome.track_inprogress(),
             metric_task_outcome_report_latency.time(),
@@ -264,6 +267,28 @@ class Executor:
             await self._report_task_outcome(output=output, logger=logger)
 
         metric_task_completion_latency.observe(time.monotonic() - start_time)
+
+    def log_function_metrics(self, output: TaskOutput):
+        for counter_name, counter_value in output.metrics.counters.items():
+            self._logger.info(
+                f"function_metric",
+                counter_name=counter_name,
+                counter_value=counter_value,
+                invocation_id=output.graph_invocation_id,
+                function_name=output.function_name,
+                graph_name=output.graph_name,
+                namespace=output.namespace,
+            )
+        for timer_name, timer_value in output.metrics.timers.items():
+            self._logger.info(
+                f"function_metric",
+                timer_name=timer_name,
+                timer_value=timer_value,
+                invocation_id=output.graph_invocation_id,
+                function_name=output.function_name,
+                graph_name=output.graph_name,
+                namespace=output.namespace,
+            )
 
     async def _run_task_and_get_output(self, task: Task, logger: Any) -> TaskOutput:
         graph: SerializedObject = await self._downloader.download_graph(
