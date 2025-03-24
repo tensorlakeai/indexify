@@ -144,6 +144,7 @@ class FunctionExecutorDescription(_message.Message):
         "image_uri",
         "secret_names",
         "resource_limits",
+        "customer_code_timeout_ms",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -153,6 +154,7 @@ class FunctionExecutorDescription(_message.Message):
     IMAGE_URI_FIELD_NUMBER: _ClassVar[int]
     SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
+    CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -161,6 +163,7 @@ class FunctionExecutorDescription(_message.Message):
     image_uri: str
     secret_names: _containers.RepeatedScalarFieldContainer[str]
     resource_limits: HostResources
+    customer_code_timeout_ms: int
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -171,6 +174,7 @@ class FunctionExecutorDescription(_message.Message):
         image_uri: _Optional[str] = ...,
         secret_names: _Optional[_Iterable[str]] = ...,
         resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
+        customer_code_timeout_ms: _Optional[int] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -297,7 +301,7 @@ class Task(_message.Message):
     graph_invocation_id: str
     input_key: str
     reducer_output_key: str
-    timeout_ms: str
+    timeout_ms: int
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -308,7 +312,7 @@ class Task(_message.Message):
         graph_invocation_id: _Optional[str] = ...,
         input_key: _Optional[str] = ...,
         reducer_output_key: _Optional[str] = ...,
-        timeout_ms: _Optional[str] = ...,
+        timeout_ms: _Optional[int] = ...,
     ) -> None: ...
 
 class TaskAllocation(_message.Message):
