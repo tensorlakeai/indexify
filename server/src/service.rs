@@ -22,6 +22,12 @@ use crate::{
     executors::ExecutorManager,
     routes::create_routes,
 };
+
+pub mod executor_api_descriptor {
+    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
+        tonic::include_file_descriptor_set!("executor_api_descriptor");
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Service {
@@ -136,17 +142,22 @@ impl Service {
         });
 
         let addr_grpc: SocketAddr = self.config.listen_addr_grpc.parse()?;
-        info!("server grpc listening on {}", self.config.listen_addr_grpc);
         let mut shutdown_rx = self.shutdown_rx.clone();
         let indexify_state = self.indexify_state.clone();
         let executor_manager = self.executor_manager.clone();
         tokio::spawn(async move {
+            info!("server grpc listening on {}", addr_grpc);
+            let reflection_service = tonic_reflection::server::Builder::configure()
+                .register_encoded_file_descriptor_set(executor_api_descriptor::FILE_DESCRIPTOR_SET)
+                .build_v1()
+                .unwrap();
             Server::builder()
                 .add_service(ExecutorApiServer::new(ExecutorAPIService::new(
                     indexify_state,
                     executor_manager,
                     api_metrics,
                 )))
+                .add_service(reflection_service)
                 .serve_with_shutdown(addr_grpc, async move {
                     shutdown_rx.changed().await.ok();
                 })
