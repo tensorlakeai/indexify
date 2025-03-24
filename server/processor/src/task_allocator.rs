@@ -13,7 +13,6 @@ use data_model::{
     TaskId,
     TaskStatus,
 };
-use im::Vector;
 use itertools::Itertools;
 use rand::seq::SliceRandom;
 use state_store::{
@@ -198,10 +197,12 @@ impl TaskAllocationProcessor {
             let executors = indexes
                 .executors
                 .iter()
+                // filter out executors that are tombstoned
+                .filter(|(_, executor)| !executor.tombstoned)
                 .filter(|(k, _)| {
                     let all_allocations = indexes.allocations_by_fn.get(*k);
                     let allocations_for_fn = all_allocations.map_or(0, |allocs| {
-                        allocs.get(&task.fn_uri()).unwrap_or(&Vector::new()).len()
+                        allocs.get(&task.fn_uri()).map_or(0, |v| v.len())
                     });
                     allocations_for_fn < MAX_ALLOCATIONS_PER_FN_EXECUTOR
                 })

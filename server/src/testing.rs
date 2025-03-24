@@ -16,9 +16,9 @@ use state_store::{
     requests::{
         DeregisterExecutorRequest,
         IngestTaskOutputsRequest,
-        RegisterExecutorRequest,
         RequestPayload,
         StateMachineUpdateRequest,
+        UpsertExecutorRequest,
     },
     state_machine::IndexifyObjectsColumns,
 };
@@ -105,7 +105,7 @@ impl TestService {
         self.service
             .indexify_state
             .write(StateMachineUpdateRequest {
-                payload: RequestPayload::RegisterExecutor(RegisterExecutorRequest {
+                payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                     executor: executor.clone(),
                 }),
                 processed_state_changes: vec![],

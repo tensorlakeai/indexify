@@ -29,7 +29,7 @@ pub enum RequestPayload {
     TombstoneComputeGraph(DeleteComputeGraphRequest),
     TombstoneInvocation(DeleteInvocationRequest),
     SchedulerUpdate(Box<SchedulerUpdateRequest>),
-    RegisterExecutor(RegisterExecutorRequest),
+    UpsertExecutor(UpsertExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
     RemoveGcUrls(Vec<String>),
     DeleteComputeGraphRequest(DeleteComputeGraphRequest),
@@ -104,7 +104,7 @@ pub struct DeleteInvocationRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct RegisterExecutorRequest {
+pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
 }
 

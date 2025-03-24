@@ -849,8 +849,8 @@ pub(crate) fn mark_state_changes_processed(
 ) -> Result<()> {
     for state_change in processed_state_changes {
         debug!(
-            "marking state change as processed: {}",
-            state_change.change_type
+            change_type = %state_change.change_type,
+            "marking state change as processed"
         );
         let key = &state_change.key();
         txn.delete_cf(

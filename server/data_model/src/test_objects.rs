@@ -319,6 +319,7 @@ pub mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             function_executors: Default::default(),
+            tombstoned: false,
         }
     }
 }
