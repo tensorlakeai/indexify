@@ -34,6 +34,8 @@ class FunctionExecutorStatus(Enum):
     SHUTDOWN = "Shutdown"  # Permanent stop state
 
 
+# TODO: After removing HTTP code simplify state transitions by not allowing to
+# startup an FE after it was destroyed. grpc protocol treats FEs as ephimeral and never revives them.
 def is_status_change_allowed(
     current_status: FunctionExecutorStatus, new_status: FunctionExecutorStatus
 ) -> bool:

@@ -79,6 +79,7 @@ class SampleSpec:
         self.value = value
 
 
+# TODO: Add tests for grpc connection manager, state reporter, state reconciler once grpc migration is done.
 class TestMetrics(unittest.TestCase):
     def test_all_expected_metrics_are_present(self):
         # See how metrics are mapped to their samples at https://prometheus.io/docs/concepts/metric_types/.

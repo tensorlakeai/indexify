@@ -107,7 +107,9 @@ class HealthChecker:
             return
 
         self._health_check_failed_callback = callback
-        self._health_check_loop_task = asyncio.create_task(self._health_check_loop())
+        self._health_check_loop_task = asyncio.create_task(
+            self._health_check_loop(), name="function executor health checker loop"
+        )
 
     def stop(self) -> None:
         """Stops the periodic health checks.
@@ -126,7 +128,10 @@ class HealthChecker:
                 break
             await asyncio.sleep(HEALTH_CHECK_POLL_PERIOD_SEC)
 
-        asyncio.create_task(self._health_check_failed_callback(result))
+        asyncio.create_task(
+            self._health_check_failed_callback(result),
+            name="function executor health check failure callback",
+        )
         self._health_check_loop_task = None
 
 

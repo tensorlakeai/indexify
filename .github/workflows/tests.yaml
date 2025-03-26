@@ -85,6 +85,7 @@ jobs:
     name: Run Acceptance Tests
     needs: [build_server, lint_python_packages]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
