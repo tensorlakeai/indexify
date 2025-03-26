@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap, sync::Arc, time::Duration, vec};
+use std::{cmp::Ordering, collections::HashMap, pin::Pin, sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
 use data_model::{Allocation, ExecutorId, ExecutorMetadata};
@@ -13,7 +13,7 @@ use state_store::{
     IndexifyState,
 };
 use tokio::{
-    sync::{watch, Notify, RwLock},
+    sync::{watch, RwLock},
     time::Instant,
 };
 use tracing::{error, trace};
@@ -36,10 +36,13 @@ impl PartialOrd for ReverseInstant {
     }
 }
 
+pub struct HeartbeatState {
+    queue: PriorityQueue<ExecutorId, ReverseInstant>,
+    sleep_future: Pin<Box<tokio::time::Sleep>>,
+}
+
 pub struct ExecutorManager {
-    heartbeat_state: RwLock<PriorityQueue<ExecutorId, ReverseInstant>>,
-    /// Used to wake the monitor only when necessary
-    notify: Arc<Notify>,
+    heartbeat_state: RwLock<HeartbeatState>,
     indexify_state: Arc<IndexifyState>,
 }
 
@@ -48,8 +51,6 @@ pub struct ExecutorManager {
 enum WaitResult {
     /// A deadline for executor heartbeat has been reached
     Deadline,
-    /// A notification about executor state has been received
-    Notified,
     /// A shutdown signal has been received
     Shutdown,
 }
@@ -58,8 +59,12 @@ impl ExecutorManager {
     pub async fn new(indexify_state: Arc<IndexifyState>) -> Self {
         let em = ExecutorManager {
             indexify_state,
-            heartbeat_state: RwLock::new(PriorityQueue::new()),
-            notify: Arc::new(Notify::new()),
+            heartbeat_state: RwLock::new(HeartbeatState {
+                queue: PriorityQueue::new(),
+                sleep_future: Box::pin(tokio::time::sleep_until(
+                    Instant::now() + Duration::from_secs(24 * 60),
+                )),
+            }),
         };
 
         em.schedule_clean_lapsed_executors();
@@ -104,28 +109,31 @@ impl ExecutorManager {
 
     /// Heartbeat an executor to keep it alive and update its metadata
     pub async fn heartbeat(&self, executor: ExecutorMetadata) -> Result<()> {
-        let first_executor = {
+        {
+            let mut heartbeat_state = self.heartbeat_state.write().await;
+
             // 1. Create new deadline
             let new_deadline = ReverseInstant(Instant::now() + EXECUTOR_TIMEOUT);
 
             trace!(executor_id = executor.id.get(), "Heartbeat received");
 
-            // 2. Acquire a write lock on the heartbeat state
-            let mut state = self.heartbeat_state.write().await;
-
-            let was_empty = state.is_empty();
-
             // 3. Update the executor's deadline or add it to the queue
-            if state.change_priority(&executor.id, new_deadline).is_none() {
-                state.push(executor.id.clone(), new_deadline);
+            if heartbeat_state
+                .queue
+                .change_priority(&executor.id, new_deadline)
+                .is_none()
+            {
+                heartbeat_state
+                    .queue
+                    .push(executor.id.clone(), new_deadline);
             }
 
-            was_empty
-        };
+            let peeked_deadline = heartbeat_state.queue.peek().map(|(_, deadline)| deadline.0);
 
-        // 4. Notify of a first executor to wake up the monitor
-        if first_executor {
-            self.notify.notify_one();
+            if new_deadline.0 < peeked_deadline.unwrap_or(Instant::now()) {
+                trace!("Monitor heartbeat updated");
+                heartbeat_state.sleep_future.as_mut().reset(new_deadline.0);
+            }
         }
 
         // 5. Register the executor to upsert its metadata
@@ -140,42 +148,28 @@ impl ExecutorManager {
 
     /// Waits for the next event in the heartbeat monitoring process
     async fn wait_for_heartbeat_event(&self, shutdown_rx: &mut watch::Receiver<()>) -> WaitResult {
+        let heartbeat_state = &mut self.heartbeat_state.write().await;
         // 1. Retrieve the next deadline from the queue
         let next_deadline = {
-            let state = self.heartbeat_state.read().await;
             // Peek at the next deadline without removing it from the queue
-            state.peek().map(|(_, deadline)| deadline.0)
+            heartbeat_state.queue.peek().map(|(_, deadline)| deadline.0)
         };
 
-        match next_deadline {
+        let next_deadline = match next_deadline {
             // 2. If there is a deadline in the queue
-            Some(deadline) => {
-                trace!(
-                    deadline = (deadline - Instant::now()).as_secs_f64(),
-                    "Waiting for next deadline"
-                );
-                tokio::select! {
-                    // 2.1 Wait until the deadline arrives
-                    _ = tokio::time::sleep_until(deadline) => WaitResult::Deadline,
+            Some(deadline) => deadline,
+            None => Instant::now() + Duration::from_secs(24 * 60),
+        };
 
-                    // 2.2 Handle early notification about executor state changes
-                    _ = self.notify.notified() => WaitResult::Notified,
+        heartbeat_state.sleep_future.as_mut().reset(next_deadline);
 
-                    // 2.3 Handle potential shutdown signal
-                    _ = shutdown_rx.changed() => WaitResult::Shutdown,
-                }
-            }
-            // 3. If no deadline is present
-            None => {
-                trace!("Waiting for notification, no deadline to wait for");
-                tokio::select! {
-                    // 3.1 Wait for a notification about executor registration
-                    _ = self.notify.notified() => WaitResult::Notified,
+        trace!("Waiting for next deadline");
+        tokio::select! {
+            // 2.1 Wait until the deadline arrives
+            _ = heartbeat_state.sleep_future.as_mut() => WaitResult::Deadline,
 
-                    // 3.2 Handle potential shutdown signal
-                    _ = shutdown_rx.changed() => WaitResult::Shutdown,
-                }
-            }
+            // 2.3 Handle potential shutdown signal
+            _ = shutdown_rx.changed() => WaitResult::Shutdown,
         }
     }
 
@@ -193,12 +187,6 @@ impl ExecutorManager {
 
                     // Wait for 1 second to batch potential subsequent executor lapsing
                     tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-
-                // Notification received - restart the loop to reprocess the next deadline
-                WaitResult::Notified => {
-                    trace!("Received notification");
-                    continue;
                 }
 
                 // Shutdown signal received - exit the loop
@@ -219,9 +207,9 @@ impl ExecutorManager {
         let mut lapsed_executors = Vec::new();
         {
             // Lock heartbeat_state briefly
-            let mut state = self.heartbeat_state.write().await;
+            let mut heartbeat_state = self.heartbeat_state.write().await;
 
-            while let Some((_, next_deadline)) = state.peek() {
+            while let Some((_, next_deadline)) = heartbeat_state.queue.peek() {
                 trace!(
                     check_lapsed_s = (next_deadline.0 - now).as_secs_f64(),
                     "Check for lapsed executor"
@@ -234,7 +222,7 @@ impl ExecutorManager {
                 }
 
                 // Remove from queue and store for later processing
-                if let Some((executor_id, deadline)) = state.pop() {
+                if let Some((executor_id, deadline)) = heartbeat_state.queue.pop() {
                     lapsed_executors.push((executor_id, deadline.0));
                 } else {
                     error!("peeked executor not found in queue");
@@ -594,24 +582,6 @@ mod tests {
                 WaitResult::Deadline => {
                     trace!("Received deadline");
                     executor_manager.process_lapsed_executors().await?;
-                }
-                WaitResult::Notified => {
-                    trace!("Got notified, only possible in test since we don't run the monitor in a separate task");
-                    match executor_manager
-                        .wait_for_heartbeat_event(&mut shutdown_rx)
-                        .await
-                    {
-                        WaitResult::Deadline => {
-                            trace!("Received deadline");
-                            executor_manager.process_lapsed_executors().await?;
-                        }
-                        WaitResult::Notified => {
-                            panic!("Expected a deadline event, not a notification")
-                        }
-                        WaitResult::Shutdown => {
-                            panic!("Expected a deadline event, not a shutdown signal")
-                        }
-                    }
                 }
                 WaitResult::Shutdown => {
                     panic!("Expected a deadline event, not a shutdown signal")
