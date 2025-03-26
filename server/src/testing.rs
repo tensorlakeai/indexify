@@ -107,6 +107,7 @@ impl TestService {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                     executor: executor.clone(),
+                    for_task_stream: true,
                 }),
                 processed_state_changes: vec![],
             })

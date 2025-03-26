@@ -106,6 +106,7 @@ pub struct DeleteInvocationRequest {
 #[derive(Debug, Clone)]
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
+    pub for_task_stream: bool,
 }
 
 #[derive(Debug, Clone)]

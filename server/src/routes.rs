@@ -834,17 +834,20 @@ async fn executor_tasks(
     }
     let err = state
         .executor_manager
-        .register_executor(data_model::ExecutorMetadata {
-            id: executor_id.clone(),
-            executor_version: payload.executor_version.clone(),
-            addr: payload.addr.clone(),
-            function_allowlist,
-            labels: payload.labels.clone(),
-            host_resources: HostResources::default(),
-            state: ExecutorState::default(),
-            function_executors,
-            tombstoned: false,
-        })
+        .register_executor(
+            data_model::ExecutorMetadata {
+                id: executor_id.clone(),
+                executor_version: payload.executor_version.clone(),
+                addr: payload.addr.clone(),
+                function_allowlist,
+                labels: payload.labels.clone(),
+                host_resources: HostResources::default(),
+                state: ExecutorState::default(),
+                function_executors,
+                tombstoned: false,
+            },
+            true,
+        )
         .await;
     if let Err(e) = err {
         error!("failed to register executor {}: {:?}", executor_id, e);
