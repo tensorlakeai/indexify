@@ -112,6 +112,9 @@ message ExecutorState {
     repeated FunctionExecutorState function_executor_states = 9;
     map<string, string> labels = 10;
     optional string state_hash = 11;
+    // Server supplied clock value of the latest desired executor state that was
+    // reconciled by Executor. Not included into state_hash.
+    optional uint64 server_clock = 12;
 }
 
 // A message sent by Executor to report its up to date state to Server.

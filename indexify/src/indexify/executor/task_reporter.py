@@ -75,7 +75,7 @@ class TaskReporter:
         self._client = get_httpx_client(config_path, make_async=False)
         self._channel_manager = channel_manager
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """Shuts down the task reporter.
 
         Task reporter stops reporting all task outcomes to the Server.
@@ -84,7 +84,7 @@ class TaskReporter:
         """
         self._is_shutdown = True
 
-    async def report(self, output: TaskOutput, logger: Any):
+    async def report(self, output: TaskOutput, logger: Any) -> None:
         """Reports result of the supplied task."""
         logger = logger.bind(module=__name__)
 

@@ -83,6 +83,7 @@ class TaskOutput:
         function_name: str,
         graph_version: str,
         graph_invocation_id: str,
+        timeout_sec: float,
     ) -> "TaskOutput":
         """Creates a TaskOutput for an function timeout error."""
         # Task stdout, stderr is not available.
@@ -93,6 +94,6 @@ class TaskOutput:
             function_name=function_name,
             graph_version=graph_version,
             graph_invocation_id=graph_invocation_id,
-            stderr="Function execution timed out.",
+            stderr=f"Function exceeded its configured timeout of {timeout_sec:.3f} sec.",
             is_internal_error=False,
         )

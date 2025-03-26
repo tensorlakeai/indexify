@@ -3,8 +3,6 @@ import hashlib
 from socket import gethostname
 from typing import Any, Dict, List, Optional
 
-import grpc
-
 from indexify.proto.executor_api_pb2 import (
     AllowedFunction,
 )
@@ -62,6 +60,7 @@ class ExecutorStateReporter:
         function_executor_states: FunctionExecutorStatesContainer,
         channel_manager: ChannelManager,
         logger: Any,
+        reporting_interval_sec: int = _REPORTING_INTERVAL_SEC,
     ):
         self._executor_id: str = executor_id
         self._flavor: ExecutorFlavor = flavor
@@ -74,21 +73,28 @@ class ExecutorStateReporter:
         )
         self._channel_manager = channel_manager
         self._logger: Any = logger.bind(module=__name__)
+        self._reporting_interval_sec: int = reporting_interval_sec
+
         self._is_shutdown: bool = False
         self._executor_status: ExecutorStatus = ExecutorStatus.EXECUTOR_STATUS_UNKNOWN
         self._allowed_functions: List[AllowedFunction] = _to_grpc_allowed_functions(
             function_allowlist
         )
         self._labels.update(_label_values_to_strings(RuntimeProbes().probe().labels))
+        self._last_server_clock: Optional[int] = None
 
     def update_executor_status(self, value: ExecutorStatus):
         self._executor_status = value
+
+    def update_last_server_clock(self, value: int):
+        self._last_server_clock = value
 
     async def run(self):
         """Runs the state reporter.
 
         Never raises any exceptions.
         """
+        # TODO: Move this into a new async task and cancel it in shutdown().
         while not self._is_shutdown:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
             while not self._is_shutdown:
@@ -98,7 +104,7 @@ class ExecutorStateReporter:
                     # for all RPCs that we do from Executor to Server. So all the RPCs benefit
                     # from this channel health monitoring.
                     await self.report_state(stub)
-                    await asyncio.sleep(_REPORTING_INTERVAL_SEC)
+                    await asyncio.sleep(self._reporting_interval_sec)
                 except Exception as e:
                     self._logger.error(
                         f"Failed to report state to the server, reconnecting in {_REPORT_BACKOFF_ON_ERROR_SEC} sec.",
@@ -132,11 +138,20 @@ class ExecutorStateReporter:
                 labels=self._labels,
             )
             state.state_hash = _state_hash(state)
+            if self._last_server_clock is not None:
+                state.server_clock = self._last_server_clock
 
             await stub.report_executor_state(
                 ReportExecutorStateRequest(executor_state=state),
                 timeout=_REPORT_RPC_TIMEOUT_SEC,
             )
+
+    async def shutdown(self):
+        """Shuts down the state reporter.
+
+        Never raises any exceptions.
+        """
+        self._is_shutdown = True
 
     async def _fetch_free_host_resources(self) -> HostResources:
         # TODO: Implement host resource metrics reporting.
@@ -176,13 +191,6 @@ class ExecutorStateReporter:
             states.append(function_executor_state_proto)
 
         return states
-
-    async def shutdown(self):
-        """Shuts down the state reporter.
-
-        Never raises any exceptions.
-        """
-        self._is_shutdown = True
 
 
 def _to_grpc_allowed_functions(function_allowlist: Optional[List[FunctionURI]]):
