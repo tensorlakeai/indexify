@@ -318,6 +318,6 @@ async def _initialize_server(
         except grpc.aio.AioRpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
                 raise CustomerError(
-                    f"Customer code timeout {customer_code_timeout_sec} sec expired"
+                    f"Customer code timeout of {customer_code_timeout_sec:.3f} sec expired"
                 ) from e
             raise

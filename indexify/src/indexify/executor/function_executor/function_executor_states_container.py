@@ -54,6 +54,11 @@ class FunctionExecutorStatesContainer:
 
             return self._states[id]
 
+    async def get(self, id: str) -> FunctionExecutorState:
+        """Get the state with the given ID. Raises Exception if the state does not exist."""
+        async with self._lock:
+            return self._states[id]
+
     async def __aiter__(self) -> AsyncGenerator[FunctionExecutorState, None]:
         async with self._lock:
             for state in self._states.values():

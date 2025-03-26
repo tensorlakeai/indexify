@@ -1,42 +1,49 @@
 import asyncio
-from typing import Any, AsyncGenerator, List, Optional, Set
+from typing import Any, AsyncGenerator, Dict, Iterable, List, Optional, Set
 
-import grpc
-from tensorlake.function_executor.proto.function_executor_pb2 import (
-    InitializeRequest,
-    SerializedObject,
-)
+from tensorlake.function_executor.proto.message_validator import MessageValidator
 
 from indexify.proto.executor_api_pb2 import (
     DesiredExecutorState,
     FunctionExecutorDescription,
-    FunctionExecutorStatus,
+)
+from indexify.proto.executor_api_pb2 import (
+    FunctionExecutorStatus as FunctionExecutorStatusProto,
+)
+from indexify.proto.executor_api_pb2 import (
     GetDesiredExecutorStatesRequest,
+    TaskAllocation,
 )
 from indexify.proto.executor_api_pb2_grpc import (
     ExecutorAPIStub,
 )
 
 from ..downloader import Downloader
-from ..function_executor.function_executor import CustomerError, FunctionExecutor
 from ..function_executor.function_executor_state import FunctionExecutorState
 from ..function_executor.function_executor_states_container import (
     FunctionExecutorStatesContainer,
 )
+from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..function_executor.server.function_executor_server_factory import (
-    FunctionExecutorServerConfiguration,
     FunctionExecutorServerFactory,
-)
-from ..function_executor.task_input import TaskInput
-from ..function_executor.task_output import TaskOutput
-from ..metrics.executor import (
-    metric_tasks_fetched,
 )
 from ..task_reporter import TaskReporter
 from .channel_manager import ChannelManager
+from .function_executor_controller import (
+    FunctionExecutorController,
+    function_executor_logger,
+    validate_function_executor_description,
+)
+from .metrics.state_reconciler import (
+    metric_state_reconciliation_errors,
+    metric_state_reconciliation_latency,
+    metric_state_reconciliations,
+)
 from .state_reporter import ExecutorStateReporter
+from .task_controller import TaskController, task_logger, validate_task
 
 _RECONCILE_STREAM_BACKOFF_INTERVAL_SEC = 5
+_RECONCILIATION_RETRIES = 3
 
 
 class ExecutorStateReconciler:
@@ -61,27 +68,45 @@ class ExecutorStateReconciler:
         self._config_path: Optional[str] = config_path
         self._downloader: Downloader = downloader
         self._task_reporter: TaskReporter = task_reporter
+        self._channel_manager: ChannelManager = channel_manager
+        self._state_reporter: ExecutorStateReporter = state_reporter
+        self._reconciliation_loop_task: Optional[asyncio.Task] = None
+        self._logger: Any = logger.bind(module=__name__)
+
+        # Mutable state. Doesn't need lock because we access from async tasks running in the same thread.
+        self._is_shutdown: bool = False
         self._function_executor_states: FunctionExecutorStatesContainer = (
             function_executor_states
         )
-        self._channel_manager: ChannelManager = channel_manager
-        self._state_reporter: ExecutorStateReporter = state_reporter
-        self._logger: Any = logger.bind(module=__name__)
-        self._is_shutdown: bool = False
-        self._server_last_clock: Optional[int] = None
+        self._function_executor_controllers: Dict[str, FunctionExecutorController] = {}
+        self._task_controllers: Dict[str, TaskController] = {}
+        self._last_server_clock: Optional[int] = None
+
+        self._last_desired_state_lock = asyncio.Lock()
+        self._last_desired_state_change_notifier: asyncio.Condition = asyncio.Condition(
+            lock=self._last_desired_state_lock
+        )
+        self._last_desired_state: Optional[DesiredExecutorState] = None
 
     async def run(self):
         """Runs the state reconciler.
 
         Never raises any exceptions.
         """
+        self._reconciliation_loop_task = asyncio.create_task(
+            self._reconciliation_loop(),
+            name="state reconciler reconciliation loop",
+        )
+
+        # TODO: Move this into a new async task and cancel it in shutdown().
         while not self._is_shutdown:
             stub = ExecutorAPIStub(await self._channel_manager.get_channel())
             while not self._is_shutdown:
                 try:
                     # Report state once before starting the stream so Server
-                    # doesn't use old state it knew about this Executor in the past.
+                    # doesn't use stale state it knew about this Executor in the past.
                     await self._state_reporter.report_state(stub)
+
                     desired_states_stream: AsyncGenerator[
                         DesiredExecutorState, None
                     ] = stub.get_desired_executor_states(
@@ -96,8 +121,6 @@ class ExecutorStateReconciler:
                     await asyncio.sleep(_RECONCILE_STREAM_BACKOFF_INTERVAL_SEC)
                     break
 
-        self._logger.info("State reconciler shutdown.")
-
     async def _process_desired_states_stream(
         self, desired_states: AsyncGenerator[DesiredExecutorState, None]
     ):
@@ -106,18 +129,26 @@ class ExecutorStateReconciler:
                 return
 
             new_state: DesiredExecutorState
-            if self._server_last_clock is not None:
-                if self._server_last_clock >= new_state.clock:
+            validator: MessageValidator = MessageValidator(new_state)
+            try:
+                validator.required_field("clock")
+            except ValueError as e:
+                self._logger.error(
+                    "Received invalid DesiredExecutorState from Server. Ignoring.",
+                    exc_info=e,
+                )
+                continue
+
+            if self._last_server_clock is not None:
+                if self._last_server_clock >= new_state.clock:
                     continue  # Duplicate or outdated message state sent by Server.
 
-            self._server_last_clock = new_state.clock
-            await self._reconcile_state(new_state)
-
-    async def _reconcile_state(self, new_state: DesiredExecutorState):
-        # TODO: use completed_tasks_container to ignore tasks that were already completed.
-        await self._reconcile_function_executors(new_state)
-        # TODO
-        # await self._reconcile_task_allocations(new_state)
+            self._last_server_clock = new_state.clock
+            # Always read the latest desired state value from the stream so
+            # we're never acting on stale desired states.
+            async with self._last_desired_state_lock:
+                self._last_desired_state = new_state
+                self._last_desired_state_change_notifier.notify_all()
 
     async def shutdown(self):
         """Shuts down the state reconciler.
@@ -125,188 +156,279 @@ class ExecutorStateReconciler:
         Never raises any exceptions.
         """
         self._is_shutdown = True
+        if self._reconciliation_loop_task is not None:
+            self._reconciliation_loop_task.cancel()
+            self._logger.info("Reconciliation loop shutdown.")
 
-    async def _reconcile_function_executors(self, desired_state: DesiredExecutorState):
-        desired_function_executor_ids: Set[str] = set()
-        for desired_function_executor in desired_state.function_executors:
-            desired_function_executor: FunctionExecutorDescription
-            desired_function_executor_ids.add(desired_function_executor.id)
+        for controller in self._task_controllers.values():
+            await controller.destroy()
+        # FEs are destroyed in executor.py right now.
+        # TODO: Once HTTP loop is removed add all FE state and controllers
+        # shutdown logic here. This should allow us to get rid of hacky
+        # "cancel all tasks loop" in executor.py shutdown and make the shutdown
+        # much more controllable and clean. E.g. we would be able to remove logs
+        # suppression from shutdown logic. Also need to shutdown self._function_executor_controllers.
 
-            function_executor_state: FunctionExecutorState = (
-                self._function_executor_states.get_or_create_state(
-                    id=desired_function_executor.id,
-                    namespace=desired_function_executor.namespace,
-                    graph_name=desired_function_executor.graph_name,
-                    graph_version=desired_function_executor.graph_version,
-                    function_name=desired_function_executor.function_name,
-                    image_uri=desired_function_executor.image_uri,
-                    secret_names=list(desired_function_executor.secret_names),
-                )
-            )
+    async def _reconciliation_loop(self):
+        last_reconciled_state: Optional[DesiredExecutorState] = None
+        while not self._is_shutdown:
+            async with self._last_desired_state_lock:
+                # Comparing object identities (references) is enough here to not reconcile
+                # the same state twice.
+                while self._last_desired_state is last_reconciled_state:
+                    await self._last_desired_state_change_notifier.wait()
+                last_reconciled_state = self._last_desired_state
 
-            async with function_executor_state.lock:
-                if (
-                    function_executor_state.status
-                    == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STOPPED
-                ):
-                    function_executor_state.status = (
-                        FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTING_UP
-                    )
-                    try:
-                        function_executor_state.function_executor = (
-                            await self._create_function_executor()
-                        )
-                        function_executor_state.status = (
-                            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_IDLE
-                        )
-                    except CustomerError as e:
-                        function_executor_state.status = (
-                            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR
-                        )
-                    except Exception as e:
-                        function_executor_state.status = (
-                            FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR
-                        )
-                        self._logger.error(
-                            f"Failed to create Function Executor", exc_info=e
-                        )
-
-        function_executor_state_ids_to_destroy: List[str] = []
-        async for function_executor_state in self._function_executor_states:
-            function_executor_state: FunctionExecutorState
-            if function_executor_state.id not in desired_function_executor_ids:
-                function_executor_state_ids_to_destroy.append(
-                    function_executor_state.id
+            with metric_state_reconciliation_latency.time():
+                metric_state_reconciliations.inc()
+                await self._reconcile_state(last_reconciled_state)
+                self._state_reporter.update_last_server_clock(
+                    last_reconciled_state.clock
                 )
 
-        for function_executor_state_id in function_executor_state_ids_to_destroy:
-            function_executor_state: FunctionExecutorState = (
-                self._function_executor_states.pop_state(function_executor_state_id)
-            )
-            async with function_executor_state.lock:
-                logger = self._function_executor_logger(
-                    id=function_executor_state.id,
-                    namespace=function_executor_state.namespace,
-                    graph_name=function_executor_state.graph_name,
-                    graph_version=function_executor_state.graph_version,
-                    function_name=function_executor_state.function_name,
-                )
-                if (
-                    function_executor_state.status
-                    == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_RUNNING_TASK
-                ):
-                    logger.warning(
-                        "Destroying Function Executor that is running a task. No task output will be reported as this is expected by the Server."
-                    )
-                function_executor_state.status = (
-                    FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STOPPING
-                )
-                await function_executor_state.destroy_function_executor()
-                function_executor_state.status = (
-                    FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STOPPED
-                )
+    async def _reconcile_state(self, desired_state: DesiredExecutorState):
+        """Reconciles the desired state with the current state.
 
-    async def _create_function_executor(
-        self, description: FunctionExecutorDescription
-    ) -> FunctionExecutor:
-        logger = self._function_executor_logger(
-            id=description.id,
-            namespace=description.namespace,
-            graph_name=description.graph_name,
-            graph_version=description.graph_version,
-            function_name=description.function_name,
-        )
-        graph: SerializedObject = await self._downloader.download_graph(
-            namespace=description.namespace,
-            graph_name=description.graph_name,
-            graph_version=description.graph_version,
-            logger=logger,
-        )
-        function_executor: FunctionExecutor = FunctionExecutor(
-            server_factory=self._function_executor_server_factory, logger=logger
-        )
-        config: FunctionExecutorServerConfiguration = (
-            FunctionExecutorServerConfiguration(
-                executor_id=self._executor_id,
-                function_executor_id=description.id,
-                namespace=description.namespace,
-                image_uri=description.image_uri,
-                secret_names=list(description.secret_names),
-            )
-        )
-        initialize_request: InitializeRequest = InitializeRequest(
-            namespace=description.namespace,
-            graph_name=description.graph_name,
-            graph_version=description.graph_version,
-            function_name=description.function_name,
-            graph=graph,
-        )
-
-        try:
-            await function_executor.initialize(
-                config=config,
-                initialize_request=initialize_request,
-                base_url=self._base_url,
-                config_path=self._config_path,
-            )
-            return function_executor
-        except Exception:
-            await function_executor.destroy()
-            raise
-
-    async def _cancel_running_tasks(
-        self, function_executor_state: FunctionExecutorState
-    ):
-        pass
-
-    def _function_executor_logger(
-        self,
-        id: str,
-        namespace: str,
-        graph_name: str,
-        graph_version: str,
-        function_name: str,
-    ) -> Any:
-        return self._logger.bind(
-            id=id,
-            namespace=namespace,
-            graph=graph_name,
-            graph_version=graph_version,
-            function_name=function_name,
-        )
-
-    async def _report_task_outcome(self, task_output: TaskOutput):
-        """Reports the task with the given output to the server.
-
-        Doesn't raise any Exceptions. Runs till the reporting is successful."""
-        reporting_retries: int = 0
-
-        while True:
-            logger = logger.bind(retries=reporting_retries)
+        Doesn't raise any exceptions. Logs all errors for future investigation becase the gRPC protocol
+        doesn't allow us to return errors to the Server if it supplied invalid messages.
+        """
+        for attempt in range(_RECONCILIATION_RETRIES):
             try:
-                await self._task_reporter.report(
-                    data_payload=task_output, logger=logger
+                # Reconcile FEs first because Tasks depend on them.
+                await self._reconcile_function_executors(
+                    desired_state.function_executors
                 )
-                break
+                await self._reconcile_tasks(desired_state.task_allocations)
+                return
             except Exception as e:
-                logger.error(
-                    "failed to report task",
+                self._logger.error(
+                    "Failed to reconcile desired state. Retrying in 5 secs.",
                     exc_info=e,
+                    attempt=attempt,
+                    attempts_left=_RECONCILIATION_RETRIES - attempt,
                 )
-                reporting_retries += 1
-                metric_task_outcome_report_retries.inc()
                 await asyncio.sleep(5)
 
-        metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ALL).inc()
-        if task_output.is_internal_error:
-            metric_tasks_completed.labels(
-                outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM
-            ).inc()
-        elif task_output.success:
-            metric_tasks_completed.labels(
-                outcome=METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS
-            ).inc()
-        else:
-            metric_tasks_completed.labels(
-                outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE
-            ).inc()
+        metric_state_reconciliation_errors.inc()
+        self._logger.error(
+            f"Failed to reconcile desired state after {_RECONCILIATION_RETRIES} attempts.",
+        )
+
+    async def _reconcile_function_executors(
+        self, function_executor_descriptions: Iterable[FunctionExecutorDescription]
+    ):
+        valid_fe_descriptions: List[FunctionExecutorDescription] = (
+            self._valid_function_executor_descriptions(function_executor_descriptions)
+        )
+        for fe_description in valid_fe_descriptions:
+            await self._reconcile_function_executor(fe_description)
+
+        seen_fe_ids: Set[str] = set(map(lambda fe: fe.id, valid_fe_descriptions))
+        fe_ids_to_remove = set(self._function_executor_controllers.keys()) - seen_fe_ids
+        for function_executor_id in fe_ids_to_remove:
+            # Remove the controller before FE shutdown completes so we won't attempt to do it
+            # again on the next reconciliations.
+            await self._function_executor_controllers.pop(
+                function_executor_id
+            ).shutdown()
+            # Schedule removal of the FE state after shutdown. This is required for Server
+            # to known when exactly FE resources are freed so it can put a replacement FE if needed.
+            # Running in a separate asyncio task because this will block until the shutdown is complete.
+            asyncio.create_task(
+                self._remove_function_executor_after_shutdown(function_executor_id),
+                name="Remove Function Executor after shutdown",
+            )
+
+    def _valid_function_executor_descriptions(
+        self, function_executor_descriptions: Iterable[FunctionExecutorDescription]
+    ):
+        valid_function_executor_descriptions: List[FunctionExecutorDescription] = []
+        for function_executor_description in function_executor_descriptions:
+            function_executor_description: FunctionExecutorDescription
+            logger = function_executor_logger(
+                function_executor_description, self._logger
+            )
+
+            try:
+                validate_function_executor_description(function_executor_description)
+            except ValueError as e:
+                logger.error(
+                    "Received invalid FunctionExecutorDescription from Server. Dropping it from desired state.",
+                    exc_info=e,
+                )
+                continue
+
+            valid_function_executor_descriptions.append(function_executor_description)
+
+        return valid_function_executor_descriptions
+
+    async def _reconcile_function_executor(
+        self, function_executor_description: FunctionExecutorDescription
+    ):
+        """Reconciles a single Function Executor with the desired state.
+
+        Doesn't block on any long running operations. Doesn't raise any exceptions.
+        """
+        if function_executor_description.id not in self._function_executor_controllers:
+            await self._create_function_executor(function_executor_description)
+
+    async def _create_function_executor(
+        self, function_executor_description: FunctionExecutorDescription
+    ) -> None:
+        """Creates Function Executor for the supplied description.
+
+        Doesn't block on any long running operations. Doesn't raise any exceptions.
+        """
+        logger = function_executor_logger(function_executor_description, self._logger)
+        try:
+            # TODO: Store FE description in FE state object once we migrate to gRPC State Reconciler.
+            # Then most of these parameters will be removed. Also remove the container and use a simple
+            # Dict once FE shutdown logic is moved into reconciler.
+            function_executor_state: FunctionExecutorState = (
+                await self._function_executor_states.get_or_create_state(
+                    id=function_executor_description.id,
+                    namespace=function_executor_description.namespace,
+                    graph_name=function_executor_description.graph_name,
+                    graph_version=function_executor_description.graph_version,
+                    function_name=function_executor_description.function_name,
+                    image_uri=(
+                        function_executor_description.image_uri
+                        if function_executor_description.HasField("image_uri")
+                        else None
+                    ),
+                    secret_names=list(function_executor_description.secret_names),
+                )
+            )
+            controller: FunctionExecutorController = FunctionExecutorController(
+                executor_id=self._executor_id,
+                function_executor_state=function_executor_state,
+                function_executor_description=function_executor_description,
+                function_executor_server_factory=self._function_executor_server_factory,
+                downloader=self._downloader,
+                base_url=self._base_url,
+                config_path=self._config_path,
+                logger=self._logger,
+            )
+            self._function_executor_controllers[function_executor_description.id] = (
+                controller
+            )
+            # Ask the controller to create the new FE. Task controllers will notice that the FE is eventually
+            # IDLE and start running tasks on it. Server currently doesn't explicitly manage the desired FE status.
+            await controller.startup()
+        except Exception as e:
+            logger.error("Failed adding Function Executor", exc_info=e)
+
+    async def _remove_function_executor_after_shutdown(
+        self, function_executor_id: str
+    ) -> None:
+        fe_state: FunctionExecutorState = await self._function_executor_states.get(
+            function_executor_id
+        )
+        async with fe_state.lock:
+            await fe_state.wait_status(allowlist=[FunctionExecutorStatus.SHUTDOWN])
+        # The whole reconciler could shutdown while we were waiting for the FE to shutdown.
+        if not self._is_shutdown:
+            await self._function_executor_states.pop(function_executor_id)
+
+    async def _reconcile_tasks(self, task_allocations: Iterable[TaskAllocation]):
+        valid_task_allocations: List[TaskAllocation] = self._valid_task_allocations(
+            task_allocations
+        )
+        for task_allocation in valid_task_allocations:
+            await self._reconcile_task(task_allocation)
+
+        seen_task_ids: Set[str] = set(
+            map(lambda task_allocation: task_allocation.task.id, valid_task_allocations)
+        )
+        task_ids_to_remove = set(self._task_controllers.keys()) - seen_task_ids
+        for task_id in task_ids_to_remove:
+            await self._remove_task(task_id)
+
+    async def _reconcile_task(self, task_allocation: TaskAllocation):
+        """Reconciles a single TaskAllocation with the desired state.
+
+        Doesn't raise any exceptions.
+        """
+        if task_allocation.task.id in self._task_controllers:
+            # Nothing to do, task allocation already exists and it's immutable.
+            return
+
+        logger = self._task_allocation_logger(task_allocation)
+        try:
+            function_executor_state: FunctionExecutorState = (
+                await self._function_executor_states.get(
+                    task_allocation.function_executor_id
+                )
+            )
+            self._task_controllers[task_allocation.task.id] = TaskController(
+                task=task_allocation.task,
+                downloader=self._downloader,
+                task_reporter=self._task_reporter,
+                function_executor_id=task_allocation.function_executor_id,
+                function_executor_state=function_executor_state,
+                logger=self._logger,
+            )
+        except Exception as e:
+            logger.error("Failed adding TaskController", exc_info=e)
+
+    async def _remove_task(self, task_id: str) -> None:
+        """Schedules removal of an existing task.
+
+        Doesn't block on any long running operations. Doesn't raise any exceptions.
+        """
+        await self._task_controllers.pop(task_id).destroy()
+
+    def _valid_task_allocations(self, task_allocations: Iterable[TaskAllocation]):
+        valid_task_allocations: List[TaskAllocation] = []
+        for task_allocation in task_allocations:
+            task_allocation: TaskAllocation
+            logger = self._task_allocation_logger(task_allocation)
+
+            try:
+                validate_task(task_allocation.task)
+            except ValueError as e:
+                # There's no way to report this error to Server so just log it.
+                logger.error(
+                    "Received invalid TaskAllocation from Server. Dropping it from desired state.",
+                    exc_info=e,
+                )
+                continue
+
+            validator = MessageValidator(task_allocation)
+            try:
+                validator.required_field("function_executor_id")
+            except ValueError as e:
+                # There's no way to report this error to Server so just log it.
+                logger.error(
+                    "Received invalid TaskAllocation from Server. Dropping it from desired state.",
+                    exc_info=e,
+                )
+                continue
+
+            if (
+                task_allocation.function_executor_id
+                not in self._function_executor_controllers
+            ):
+                # Current policy: don't report task outcomes for tasks that didn't run.
+                # This is required to simplify the protocol so Server doesn't need to care about task states.
+                logger.error(
+                    "Received TaskAllocation for a Function Executor that doesn't exist. Dropping it from desired state."
+                )
+                continue
+
+            valid_task_allocations.append(task_allocation)
+
+        return valid_task_allocations
+
+    def _task_allocation_logger(self, task_allocation: TaskAllocation) -> Any:
+        """Returns a logger for the given TaskAllocation.
+
+        Doesn't assume that the supplied TaskAllocation is valid.
+        """
+        return task_logger(task_allocation.task, self._logger).bind(
+            function_executor_id=(
+                task_allocation.function_executor_id
+                if task_allocation.HasField("function_executor_id")
+                else None
+            )
+        )

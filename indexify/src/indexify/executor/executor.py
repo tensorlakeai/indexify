@@ -189,12 +189,15 @@ class Executor:
                 signum, self.shutdown, asyncio.get_event_loop()
             )
 
-        asyncio.get_event_loop().create_task(self._monitoring_server.run())
-        if self._state_reporter is not None:
-            self._state_reporter.update_executor_status(
-                ExecutorStatus.EXECUTOR_STATUS_RUNNING
-            )
-            asyncio.get_event_loop().create_task(self._state_reporter.run())
+        asyncio.get_event_loop().create_task(
+            self._monitoring_server.run(), name="monitoring server runner"
+        )
+        self._state_reporter.update_executor_status(
+            ExecutorStatus.EXECUTOR_STATUS_RUNNING
+        )
+        asyncio.get_event_loop().create_task(
+            self._state_reporter.run(), name="state reporter runner"
+        )
 
         metric_executor_state.state("running")
         self._startup_probe_handler.set_ready()
@@ -215,7 +218,6 @@ class Executor:
         """Runs the gRPC state reconciler and state reporter.
 
         Never raises any exceptions."""
-        asyncio.create_task(self._state_reporter.run())
         await self._state_reconciler.run()
 
     async def _http_task_runner_loop(self):
@@ -224,7 +226,9 @@ class Executor:
                 async for task in self._task_fetcher.run():
                     metric_tasks_fetched.inc()
                     if not self._is_shutdown:
-                        asyncio.create_task(self._run_task(task))
+                        asyncio.create_task(
+                            self._run_task(task), name="task runner (http mode)"
+                        )
                 self._logger.info("fetching tasks finished, reconnecting in 5 seconds")
             except Exception as e:
                 self._logger.error(
@@ -382,12 +386,12 @@ class Executor:
         if self._task_runner is not None:
             await self._task_runner.shutdown()
 
-        if self._channel_manager is not None:
-            await self._channel_manager.shutdown()
         if self._state_reporter is not None:
             await self._state_reporter.shutdown()
         if self._state_reconciler is not None:
             await self._state_reconciler.shutdown()
+        if self._channel_manager is not None:
+            await self._channel_manager.destroy()
 
         # We need to shutdown all users of FE states first,
         # otherwise states might disappear unexpectedly and we might
@@ -399,7 +403,7 @@ class Executor:
         # The current task is cancelled, the code after this line will not run.
 
     def shutdown(self, loop):
-        loop.create_task(self._shutdown(loop))
+        loop.create_task(self._shutdown(loop), name="executor shutdown")
 
     def _task_logger(self, task: Task) -> Any:
         return self._logger.bind(

@@ -1,5 +1,4 @@
 import asyncio
-import time
 from typing import Any, Optional
 
 import grpc
@@ -16,6 +15,7 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.proto.executor_api_pb2 import Task
 
 from ..downloader import Downloader
+from ..function_executor.function_executor import FunctionExecutor
 from ..function_executor.function_executor_state import FunctionExecutorState
 from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..function_executor.metrics.single_task_runner import (
@@ -36,10 +36,10 @@ from ..metrics.executor import (
     metric_task_outcome_report_retries,
     metric_task_outcome_reports,
     metric_tasks_completed,
+    metric_tasks_fetched,
     metric_tasks_reporting_outcome,
 )
 from ..metrics.task_runner import (
-    metric_task_policy_errors,
     metric_task_policy_latency,
     metric_task_policy_runs,
     metric_task_run_latency,
@@ -50,191 +50,181 @@ from ..metrics.task_runner import (
     metric_tasks_running,
 )
 from ..task_reporter import TaskReporter
-from .completed_tasks_container import CompletedTasksContainer
+from .metrics.task_controller import metric_task_cancellations
 
 _TASK_OUTCOME_REPORT_BACKOFF_SEC = 5.0
 
 
-class FunctionTimeoutError(Exception):
-    """Exception raised when a customer's task execution exceeds the allowed timeout."""
+def validate_task(task: Task) -> None:
+    """Validates the supplied Task.
 
-    def __init__(self, message: str):
-        super().__init__(message)
+    Raises ValueError if the Task is not valid.
+    """
+    validator = MessageValidator(task)
+    validator.required_field("id")
+    validator.required_field("namespace")
+    validator.required_field("graph_name")
+    validator.required_field("graph_version")
+    validator.required_field("function_name")
+    validator.required_field("graph_invocation_id")
+    validator.required_field("input_key")
+
+
+def task_logger(task: Task, logger: Any) -> Any:
+    """Returns a logger bound with the task's metadata.
+
+    The function assumes that the task might be invalid."""
+    return logger.bind(
+        task_id=task.id if task.HasField("id") else None,
+        namespace=task.namespace if task.HasField("namespace") else None,
+        graph_name=task.graph_name if task.HasField("graph_name") else None,
+        graph_version=task.graph_version if task.HasField("graph_version") else None,
+        function_name=task.function_name if task.HasField("function_name") else None,
+        graph_invocation_id=(
+            task.graph_invocation_id if task.HasField("graph_invocation_id") else None
+        ),
+    )
 
 
 class TaskController:
     def __init__(
         self,
         task: Task,
-        function_executor_state: FunctionExecutorState,
         downloader: Downloader,
         task_reporter: TaskReporter,
-        completed_tasks_container: CompletedTasksContainer,
+        function_executor_id: str,
+        function_executor_state: FunctionExecutorState,
         logger: Any,
     ):
         """Creates a new TaskController instance.
 
-        Raises ValueError if the supplied Task is not valid.
+        The supplied Task must be already validated by the caller using validate_task().
         """
-        _validate_task(task)
         self._task: Task = task
-        self._function_executor_state: FunctionExecutorState = function_executor_state
         self._downloader: Downloader = downloader
         self._task_reporter: TaskReporter = task_reporter
-        self._completed_tasks_container: CompletedTasksContainer = (
-            completed_tasks_container
-        )
-        self._logger: Any = logger.bind(
-            function_executor_id=function_executor_state.id,
-            task_id=task.id,
+        self._function_executor_id: str = function_executor_id
+        self._function_executor_state: FunctionExecutorState = function_executor_state
+        self._logger: Any = task_logger(task, logger).bind(
+            function_executor_id=function_executor_id,
             module=__name__,
-            namespace=task.namespace,
-            graph_name=task.graph_name,
-            graph_version=task.graph_version,
-            function_name=task.function_name,
-            invocation_id=task.graph_invocation_id,
         )
-        self._is_running: bool = False
-        self._is_cancelled: bool = False
+
         self._input: Optional[SerializedObject] = None
         self._init_value: Optional[SerializedObject] = None
-        self._output: Optional[TaskOutput] = None
+        self._is_timed_out: bool = False
+        # Automatically start the controller on creation.
+        self._task_runner: asyncio.Task = asyncio.create_task(
+            self._run(), name="task controller task runner"
+        )
 
-    async def cancel_task(self) -> None:
-        """Cancells the task."""
-        self._is_cancelled = True
+    def function_executor_id(self) -> str:
+        return self._function_executor_id
 
-        async with self._function_executor_state.lock:
-            if not self._is_running:
-                return
+    def task(self) -> Task:
+        return self._task
 
-            # Mark the Function Executor as unhealthy to destroy it to cancel the running function.
-            # If FE status changed, then it means that we're off normal task execution path, e.g.
-            # Server decided to do something with FE.
-            if (
-                self._function_executor_state.status
-                == FunctionExecutorStatus.RUNNING_TASK
-            ):
-                # TODO: Add a separate FE status for cancelled function so we don't lie to server that FE is unhealthy to destroy it.
-                await self._function_executor_state.set_status(
-                    FunctionExecutorStatus.UNHEALTHY,
-                )
-                self._logger.warning("task is cancelled")
-            else:
-                self._logger.warning(
-                    "skipping marking Function Executor unhealthy on task cancellation due to unexpected FE status",
-                    status=self._function_executor_state.status.name,
-                )
+    async def destroy(self) -> None:
+        """Destroys the controller and cancells the task if it didn't finish yet.
 
-    async def run_task(self) -> None:
+        A running task is cancelled by destroying its Function Executor.
+        Doesn't raise any exceptions.
+        """
+        if self._task_runner.done():
+            return  # Nothin to do, the task is finished already.
+
+        # The task runner code handles asyncio.CancelledError properly.
+        self._task_runner.cancel()
+        # Don't await the cancelled task to not block the caller unnecessary.
+
+    async def _run(self) -> None:
+        metric_tasks_fetched.inc()
+        with metric_task_completion_latency.time():
+            await self._run_task()
+
+    async def _run_task(self) -> None:
         """Runs the supplied task and does full managemenet of its lifecycle.
 
         Doesn't raise any exceptions."""
-        start_time: float = time.monotonic()
+        output: Optional[TaskOutput] = None
 
         try:
-            # The task can be cancelled at any time but we'll just wait until FE gets shutdown
-            # because we require this to happen from the cancel_task() caller.
-            self._input = await self._downloader.download_input(
-                namespace=self._task.namespace,
-                graph_name=self._task.graph_name,
-                graph_invocation_id=self._task.graph_invocation_id,
-                input_key=self._task.input_key,
-                logger=self._logger,
-            )
-            if self._task.HasField("reducer_output_key"):
-                self._init_value = await self._downloader.download_init_value(
-                    namespace=self._task.namespace,
-                    graph_name=self._task.graph_name,
-                    function_name=self._task.function_name,
-                    graph_invocation_id=self._task.graph_invocation_id,
-                    reducer_output_key=self._task.reducer_output_key,
-                    logger=self._logger,
-                )
-
-            await self._wait_for_idle_function_executor()
-
-            with (
-                metric_task_run_platform_errors.count_exceptions(),
-                metric_tasks_running.track_inprogress(),
-                metric_task_run_latency.time(),
-            ):
-                metric_task_runs.inc()
-                await self._run_task()
-
-            self._logger.info("task execution finished", success=self._output.success)
-        except FunctionTimeoutError:
-            self._output = TaskOutput.function_timeout(
-                task_id=self._task.id,
-                namespace=self._task.namespace,
-                graph_name=self._task.graph_name,
-                function_name=self._task.function_name,
-                graph_version=self._task.graph_version,
-                graph_invocation_id=self._task.graph_invocation_id,
-            )
-            async with self._function_executor_state.lock:
-                # Mark the Function Executor as unhealthy to destroy it to cancel the running function.
-                # If FE status changed, then it means that we're off normal task execution path, e.g.
-                # Server decided to do something with FE.
-                if (
-                    self._function_executor_state.status
-                    == FunctionExecutorStatus.RUNNING_TASK
-                ):
-                    # TODO: Add a separate FE status for timed out function so we don't lie to server that FE is unhealthy to destroy it.
-                    await self._function_executor_state.set_status(
-                        FunctionExecutorStatus.UNHEALTHY,
-                    )
-                else:
-                    self._logger.warning(
-                        "skipping marking Function Executor unhealthy on task timeout due to unexpected FE status",
-                        status=self._function_executor_state.status.name,
-                    )
+            await self._download_inputs()
+            output = await self._run_task_when_function_executor_is_available()
+            self._logger.info("task execution finished", success=output.success)
+            _log_function_metrics(output, self._logger)
         except Exception as e:
-            self._output = TaskOutput.internal_error(
-                task_id=self._task.id,
-                namespace=self._task.namespace,
-                graph_name=self._task.graph_name,
-                function_name=self._task.function_name,
-                graph_version=self._task.graph_version,
-                graph_invocation_id=self._task.graph_invocation_id,
-            )
+            metric_task_run_platform_errors.inc(),
+            output = self._internal_error_output()
             self._logger.error("task execution failed", exc_info=e)
-        finally:
-            # Release the Function Executor so others can run tasks on it if FE status didn't change.
-            # If FE status changed, then it means that we're off normal task execution path, e.g.
-            # Server decided to do something with FE.
-            async with self._function_executor_state.lock:
-                if (
-                    self._function_executor_state.status
-                    == FunctionExecutorStatus.RUNNING_TASK
-                ):
-                    await self._function_executor_state.set_status(
-                        FunctionExecutorStatus.IDLE
-                    )
-                else:
-                    self._logger.warning(
-                        "skipping marking Function Executor IDLE due to unexpected FE status",
-                        status=self._function_executor_state.status,
-                    )
+        except asyncio.CancelledError:
+            metric_task_cancellations.inc()
+            self._logger.info("task execution cancelled")
+            # Don't report task outcome according to the current policy.
+            # asyncio.CancelledError can't be suppressed, see Python docs.
+            raise
 
-        _log_function_metrics(self._output, self._logger)
-
+        # Current task outcome reporting policy:
+        # Don't report task outcomes for tasks that didn't fail with internal or customer error.
+        # This is required to simplify the protocol so Server doesn't need to care about task states
+        # and cancel each tasks carefully to not get its outcome as failed.
         with (
             metric_tasks_reporting_outcome.track_inprogress(),
             metric_task_outcome_report_latency.time(),
         ):
             metric_task_outcome_reports.inc()
-            await self._report_task_outcome()
+            await self._report_task_outcome(output)
 
-        metric_task_completion_latency.observe(time.monotonic() - start_time)
+    async def _download_inputs(self) -> None:
+        """Downloads the task inputs and init value.
 
-    async def _wait_for_idle_function_executor(self) -> None:
-        """Waits until the Function Executor is in IDLE state.
+        Raises an Exception if the inputs failed to download.
+        """
+        self._input = await self._downloader.download_input(
+            namespace=self._task.namespace,
+            graph_name=self._task.graph_name,
+            graph_invocation_id=self._task.graph_invocation_id,
+            input_key=self._task.input_key,
+            logger=self._logger,
+        )
+        if self._task.HasField("reducer_output_key"):
+            self._init_value = await self._downloader.download_init_value(
+                namespace=self._task.namespace,
+                graph_name=self._task.graph_name,
+                function_name=self._task.function_name,
+                graph_invocation_id=self._task.graph_invocation_id,
+                reducer_output_key=self._task.reducer_output_key,
+                logger=self._logger,
+            )
 
-        Raises an Exception if the Function Executor is in SHUTDOWN state.
+    async def _run_task_when_function_executor_is_available(self) -> TaskOutput:
+        """Runs the task on the Function Executor when it's available.
+
+        Raises an Exception if task failed due to an internal error."""
+        await self._acquire_function_executor()
+
+        next_status: FunctionExecutorStatus = FunctionExecutorStatus.IDLE
+        try:
+            return await self._run_task_on_acquired_function_executor()
+        except asyncio.CancelledError:
+            # This one is raised here when destroy() was called while we were running the task on this FE.
+            next_status = FunctionExecutorStatus.UNHEALTHY
+            # asyncio.CancelledError can't be suppressed, see Python docs.
+            raise
+        finally:
+            # If the task finished running on FE then put it into IDLE state so other tasks can run on it.
+            # Otherwise, mark the FE as unhealthy to force its destruction so the task stops running on it eventually
+            # and no other tasks run on this FE because it'd result in undefined behavior.
+            if self._is_timed_out:
+                next_status = FunctionExecutorStatus.UNHEALTHY
+            await self._release_function_executor(next_status=next_status)
+
+    async def _acquire_function_executor(self) -> None:
+        """Waits until the Function Executor is in IDLE state and then locks it so the task can run on it.
+
+        Doesn't raise any exceptions.
         """
         with (
-            metric_task_policy_errors.count_exceptions(),
             metric_tasks_blocked_by_policy.track_inprogress(),
             metric_tasks_blocked_by_policy_per_function_name.labels(
                 function_name=self._task.function_name
@@ -247,18 +237,8 @@ class TaskController:
             )
             async with self._function_executor_state.lock:
                 await self._function_executor_state.wait_status(
-                    allowlist=[
-                        FunctionExecutorStatus.IDLE,
-                        FunctionExecutorStatus.SHUTDOWN,
-                    ]
+                    allowlist=[FunctionExecutorStatus.IDLE]
                 )
-                if (
-                    self._function_executor_state.status
-                    == FunctionExecutorStatus.SHUTDOWN
-                ):
-                    raise Exception(
-                        "Task's Function Executor got shutdown, can't run task"
-                    )
                 await self._function_executor_state.set_status(
                     FunctionExecutorStatus.RUNNING_TASK
                 )
@@ -266,7 +246,45 @@ class TaskController:
             # At this point the Function Executor belongs to this task controller due to RUNNING_TASK status.
             # We can now unlock the FE state. We have to update the FE status once the task succeeds or fails.
 
-    async def _run_task(self) -> None:
+    async def _release_function_executor(
+        self, next_status: FunctionExecutorStatus
+    ) -> None:
+        # Release the Function Executor so others can run tasks on it if FE status didn't change.
+        # If FE status changed, then it means that we're off normal task execution path, e.g.
+        # Server decided to do something with FE.
+        async with self._function_executor_state.lock:
+            if (
+                self._function_executor_state.status
+                == FunctionExecutorStatus.RUNNING_TASK
+            ):
+                await self._function_executor_state.set_status(next_status)
+                if next_status == FunctionExecutorStatus.UNHEALTHY:
+                    # Destroy the unhealthy FE asap so it doesn't consume resources.
+                    # Don't do it under the state lock to not add unnecessary delays.
+                    asyncio.create_task(
+                        self._function_executor_state.function_executor.destroy()
+                    )
+                    self._function_executor_state.function_executor = None
+            else:
+                self._logger.warning(
+                    "skipping releasing Function Executor after running the task due to unexpected Function Executor status",
+                    status=self._function_executor_state.status.name,
+                    next_status=next_status.name,
+                )
+
+    async def _run_task_on_acquired_function_executor(self) -> TaskOutput:
+        """Runs the task on the Function Executor acquired by this task already and returns the output.
+
+        Raises an Exception if the task failed to run due to an internal error."""
+        with metric_tasks_running.track_inprogress(), metric_task_run_latency.time():
+            metric_task_runs.inc()
+            return await self._run_task_rpc_on_function_executor()
+
+    async def _run_task_rpc_on_function_executor(self) -> TaskOutput:
+        """Runs the task on the Function Executor and returns the output.
+
+        Raises an Exception if the task failed to run due to an internal error.
+        """
         request: RunTaskRequest = RunTaskRequest(
             namespace=self._task.namespace,
             graph_name=self._task.graph_name,
@@ -289,7 +307,7 @@ class TaskController:
 
         async with _RunningTaskContextManager(
             task=self._task,
-            function_executor_state=self._function_executor_state,
+            function_executor=self._function_executor_state.function_executor,
         ):
             with (
                 metric_function_executor_run_task_rpc_errors.count_exceptions(),
@@ -305,14 +323,16 @@ class TaskController:
                     ).run_task(request, timeout=timeout_sec)
                 except grpc.aio.AioRpcError as e:
                     if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-                        raise FunctionTimeoutError(
-                            f"Task execution timeout {timeout_sec} expired"
-                        ) from e
+                        # Not logging customer error.
+                        self._is_timed_out = True
+                        return self._function_timeout_output(timeout_sec=timeout_sec)
                     raise
 
-        self._output = _task_output(task=self._task, response=response)
+        return _task_output_from_function_executor_response(
+            task=self._task, response=response
+        )
 
-    async def _report_task_outcome(self) -> None:
+    async def _report_task_outcome(self, output: TaskOutput) -> None:
         """Reports the task with the given output to the server.
 
         Doesn't raise any Exceptions. Runs till the reporting is successful."""
@@ -320,14 +340,8 @@ class TaskController:
 
         while True:
             logger = self._logger.bind(retries=reporting_retries)
-            if self._is_cancelled:
-                logger.warning(
-                    "task is cancelled, skipping its outcome reporting to workaround lack of server side retries"
-                )
-                break
-
             try:
-                await self._task_reporter.report(output=self._output, logger=logger)
+                await self._task_reporter.report(output=output, logger=logger)
                 break
             except Exception as e:
                 logger.error(
@@ -338,13 +352,12 @@ class TaskController:
                 metric_task_outcome_report_retries.inc()
                 await asyncio.sleep(_TASK_OUTCOME_REPORT_BACKOFF_SEC)
 
-        await self._completed_tasks_container.add(self._task.id)
         metric_tasks_completed.labels(outcome=METRIC_TASKS_COMPLETED_OUTCOME_ALL).inc()
-        if self._output.is_internal_error:
+        if output.is_internal_error:
             metric_tasks_completed.labels(
                 outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_PLATFORM
             ).inc()
-        elif self._output.success:
+        elif output.success:
             metric_tasks_completed.labels(
                 outcome=METRIC_TASKS_COMPLETED_OUTCOME_SUCCESS
             ).inc()
@@ -353,23 +366,31 @@ class TaskController:
                 outcome=METRIC_TASKS_COMPLETED_OUTCOME_ERROR_CUSTOMER_CODE
             ).inc()
 
+    def _internal_error_output(self) -> TaskOutput:
+        return TaskOutput.internal_error(
+            task_id=self._task.id,
+            namespace=self._task.namespace,
+            graph_name=self._task.graph_name,
+            function_name=self._task.function_name,
+            graph_version=self._task.graph_version,
+            graph_invocation_id=self._task.graph_invocation_id,
+        )
 
-def _validate_task(task: Task) -> None:
-    """Validates the supplied Task.
-
-    Raises ValueError if the Task is not valid.
-    """
-    validator = MessageValidator(task)
-    validator.required_field("id")
-    validator.required_field("namespace")
-    validator.required_field("graph_name")
-    validator.required_field("graph_version")
-    validator.required_field("function_name")
-    validator.required_field("graph_invocation_id")
-    validator.required_field("input_key")
+    def _function_timeout_output(self, timeout_sec: float) -> TaskOutput:
+        return TaskOutput.function_timeout(
+            task_id=self._task.id,
+            namespace=self._task.namespace,
+            graph_name=self._task.graph_name,
+            function_name=self._task.function_name,
+            graph_version=self._task.graph_version,
+            graph_invocation_id=self._task.graph_invocation_id,
+            timeout_sec=timeout_sec,
+        )
 
 
-def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
+def _task_output_from_function_executor_response(
+    task: Task, response: RunTaskResponse
+) -> TaskOutput:
     response_validator = MessageValidator(response)
     response_validator.required_field("stdout")
     response_validator.required_field("stderr")
@@ -430,20 +451,20 @@ class _RunningTaskContextManager:
 
     def __init__(
         self,
-        task_controller: TaskController,
+        task: Task,
+        function_executor: FunctionExecutor,
     ):
-        self._task_controller: TaskController = task_controller
+        self._task = task
+        self._function_executor: FunctionExecutor = function_executor
 
     async def __aenter__(self):
-        self._task_controller._function_executor_state.function_executor.invocation_state_client().add_task_to_invocation_id_entry(
-            task_id=self._task_controller._task.id,
-            invocation_id=self._task_controller._task.graph_invocation_id,
+        self._function_executor.invocation_state_client().add_task_to_invocation_id_entry(
+            task_id=self._task.id,
+            invocation_id=self._task.graph_invocation_id,
         )
-        self._task_controller._is_running = True
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._task_controller._is_running = False
-        self._task_controller._function_executor_state.function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
-            task_id=self._task_controller._task.id,
+        self._function_executor.invocation_state_client().remove_task_to_invocation_id_entry(
+            task_id=self._task.id,
         )

@@ -67,7 +67,8 @@ class InvocationStateClient:
             self._response_generator()
         )
         self._request_loop_task = asyncio.create_task(
-            self._request_loop(server_requests)
+            self._request_loop(server_requests),
+            name="graph invocation state client request processing loop",
         )
 
     def add_task_to_invocation_id_entry(self, task_id: str, invocation_id: str) -> None:
@@ -100,7 +101,8 @@ class InvocationStateClient:
             pass
         except asyncio.CancelledError:
             # This async task was cancelled by destroy(). Normal situation too.
-            pass
+            # This exception should not be suppressed, see Python asyncio docs.
+            raise
         except Exception as e:
             metric_request_read_errors.inc()
             self._logger.error(
