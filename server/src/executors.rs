@@ -129,7 +129,7 @@ impl ExecutorManager {
         }
 
         // 5. Register the executor to upsert its metadata
-        let err = self.register_executor(executor.clone()).await;
+        let err = self.register_executor(executor.clone(), false).await;
         if let Err(e) = err {
             error!("failed to register executor {}: {:?}", executor.id.get(), e);
             return Err(e);
@@ -264,9 +264,16 @@ impl ExecutorManager {
         Ok(())
     }
 
-    pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
+    pub async fn register_executor(
+        &self,
+        executor: ExecutorMetadata,
+        for_task_stream: bool,
+    ) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest { executor }),
+            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
+                executor,
+                for_task_stream,
+            }),
             processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await
@@ -323,6 +330,11 @@ impl ExecutorManager {
 
 pub fn schedule_deregister(ex: Arc<ExecutorManager>, executor_id: ExecutorId, duration: Duration) {
     tokio::spawn(async move {
+        trace!(
+            executor_id = executor_id.get(),
+            deregister_after_s = duration.as_secs_f64(),
+            "Scheduling deregistration of executor"
+        );
         tokio::time::sleep(duration).await;
         let ret = ex.deregister_executor(executor_id.clone()).await;
         if let Err(e) = ret {
@@ -363,7 +375,7 @@ mod tests {
             state: Default::default(),
             tombstoned: false,
         };
-        executor_manager.register_executor(executor).await?;
+        executor_manager.register_executor(executor, true).await?;
 
         let executors = indexify_state
             .in_memory_state
@@ -396,7 +408,9 @@ mod tests {
             state: Default::default(),
             tombstoned: false,
         };
-        executor_manager.register_executor(executor.clone()).await?;
+        executor_manager
+            .register_executor(executor.clone(), true)
+            .await?;
 
         let executors = indexify_state
             .in_memory_state
@@ -407,7 +421,9 @@ mod tests {
 
         assert_eq!(executors.len(), 1);
 
-        executor_manager.register_executor(executor.clone()).await?;
+        executor_manager
+            .register_executor(executor.clone(), true)
+            .await?;
         schedule_deregister(
             executor_manager.clone(),
             executor.id.clone(),

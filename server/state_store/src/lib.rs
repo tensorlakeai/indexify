@@ -39,7 +39,7 @@ pub mod test_state_store;
 #[derive(Debug)]
 pub struct ExecutorState {
     pub new_task_channel: watch::Sender<()>,
-    pub num_registered: u64,
+    pub num_task_streams_registered: u64,
     pub task_ids_sent: HashSet<TaskId>,
 }
 
@@ -48,7 +48,7 @@ impl ExecutorState {
         let (new_task_channel, _) = watch::channel(());
         Self {
             new_task_channel,
-            num_registered: 0,
+            num_task_streams_registered: 0,
             task_ids_sent: HashSet::new(),
         }
     }
@@ -284,6 +284,17 @@ impl IndexifyState {
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
+                // With heartbeat, the executor may be registered multiple times and only want
+                // task stream registration to incremented the task_streams
+                // registration.
+                if request.for_task_stream {
+                    let mut states = self.executor_states.write().await;
+                    let entry = states.entry(request.executor.id.clone()).or_default();
+                    entry.num_task_streams_registered += 1;
+                }
+
+                // Only trigger a state change if the executor is newly registered as opposed to
+                // an update of metadata.
                 if !self
                     .in_memory_state
                     .read()
@@ -291,14 +302,6 @@ impl IndexifyState {
                     .executors
                     .contains_key(&request.executor.id.get().to_string())
                 {
-                    // Only mutating the executor_states and triggering a state change for newly
-                    // registered executors.
-                    {
-                        let mut states = self.executor_states.write().await;
-                        let entry = states.entry(request.executor.id.clone()).or_default();
-                        entry.num_registered += 1;
-                    }
-
                     state_changes::register_executor(&self.last_state_change_id, &request)
                         .map_err(|e| anyhow!("error getting state changes {}", e))?
                 } else {
@@ -309,8 +312,9 @@ impl IndexifyState {
                 let removed = {
                     let mut states = self.executor_states.write().await;
                     if let Some(s) = states.get_mut(&request.executor_id) {
-                        s.num_registered -= 1;
-                        if s.num_registered == 0 {
+                        // Can never go below 0, since we remove the executor state if it is 0.
+                        s.num_task_streams_registered -= 1;
+                        if s.num_task_streams_registered == 0 {
                             trace!(
                                 executor_id = request.executor_id.get(),
                                 "executor state removed"
@@ -335,6 +339,10 @@ impl IndexifyState {
                     );
                     state_changes::tombstone_executor(&self.last_state_change_id, &request)?
                 } else {
+                    trace!(
+                        executor_id = request.executor_id.get(),
+                        "executor state not removed, still has task streams"
+                    );
                     vec![]
                 }
             }
@@ -630,6 +638,7 @@ mod tests {
             &indexify_state.last_state_change_id,
             &UpsertExecutorRequest {
                 executor: mock_executor(),
+                for_task_stream: true,
             },
         )
         .unwrap();
