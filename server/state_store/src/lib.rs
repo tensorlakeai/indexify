@@ -23,7 +23,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
-use tracing::{debug, error, info, span, trace};
+use tracing::{debug, error, info, span};
 
 pub mod in_memory_state;
 pub mod invocation_events;
@@ -39,7 +39,6 @@ pub mod test_state_store;
 #[derive(Debug)]
 pub struct ExecutorState {
     pub new_task_channel: watch::Sender<()>,
-    pub num_task_streams_registered: u64,
     pub task_ids_sent: HashSet<TaskId>,
 }
 
@@ -48,7 +47,6 @@ impl ExecutorState {
         let (new_task_channel, _) = watch::channel(());
         Self {
             new_task_channel,
-            num_task_streams_registered: 0,
             task_ids_sent: HashSet::new(),
         }
     }
@@ -284,13 +282,12 @@ impl IndexifyState {
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
-                // With heartbeat, the executor may be registered multiple times and only want
-                // task stream registration to incremented the task_streams
-                // registration.
                 if request.for_task_stream {
-                    let mut states = self.executor_states.write().await;
-                    let entry = states.entry(request.executor.id.clone()).or_default();
-                    entry.num_task_streams_registered += 1;
+                    self.executor_states
+                        .write()
+                        .await
+                        .entry(request.executor.id.clone())
+                        .or_default();
                 }
 
                 // Only trigger a state change if the executor is newly registered as opposed to
@@ -309,42 +306,15 @@ impl IndexifyState {
                 }
             }
             RequestPayload::DeregisterExecutor(request) => {
-                let removed = {
-                    let mut states = self.executor_states.write().await;
-                    if let Some(s) = states.get_mut(&request.executor_id) {
-                        // Can never go below 0, since we remove the executor state if it is 0.
-                        s.num_task_streams_registered -= 1;
-                        if s.num_task_streams_registered == 0 {
-                            trace!(
-                                executor_id = request.executor_id.get(),
-                                "executor state removed"
-                            );
-                            states.remove(&request.executor_id);
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        // Executor state not found, we still trigger a tombstone state change
-                        // to ensure the executor and its tasks are removed.
-                        // This can happen if the executor was never registered after server
-                        // startup.
-                        true
-                    }
-                };
-                if removed {
-                    info!(
-                        executor_id = request.executor_id.get(),
-                        "marking executor as tombstoned"
-                    );
-                    state_changes::tombstone_executor(&self.last_state_change_id, &request)?
-                } else {
-                    trace!(
-                        executor_id = request.executor_id.get(),
-                        "executor state not removed, still has task streams"
-                    );
-                    vec![]
-                }
+                self.executor_states
+                    .write()
+                    .await
+                    .remove(&request.executor_id);
+                info!(
+                    executor_id = request.executor_id.get(),
+                    "marking executor as tombstoned"
+                );
+                state_changes::tombstone_executor(&self.last_state_change_id, &request)?
             }
             RequestPayload::RemoveGcUrls(urls) => {
                 state_machine::remove_gc_urls(self.db.clone(), &txn, urls.clone())?;

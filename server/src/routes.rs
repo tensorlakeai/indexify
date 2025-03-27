@@ -27,7 +27,6 @@ use data_model::{
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
-use indexify_utils::GuardStreamExt;
 use metrics::api_io_stats;
 use nanoid::nanoid;
 use prometheus::Encoder;
@@ -48,16 +47,13 @@ use tracing::{error, info};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::{
-    executors::{self, EXECUTOR_TIMEOUT},
-    http_objects::{
-        ExecutorAllocations,
-        ExecutorFns,
-        Invocation,
-        InvocationStatus,
-        StateChangesResponse,
-        UnallocatedTasks,
-    },
+use crate::http_objects::{
+    ExecutorAllocations,
+    ExecutorFns,
+    Invocation,
+    InvocationStatus,
+    StateChangesResponse,
+    UnallocatedTasks,
 };
 
 mod download;
@@ -854,19 +850,16 @@ async fn executor_tasks(
         return Err(IndexifyAPIError::internal_error_str(&e.to_string()));
     }
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone());
-    let executor_manager = state.executor_manager.clone();
-    let stream = stream
-        .map(|item| match item {
-            Ok(item) => {
-                let item: Vec<Task> = item.into_iter().map(Into::into).collect();
-                axum::response::sse::Event::default().json_data(item)
-            }
-            Err(e) => {
-                error!("error in task stream: {:?}", e);
-                Err(axum::Error::new(e))
-            }
-        })
-        .guard(|| executors::schedule_deregister(executor_manager, executor_id, EXECUTOR_TIMEOUT));
+    let stream = stream.map(|item| match item {
+        Ok(item) => {
+            let item: Vec<Task> = item.into_iter().map(Into::into).collect();
+            axum::response::sse::Event::default().json_data(item)
+        }
+        Err(e) => {
+            error!("error in task stream: {:?}", e);
+            Err(axum::Error::new(e))
+        }
+    });
     Ok(axum::response::Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(1))
