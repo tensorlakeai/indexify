@@ -86,6 +86,7 @@ mod tests {
             reduced_state: false,
             created_at: 5,
             encoding: "application/octet-stream".to_string(),
+            output_encoding_version: 0,
         };
         let key = output.key(&output.invocation_id);
         let serialized_output = JsonEncoder::encode(&output)?;
