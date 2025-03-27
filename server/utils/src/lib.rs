@@ -8,6 +8,8 @@ use anyhow::{anyhow, Result};
 use futures::Stream;
 use pin_project::{pin_project, pinned_drop};
 
+pub mod dynamic_sleep;
+
 #[macro_export]
 macro_rules! unwrap_or_continue {
     ($opt: expr) => {
