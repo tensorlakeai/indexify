@@ -2,6 +2,7 @@ import asyncio
 import os
 from typing import Any, Optional
 
+import boto3
 import httpx
 import nanoid
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
@@ -32,6 +33,12 @@ class Downloader:
         self.code_path = code_path
         self._base_url = base_url
         self._client = get_httpx_client(config_path, make_async=True)
+        self._s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.environ.get("AWS_REGION"),
+        )
 
     async def download_graph(
         self, namespace: str, graph_name: str, graph_version: str, logger: Any
@@ -236,6 +243,12 @@ class Downloader:
             raise
 
         return serialized_object_from_http_response(response)
+    
+    async def _fetch_s3_object(self, key: str, bucket: str) -> SerializedObject:
+        response = await self._s3_client.get_object(Bucket=bucket, Key=key)
+        return SerializedObject(
+            bytes=response["Body"].read(), content_type="application/octet-stream"
+        )
 
 
 def serialized_object_from_http_response(response: httpx.Response) -> SerializedObject:
