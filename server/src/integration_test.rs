@@ -1848,7 +1848,6 @@ mod tests {
             .write(StateMachineUpdateRequest {
                 payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
                     executor: mock_executor(),
-                    for_task_stream: true,
                 }),
                 processed_state_changes: vec![],
             })

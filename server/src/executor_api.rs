@@ -189,6 +189,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
             .ok_or(anyhow::anyhow!("compute_fn_name is required"))?;
         let version = function_executor_description
             .graph_version
+            .map(GraphVersion)
             .ok_or(anyhow::anyhow!("version is required"))?;
 
         Ok(FunctionExecutor {
@@ -196,7 +197,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
             namespace,
             compute_graph_name,
             compute_fn_name,
-            version: GraphVersion(version),
+            version,
             status: FunctionExecutorStatus::Unknown,
         })
     }

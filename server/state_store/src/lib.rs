@@ -23,7 +23,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, TransactionDB, TransactionDBOptio
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, RwLock};
-use tracing::{debug, error, info, span};
+use tracing::{debug, error, info, span, warn};
 
 pub mod in_memory_state;
 pub mod invocation_events;
@@ -282,13 +282,11 @@ impl IndexifyState {
                 vec![]
             }
             RequestPayload::UpsertExecutor(request) => {
-                if request.for_task_stream {
-                    self.executor_states
-                        .write()
-                        .await
-                        .entry(request.executor.id.clone())
-                        .or_default();
-                }
+                self.executor_states
+                    .write()
+                    .await
+                    .entry(request.executor.id.clone())
+                    .or_default();
 
                 // Only trigger a state change if the executor is newly registered as opposed to
                 // an update of metadata.
@@ -430,8 +428,8 @@ pub fn task_stream(state: Arc<IndexifyState>, executor_id: ExecutorId) -> TaskSt
             .map(|s| s.subscribe()) {
             rx
         } else {
-            // Executor not found, return empty stream.
-            error!(executor_id=executor_id.get(), "executor not found, stopping task stream");
+            // Executor not found, closing stream.
+            warn!(executor_id=executor_id.get(), "executor not found, stopping task stream");
             return;
         };
 
@@ -608,7 +606,6 @@ mod tests {
             &indexify_state.last_state_change_id,
             &UpsertExecutorRequest {
                 executor: mock_executor(),
-                for_task_stream: true,
             },
         )
         .unwrap();

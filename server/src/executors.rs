@@ -136,7 +136,7 @@ impl ExecutorManager {
         self.heartbeat_deadline_updater.send(peeked_deadline)?;
 
         // 6. Register the executor to upsert its metadata
-        let err = self.register_executor(executor.clone(), false).await;
+        let err = self.register_executor(executor.clone()).await;
         if let Err(e) = err {
             error!("failed to register executor {}: {:?}", executor.id.get(), e);
             return Err(e);
@@ -237,16 +237,9 @@ impl ExecutorManager {
         Ok(())
     }
 
-    pub async fn register_executor(
-        &self,
-        executor: ExecutorMetadata,
-        for_task_stream: bool,
-    ) -> Result<()> {
+    pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                executor,
-                for_task_stream,
-            }),
+            payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest { executor }),
             processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await
@@ -322,7 +315,7 @@ mod tests {
             state: Default::default(),
             tombstoned: false,
         };
-        executor_manager.register_executor(executor, true).await?;
+        executor_manager.register_executor(executor).await?;
 
         let executors = indexify_state
             .in_memory_state
