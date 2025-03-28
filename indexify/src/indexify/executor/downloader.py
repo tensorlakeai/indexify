@@ -128,7 +128,8 @@ class Downloader:
         # Run in a separate thread to not block the main event loop.
         # We don't need to wait for the write completion so we use create_task.
         asyncio.create_task(
-            asyncio.to_thread(self._write_cached_graph, graph_path, graph)
+            asyncio.to_thread(self._write_cached_graph, graph_path, graph),
+            name="graph cache write",
         )
 
         return graph

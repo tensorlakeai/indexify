@@ -69,6 +69,10 @@ class ChannelManager:
             certificate_chain=certificate_chain,
         )
 
+    async def destroy(self):
+        if self._channel is not None:
+            await self._destroy_locked_channel()
+
     async def get_channel(self) -> grpc.aio.Channel:
         """Returns a channel to the gRPC server.
 
@@ -155,6 +159,3 @@ class ChannelManager:
         except Exception as e:
             self._logger.error("failed closing channel", exc_info=e)
         self._channel = None
-
-    async def shutdown(self):
-        pass
