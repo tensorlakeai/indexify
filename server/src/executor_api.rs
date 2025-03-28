@@ -109,6 +109,9 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
 
     fn try_from(executor_state: ExecutorState) -> Result<Self, Self::Error> {
         let mut executor_metadata = ExecutorMetadataBuilder::default();
+        if let Some(state_hash) = executor_state.state_hash.clone() {
+            executor_metadata.state_hash(state_hash);
+        }
         executor_metadata.state(executor_state.status().into());
         if let Some(executor_id) = executor_state.executor_id {
             executor_metadata.id(ExecutorId::new(executor_id));

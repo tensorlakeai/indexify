@@ -320,6 +320,7 @@ pub mod tests {
             state: Default::default(),
             function_executors: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         }
     }
 }

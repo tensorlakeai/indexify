@@ -14,7 +14,7 @@ use state_store::{
     IndexifyState,
 };
 use tokio::{
-    sync::{watch, Mutex},
+    sync::{watch, Mutex, RwLock},
     time::Instant,
 };
 use tracing::{error, trace};
@@ -48,6 +48,7 @@ pub struct ExecutorManager {
     heartbeat_future: Arc<Mutex<DynamicSleepFuture>>,
     heartbeat_deadline_updater: watch::Sender<Instant>,
     indexify_state: Arc<IndexifyState>,
+    executor_hashes: RwLock<HashMap<ExecutorId, String>>,
 }
 
 impl ExecutorManager {
@@ -64,6 +65,7 @@ impl ExecutorManager {
         let heartbeat_future = Arc::new(Mutex::new(heartbeat_future));
         let em = ExecutorManager {
             indexify_state,
+            executor_hashes: RwLock::new(HashMap::new()),
             heartbeat_deadline_queue: Mutex::new(PriorityQueue::new()),
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
@@ -135,11 +137,28 @@ impl ExecutorManager {
         // 5. Update the heartbeat future with the new earliest deadline
         self.heartbeat_deadline_updater.send(peeked_deadline)?;
 
-        // 6. Register the executor to upsert its metadata
-        let err = self.register_executor(executor.clone()).await;
-        if let Err(e) = err {
-            error!("failed to register executor {}: {:?}", executor.id.get(), e);
-            return Err(e);
+        // 6. Register the executor to upsert its metadata only if the state_hash is
+        //    different to prevent doing duplicate work.
+        if !self
+            .executor_hashes
+            .read()
+            .await
+            .get(&executor.id)
+            .map(|stored_hash| stored_hash == &executor.state_hash)
+            .unwrap_or(false)
+        {
+            // TODO: Add clock check only act on the heartbeat for the latest state change
+            if let Err(e) = self.register_executor(executor.clone()).await {
+                error!(
+                    executor_id = executor.id.get(),
+                    "failed to register executor: {:?}", e
+                );
+                return Err(e);
+            }
+            self.executor_hashes
+                .write()
+                .await
+                .insert(executor.id.clone(), executor.state_hash.clone());
         }
 
         Ok(())
@@ -147,7 +166,6 @@ impl ExecutorManager {
 
     /// Wait for the an executor heartbeat deadline to lapse.
     async fn wait_executor_heartbeat_deadline(&self) {
-        // 1. Retrieve the next deadline from the queue
         let mut fut = self.heartbeat_future.lock().await;
 
         trace!("Waiting for next executor deadline");
@@ -314,6 +332,7 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
         executor_manager.register_executor(executor).await?;
 
@@ -347,6 +366,7 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
 
         let executor2 = ExecutorMetadata {
@@ -359,6 +379,7 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
 
         let executor3 = ExecutorMetadata {
@@ -371,6 +392,7 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
 
         // Pause time and send an initial heartbeats

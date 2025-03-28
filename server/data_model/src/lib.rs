@@ -1303,6 +1303,7 @@ pub struct ExecutorMetadata {
     pub host_resources: HostResources,
     pub state: ExecutorState,
     pub tombstoned: bool,
+    pub state_hash: String,
 }
 
 impl ExecutorMetadataBuilder {
@@ -1327,6 +1328,10 @@ impl ExecutorMetadataBuilder {
             .clone()
             .ok_or(anyhow!("host_resources is required"))?;
         let state = self.state.clone().ok_or(anyhow!("state is required"))?;
+        let state_hash = self
+            .state_hash
+            .clone()
+            .ok_or(anyhow!("state_hash is required"))?;
         let tombstoned = self.tombstoned.unwrap_or(false);
         Ok(ExecutorMetadata {
             id,
@@ -1338,6 +1343,7 @@ impl ExecutorMetadataBuilder {
             host_resources,
             state,
             tombstoned,
+            state_hash,
         })
     }
 }
