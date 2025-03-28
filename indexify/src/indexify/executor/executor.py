@@ -225,10 +225,12 @@ class Executor:
                     metric_tasks_fetched.inc()
                     if not self._is_shutdown:
                         asyncio.create_task(self._run_task(task))
+                self._logger.info("fetching tasks finished, reconnecting in 5 seconds")
             except Exception as e:
                 self._logger.error(
                     "failed fetching tasks, retrying in 5 seconds", exc_info=e
                 )
+            if not self._is_shutdown:
                 await asyncio.sleep(5)
 
     async def _run_task(self, task: Task) -> None:
