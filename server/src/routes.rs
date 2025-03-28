@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -17,13 +17,7 @@ use axum_tracing_opentelemetry::{
 };
 use base64::prelude::*;
 use blob_store::PutResult;
-use data_model::{
-    ComputeGraphError,
-    ExecutorId,
-    ExecutorState,
-    FunctionExecutorBuilder,
-    HostResources,
-};
+use data_model::{ComputeGraphError, ExecutorId};
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -800,55 +794,8 @@ async fn list_unallocated_tasks(
 async fn executor_tasks(
     Path(executor_id): Path<ExecutorId>,
     State(state): State<RouteState>,
-    Json(payload): Json<ExecutorMetadata>,
+    Json(_payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let function_allowlist: Option<Vec<data_model::FunctionURI>> =
-        payload.function_allowlist.map(|function_uris| {
-            function_uris
-                .iter()
-                .map(|f| data_model::FunctionURI {
-                    namespace: f.namespace.clone(),
-                    compute_graph_name: f.compute_graph.clone(),
-                    compute_fn_name: f.compute_fn.clone(),
-                    version: f.version.clone().map(|v| v.into()),
-                })
-                .collect()
-        });
-    let mut function_executors = HashMap::new();
-    for f in function_allowlist.clone().unwrap_or(vec![]) {
-        function_executors.insert(
-            f.compute_fn_name.clone(),
-            FunctionExecutorBuilder::default()
-                .namespace(f.namespace)
-                .compute_graph_name(f.compute_graph_name)
-                .compute_fn_name(f.compute_fn_name)
-                // FIXME: A Function Executor requires non optional version. Otherwise Executor
-                // can't create it. .version(f.version)
-                .build()
-                .map_err(IndexifyAPIError::internal_error)?,
-        );
-    }
-    let err = state
-        .executor_manager
-        .register_executor(
-            data_model::ExecutorMetadata {
-                id: executor_id.clone(),
-                executor_version: payload.executor_version.clone(),
-                addr: payload.addr.clone(),
-                function_allowlist,
-                labels: payload.labels.clone(),
-                host_resources: HostResources::default(),
-                state: ExecutorState::default(),
-                function_executors,
-                tombstoned: false,
-            },
-            true,
-        )
-        .await;
-    if let Err(e) = err {
-        error!("failed to register executor {}: {:?}", executor_id, e);
-        return Err(IndexifyAPIError::internal_error_str(&e.to_string()));
-    }
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone());
     let stream = stream.map(|item| match item {
         Ok(item) => {
