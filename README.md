@@ -3,8 +3,6 @@
 
 [![Discord](https://dcbadge.vercel.app/api/server/VXkY7zVmTD?style=flat&compact=true)](https://discord.gg/VXkY7zVmTD)
 
-## Create and Deploy Durable, Data-Intensive Agentic Workflows
-
 Indexify simplifies building and serving durable, multi-stage data-intensive workflows and exposes them as HTTP APIs or Python Remote APIs.
 
 <br />
