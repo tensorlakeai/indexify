@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::init_provider;
@@ -113,13 +114,6 @@ impl Service {
             monitor.start_heartbeat_monitor(shutdown_rx).await;
         });
 
-        let global_meter = opentelemetry::global::meter("server-http");
-        let otel_metrics_service_layer =
-            tower_otel_http_metrics::HTTPMetricsLayerBuilder::builder()
-                .with_meter(global_meter)
-                .build()
-                .unwrap();
-
         let api_metrics = Arc::new(metrics::api_io_stats::Metrics::new());
 
         let route_state = RouteState {
@@ -173,7 +167,8 @@ impl Service {
 
         let addr: SocketAddr = self.config.listen_addr.parse()?;
         info!("server api listening on {}", self.config.listen_addr);
-        let routes = create_routes(route_state).layer(otel_metrics_service_layer);
+        let metrics = HttpMetricsLayerBuilder::new().build();
+        let routes = create_routes(route_state).layer(metrics);
         axum_server::bind(addr)
             .handle(handle)
             .serve(routes.into_make_service())

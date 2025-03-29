@@ -11,10 +11,6 @@ use axum::{
     Json,
     Router,
 };
-use axum_tracing_opentelemetry::{
-    self,
-    middleware::{OtelAxumLayer, OtelInResponseLayer},
-};
 use base64::prelude::*;
 use blob_store::PutResult;
 use data_model::{ComputeGraphError, ExecutorId};
@@ -226,8 +222,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
             "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}/ctx/{name}",
             get(get_ctx_state_key).with_state(route_state.clone()),
         )
-        .layer(OtelInResponseLayer)
-        .layer(OtelAxumLayer::default())
         // No tracing starting here.
         .route("/ui", get(ui_index_handler))
         .route("/ui/{*rest}", get(ui_handler))
