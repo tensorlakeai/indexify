@@ -252,7 +252,15 @@ impl TaskAllocationProcessor {
                     );
                 }
                 Err(err) => {
-                    error!("failed to allocate task, skipping: {:?}", err);
+                    error!(
+                        task_id = task.id.to_string(),
+                        invocation_id = task.invocation_id.to_string(),
+                        namespace = task.namespace,
+                        compute_graph = task.compute_graph_name,
+                        compute_fn = task.compute_fn_name,
+                        "failed to allocate task, skipping: {:?}",
+                        err
+                    );
                 }
             }
         }
@@ -271,12 +279,18 @@ impl TaskAllocationProcessor {
         let compute_graph_version = indexes
             .compute_graph_versions
             .get(&task.key_compute_graph_version())
-            .ok_or(anyhow!("compute graph not found"))?
+            .ok_or(anyhow!(format!(
+                "compute graph version not found: {}",
+                task.key_compute_graph_version()
+            )))?
             .clone();
         let compute_fn = compute_graph_version
             .nodes
             .get(&task.compute_fn_name)
-            .ok_or(anyhow!("compute fn not found"))?;
+            .ok_or(anyhow!(format!(
+                "compute fn not found: {}",
+                task.compute_fn_name
+            )))?;
 
         let filtered_executors =
             self.filter_executors(&compute_graph_version, &compute_fn, executors)?;
