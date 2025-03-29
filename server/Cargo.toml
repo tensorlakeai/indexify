@@ -36,13 +36,14 @@ strum = { version = "0.27.1", features = ["derive"] }
 tracing = "0.1.41"
 rand = "0.8.5"
 tokio = { version = "1.44.1", features = ["full"] }
-once_cell = "1.21.1"
+once_cell = "1.21.3"
 itertools = "0.14.0"
 serde_yml = "0.0.12"
 figment = { version = "0.10.19", features = ["yaml"] }
-axum = { version = "0.8.1", features = ["multipart", "macros", "tokio"] }
+axum = { version = "0.8.3", features = ["multipart", "macros", "tokio"] }
 axum-server = "0.7.2"
-tempfile = "3.19.0"
+axum-otel-metrics = {version = "0.10.0"}
+tempfile = "3.19.1"
 utoipa = { version = "5.3.1", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.0", features = ["axum"] }
 object_store = { git = "https://github.com/tensorlakeai/arrow-rs", branch = "remove-obj-store-log", features = [
@@ -55,7 +56,7 @@ async-trait = "0.1.88"
 tokio-stream = "0.1.17"
 slatedb = { git = "https://github.com/diptanu/slatedb" }
 rust-embed = { version = "8.6.0", features = ["mime-guess"] }
-reqwest = { version = "0.12.14", default-features = false, features = [
+reqwest = { version = "0.12.15", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
@@ -70,30 +71,29 @@ pin-project = "1.1.10"
 ciborium = "0.2.2"
 uuid = { version = "1.16.0", features = ["v4"] }
 url = "2.5.4"
-opentelemetry = { version = "0.28.0", features = ["metrics", "trace"] }
-opentelemetry_sdk = { version = "0.28.0", features = [
+opentelemetry = { version = "0.29.0", features = ["metrics", "trace"] }
+opentelemetry_sdk = { version = "0.29.0", features = [
     "rt-tokio",
     "metrics",
     "trace",
 ] }
-opentelemetry-otlp = { version = "0.28.0", features = [
+opentelemetry-otlp = { version = "0.29.0", features = [
     "tokio",
     "metrics",
     "trace",
     "grpc-tonic",
 ] }
-opentelemetry-prometheus = { version = "0.28.0" }
+opentelemetry-prometheus = { version = "0.29.0" }
 prometheus = { version = "0.13.4" }
-tracing-opentelemetry = "0.29.0"
+tracing-opentelemetry = "0.30.0"
 dashmap = "6.1.0"
-tower-otel-http-metrics = "0.13.0"
 im = { version = "15.1.0" }
 base64 = "0.22.1"
-clap = { version = "4.5.32", features = ["derive"] }
+clap = { version = "4.5.34", features = ["derive"] }
 prost = "0.13.5"
-tonic = "0.12.3"
-tonic-reflection = "0.12.3"
-tonic-build = "0.12.3"
+tonic = "0.13.0"
+tonic-reflection = "0.13.0"
+tonic-build = "0.13.0"
 
 [dependencies]
 async-stream = { workspace = true }
@@ -134,10 +134,7 @@ prometheus = { workspace = true }
 metrics = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
-axum-tracing-opentelemetry = { version = "0.26.1", features = [
-    "tracing_level_info",
-] }
-tower-otel-http-metrics = { workspace = true }
+axum-otel-metrics = {workspace =true}
 base64 = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
