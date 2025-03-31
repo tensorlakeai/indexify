@@ -684,9 +684,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "list_outputs_by_compute_graph")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{}|{}|{}|", namespace, compute_graph, invocation_id);
+        let key_prefix = NodeOutput::key_prefix_from(namespace, compute_graph, invocation_id);
         self.get_rows_from_cf_with_limits::<NodeOutput>(
-            key.as_bytes(),
+            key_prefix.as_bytes(),
             restart_key,
             IndexifyObjectsColumns::FnOutputs,
             limit,
@@ -731,9 +731,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "list_tasks_by_namespace")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{}|", namespace);
+        let key_prefix = Task::key_prefix_for_namespace(namespace);
         self.get_rows_from_cf_with_limits::<Task>(
-            key.as_bytes(),
+            key_prefix.as_bytes(),
             restart_key,
             IndexifyObjectsColumns::Tasks,
             limit,
@@ -769,9 +769,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "list_tasks_by_compute_graph")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{}|{}|{}|", namespace, compute_graph, invocation_id);
+        let key_prefix = Task::key_prefix_for_invocation(namespace, compute_graph, invocation_id);
         self.get_rows_from_cf_with_limits::<Task>(
-            key.as_bytes(),
+            key_prefix.as_bytes(),
             restart_key,
             IndexifyObjectsColumns::Tasks,
             limit,
@@ -782,7 +782,7 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "get_task_outputs")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{}|{}", namespace, task_id);
+        let key = Task::key_output_prefix_from(&*namespace, &task_id);
         let (node_output_keys, _) = self.get_rows_from_cf_with_limits::<String>(
             key.as_bytes(),
             None,
@@ -911,9 +911,9 @@ impl StateReader {
         let kvs = &[KeyValue::new("op", "next_reduction_task")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{}|{}|{}|{}", ns, cg, inv_id, c_fn);
+        let key_prefix = ReduceTask::key_prefix_from(ns, cg, inv_id, c_fn);
         let (tasks, _) = self.get_rows_from_cf_with_limits::<ReduceTask>(
-            key.as_bytes(),
+            key_prefix.as_bytes(),
             None,
             IndexifyObjectsColumns::ReductionTasks,
             Some(1),
