@@ -46,6 +46,7 @@ impl TaskAllocationProcessor {
     }
 }
 impl TaskAllocationProcessor {
+    #[tracing::instrument(skip(self, change, indexes))]
     pub fn invoke(
         &self,
         change: &ChangeType,
@@ -68,6 +69,7 @@ impl TaskAllocationProcessor {
         }
     }
 
+    #[tracing::instrument(skip(self, executor_id, indexes))]
     pub fn deregister_executor(
         &self,
         executor_id: &ExecutorId,
@@ -137,6 +139,7 @@ impl TaskAllocationProcessor {
         return Ok(update);
     }
 
+    #[tracing::instrument(skip(self, indexes))]
     pub fn allocate(&self, indexes: &mut Box<InMemoryState>) -> Result<TaskPlacementResult> {
         let unallocated_task_ids = indexes.unallocated_tasks.clone();
         let mut tasks = Vec::new();
@@ -159,6 +162,7 @@ impl TaskAllocationProcessor {
         self.allocate_tasks(tasks, indexes)
     }
 
+    #[tracing::instrument(skip(self, tasks, indexes))]
     pub fn allocate_tasks(
         &self,
         tasks: Vec<Box<Task>>,
@@ -258,6 +262,7 @@ impl TaskAllocationProcessor {
                         namespace = task.namespace,
                         compute_graph = task.compute_graph_name,
                         compute_fn = task.compute_fn_name,
+                        compute_graph_version = task.graph_version.0,
                         "failed to allocate task, skipping: {:?}",
                         err
                     );
@@ -270,6 +275,7 @@ impl TaskAllocationProcessor {
         })
     }
 
+    #[tracing::instrument(skip(self, task, indexes, executors))]
     fn allocate_task(
         &self,
         task: &Task,

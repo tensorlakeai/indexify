@@ -40,6 +40,7 @@ impl TaskCreator {
 }
 
 impl TaskCreator {
+    #[tracing::instrument(skip(self, indexes))]
     pub async fn invoke(
         &self,
         change: &ChangeType,
@@ -115,6 +116,7 @@ impl TaskCreator {
         }
     }
 
+    #[tracing::instrument(skip(self, task_finished_event, indexes))]
     pub async fn handle_task_finished_inner(
         &self,
         task_finished_event: &TaskOutputsIngestedEvent,
@@ -145,8 +147,12 @@ impl TaskCreator {
         ));
         let Some(task) = task else {
             error!(
-                "task not found for task finished event: {}",
-                task_finished_event.task_id
+                task_id = task_finished_event.task_id.to_string(),
+                invocation_id = task_finished_event.invocation_id.to_string(),
+                namespace = task_finished_event.namespace,
+                compute_graph = task_finished_event.compute_graph,
+                compute_fn = task_finished_event.compute_fn,
+                "task not found for task finished event",
             );
             return Ok(TaskCreationResult::default());
         };
@@ -156,15 +162,21 @@ impl TaskCreator {
             .get(&task.key_compute_graph_version());
         if compute_graph_version.is_none() {
             error!(
-                "compute graph version not found: {:?} {:?}",
-                task.namespace, task.compute_graph_name
+                task_id = task.id.to_string(),
+                invocation_id = task.invocation_id.to_string(),
+                namespace = task.namespace,
+                compute_graph = task.compute_graph_name,
+                compute_fn = task.compute_fn_name,
+                compute_graph_version = task.graph_version.0,
+                "compute graph version not found",
             );
             return Ok(TaskCreationResult::default());
         }
         let compute_graph_version = compute_graph_version.ok_or(anyhow!(
-            "compute graph version not found: {:?} {:?}",
+            "compute graph version not found: {:?} {:?} {:?}",
             task.namespace,
-            task.compute_graph_name
+            task.compute_graph_name,
+            task.graph_version.0
         ))?;
         self.handle_task_finished(
             invocation_ctx.deref().clone(),
@@ -175,6 +187,7 @@ impl TaskCreator {
         .await
     }
 
+    #[tracing::instrument(skip(self, event, indexes))]
     pub async fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
@@ -186,6 +199,7 @@ impl TaskCreator {
             &event.invocation_id,
         ));
         if invocation_ctx.is_none() {
+            trace!("no invocation ctx, stopping invocation of compute graph");
             return Ok(TaskCreationResult::default());
         }
         let mut invocation_ctx = invocation_ctx
@@ -205,9 +219,12 @@ impl TaskCreator {
                     &invocation_ctx.graph_version,
                 ));
         if compute_graph_version.is_none() {
-            info!(
-                "compute graph version not found: {:?} {:?} {:?}",
-                event.namespace, event.compute_graph, invocation_ctx.graph_version,
+            error!(
+                invocation_id = event.invocation_id.to_string(),
+                namespace = event.namespace,
+                compute_graph = event.compute_graph,
+                graph_version = invocation_ctx.graph_version.0,
+                "compute graph version not found",
             );
             return Ok(TaskCreationResult::default());
         }
@@ -241,6 +258,7 @@ impl TaskCreator {
         })
     }
 
+    #[tracing::instrument(skip(self, invocation_ctx, task, indexes))]
     pub async fn handle_task_finished(
         &self,
         invocation_ctx: GraphInvocationCtx,
