@@ -329,6 +329,7 @@ fn update_task_versions_for_cg(
                 compute_graph.version.0
             );
             task.graph_version = compute_graph.version.clone();
+            // Update the image uri and secret names to the latest version
             if let Some(node) = compute_graph.nodes.get(&task.compute_fn_name) {
                 if let Some(image_uri) = node.image_uri() {
                     info!(
@@ -339,6 +340,9 @@ fn update_task_versions_for_cg(
                         "updating image uri for task",
                     );
                     task.image_uri = Some(image_uri.clone());
+                }
+                if let Some(secret_names) = node.secret_names() {
+                    task.secret_names = Some(secret_names.clone());
                 }
             }
             tasks_to_update.insert(key, task);
