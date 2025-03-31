@@ -385,6 +385,15 @@ impl InMemoryState {
                         .for_each(|(_k, v)| {
                             let mut task = v.clone();
                             task.graph_version = req.compute_graph.into_version().version;
+                            // Update the image uri and secret names to the latest version
+                            if let Some(node) = req.compute_graph.nodes.get(&task.compute_fn_name) {
+                                if let Some(image_uri) = node.image_uri() {
+                                    task.image_uri = Some(image_uri.clone());
+                                }
+                                if let Some(secret_names) = node.secret_names() {
+                                    task.secret_names = Some(secret_names.clone());
+                                }
+                            }
                             tasks_to_update.push(task);
                         });
                     let mut invocation_ctx_to_update = vec![];
