@@ -114,7 +114,7 @@ impl InMemoryState {
                 // Creating Compute Graphs and Versions
                 let cgs = reader.list_compute_graphs(&ns.name, None, None)?.0;
                 for cg in cgs {
-                    compute_graphs.insert(format!("{}|{}", ns.name, cg.name), Box::new(cg));
+                    compute_graphs.insert(cg.key(), Box::new(cg));
                 }
             }
         }
@@ -377,8 +377,7 @@ impl InMemoryState {
                 if req.upgrade_tasks_to_current_version {
                     let mut tasks_to_update = vec![];
                     let key_prefix =
-                        Task::keys_for_compute_graph(&req.namespace, &req.compute_graph.name);
-                    // FIXME: The prefix can include graph name starting with the same graph name.
+                        Task::key_prefix_for_compute_graph(&req.namespace, &req.compute_graph.name);
                     self.tasks
                         .range(key_prefix.clone()..)
                         .into_iter()
@@ -412,12 +411,13 @@ impl InMemoryState {
             }
             RequestPayload::DeleteComputeGraphRequest(req) => {
                 let key = ComputeGraph::key_from(&req.namespace, &req.name);
+                let key_prefix = ComputeGraph::key_prefix_from(&req.namespace, &req.name);
                 self.compute_graphs.remove(&key);
                 let keys_to_remove = self
                     .compute_graph_versions
-                    .range(key.clone()..)
+                    .range(key_prefix.clone()..)
                     .into_iter()
-                    .take_while(|(k, _v)| k.starts_with(&key))
+                    .take_while(|(k, _v)| k.starts_with(&key_prefix))
                     .map(|(k, _v)| k.clone())
                     .collect::<Vec<String>>();
                 for k in keys_to_remove {
@@ -425,9 +425,9 @@ impl InMemoryState {
                 }
                 let keys_to_remove = self
                     .invocation_ctx
-                    .range(key.clone()..)
+                    .range(key_prefix.clone()..)
                     .into_iter()
-                    .take_while(|(k, _v)| k.starts_with(&key))
+                    .take_while(|(k, _v)| k.starts_with(&key_prefix))
                     .map(|(k, _v)| k.clone())
                     .collect::<Vec<String>>();
                 let mut invocations_to_remove = Vec::new();
@@ -460,17 +460,17 @@ impl InMemoryState {
                         .insert(invocation_ctx.key(), Box::new(invocation_ctx.clone()));
                     // Remove tasks for invocation ctx if completed
                     if invocation_ctx.completed {
-                        let key = Task::key_prefix_for_invocation(
+                        let key_prefix = Task::key_prefix_for_invocation(
                             &invocation_ctx.namespace,
                             &invocation_ctx.compute_graph_name,
                             &invocation_ctx.invocation_id,
                         );
-                        self.invocation_ctx.remove(&key);
+                        self.invocation_ctx.remove(&key_prefix);
                         let tasks_to_remove = self
                             .tasks
-                            .range(key.clone()..)
+                            .range(key_prefix.clone()..)
                             .into_iter()
-                            .take_while(|(k, _v)| k.starts_with(&key))
+                            .take_while(|(k, _v)| k.starts_with(&key_prefix))
                             .map(|(_k, v)| v.clone())
                             .collect::<Vec<_>>();
 
@@ -539,10 +539,10 @@ impl InMemoryState {
         inv: &str,
         c_fn: &str,
     ) -> Option<ReduceTask> {
-        let key = format!("{}|{}|{}|{}", ns, cg, inv, c_fn);
+        let key_prefix = ReduceTask::key_prefix_from(ns, cg, inv, c_fn);
         self.queued_reduction_tasks
-            .range(key.clone()..)
-            .take_while(|(k, _v)| k.starts_with(&key))
+            .range(key_prefix.clone()..)
+            .take_while(|(k, _v)| k.starts_with(&key_prefix))
             .next()
             .map(|(_, v)| *v.clone())
     }

@@ -126,6 +126,14 @@ impl Allocation {
         )
     }
 
+    pub fn key_prefix_from_invocation(
+        namespace: &str,
+        compute_graph: &str,
+        invocation_id: &str,
+    ) -> String {
+        format!("{}|{}|{}|", namespace, compute_graph, invocation_id)
+    }
+
     pub fn task_key(&self) -> String {
         Task::key_from(
             &self.namespace,
@@ -438,12 +446,12 @@ impl ComputeGraph {
         ComputeGraph::key_from(&self.namespace, &self.name)
     }
 
-    pub fn key_version(&self) -> String {
-        ComputeGraphVersion::key_from(&self.namespace, &self.name, &self.version)
-    }
-
     pub fn key_from(namespace: &str, name: &str) -> String {
         format!("{}|{}", namespace, name)
+    }
+
+    pub fn key_prefix_from(namespace: &str, name: &str) -> String {
+        format!("{}|{}|", namespace, name)
     }
 
     /// Update the compute graph from all the supplied Graph fields.
@@ -509,6 +517,10 @@ impl ComputeGraphVersion {
 
     pub fn key_from(namespace: &str, compute_graph_name: &str, version: &GraphVersion) -> String {
         format!("{}|{}|{}", namespace, compute_graph_name, version.0)
+    }
+
+    pub fn key_prefix_from(namespace: &str, name: &str) -> String {
+        format!("{}|{}|", namespace, name)
     }
 
     pub fn get_compute_parent_nodes(&self, node_name: &str) -> Vec<String> {
@@ -589,6 +601,10 @@ impl NodeOutput {
             namespace, compute_graph, invocation_id, compute_fn, id
         )
     }
+
+    pub fn key_prefix_from(namespace: &str, compute_graph: &str, invocation_id: &str) -> String {
+        format!("{}|{}|{}|", namespace, compute_graph, invocation_id)
+    }
 }
 
 impl NodeOutputBuilder {
@@ -658,15 +674,11 @@ pub struct InvocationPayload {
 
 impl InvocationPayload {
     pub fn key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.compute_graph_name, self.id)
+        InvocationPayload::key_from(&self.namespace, &self.compute_graph_name, &self.id)
     }
 
     pub fn key_from(ns: &str, cg: &str, id: &str) -> String {
         format!("{}|{}|{}", ns, cg, id)
-    }
-
-    pub fn invocation_context_key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.compute_graph_name, self.id)
     }
 }
 
@@ -794,6 +806,18 @@ impl GraphInvocationCtx {
         key
     }
 
+    pub fn secondary_index_key_prefix_from_compute_graph(
+        namespace: &str,
+        compute_graph_name: &str,
+    ) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(namespace.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(compute_graph_name.as_bytes());
+        key.push(b'|');
+        key
+    }
+
     pub fn get_invocation_id_from_secondary_index_key(key: &[u8]) -> Option<String> {
         key.split(|&b| b == b'|')
             .nth(3)
@@ -808,8 +832,8 @@ impl GraphInvocationCtx {
         self.fn_task_analytics.get(compute_fn)
     }
 
-    pub fn key_prefix_for_cg(namespace: &str, compute_graph: &str) -> String {
-        format!("{}|{}", namespace, compute_graph)
+    pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}|", namespace, compute_graph)
     }
 }
 
@@ -872,6 +896,18 @@ impl ReduceTask {
             self.compute_fn_name,
             self.task_id,
             self.task_output_key,
+        )
+    }
+
+    pub fn key_prefix_from(
+        namespace: &str,
+        compute_graph_name: &str,
+        invocation_id: &str,
+        compute_fn_name: &str,
+    ) -> String {
+        format!(
+            "{}|{}|{}|{}|",
+            namespace, compute_graph_name, invocation_id, compute_fn_name,
         )
     }
 }
@@ -970,8 +1006,12 @@ impl Task {
         self.status == TaskStatus::Completed || self.outcome.is_terminal()
     }
 
-    pub fn keys_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
-        format!("{}|{}", namespace, compute_graph)
+    pub fn key_prefix_for_namespace(namespace: &str) -> String {
+        format!("{}|", namespace)
+    }
+
+    pub fn key_prefix_for_compute_graph(namespace: &str, compute_graph: &str) -> String {
+        format!("{}|{}|", namespace, compute_graph)
     }
 
     pub fn key_compute_graph_version(&self) -> String {
@@ -993,7 +1033,7 @@ impl Task {
         compute_graph: &str,
         invocation_id: &str,
     ) -> String {
-        format!("{}|{}|{}", namespace, compute_graph, invocation_id)
+        format!("{}|{}|{}|", namespace, compute_graph, invocation_id)
     }
 
     pub fn key_prefix_for_fn(
@@ -1034,7 +1074,15 @@ impl Task {
     }
 
     pub fn key_output(&self, output_id: &str) -> String {
-        format!("{}|{}|{}", self.namespace, self.id, output_id)
+        Task::key_output_from(&self.namespace, &self.id, output_id)
+    }
+
+    pub fn key_output_from(namespace: &str, id: &TaskId, output_id: &str) -> String {
+        format!("{}|{}|{}", namespace, id, output_id)
+    }
+
+    pub fn key_output_prefix_from(namespace: &str, id: &str) -> String {
+        format!("{}|{}|", namespace, id)
     }
 }
 

@@ -105,7 +105,7 @@ pub fn create_invocation(
     txn: &Transaction<TransactionDB>,
     req: &InvokeComputeGraphRequest,
 ) -> Result<()> {
-    let compute_graph_key = format!("{}|{}", req.namespace, req.compute_graph_name);
+    let compute_graph_key = ComputeGraph::key_from(&req.namespace, &req.compute_graph_name);
     let cg = txn
         .get_for_update_cf(
             &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
@@ -162,22 +162,22 @@ pub(crate) fn delete_invocation(
     );
 
     // Delete the invocation payload
-    let prefix = format!(
-        "{}|{}|{}",
-        req.namespace, req.compute_graph, req.invocation_id
-    );
+    let invocation_key =
+        GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
     delete_cf_prefix(
         txn,
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        prefix.as_bytes(),
+        invocation_key.as_bytes(),
     )?;
-    let mut tasks_deleted = Vec::new();
 
+    let mut tasks_deleted = Vec::new();
+    let task_prefix =
+        Task::key_prefix_for_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
     // delete all tasks for this invocation
     for iter in make_prefix_iterator(
         txn,
         IndexifyObjectsColumns::Tasks.cf_db(&db),
-        prefix.as_bytes(),
+        task_prefix.as_bytes(),
         &None,
     ) {
         let (key, value) = iter?;
@@ -193,7 +193,7 @@ pub(crate) fn delete_invocation(
             namespace = req.namespace,
             graph = req.compute_graph,
             invocation_id = req.invocation_id,
-            task_id = task.id.get(),
+            task_id = &task.id.get(),
             "deleting task",
         );
         match task.diagnostics {
@@ -212,7 +212,7 @@ pub(crate) fn delete_invocation(
             }
             None => {}
         }
-        let task_output_prefix = format!("{}|{}", task.namespace, task.id);
+        let task_output_prefix = Task::key_output_prefix_from(&req.namespace, &task.id.get());
         delete_cf_prefix(
             txn,
             &IndexifyObjectsColumns::TaskOutputs.cf_db(&db),
@@ -220,11 +220,16 @@ pub(crate) fn delete_invocation(
         )?;
     }
 
+    let allocation_prefix = Allocation::key_prefix_from_invocation(
+        &req.namespace,
+        &req.compute_graph,
+        &req.invocation_id,
+    );
     // delete all allocations for this invocation
     for iter in make_prefix_iterator(
         txn,
         IndexifyObjectsColumns::Allocations.cf_db(&db),
-        prefix.as_bytes(),
+        allocation_prefix.as_bytes(),
         &None,
     ) {
         let (key, value) = iter?;
@@ -242,27 +247,36 @@ pub(crate) fn delete_invocation(
     }
 
     // Delete Graph Invocation Context
-    // Note We don't delete the secondary index here because it's too much work to
-    // get the invocation id from the secondary index key. We purge all the
-    // secondary index keys for graphs if they are ever deleted.
+
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        prefix.as_bytes(),
+        invocation_key.as_bytes(),
     )?;
 
     // Delete Graph Invocation Context Secondary Index
+    // Note We don't delete the secondary index here because it's too much work to
+    // get the invocation id from the secondary index key. We purge all the
+    // secondary index keys for graphs if they are ever deleted.
+    //
+    // TODO: Only delete the secondary index keys for this invocation
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
-        prefix.as_bytes(),
+        &GraphInvocationCtx::secondary_index_key_prefix_from_compute_graph(
+            &req.namespace,
+            &req.compute_graph,
+        ),
     )?;
+
+    let node_output_prefix =
+        NodeOutput::key_prefix_from(&req.namespace, &req.compute_graph, &req.invocation_id);
 
     // mark all fn output urls for gc.
     for iter in make_prefix_iterator(
         txn,
         &IndexifyObjectsColumns::FnOutputs.cf_db(&db),
-        prefix.as_bytes(),
+        node_output_prefix.as_bytes(),
         &None,
     ) {
         let (key, value) = iter?;
@@ -287,8 +301,8 @@ fn update_task_versions_for_cg(
     txn: &Transaction<TransactionDB>,
     compute_graph: &ComputeGraph,
 ) -> Result<()> {
-    // FIXME: The prefix can include graph name starting with the same graph name.
-    let tasks_prefix = Task::keys_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
+    let tasks_prefix =
+        Task::key_prefix_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(10_194_304);
     let iter = db.iterator_cf_opt(
@@ -353,8 +367,10 @@ fn update_graph_invocations_for_cg(
     txn: &Transaction<TransactionDB>,
     compute_graph: &ComputeGraph,
 ) -> Result<()> {
-    let cg_prefix =
-        GraphInvocationCtx::key_prefix_for_cg(&compute_graph.namespace, &compute_graph.name);
+    let cg_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(
+        &compute_graph.namespace,
+        &compute_graph.name,
+    );
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(10_194_304);
     let iter = db.iterator_cf_opt(
@@ -535,15 +551,17 @@ pub fn delete_compute_graph(
         namespace,
         name
     );
-    let prefix = format!("{}|{}", namespace, name);
     txn.delete_cf(
         &IndexifyObjectsColumns::ComputeGraphs.cf_db(&db),
-        prefix.as_bytes(),
+        ComputeGraph::key_from(namespace, name).as_bytes(),
     )?;
+
+    let graph_invocation_prefix = GraphInvocationCtx::key_prefix_for_compute_graph(namespace, name);
+
     for iter in make_prefix_iterator(
         txn,
         &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-        prefix.as_bytes(),
+        graph_invocation_prefix.as_bytes(),
         &None,
     ) {
         let (_key, value) = iter?;
@@ -561,13 +579,13 @@ pub fn delete_compute_graph(
     delete_cf_prefix(
         txn,
         IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
-        prefix.as_bytes(),
+        &GraphInvocationCtx::secondary_index_key_prefix_from_compute_graph(namespace, name),
     )?;
 
     for iter in make_prefix_iterator(
         txn,
         &IndexifyObjectsColumns::ComputeGraphVersions.cf_db(&db),
-        prefix.as_bytes(),
+        ComputeGraphVersion::key_prefix_from(namespace, name).as_bytes(),
         &None,
     ) {
         let (key, value) = iter?;
@@ -732,12 +750,12 @@ pub fn ingest_task_outputs(
     }
 
     // Check if the invocation was deleted before the task completes
-    let invocation_id =
+    let invocation_key =
         InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
     let invocation = txn
         .get_cf(
             &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-            &invocation_id,
+            &invocation_key,
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
     if invocation.is_none() {
@@ -750,9 +768,12 @@ pub fn ingest_task_outputs(
         );
         return Ok(false);
     }
-    let task_key = format!(
-        "{}|{}|{}|{}|{}",
-        req.namespace, req.compute_graph, req.invocation_id, req.compute_fn, req.task.id
+    let task_key = Task::key_from(
+        &req.namespace,
+        &req.compute_graph,
+        &req.invocation_id,
+        &req.compute_fn,
+        &req.task.id.get(),
     );
     let existing_task =
         txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
