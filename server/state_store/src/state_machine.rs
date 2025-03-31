@@ -287,6 +287,7 @@ fn update_task_versions_for_cg(
     txn: &Transaction<TransactionDB>,
     compute_graph: &ComputeGraph,
 ) -> Result<()> {
+    // FIXME: The prefix can include graph name starting with the same graph name.
     let tasks_prefix = Task::keys_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(10_194_304);
