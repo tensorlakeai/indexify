@@ -43,7 +43,7 @@ class TestServerTaskDistribution(unittest.TestCase):
                 "--monitoring-server-port",
                 "7001",
             ],
-            keep_std_outputs=False,
+            keep_std_outputs=True,
         ) as executor_a:
             executor_a: subprocess.Popen
             print(f"Started Executor A with PID: {executor_a.pid}")
