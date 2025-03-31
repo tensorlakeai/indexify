@@ -209,13 +209,11 @@ impl StateReader {
                 }
             }
         };
-        let iter = self.db.iterator_cf_opt(&index_cf, read_options, mode);
+        let mut keys = Vec::<Box<[u8]>>::new();
         let mut items = Vec::new();
         let mut total = 0;
         let limit = limit.unwrap_or(usize::MAX);
         let mut restart_key = Vec::new();
-        let mut lookup_keys = Vec::new();
-        let mut keys = Vec::<Box<[u8]>>::new();
 
         let mut get_entries = |lookup_keys, keys: Vec<Box<[u8]>>| -> Result<bool> {
             let res = &self.db.multi_get_cf(lookup_keys);
@@ -236,6 +234,8 @@ impl StateReader {
             Ok(false)
         };
 
+        let mut lookup_keys = Vec::new();
+        let iter = self.db.iterator_cf_opt(&index_cf, read_options, mode);
         for kv in iter {
             if let Ok((key, _)) = kv {
                 if !key.starts_with(key_prefix) {
@@ -253,58 +253,6 @@ impl StateReader {
             }
         }
         get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))?;
-        Ok(FilterResponse {
-            items,
-            total,
-            cursor: restart_key,
-        })
-    }
-
-    pub fn filter_cf<T, F>(
-        &self,
-        column: IndexifyObjectsColumns,
-        filter: F,
-        start: Option<&[u8]>,
-        limit: Option<usize>,
-    ) -> Result<FilterResponse<T>, anyhow::Error>
-    where
-        T: DeserializeOwned,
-        F: Fn(&T) -> bool,
-    {
-        let kvs = &[KeyValue::new("op", "filter_cf")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-
-        let cf = column.cf_db(&self.db);
-        let mut read_options = ReadOptions::default();
-        read_options.set_readahead_size(4_194_304);
-        let mode = match start {
-            Some(start) => IteratorMode::From(start, Direction::Forward),
-            None => IteratorMode::Start,
-        };
-        let iter = self.db.iterator_cf_opt(&cf, read_options, mode);
-        let mut items = Vec::new();
-        let mut total = 0;
-        let limit = limit.unwrap_or(usize::MAX);
-        let mut restart_key = Vec::new();
-        for kv in iter {
-            if let Ok((key, value)) = kv {
-                let item = JsonEncoder::decode::<T>(&value)?;
-                if !filter(&item) {
-                    break;
-                }
-                if filter(&item) {
-                    if items.len() < limit {
-                        total += 1;
-                        items.push(item);
-                    } else {
-                        restart_key = key.into();
-                        break;
-                    }
-                }
-            } else {
-                return Err(anyhow::anyhow!("error reading db"));
-            }
-        }
         Ok(FilterResponse {
             items,
             total,

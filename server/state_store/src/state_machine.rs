@@ -305,10 +305,11 @@ fn update_task_versions_for_cg(
         Task::key_prefix_for_compute_graph(&compute_graph.namespace, &compute_graph.name);
     let mut read_options = ReadOptions::default();
     read_options.set_readahead_size(10_194_304);
-    let iter = db.iterator_cf_opt(
+    let iter = make_prefix_iterator(
+        txn,
         &IndexifyObjectsColumns::Tasks.cf_db(&db),
-        read_options,
-        IteratorMode::From(&tasks_prefix.as_bytes(), Direction::Forward),
+        tasks_prefix.as_bytes(),
+        &None,
     );
 
     let mut tasks_to_update = HashMap::new();
@@ -375,12 +376,12 @@ fn update_graph_invocations_for_cg(
         &compute_graph.namespace,
         &compute_graph.name,
     );
-    let mut read_options = ReadOptions::default();
-    read_options.set_readahead_size(10_194_304);
-    let iter = db.iterator_cf_opt(
+
+    let iter = make_prefix_iterator(
+        txn,
         &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
-        read_options,
-        IteratorMode::From(&cg_prefix.as_bytes(), Direction::Forward),
+        cg_prefix.as_bytes(),
+        &None,
     );
 
     let mut graph_invocation_ctx_to_update = HashMap::new();
@@ -399,8 +400,8 @@ fn update_graph_invocations_for_cg(
                 graph_invocation_ctx.invocation_id, graph_invocation_ctx.graph_version.0, compute_graph.version.0
             );
             graph_invocation_ctx.graph_version = compute_graph.version.clone();
+            graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
         }
-        graph_invocation_ctx_to_update.insert(key, graph_invocation_ctx);
     }
     info!(
         namespace = compute_graph.namespace,
