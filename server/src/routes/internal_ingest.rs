@@ -360,7 +360,7 @@ pub async fn ingest_files_from_executor(
         );
         return Ok(());
     }
-    let mut task = task.unwrap();
+    let mut task = task.ok_or(IndexifyAPIError::internal_error(anyhow!("task not found")))?;
     task.outcome = task_result.outcome.clone().into();
     task.diagnostics = Some(task_diagnostic.clone());
     task.output_status = TaskOutputsIngestionStatus::Ingested;

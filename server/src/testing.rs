@@ -148,15 +148,33 @@ impl TestService {
             allocated_tasks,
         );
 
-        let unallocated_tasks = tasks
+        let pending_tasks = tasks
             .iter()
             .filter(|t| t.status == TaskStatus::Pending)
             .collect::<Vec<_>>();
         assert_eq!(
-            unallocated_tasks.len(),
+            pending_tasks.len(),
             unallocated,
-            "Unallocated tasks: {:#?}",
-            unallocated_tasks
+            "Pending tasks: {:#?}",
+            pending_tasks
+        );
+
+        let pending_tasks_memory = self
+            .service
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .tasks
+            .clone();
+        let pending_tasks_memory = pending_tasks_memory
+            .iter()
+            .filter(|(_k, t)| t.status == TaskStatus::Pending)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pending_tasks_memory.len(),
+            unallocated,
+            "Pending tasks in mem store",
         );
 
         let completed_success_tasks = tasks
