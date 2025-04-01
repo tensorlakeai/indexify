@@ -746,8 +746,10 @@ pub fn ingest_task_outputs(
     if graph.is_none() {
         info!(
             namespace = &req.namespace,
-            graph = &req.compute_graph,
+            compute_graph = &req.compute_graph,
             invocation_id = &req.invocation_id,
+            compute_fn = &req.compute_fn,
+            task_id = req.task.id.get(),
             "Compute graph not found: {}",
             &req.compute_graph
         );
@@ -755,40 +757,44 @@ pub fn ingest_task_outputs(
     }
 
     // Check if the invocation was deleted before the task completes
-    let invocation_key =
-        InvocationPayload::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
+    let invocation_ctx_key =
+        GraphInvocationCtx::key_from(&req.namespace, &req.compute_graph, &req.invocation_id);
     let invocation = txn
         .get_cf(
-            &IndexifyObjectsColumns::GraphInvocations.cf_db(&db),
-            &invocation_key,
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            &invocation_ctx_key,
         )
         .map_err(|e| anyhow!("failed to get invocation: {}", e))?;
-    if invocation.is_none() {
-        info!(
-            namespace = &req.namespace,
-            graph = &req.compute_graph,
-            invocation_id = &req.invocation_id,
-            "Invocation not found: {} ",
-            &req.invocation_id
-        );
-        return Ok(false);
-    }
-    let task_key = Task::key_from(
-        &req.namespace,
-        &req.compute_graph,
-        &req.invocation_id,
-        &req.compute_fn,
-        &req.task.id.get(),
-    );
-    let existing_task =
-        txn.get_for_update_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key, true)?;
+    let invocation = match invocation {
+        Some(v) => JsonEncoder::decode::<GraphInvocationCtx>(&v)?,
+        None => {
+            info!(
+                namespace = &req.namespace,
+                compute_graph = &req.compute_graph,
+                invocation_id = &req.invocation_id,
+                compute_fn = &req.compute_fn,
+                task_id = req.task.id.get(),
+                "Invocation not found: {}",
+                &req.invocation_id
+            );
+            return Ok(false);
+        }
+    };
+
+    let existing_task = txn.get_for_update_cf(
+        &IndexifyObjectsColumns::Tasks.cf_db(&db),
+        req.task.key(),
+        true,
+    )?;
     if existing_task.is_none() {
         info!(
             namespace = &req.namespace,
-            graph = &req.compute_graph,
+            compute_graph = &req.compute_graph,
             invocation_id = &req.invocation_id,
+            compute_fn = &req.compute_fn,
+            task_id = req.task.id.get(),
             "Task not found: {}",
-            &task_key
+            req.task.key()
         );
         return Ok(false);
     }
@@ -801,19 +807,33 @@ pub fn ingest_task_outputs(
             &req.compute_graph,
             &req.invocation_id,
             &req.compute_fn,
-            &existing_task.id,
+            &req.task.id,
             &req.executor_id,
         ),
     )?;
+
+    // Skip finalize task if it's invocation is already completed
+    if invocation.completed {
+        warn!(
+            namespace = &req.namespace,
+            compute_graph = &req.compute_graph,
+            invocation_id = &req.invocation_id,
+            compute_fn = &req.compute_fn,
+            task_id = req.task.id.get(),
+            "Invocation already completed, skipping setting outputs",
+        );
+        return Ok(false);
+    }
 
     // idempotency check guaranteeing that we emit a finalizing state change only
     // once.
     if existing_task.output_status == TaskOutputsIngestionStatus::Ingested {
         warn!(
             namespace = &req.namespace,
-            graph = &req.compute_graph,
+            compute_graph = &req.compute_graph,
             invocation_id = &req.invocation_id,
-            task_key = existing_task.key(),
+            compute_fn = &req.compute_fn,
+            task_id = req.task.id.get(),
             "Task outputs already uploaded, skipping setting outputs",
         );
         return Ok(false);

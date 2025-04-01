@@ -18,7 +18,7 @@ use opentelemetry::{
     KeyValue,
 };
 use tokio::sync::RwLock;
-use tracing::{error, warn};
+use tracing::{debug, error};
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -114,7 +114,7 @@ impl InMemoryMetrics {
         let unallocated_tasks_gauge = {
             let state_clone = state.clone();
             meter
-                .u64_observable_gauge("un_allocated_tasks")
+                .u64_observable_gauge("unallocated_tasks")
                 .with_description("Number of unallocated tasks, reported from in_memory_state")
                 .with_callback(move |observer| {
                     // Use a block scope to ensure the lock is dropped automatically
@@ -124,7 +124,7 @@ impl InMemoryMetrics {
                             // Lock is automatically dropped at the end of this block
                             observer.observe(task_count, &[]);
                         } else {
-                            warn!("Failed to acquire read lock for unallocated_tasks metric");
+                            debug!("Failed to acquire read lock for unallocated_tasks metric");
                         }
                     }
                 })
@@ -138,11 +138,17 @@ impl InMemoryMetrics {
                 .with_description("Number of active tasks, reported from in_memory_state")
                 .with_callback(move |observer| {
                     if let Ok(state) = state_clone.try_read() {
-                        let task_count = state.tasks.len() as u64;
+                        let task_count = state
+                            .tasks
+                            .iter()
+                            // Filter out terminal tasks since they only get removed once their
+                            // invocation is completed.
+                            .filter(|(_k, task)| !task.is_terminal())
+                            .count() as u64;
                         // Lock is automatically dropped at the end of this block
                         observer.observe(task_count, &[]);
                     } else {
-                        warn!("Failed to acquire read lock for active_tasks metric");
+                        debug!("Failed to acquire read lock for active_tasks metric");
                     }
                 })
                 .build()
@@ -159,7 +165,7 @@ impl InMemoryMetrics {
                         // Lock is automatically dropped at the end of this block
                         observer.observe(invocation_count, &[]);
                     } else {
-                        warn!("Failed to acquire read lock for active_invocations metric");
+                        debug!("Failed to acquire read lock for active_invocations metric");
                     }
                 })
                 .build()
@@ -176,7 +182,7 @@ impl InMemoryMetrics {
                         if let Ok(state) = state_clone.try_read() {
                             state.allocations_by_fn.clone()
                         } else {
-                            warn!("Failed to acquire read lock for active_allocations metric");
+                            debug!("Failed to acquire read lock for active_allocations metric");
                             im::HashMap::new()
                         }
                     };
@@ -210,7 +216,7 @@ impl InMemoryMetrics {
                         if let Ok(state) = state_clone.try_read() {
                             state.invocation_ctx.clone()
                         } else {
-                            warn!("Failed to acquire read lock for invocation_ctx metric");
+                            debug!("Failed to acquire read lock for invocation_ctx metric");
                             im::OrdMap::new()
                         }
                     };
@@ -252,7 +258,7 @@ impl InMemoryMetrics {
                         if let Ok(state) = state_clone.try_read() {
                             state.tasks.clone()
                         } else {
-                            warn!("Failed to acquire read lock for tasks metric");
+                            debug!("Failed to acquire read lock for tasks metric");
                             im::OrdMap::new()
                         }
                     };
@@ -467,7 +473,19 @@ impl InMemoryState {
         if let Some(allocations_by_fn) = self.allocations_by_fn.get(executor_id) {
             for allocations in allocations_by_fn.values() {
                 for allocation in allocations {
-                    tasks.push(self.tasks.get(&allocation.task_key()).unwrap().clone());
+                    if let Some(task) = self.tasks.get(&allocation.task_key()) {
+                        tasks.push(task.clone());
+                    } else {
+                        error!(
+                            executor_id = executor_id,
+                            task_key = allocation.task_key(),
+                            namespace = allocation.namespace,
+                            compute_graph = allocation.compute_graph,
+                            compute_fn = allocation.compute_fn,
+                            invocation_id = allocation.invocation_id,
+                            "task not found for allocation"
+                        );
+                    }
                 }
             }
         }
@@ -484,21 +502,31 @@ impl InMemoryState {
                     .insert(req.ctx.key(), Box::new(req.ctx.clone()));
             }
             RequestPayload::IngestTaskOutputs(req) => {
-                let allocation_id = Allocation::id(
-                    &req.executor_id,
-                    &req.task.id,
-                    &req.namespace,
-                    &req.compute_graph,
-                    &req.compute_fn,
-                    &req.invocation_id,
-                );
-
-                // update task
-                self.tasks
-                    .insert(req.task.key(), Box::new(req.task.clone()));
+                // Update task
+                {
+                    let invocation_ctx_key = GraphInvocationCtx::key_from(
+                        &req.task.namespace,
+                        &req.task.compute_graph_name,
+                        &req.task.invocation_id,
+                    );
+                    // Only update tasks for running invocations, this can happen if
+                    // the invocation failed with pending allocations on executors.
+                    if self.invocation_ctx.get(&invocation_ctx_key).is_some() {
+                        self.tasks
+                            .insert(req.task.key(), Box::new(req.task.clone()));
+                    }
+                }
 
                 // Remove the allocation
                 {
+                    let allocation_id = Allocation::id(
+                        &req.executor_id,
+                        &req.task.id,
+                        &req.namespace,
+                        &req.compute_graph,
+                        &req.compute_fn,
+                        &req.invocation_id,
+                    );
                     self.allocations_by_fn
                         .entry(req.executor_id.get().to_string())
                         .and_modify(|allocation_map| {
@@ -551,43 +579,60 @@ impl InMemoryState {
                 // FIXME - we should set this in the API and not here, so that these things are
                 // not set in the state store
                 if req.upgrade_tasks_to_current_version {
-                    let mut tasks_to_update = vec![];
-                    let key_prefix =
-                        Task::key_prefix_for_compute_graph(&req.namespace, &req.compute_graph.name);
-                    self.tasks
-                        .range(key_prefix.clone()..)
-                        .into_iter()
-                        .take_while(|(k, _v)| k.starts_with(&key_prefix))
-                        .for_each(|(_k, v)| {
-                            let mut task = v.clone();
-                            task.graph_version = req.compute_graph.into_version().version;
-                            // Update the image uri and secret names to the latest version
-                            if let Some(node) = req.compute_graph.nodes.get(&task.compute_fn_name) {
-                                if let Some(image_uri) = node.image_uri() {
-                                    task.image_uri = Some(image_uri.clone());
+                    // Update tasks
+                    {
+                        let mut tasks_to_update = vec![];
+                        let tasks_key_prefix = Task::key_prefix_for_compute_graph(
+                            &req.namespace,
+                            &req.compute_graph.name,
+                        );
+                        self.tasks
+                            .range(tasks_key_prefix.clone()..)
+                            .into_iter()
+                            .take_while(|(k, _v)| k.starts_with(&tasks_key_prefix))
+                            .for_each(|(_k, v)| {
+                                let mut task = v.clone();
+                                task.graph_version = req.compute_graph.into_version().version;
+                                // Update the image uri and secret names to the latest version
+                                if let Some(node) =
+                                    req.compute_graph.nodes.get(&task.compute_fn_name)
+                                {
+                                    if let Some(image_uri) = node.image_uri() {
+                                        task.image_uri = Some(image_uri.clone());
+                                    }
+                                    if let Some(secret_names) = node.secret_names() {
+                                        task.secret_names = Some(secret_names.clone());
+                                    }
                                 }
-                                if let Some(secret_names) = node.secret_names() {
-                                    task.secret_names = Some(secret_names.clone());
-                                }
-                            }
-                            tasks_to_update.push(task);
-                        });
-                    let mut invocation_ctx_to_update = vec![];
-                    self.invocation_ctx
-                        .range(key_prefix.clone()..)
-                        .into_iter()
-                        .take_while(|(k, _v)| k.starts_with(&key_prefix))
-                        .for_each(|(_k, v)| {
-                            let mut ctx = v.clone();
-                            ctx.graph_version = req.compute_graph.into_version().version;
-                            invocation_ctx_to_update.push(ctx);
-                        });
+                                tasks_to_update.push(task);
+                            });
 
-                    for task in tasks_to_update {
-                        self.tasks.insert(task.key(), task);
+                        for task in tasks_to_update {
+                            self.tasks.insert(task.key(), task);
+                        }
                     }
-                    for ctx in invocation_ctx_to_update {
-                        self.invocation_ctx.insert(ctx.key(), ctx);
+
+                    // Update invocation contexts
+                    {
+                        let mut invocation_ctx_to_update = vec![];
+                        let invocation_ctx_key_prefix =
+                            GraphInvocationCtx::key_prefix_for_compute_graph(
+                                &req.namespace,
+                                &req.compute_graph.name,
+                            );
+                        self.invocation_ctx
+                            .range(invocation_ctx_key_prefix.clone()..)
+                            .into_iter()
+                            .take_while(|(k, _v)| k.starts_with(&invocation_ctx_key_prefix))
+                            .for_each(|(_k, v)| {
+                                let mut ctx = v.clone();
+                                ctx.graph_version = req.compute_graph.into_version().version;
+                                invocation_ctx_to_update.push(ctx);
+                            });
+
+                        for ctx in invocation_ctx_to_update {
+                            self.invocation_ctx.insert(ctx.key(), ctx);
+                        }
                     }
                 }
             }
@@ -595,32 +640,40 @@ impl InMemoryState {
                 self.delete_invocation(&req.namespace, &req.compute_graph, &req.invocation_id);
             }
             RequestPayload::DeleteComputeGraphRequest(req) => {
+                // Remove compute graph
                 let key = ComputeGraph::key_from(&req.namespace, &req.name);
-                let key_prefix = ComputeGraph::key_prefix_from(&req.namespace, &req.name);
                 self.compute_graphs.remove(&key);
-                let keys_to_remove = self
-                    .compute_graph_versions
-                    .range(key_prefix.clone()..)
-                    .into_iter()
-                    .take_while(|(k, _v)| k.starts_with(&key_prefix))
-                    .map(|(k, _v)| k.clone())
-                    .collect::<Vec<String>>();
-                for k in keys_to_remove {
-                    self.compute_graph_versions.remove(&k);
+
+                // Remove compute graph versions
+                {
+                    let version_key_prefix =
+                        ComputeGraphVersion::key_prefix_from(&req.namespace, &req.name);
+                    let keys_to_remove = self
+                        .compute_graph_versions
+                        .range(version_key_prefix.clone()..)
+                        .into_iter()
+                        .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
+                        .map(|(k, _v)| k.clone())
+                        .collect::<Vec<String>>();
+                    for k in keys_to_remove {
+                        self.compute_graph_versions.remove(&k);
+                    }
                 }
-                let keys_to_remove = self
-                    .invocation_ctx
-                    .range(key_prefix.clone()..)
-                    .into_iter()
-                    .take_while(|(k, _v)| k.starts_with(&key_prefix))
-                    .map(|(k, _v)| k.clone())
-                    .collect::<Vec<String>>();
-                let mut invocations_to_remove = Vec::new();
-                for k in keys_to_remove {
-                    invocations_to_remove.push(k);
-                }
-                for k in invocations_to_remove {
-                    self.delete_invocation(&req.namespace, &req.name, &k);
+
+                // Remove invocation contexts
+                {
+                    let invocation_key_prefix =
+                        GraphInvocationCtx::key_prefix_for_compute_graph(&req.namespace, &req.name);
+                    let invocations_to_remove = self
+                        .invocation_ctx
+                        .range(invocation_key_prefix.clone()..)
+                        .into_iter()
+                        .take_while(|(k, _v)| k.starts_with(&invocation_key_prefix))
+                        .map(|(k, _v)| k.clone())
+                        .collect::<Vec<String>>();
+                    for k in invocations_to_remove {
+                        self.delete_invocation(&req.namespace, &req.name, &k);
+                    }
                 }
             }
             RequestPayload::SchedulerUpdate(req) => {
@@ -641,26 +694,16 @@ impl InMemoryState {
                     self.queued_reduction_tasks.remove(task);
                 }
                 for invocation_ctx in &req.updated_invocations_states {
-                    self.invocation_ctx
-                        .insert(invocation_ctx.key(), Box::new(invocation_ctx.clone()));
                     // Remove tasks for invocation ctx if completed
                     if invocation_ctx.completed {
-                        let key_prefix = Task::key_prefix_for_invocation(
+                        self.delete_invocation(
                             &invocation_ctx.namespace,
                             &invocation_ctx.compute_graph_name,
                             &invocation_ctx.invocation_id,
                         );
-                        self.invocation_ctx.remove(&key_prefix);
-                        let tasks_to_remove = self
-                            .tasks
-                            .range(key_prefix.clone()..)
-                            .into_iter()
-                            .take_while(|(k, _v)| k.starts_with(&key_prefix))
-                            .map(|(_k, v)| v.clone())
-                            .collect::<Vec<_>>();
-
-                        self.delete_tasks(tasks_to_remove);
-                        // TODO: delete cached queued reduction tasks
+                    } else {
+                        self.invocation_ctx
+                            .insert(invocation_ctx.key(), Box::new(invocation_ctx.clone()));
                     }
                 }
 
@@ -748,6 +791,13 @@ impl InMemoryState {
     }
 
     pub fn delete_invocation(&mut self, namespace: &str, compute_graph: &str, invocation_id: &str) {
+        // Remove invocation ctx
+        self.invocation_ctx.remove(&GraphInvocationCtx::key_from(
+            namespace,
+            compute_graph,
+            invocation_id,
+        ));
+
         // Remove tasks
         let key_prefix =
             Task::key_prefix_for_invocation(&namespace, &compute_graph, &invocation_id);
@@ -756,35 +806,10 @@ impl InMemoryState {
             .range(key_prefix.clone()..)
             .into_iter()
             .take_while(|(k, _v)| k.starts_with(&key_prefix))
-            .for_each(|(k, _v)| {
-                tasks_to_remove.push(k.clone());
+            .for_each(|(_k, v)| {
+                tasks_to_remove.push(v.clone());
             });
-        for task in tasks_to_remove {
-            self.tasks.remove(&task);
-        }
-
-        // Remove invocation ctx
-        self.invocation_ctx.remove(&key_prefix);
-
-        // Remove allocations
-        for (_executor, allocations_by_fn) in self.allocations_by_fn.iter_mut() {
-            for (_fn_uri, allocations) in allocations_by_fn.iter_mut() {
-                allocations.retain(|allocation| allocation.invocation_id != invocation_id);
-            }
-        }
-
-        // Remove unallocated tasks
-        let mut unallocated_tasks_to_remove = Vec::new();
-        let unallocated_tasks_clone = self.unallocated_tasks.clone();
-        for unallocated_task_id in unallocated_tasks_clone.iter() {
-            let task_key = unallocated_task_id.task_key.clone();
-            if task_key.starts_with(&key_prefix) {
-                unallocated_tasks_to_remove.push(unallocated_task_id);
-            }
-        }
-        for k in unallocated_tasks_to_remove {
-            self.unallocated_tasks.remove(k);
-        }
+        self.delete_tasks(tasks_to_remove);
 
         // Remove queued reduction tasks
         let mut queued_reduction_tasks_to_remove = Vec::new();

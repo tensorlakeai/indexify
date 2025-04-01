@@ -148,7 +148,7 @@ impl TaskAllocationProcessor {
                 tasks.push(task.clone());
             } else {
                 error!(
-                    task_key=%unallocated_task_id.task_key,
+                    task_key = unallocated_task_id.task_key,
                     "task not found in indexes for unallocated task"
                 );
             }

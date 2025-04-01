@@ -540,6 +540,8 @@ mod tests {
             let executor_tasks = executor.get_tasks().await?;
             assert_eq!(executor_tasks.len(), 1, "{:#?}", executor_tasks);
 
+            test_srv.assert_task_states(1, 1, 0, 0).await?;
+
             executor
                 .finalize_task(
                     executor_tasks.first().unwrap(),
@@ -552,18 +554,7 @@ mod tests {
 
         // check for completion
         {
-            let tasks = indexify_state
-                .reader()
-                .list_tasks_by_compute_graph(TEST_NAMESPACE, "graph_A", &invocation_id, None, None)
-                .unwrap()
-                .0;
-            assert_eq!(tasks.len(), 1, "{:#?}", tasks);
-
-            let successful_tasks: Vec<Task> = tasks
-                .into_iter()
-                .filter(|t| t.outcome == TaskOutcome::Failure)
-                .collect();
-            assert_eq!(successful_tasks.len(), 1, "{:#?}", successful_tasks);
+            test_srv.assert_task_states(1, 0, 0, 0).await?;
 
             let executor_tasks = executor.get_tasks().await?;
             assert!(
