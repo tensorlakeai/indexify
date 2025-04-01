@@ -12,12 +12,13 @@ use data_model::{
     TaskStatus,
 };
 use indexify_utils::{get_elapsed_time, TimeUnit};
-use metrics::{low_latency_boundaries, StateStoreMetrics, Timer};
+use metrics::low_latency_boundaries;
 use opentelemetry::{
-    metrics::{Gauge, Histogram},
+    metrics::{Histogram, ObservableGauge},
     KeyValue,
 };
-use tracing::error;
+use tokio::sync::RwLock;
+use tracing::{error, warn};
 
 use crate::{
     requests::{RequestPayload, StateMachineUpdateRequest},
@@ -89,19 +90,235 @@ pub struct InMemoryState {
     // Invocation Ctx
     pub invocation_ctx: im::OrdMap<String, Box<GraphInvocationCtx>>,
 
-    state_store_metrics: Arc<StateStoreMetrics>,
-
-    unallocated_tasks_gauge: Gauge<u64>,
-    active_tasks_gauge: Gauge<u64>,
-    active_invocations_gauge: Gauge<u64>,
-    active_allocations_gauge: Gauge<u64>,
+    // Histogram metrics for task latency measurements for direct recording
     task_pending_latency: Histogram<f64>,
     task_running_latency: Histogram<f64>,
     task_completion_latency: Histogram<f64>,
 }
 
+/// InMemoryMetrics manages observable metrics for the InMemoryState
+pub struct InMemoryMetrics {
+    pub unallocated_tasks_gauge: ObservableGauge<u64>,
+    pub active_tasks_gauge: ObservableGauge<u64>,
+    pub active_invocations_gauge: ObservableGauge<u64>,
+    pub active_allocations_gauge: ObservableGauge<u64>,
+    pub max_invocation_age_gauge: ObservableGauge<f64>,
+    pub max_task_age_gauge: ObservableGauge<f64>,
+}
+
+impl InMemoryMetrics {
+    pub fn new(state: Arc<RwLock<InMemoryState>>) -> Self {
+        let meter = opentelemetry::global::meter("state_store");
+
+        // Create observable gauges with callbacks that clone needed data
+        let unallocated_tasks_gauge = {
+            let state_clone = state.clone();
+            meter
+                .u64_observable_gauge("un_allocated_tasks")
+                .with_description("Number of unallocated tasks, reported from in_memory_state")
+                .with_callback(move |observer| {
+                    // Use a block scope to ensure the lock is dropped automatically
+                    {
+                        if let Ok(state) = state_clone.try_read() {
+                            let task_count = state.unallocated_tasks.len() as u64;
+                            // Lock is automatically dropped at the end of this block
+                            observer.observe(task_count, &[]);
+                        } else {
+                            warn!("Failed to acquire read lock for unallocated_tasks metric");
+                        }
+                    }
+                })
+                .build()
+        };
+
+        let active_tasks_gauge = {
+            let state_clone = state.clone();
+            meter
+                .u64_observable_gauge("active_tasks")
+                .with_description("Number of active tasks, reported from in_memory_state")
+                .with_callback(move |observer| {
+                    if let Ok(state) = state_clone.try_read() {
+                        let task_count = state.tasks.len() as u64;
+                        // Lock is automatically dropped at the end of this block
+                        observer.observe(task_count, &[]);
+                    } else {
+                        warn!("Failed to acquire read lock for active_tasks metric");
+                    }
+                })
+                .build()
+        };
+
+        let active_invocations_gauge = {
+            let state_clone = state.clone();
+            meter
+                .u64_observable_gauge("active_invocations_gauge")
+                .with_description("Number of active invocations, reported from in_memory_state")
+                .with_callback(move |observer| {
+                    if let Ok(state) = state_clone.try_read() {
+                        let invocation_count = state.invocation_ctx.len() as u64;
+                        // Lock is automatically dropped at the end of this block
+                        observer.observe(invocation_count, &[]);
+                    } else {
+                        warn!("Failed to acquire read lock for active_invocations metric");
+                    }
+                })
+                .build()
+        };
+
+        let active_allocations_gauge = {
+            let state_clone = state.clone();
+            meter
+                .u64_observable_gauge("active_allocations_gauge")
+                .with_description("Number of active allocations, reported from in_memory_state")
+                .with_callback(move |observer| {
+                    // Clone data within a minimal scope to auto-drop the lock immediately
+                    let allocations_by_fn_clone = {
+                        if let Ok(state) = state_clone.try_read() {
+                            state.allocations_by_fn.clone()
+                        } else {
+                            warn!("Failed to acquire read lock for active_allocations metric");
+                            im::HashMap::new()
+                        }
+                    };
+
+                    // Process the cloned data outside the lock scope
+                    for (executor_id, fn_map) in allocations_by_fn_clone.iter() {
+                        for (fn_uri, allocations) in fn_map.iter() {
+                            observer.observe(
+                                allocations.len() as u64,
+                                &[
+                                    KeyValue::new("executor_id", executor_id.clone()),
+                                    KeyValue::new("fn_uri", fn_uri.clone()),
+                                ],
+                            );
+                        }
+                    }
+                })
+                .build()
+        };
+
+        // Add max invocation age metric
+        let max_invocation_age_gauge = {
+            let state_clone = state.clone();
+            meter
+                .f64_observable_gauge("max_invocation_age")
+                .with_unit("s")
+                .with_description("Maximum age of any non-completed invocation in seconds")
+                .with_callback(move |observer| {
+                    // Clone data within a minimal scope to auto-drop the lock immediately
+                    let invocation_ctx = {
+                        if let Ok(state) = state_clone.try_read() {
+                            state.invocation_ctx.clone()
+                        } else {
+                            warn!("Failed to acquire read lock for invocation_ctx metric");
+                            im::OrdMap::new()
+                        }
+                    };
+                    let max_age = {
+                        // Find the oldest non-completed invocation
+                        if !invocation_ctx.is_empty() {
+                            invocation_ctx
+                                .values()
+                                .filter(|inv| !inv.completed)
+                                .map(|inv| {
+                                    get_elapsed_time(inv.created_at.into(), TimeUnit::Milliseconds)
+                                })
+                                .max_by(|a, b| {
+                                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .unwrap_or(0.0) // Default to 0 if no
+                                                // non-completed invocations
+                        } else {
+                            0.0 // Default to 0 if no invocations
+                        }
+                    };
+
+                    // Always report the max age (which may be 0)
+                    observer.observe(max_age, &[]);
+                })
+                .build()
+        };
+
+        // Add max task age metric
+        let max_task_age_gauge = {
+            let state_clone = state.clone();
+            meter
+                .f64_observable_gauge("max_task_age")
+                .with_unit("s")
+                .with_description("Maximum age of any non-terminal task in seconds")
+                .with_callback(move |observer| {
+                    // Clone data within a minimal scope to auto-drop the lock immediately
+                    let tasks = {
+                        if let Ok(state) = state_clone.try_read() {
+                            state.tasks.clone()
+                        } else {
+                            warn!("Failed to acquire read lock for tasks metric");
+                            im::OrdMap::new()
+                        }
+                    };
+
+                    let max_age = {
+                        // Find the oldest non-terminal task
+                        if !tasks.is_empty() {
+                            tasks
+                                .values()
+                                .filter(|task| !task.is_terminal())
+                                .map(|task| {
+                                    get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds)
+                                })
+                                .max_by(|a, b| {
+                                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .unwrap_or(0.0) // Default to 0 if no
+                                                // non-terminal tasks
+                        } else {
+                            0.0 // Default to 0 if no tasks
+                        }
+                    };
+
+                    // Always report the max age (which may be 0)
+                    observer.observe(max_age, &[]);
+                })
+                .build()
+        };
+
+        Self {
+            unallocated_tasks_gauge,
+            active_tasks_gauge,
+            active_invocations_gauge,
+            active_allocations_gauge,
+            max_invocation_age_gauge,
+            max_task_age_gauge,
+        }
+    }
+}
+
 impl InMemoryState {
-    pub fn new(reader: StateReader, state_store_metrics: Arc<StateStoreMetrics>) -> Result<Self> {
+    pub fn new(reader: StateReader) -> Result<Self> {
+        let meter = opentelemetry::global::meter("state_store");
+
+        // Create histogram metrics for task latency measurements
+        let task_pending_latency = meter
+            .f64_histogram("task_pending_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks spend from creation to running")
+            .build();
+
+        let task_running_latency = meter
+            .f64_histogram("task_running_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks spend from running to completion")
+            .build();
+
+        let task_completion_latency = meter
+            .f64_histogram("task_completion_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Time tasks spend from creation to completion")
+            .build();
+
         // Creating Namespaces
         let mut namespaces = im::HashMap::new();
         let mut compute_graphs = im::HashMap::new();
@@ -212,43 +429,6 @@ impl InMemoryState {
             }
         }
 
-        let meter = opentelemetry::global::meter("state_store");
-
-        let unallocated_tasks_gauge = meter
-            .u64_gauge("un_allocated_tasks")
-            .with_description("Number of unallocated tasks, reported from in_memory_state")
-            .build();
-        let active_tasks_gauge = meter
-            .u64_gauge("active_tasks")
-            .with_description("Number of active tasks, reported from in_memory_state")
-            .build();
-        let active_invocations_gauge = meter
-            .u64_gauge("active_invocations_gauge")
-            .with_description("Number of active tasks, reported from in_memory_state")
-            .build();
-        let active_allocations_gauge = meter
-            .u64_gauge("active_allocations_gauge")
-            .with_description("Number of active tasks, reported from in_memory_state")
-            .build();
-        let task_pending_latency = meter
-            .f64_histogram("task_pending_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend from creation to running")
-            .build();
-        let task_running_latency = meter
-            .f64_histogram("task_running_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend from running to completion")
-            .build();
-        let task_completion_latency = meter
-            .f64_histogram("task_completion_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend from creation to completion")
-            .build();
-
         let in_memory_state = Self {
             namespaces,
             compute_graphs,
@@ -258,17 +438,11 @@ impl InMemoryState {
             unallocated_tasks,
             invocation_ctx,
             queued_reduction_tasks,
-            state_store_metrics,
-            unallocated_tasks_gauge,
-            active_tasks_gauge,
-            active_invocations_gauge,
-            active_allocations_gauge,
+            allocations_by_fn,
             task_pending_latency,
             task_running_latency,
             task_completion_latency,
-            allocations_by_fn,
         };
-        in_memory_state.emit_metrics();
 
         Ok(in_memory_state)
     }
@@ -335,6 +509,7 @@ impl InMemoryState {
                                         allocations.iter().position(|a| a.id == allocation_id)
                                     {
                                         let allocation = &allocations[index];
+                                        // Record metrics
                                         self.task_running_latency.record(
                                             get_elapsed_time(
                                                 allocation.created_at,
@@ -356,6 +531,7 @@ impl InMemoryState {
                         });
                 }
 
+                // Record metrics
                 self.task_completion_latency.record(
                     get_elapsed_time(req.task.creation_time_ns, TimeUnit::Nanoseconds),
                     &[KeyValue::new("outcome", req.task.outcome.to_string())],
@@ -503,6 +679,7 @@ impl InMemoryState {
                             .or_default()
                             .push_back(Box::new(allocation.clone()));
 
+                        // Record metrics
                         self.task_pending_latency.record(
                             get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
                             &[],
@@ -554,35 +731,6 @@ impl InMemoryState {
             .take_while(|(k, _v)| k.starts_with(&key_prefix))
             .next()
             .map(|(_, v)| *v.clone())
-    }
-
-    pub fn emit_metrics(&self) {
-        let kvs = &[KeyValue::new("op", "state_store_metrics_write")];
-        let _timer = Timer::start_with_labels(&self.state_store_metrics.state_metrics_write, kvs);
-        self.unallocated_tasks_gauge.record(
-            self.unallocated_tasks.len() as u64,
-            &[KeyValue::new("global", "unallocated_tasks")],
-        );
-        self.active_tasks_gauge.record(
-            self.tasks.len() as u64,
-            &[KeyValue::new("global", "active_tasks")],
-        );
-        self.active_invocations_gauge.record(
-            self.invocation_ctx.len() as u64,
-            &[KeyValue::new("global", "active_invocations")],
-        );
-
-        for (executor_id, allocations_by_fn) in &self.allocations_by_fn {
-            for (fn_uri, allocations) in allocations_by_fn {
-                self.active_allocations_gauge.record(
-                    allocations.len() as u64,
-                    &[
-                        KeyValue::new("executor_id", executor_id.to_string()),
-                        KeyValue::new("fn_uri", fn_uri.to_string()),
-                    ],
-                );
-            }
-        }
     }
 
     pub fn delete_tasks(&mut self, tasks: Vec<Box<Task>>) {
@@ -660,15 +808,10 @@ impl InMemoryState {
             unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
-            state_store_metrics: self.state_store_metrics.clone(),
-            unallocated_tasks_gauge: self.unallocated_tasks_gauge.clone(),
-            active_tasks_gauge: self.active_tasks_gauge.clone(),
-            active_invocations_gauge: self.active_invocations_gauge.clone(),
-            active_allocations_gauge: self.active_allocations_gauge.clone(),
+            allocations_by_fn: self.allocations_by_fn.clone(),
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),
-            allocations_by_fn: self.allocations_by_fn.clone(),
         })
     }
 }

@@ -14,7 +14,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use data_model::{ExecutorId, StateMachineMetadata, Task, TaskId};
 use futures::Stream;
-use in_memory_state::InMemoryState;
+use in_memory_state::{InMemoryMetrics, InMemoryState};
 use invocation_events::{InvocationFinishedEvent, InvocationStateChangeEvent};
 use metrics::{StateStoreMetrics, Timer};
 use opentelemetry::KeyValue;
@@ -96,6 +96,8 @@ pub struct IndexifyState {
     pub change_events_rx: tokio::sync::watch::Receiver<()>,
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
+    // keep handle to in_memory_state metrics to avoid dropping it
+    _in_memory_state_metrics: InMemoryMetrics,
 }
 
 impl IndexifyState {
@@ -127,10 +129,11 @@ impl IndexifyState {
         let (system_tasks_tx, system_tasks_rx) = tokio::sync::watch::channel(());
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
-        let indexes = Arc::new(RwLock::new(InMemoryState::new(
-            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+        let indexes = Arc::new(RwLock::new(InMemoryState::new(scanner::StateReader::new(
+            db.clone(),
             state_store_metrics.clone(),
-        )?));
+        ))?));
+        let in_memory_state_metrics = InMemoryMetrics::new(indexes.clone());
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
@@ -142,6 +145,7 @@ impl IndexifyState {
             system_tasks_tx,
             system_tasks_rx,
             metrics: state_store_metrics,
+            _in_memory_state_metrics: in_memory_state_metrics,
             change_events_tx,
             change_events_rx,
             in_memory_state: indexes,
@@ -342,7 +346,6 @@ impl IndexifyState {
             .await
             .update_state(&request)
             .map_err(|e| anyhow!("error updating in memory state: {:?}", e))?;
-        self.in_memory_state.read().await.emit_metrics();
         for executor_id in allocated_tasks_by_executor {
             self.executor_states
                 .write()
