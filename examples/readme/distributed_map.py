@@ -17,6 +17,10 @@ if __name__ == '__main__':
     from tensorlake import RemoteGraph
     graph = RemoteGraph.deploy(g)
 
-    invocation_id = graph.run(block_until_done=True, a=90)
+    num_iter = 90
+    invocation_id = graph.run(block_until_done=True, a=num_iter)
     result = graph.output(invocation_id, "squared")
-    print(result)
+    if len(result) != num_iter:
+        raise Exception(f"Missing outputs - {len(result)} != {num_iter}")
+    else:
+        print(f"Success with {num_iter} outputs")
