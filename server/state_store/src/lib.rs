@@ -299,7 +299,7 @@ impl IndexifyState {
                     .read()
                     .await
                     .executors
-                    .contains_key(&request.executor.id.get().to_string())
+                    .contains_key(&request.executor.id)
                 {
                     state_changes::register_executor(&self.last_state_change_id, &request)
                         .map_err(|e| anyhow!("error getting state changes {}", e))?
@@ -443,7 +443,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor_id: ExecutorId) -> TaskSt
             let task_ids_sent = state.executor_states.read().await.get(&executor_id).map(|s| {
                 s.task_ids_sent.clone()
             }).unwrap_or_default();
-            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor_id.to_string());
+            let active_tasks = state.in_memory_state.read().await.active_tasks_for_executor(&executor_id);
             if active_tasks.len() > 0 {
                 let state = state.clone();
                 let mut filtered_tasks = vec![];

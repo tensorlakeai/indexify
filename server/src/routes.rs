@@ -722,7 +722,7 @@ async fn list_allocations(
             .into_iter()
             .map(|(executor_id, fns)| {
                 (
-                    executor_id.clone(),
+                    executor_id.get().to_string(),
                     ExecutorAllocations {
                         total: fns.iter().map(|(_, allocations)| allocations.len()).sum(),
                         executor_fns: fns

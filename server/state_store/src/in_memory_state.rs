@@ -5,7 +5,10 @@ use data_model::{
     Allocation,
     ComputeGraph,
     ComputeGraphVersion,
+    ExecutorId,
     ExecutorMetadata,
+    FunctionExecutor,
+    FunctionExecutorId,
     GraphInvocationCtx,
     ReduceTask,
     Task,
@@ -73,10 +76,15 @@ pub struct InMemoryState {
     pub compute_graph_versions: im::OrdMap<String, Box<ComputeGraphVersion>>,
 
     // ExecutorId -> ExecutorMetadata
-    pub executors: im::HashMap<String, Box<ExecutorMetadata>>,
+    pub executors: im::HashMap<ExecutorId, Box<ExecutorMetadata>>,
 
-    // Executor ID -> (FN URI -> List of Allocation IDs)
-    pub allocations_by_fn: im::HashMap<String, im::HashMap<String, im::Vector<Box<Allocation>>>>,
+    // ExecutorId -> (FE ID -> List of Function Executors)
+    pub function_executors_by_executor:
+        im::HashMap<ExecutorId, im::HashMap<FunctionExecutorId, Box<FunctionExecutor>>>,
+
+    // ExecutorId -> (FE ID -> List of Allocations)
+    pub allocations_by_executor:
+        im::HashMap<ExecutorId, im::HashMap<FunctionExecutorId, im::Vector<Box<Allocation>>>>,
 
     // TaskKey -> Task
     pub unallocated_tasks: im::OrdSet<UnallocatedTaskId>,
@@ -141,7 +149,7 @@ impl InMemoryMetrics {
                         let task_count = state
                             .tasks
                             .iter()
-                            // Filter out terminal tasks since they only get removed once their
+                            // Filter out terminal tasks since they stick around until their
                             // invocation is completed.
                             .filter(|(_k, task)| !task.is_terminal())
                             .count() as u64;
@@ -178,26 +186,48 @@ impl InMemoryMetrics {
                 .with_description("Number of active allocations, reported from in_memory_state")
                 .with_callback(move |observer| {
                     // Clone data within a minimal scope to auto-drop the lock immediately
-                    let allocations_by_fn_clone = {
+                    let allocations_by_executor = {
                         if let Ok(state) = state_clone.try_read() {
-                            state.allocations_by_fn.clone()
+                            Some(state.allocations_by_executor.clone())
                         } else {
                             debug!("Failed to acquire read lock for active_allocations metric");
-                            im::HashMap::new()
+                            None
                         }
                     };
 
-                    // Process the cloned data outside the lock scope
-                    for (executor_id, fn_map) in allocations_by_fn_clone.iter() {
-                        for (fn_uri, allocations) in fn_map.iter() {
-                            observer.observe(
-                                allocations.len() as u64,
-                                &[
-                                    KeyValue::new("executor_id", executor_id.clone()),
-                                    KeyValue::new("fn_uri", fn_uri.clone()),
-                                ],
-                            );
+                    match allocations_by_executor {
+                        Some(allocations_by_executor) => {
+                            // Process the cloned data outside the lock scope
+                            for (executor_id, fn_map) in allocations_by_executor.iter() {
+                                for (_, allocations) in fn_map.iter() {
+                                    if allocations.is_empty() {
+                                        continue;
+                                    }
+                                    observer.observe(
+                                        allocations.len() as u64,
+                                        &[
+                                            KeyValue::new(
+                                                "executor_id",
+                                                executor_id.get().to_string(),
+                                            ),
+                                            KeyValue::new(
+                                                "fn_uri",
+                                                // Use the first allocation's function URI if
+                                                // available
+                                                // or fallback to the function executor's URI if
+                                                // available
+                                                allocations
+                                                    .iter()
+                                                    .next()
+                                                    .map(|a| a.fn_uri())
+                                                    .unwrap_or("unknown".to_string()),
+                                            ),
+                                        ],
+                                    );
+                                }
+                            }
                         }
+                        None => {}
                     }
                 })
                 .build()
@@ -214,15 +244,16 @@ impl InMemoryMetrics {
                     // Clone data within a minimal scope to auto-drop the lock immediately
                     let invocation_ctx = {
                         if let Ok(state) = state_clone.try_read() {
-                            state.invocation_ctx.clone()
+                            Some(state.invocation_ctx.clone())
                         } else {
                             debug!("Failed to acquire read lock for invocation_ctx metric");
-                            im::OrdMap::new()
+                            None
                         }
                     };
-                    let max_age = {
-                        // Find the oldest non-completed invocation
-                        if !invocation_ctx.is_empty() {
+
+                    let max_age = match invocation_ctx {
+                        Some(invocation_ctx) => {
+                            // Find the oldest non-completed invocation
                             invocation_ctx
                                 .values()
                                 .filter(|inv| !inv.completed)
@@ -234,9 +265,8 @@ impl InMemoryMetrics {
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
                                                 // non-completed invocations
-                        } else {
-                            0.0 // Default to 0 if no invocations
                         }
+                        None => 0.0,
                     };
 
                     // Always report the max age (which may be 0)
@@ -256,16 +286,16 @@ impl InMemoryMetrics {
                     // Clone data within a minimal scope to auto-drop the lock immediately
                     let tasks = {
                         if let Ok(state) = state_clone.try_read() {
-                            state.tasks.clone()
+                            Some(state.tasks.clone())
                         } else {
                             debug!("Failed to acquire read lock for tasks metric");
-                            im::OrdMap::new()
+                            None
                         }
                     };
 
-                    let max_age = {
-                        // Find the oldest non-terminal task
-                        if !tasks.is_empty() {
+                    let max_age = match tasks {
+                        Some(tasks) => {
+                            // Find the oldest non-terminal task
                             tasks
                                 .values()
                                 .filter(|task| !task.is_terminal())
@@ -277,9 +307,8 @@ impl InMemoryMetrics {
                                 })
                                 .unwrap_or(0.0) // Default to 0 if no
                                                 // non-terminal tasks
-                        } else {
-                            0.0 // Default to 0 if no tasks
                         }
+                        None => 0.0,
                     };
 
                     // Always report the max age (which may be 0)
@@ -350,11 +379,10 @@ impl InMemoryState {
                 compute_graph_versions.insert(id, Box::new(cg));
             }
         }
-
         // Creating Allocated Tasks By Function by Executor
-        let mut allocations_by_fn: im::HashMap<
-            String,
-            im::HashMap<String, im::Vector<Box<Allocation>>>,
+        let mut allocations_by_executor: im::HashMap<
+            ExecutorId,
+            im::HashMap<FunctionExecutorId, im::Vector<Box<Allocation>>>,
         > = im::HashMap::new();
         {
             let (allocations, _) = reader.get_rows_from_cf_with_limits::<Allocation>(
@@ -364,10 +392,10 @@ impl InMemoryState {
                 None,
             )?;
             for allocation in allocations {
-                allocations_by_fn
-                    .entry(allocation.executor_id.get().to_string())
+                allocations_by_executor
+                    .entry(allocation.executor_id.clone())
                     .or_default()
-                    .entry(allocation.fn_uri())
+                    .entry(allocation.function_executor_id.clone())
                     .or_default()
                     .push_back(Box::new(allocation));
             }
@@ -444,7 +472,10 @@ impl InMemoryState {
             unallocated_tasks,
             invocation_ctx,
             queued_reduction_tasks,
-            allocations_by_fn,
+            allocations_by_executor,
+            // function executors by executor are not known at startup
+            function_executors_by_executor: im::HashMap::new(),
+            // metrics
             task_pending_latency,
             task_running_latency,
             task_completion_latency,
@@ -468,16 +499,16 @@ impl InMemoryState {
             .collect()
     }
 
-    pub fn active_tasks_for_executor(&self, executor_id: &str) -> Vec<Box<Task>> {
+    pub fn active_tasks_for_executor(&self, executor_id: &ExecutorId) -> Vec<Box<Task>> {
         let mut tasks = vec![];
-        if let Some(allocations_by_fn) = self.allocations_by_fn.get(executor_id) {
+        if let Some(allocations_by_fn) = self.allocations_by_executor.get(executor_id) {
             for allocations in allocations_by_fn.values() {
                 for allocation in allocations {
                     if let Some(task) = self.tasks.get(&allocation.task_key()) {
                         tasks.push(task.clone());
                     } else {
                         error!(
-                            executor_id = executor_id,
+                            executor_id = executor_id.get(),
                             task_key = allocation.task_key(),
                             namespace = allocation.namespace,
                             compute_graph = allocation.compute_graph,
@@ -527,32 +558,29 @@ impl InMemoryState {
                         &req.compute_fn,
                         &req.invocation_id,
                     );
-                    self.allocations_by_fn
-                        .entry(req.executor_id.get().to_string())
+                    self.allocations_by_executor
+                        .entry(req.executor_id.clone())
                         .and_modify(|allocation_map| {
-                            allocation_map
-                                .entry(req.task.fn_uri())
-                                .and_modify(|allocations| {
-                                    if let Some(index) =
-                                        allocations.iter().position(|a| a.id == allocation_id)
-                                    {
-                                        let allocation = &allocations[index];
-                                        // Record metrics
-                                        self.task_running_latency.record(
-                                            get_elapsed_time(
-                                                allocation.created_at,
-                                                TimeUnit::Milliseconds,
-                                            ),
-                                            &[KeyValue::new(
-                                                "outcome",
-                                                req.task.outcome.to_string(),
-                                            )],
-                                        );
+                            // TODO: This can be optimized by keeping a new index of task_id to FE,
+                            //       we should measure the overhead.
+                            allocation_map.iter_mut().for_each(|(_, allocations)| {
+                                if let Some(index) =
+                                    allocations.iter().position(|a| a.id == allocation_id)
+                                {
+                                    let allocation = &allocations[index];
+                                    // Record metrics
+                                    self.task_running_latency.record(
+                                        get_elapsed_time(
+                                            allocation.created_at,
+                                            TimeUnit::Milliseconds,
+                                        ),
+                                        &[KeyValue::new("outcome", req.task.outcome.to_string())],
+                                    );
 
-                                        // Remove the allocation
-                                        allocations.remove(index);
-                                    }
-                                });
+                                    // Remove the allocation
+                                    allocations.remove(index);
+                                }
+                            });
 
                             // Remove the function if no allocations left
                             allocation_map.retain(|_, f| !f.is_empty());
@@ -707,6 +735,8 @@ impl InMemoryState {
                     }
                 }
 
+                // TODO: New function executors
+
                 // Note: We don't need to process req.remove_allocations here, as they are
                 // already removed when removing an executor.
 
@@ -715,10 +745,10 @@ impl InMemoryState {
                         self.unallocated_tasks
                             .remove(&UnallocatedTaskId::new(&task));
 
-                        self.allocations_by_fn
-                            .entry(allocation.executor_id.get().to_string())
+                        self.allocations_by_executor
+                            .entry(allocation.executor_id.clone())
                             .or_default()
-                            .entry(allocation.fn_uri())
+                            .entry(allocation.function_executor_id.clone())
                             .or_default()
                             .push_back(Box::new(allocation.clone()));
 
@@ -731,6 +761,8 @@ impl InMemoryState {
                         error!(
                             namespace = &allocation.namespace,
                             compute_graph = &allocation.compute_graph,
+                            compute_fn = &allocation.compute_fn,
+                            executor_id = allocation.executor_id.get(),
                             invocation_id = &allocation.invocation_id,
                             task_id = allocation.task_id.get(),
                             "task not found for new allocation"
@@ -739,19 +771,17 @@ impl InMemoryState {
                 }
 
                 for executor_id in &req.remove_executors {
-                    self.executors.remove(executor_id.get());
-                    self.allocations_by_fn
-                        .remove(&executor_id.get().to_string());
+                    self.executors.remove(executor_id);
+                    self.allocations_by_executor.remove(executor_id);
+                    self.function_executors_by_executor.remove(executor_id);
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
-                self.executors.insert(
-                    req.executor.id.get().to_string(),
-                    Box::new(req.executor.clone()),
-                );
+                self.executors
+                    .insert(req.executor.id.clone(), Box::new(req.executor.clone()));
             }
             RequestPayload::DeregisterExecutor(req) => {
-                let executor = self.executors.get_mut(&req.executor_id.get().to_string());
+                let executor = self.executors.get_mut(&req.executor_id);
                 if let Some(executor) = executor {
                     executor.tombstoned = true;
                 }
@@ -783,8 +813,8 @@ impl InMemoryState {
                 .remove(&UnallocatedTaskId::new(&task));
         }
 
-        for (_executor, allocations_by_fn) in self.allocations_by_fn.iter_mut() {
-            for (_fn_uri, allocations) in allocations_by_fn.iter_mut() {
+        for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
+            for (_fe_id, allocations) in allocations_by_fe.iter_mut() {
                 allocations.retain(|allocation| !tasks.iter().any(|t| t.id == allocation.task_id));
             }
         }
@@ -833,7 +863,9 @@ impl InMemoryState {
             unallocated_tasks: self.unallocated_tasks.clone(),
             invocation_ctx: self.invocation_ctx.clone(),
             queued_reduction_tasks: self.queued_reduction_tasks.clone(),
-            allocations_by_fn: self.allocations_by_fn.clone(),
+            allocations_by_executor: self.allocations_by_executor.clone(),
+            function_executors_by_executor: self.function_executors_by_executor.clone(),
+            // metrics
             task_pending_latency: self.task_pending_latency.clone(),
             task_running_latency: self.task_running_latency.clone(),
             task_completion_latency: self.task_completion_latency.clone(),

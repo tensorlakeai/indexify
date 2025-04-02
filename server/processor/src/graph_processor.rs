@@ -233,7 +233,7 @@ impl GraphProcessor {
                     })
                 }
             }
-            ChangeType::ExecutorAdded(_) |
+            ChangeType::ExecutorUpserted(_) |
             ChangeType::ExecutorRemoved(_) |
             ChangeType::TombStoneExecutor(_) => {
                 let scheduler_update = self
