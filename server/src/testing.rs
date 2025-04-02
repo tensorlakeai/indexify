@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
@@ -35,7 +35,12 @@ pub struct TestService {
 }
 
 impl TestService {
+
     pub async fn new() -> Result<Self> {
+        Self::new_with_executor_timeout(Duration::from_secs(30)).await
+    }
+
+    pub async fn new_with_executor_timeout(executor_timeout: Duration) -> Result<Self> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("trace"));
         let _ = subscriber::set_global_default(
@@ -58,6 +63,7 @@ impl TestService {
                     temp_dir.path().join("blob_store").to_str().unwrap()
                 ),
             },
+            executor_timeout,
             ..Default::default()
         };
         let srv = Service::new(cfg).await?;

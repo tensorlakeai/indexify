@@ -1,4 +1,4 @@
-use std::{env, fmt::Debug, net::SocketAddr};
+use std::{env, fmt::Debug, net::SocketAddr, time::Duration};
 
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
@@ -16,6 +16,7 @@ pub struct ServerConfig {
     pub listen_addr_grpc: String,
     pub blob_storage: BlobStorageConfig,
     pub tracing: TracingConfig,
+    pub executor_timeout: Duration,
 }
 
 impl Default for ServerConfig {
@@ -28,6 +29,7 @@ impl Default for ServerConfig {
             listen_addr_grpc: "0.0.0.0:8901".to_string(),
             blob_storage: Default::default(),
             tracing: TracingConfig::default(),
+            executor_timeout: Duration::from_secs(30),
         }
     }
 }

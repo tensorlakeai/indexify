@@ -56,7 +56,7 @@ impl Service {
         );
 
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
-        let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
+        let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone(), config.executor_timeout).await);
 
         let gc_executor = Arc::new(Mutex::new(Gc::new(
             indexify_state.clone(),
