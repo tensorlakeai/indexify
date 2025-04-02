@@ -4,21 +4,12 @@ use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use data_model::{
     test_objects::tests::{mock_executor, mock_node_fn_output},
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    Task,
-    TaskDiagnostics,
-    TaskOutcome,
-    TaskStatus,
+    DataPayload, ExecutorId, ExecutorMetadata, Task, TaskDiagnostics, TaskOutcome, TaskStatus,
 };
 use state_store::{
     requests::{
-        DeregisterExecutorRequest,
-        IngestTaskOutputsRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-        UpsertExecutorRequest,
+        DeregisterExecutorRequest, IngestTaskOutputsRequest, RequestPayload,
+        StateMachineUpdateRequest, UpsertExecutorRequest,
     },
     state_machine::IndexifyObjectsColumns,
 };
@@ -281,7 +272,7 @@ impl TestExecutor<'_> {
             .in_memory_state
             .read()
             .await
-            .active_tasks_for_executor(&self.executor.id.get());
+            .active_tasks_for_executor(&self.executor.id);
 
         Ok(tasks.into_iter().map(|task| (*task).clone()).collect())
     }

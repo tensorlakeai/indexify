@@ -6,37 +6,16 @@ pub mod executor_api_pb {
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use data_model::{
-    DataPayload,
-    ExecutorId,
-    ExecutorMetadata,
-    ExecutorMetadataBuilder,
-    FunctionExecutor,
-    FunctionExecutorStatus,
-    FunctionURI,
-    GpuResources,
-    GraphVersion,
-    HostResources,
-    NodeOutputBuilder,
-    OutputPayload,
-    TaskDiagnostics,
-    TaskOutcome,
-    TaskOutputsIngestionStatus,
-    TaskStatus,
+    DataPayload, ExecutorId, ExecutorMetadata, ExecutorMetadataBuilder, FunctionExecutor,
+    FunctionExecutorId, FunctionExecutorStatus, FunctionURI, GpuResources, GraphVersion,
+    HostResources, NodeOutputBuilder, OutputPayload, TaskDiagnostics, TaskOutcome,
+    TaskOutputsIngestionStatus, TaskStatus,
 };
 use executor_api_pb::{
-    executor_api_server::ExecutorApi,
-    AllowedFunction,
-    DesiredExecutorState,
-    ExecutorState,
-    ExecutorStatus,
-    FunctionExecutorDescription,
-    GetDesiredExecutorStatesRequest,
-    GpuModel,
-    OutputEncoding,
-    ReportExecutorStateRequest,
-    ReportExecutorStateResponse,
-    ReportTaskOutcomeRequest,
-    ReportTaskOutcomeResponse,
+    executor_api_server::ExecutorApi, AllowedFunction, DesiredExecutorState, ExecutorState,
+    ExecutorStatus, FunctionExecutorDescription, GetDesiredExecutorStatesRequest, GpuModel,
+    OutputEncoding, ReportExecutorStateRequest, ReportExecutorStateResponse,
+    ReportTaskOutcomeRequest, ReportTaskOutcomeResponse,
 };
 use metrics::api_io_stats;
 use state_store::{
@@ -109,12 +88,20 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
 
     fn try_from(executor_state: ExecutorState) -> Result<Self, Self::Error> {
         let mut executor_metadata = ExecutorMetadataBuilder::default();
+        let executor_id = executor_state
+            .executor_id
+            .clone()
+            .map(ExecutorId::new)
+            .ok_or(anyhow::anyhow!("executor_id is required"))?;
+        executor_metadata.id(executor_id.clone());
+        executor_metadata.state(executor_state.status().into());
+        executor_metadata.development_mode(
+            executor_state
+                .development_mode
+                .ok_or(anyhow::anyhow!("development_mode is required"))?,
+        );
         if let Some(state_hash) = executor_state.state_hash.clone() {
             executor_metadata.state_hash(state_hash);
-        }
-        executor_metadata.state(executor_state.status().into());
-        if let Some(executor_id) = executor_state.executor_id {
-            executor_metadata.id(ExecutorId::new(executor_id));
         }
         // FIXME: ignoring Executor flavor for now.
         if let Some(executor_version) = executor_state.version {
@@ -142,7 +129,10 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
             let function_executor_description = function_executor
                 .description
                 .ok_or(anyhow::anyhow!("description is required"))?;
-            let mut function_executor = FunctionExecutor::try_from(function_executor_description)?;
+            let mut function_executor = FunctionExecutor::try_from(WithExecutorId::new(
+                executor_id.clone(),
+                function_executor_description,
+            ))?;
             function_executor.status = FunctionExecutorStatus::try_from(function_executor.status)?;
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
@@ -172,14 +162,25 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
     }
 }
 
-impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
+struct WithExecutorId<T> {
+    executor_id: ExecutorId,
+    inner: T,
+}
+
+impl<T> WithExecutorId<T> {
+    fn new(executor_id: ExecutorId, inner: T) -> Self {
+        Self { executor_id, inner }
+    }
+}
+
+impl TryFrom<WithExecutorId<FunctionExecutorDescription>> for FunctionExecutor {
     type Error = anyhow::Error;
 
-    fn try_from(
-        function_executor_description: FunctionExecutorDescription,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(from: WithExecutorId<FunctionExecutorDescription>) -> Result<Self, Self::Error> {
+        let function_executor_description = from.inner;
         let id = function_executor_description
             .id
+            .map(|id| FunctionExecutorId::new(id))
             .ok_or(anyhow::anyhow!("id is required"))?;
         let namespace = function_executor_description
             .namespace
@@ -197,6 +198,7 @@ impl TryFrom<FunctionExecutorDescription> for FunctionExecutor {
 
         Ok(FunctionExecutor {
             id,
+            executor_id: from.executor_id,
             namespace,
             compute_graph_name,
             compute_fn_name,

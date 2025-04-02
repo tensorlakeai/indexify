@@ -5,36 +5,22 @@ mod tests {
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{
-            mock_executor,
-            mock_executor_id,
-            mock_graph_a,
-            mock_invocation_ctx,
-            mock_invocation_payload,
-            mock_invocation_payload_graph_b,
-            mock_node_fn_output,
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
+            mock_executor, mock_executor_id, mock_graph_a, mock_invocation_ctx,
+            mock_invocation_payload, mock_invocation_payload_graph_b, mock_node_fn_output,
+            TEST_EXECUTOR_ID, TEST_NAMESPACE,
         },
-        ExecutorId,
-        Task,
-        TaskOutcome,
-        TaskStatus,
+        ExecutorId, Task, TaskOutcome, TaskStatus,
     };
     use futures::StreamExt;
     use rocksdb::{IteratorMode, TransactionDB};
     use state_store::{
         requests::{
-            CreateOrUpdateComputeGraphRequest,
-            DeleteComputeGraphRequest,
-            IngestTaskOutputsRequest,
-            InvokeComputeGraphRequest,
-            RequestPayload,
-            StateMachineUpdateRequest,
+            CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, IngestTaskOutputsRequest,
+            InvokeComputeGraphRequest, RequestPayload, StateMachineUpdateRequest,
             UpsertExecutorRequest,
         },
         state_machine::IndexifyObjectsColumns,
-        task_stream,
-        test_state_store,
+        task_stream, test_state_store,
     };
     use strum::IntoEnumIterator;
 
@@ -1850,7 +1836,7 @@ mod tests {
             .in_memory_state
             .read()
             .await
-            .active_tasks_for_executor(mock_executor_id().get());
+            .active_tasks_for_executor(&mock_executor_id());
         assert_eq!(res.len(), 1);
 
         let mut stream = task_stream(indexify_state.clone(), mock_executor_id().clone());

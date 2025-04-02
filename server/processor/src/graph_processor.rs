@@ -7,9 +7,7 @@ use metrics::{low_latency_boundaries, Timer};
 use opentelemetry::{metrics::Histogram, KeyValue};
 use state_store::{
     requests::{
-        DeleteComputeGraphRequest,
-        DeleteInvocationRequest,
-        RequestPayload,
+        DeleteComputeGraphRequest, DeleteInvocationRequest, RequestPayload,
         StateMachineUpdateRequest,
     },
     IndexifyState,
@@ -233,9 +231,9 @@ impl GraphProcessor {
                     })
                 }
             }
-            ChangeType::ExecutorAdded(_) |
-            ChangeType::ExecutorRemoved(_) |
-            ChangeType::TombStoneExecutor(_) => {
+            ChangeType::ExecutorUpserted(_)
+            | ChangeType::ExecutorRemoved(_)
+            | ChangeType::TombStoneExecutor(_) => {
                 let scheduler_update = self
                     .task_allocator
                     .invoke(&state_change.change_type, &mut indexes);

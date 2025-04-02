@@ -8,8 +8,7 @@ use axum::{
     middleware::{self, Next},
     response::{sse::Event, Html, IntoResponse},
     routing::{delete, get, post},
-    Json,
-    Router,
+    Json, Router,
 };
 use axum_tracing_opentelemetry::{
     self,
@@ -27,12 +26,8 @@ use prometheus::Encoder;
 use state_store::{
     kv::{ReadContextData, WriteContextData, KVS},
     requests::{
-        CreateOrUpdateComputeGraphRequest,
-        DeleteComputeGraphRequest,
-        DeleteInvocationRequest,
-        NamespaceRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
+        CreateOrUpdateComputeGraphRequest, DeleteComputeGraphRequest, DeleteInvocationRequest,
+        NamespaceRequest, RequestPayload, StateMachineUpdateRequest,
     },
     IndexifyState,
 };
@@ -42,11 +37,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
-    ExecutorAllocations,
-    ExecutorFns,
-    Invocation,
-    InvocationStatus,
-    StateChangesResponse,
+    ExecutorAllocations, ExecutorFns, Invocation, InvocationStatus, StateChangesResponse,
     UnallocatedTasks,
 };
 
@@ -55,9 +46,7 @@ mod internal_ingest;
 mod invoke;
 mod logs;
 use download::{
-    download_fn_output_by_key,
-    download_fn_output_payload,
-    download_invocation_payload,
+    download_fn_output_by_key, download_fn_output_payload, download_invocation_payload,
 };
 use internal_ingest::{ingest_files_from_executor, ingest_fn_outputs};
 use invoke::{invoke_with_file, invoke_with_object, wait_until_invocation_completed};
@@ -66,28 +55,10 @@ use logs::download_task_logs;
 use crate::{
     executors::ExecutorManager,
     http_objects::{
-        Allocation,
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphsList,
-        CreateNamespace,
-        CursorDirection,
-        DynamicRouter,
-        ExecutorMetadata,
-        ExecutorsAllocationsResponse,
-        FnOutputs,
-        GraphInvocations,
-        GraphVersion,
-        ImageInformation,
-        IndexifyAPIError,
-        ListParams,
-        Namespace,
-        NamespaceList,
-        Node,
-        RuntimeInformation,
-        Task,
-        TaskOutcome,
-        Tasks,
+        Allocation, ComputeFn, ComputeGraph, ComputeGraphsList, CreateNamespace, CursorDirection,
+        DynamicRouter, ExecutorMetadata, ExecutorsAllocationsResponse, FnOutputs, GraphInvocations,
+        GraphVersion, ImageInformation, IndexifyAPIError, ListParams, Namespace, NamespaceList,
+        Node, RuntimeInformation, Task, TaskOutcome, Tasks,
     },
 };
 
@@ -722,7 +693,7 @@ async fn list_allocations(
             .into_iter()
             .map(|(executor_id, fns)| {
                 (
-                    executor_id.clone(),
+                    executor_id.get().to_string(),
                     ExecutorAllocations {
                         total: fns.iter().map(|(_, allocations)| allocations.len()).sum(),
                         executor_fns: fns

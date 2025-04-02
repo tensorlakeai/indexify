@@ -4,28 +4,13 @@ pub mod tests {
     use rand::{distributions::Alphanumeric, Rng};
 
     use super::super::{
-        ComputeFn,
-        ComputeGraph,
-        ComputeGraphCode,
-        Node,
-        Node::Compute,
-        NodeOutput,
+        ComputeFn, ComputeGraph, ComputeGraphCode, Node, Node::Compute, NodeOutput,
         RuntimeInformation,
     };
     use crate::{
-        DataPayload,
-        DynamicEdgeRouter,
-        ExecutorId,
-        ExecutorMetadata,
-        GraphInvocationCtx,
-        GraphInvocationCtxBuilder,
-        GraphVersion,
-        ImageInformation,
-        InvocationPayload,
-        InvocationPayloadBuilder,
-        NodeOutputBuilder,
-        Task,
-        TaskBuilder,
+        DataPayload, DynamicEdgeRouter, ExecutorId, ExecutorMetadata, GraphInvocationCtx,
+        GraphInvocationCtxBuilder, GraphVersion, ImageInformation, InvocationPayload,
+        InvocationPayloadBuilder, NodeOutputBuilder, Task, TaskBuilder,
     };
 
     pub const TEST_NAMESPACE: &str = "test_ns";
@@ -313,6 +298,7 @@ pub mod tests {
         ExecutorMetadata {
             id: mock_executor_id(),
             executor_version: "1.0.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
