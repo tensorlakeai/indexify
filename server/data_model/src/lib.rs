@@ -69,6 +69,7 @@ impl From<&str> for TaskId {
 pub struct Allocation {
     pub id: String,
     pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
     pub task_id: TaskId,
     pub namespace: String,
     pub compute_graph: String,
@@ -144,6 +145,7 @@ impl Allocation {
         )
     }
 
+    // TODO: To be removed
     pub fn fn_uri(&self) -> String {
         format!(
             "{}|{}|{}",
@@ -171,6 +173,10 @@ impl AllocationBuilder {
             .clone()
             .ok_or(anyhow!("invocation_id is required"))?;
         let task_id = self.task_id.clone().ok_or(anyhow!("task_id is required"))?;
+        let function_executor_id = self
+            .function_executor_id
+            .clone()
+            .ok_or(anyhow!("function_executor_id is required"))?;
         let executor_id = self
             .executor_id
             .clone()
@@ -185,9 +191,10 @@ impl AllocationBuilder {
                 &compute_fn,
                 &invocation_id,
             ),
+            function_executor_id,
+            executor_id,
             task_id,
             namespace,
-            executor_id,
             compute_graph,
             compute_fn,
             invocation_id,
@@ -395,6 +402,12 @@ impl Default for GraphVersion {
 impl From<&str> for GraphVersion {
     fn from(item: &str) -> Self {
         GraphVersion(item.to_string())
+    }
+}
+
+impl Display for GraphVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -1021,11 +1034,21 @@ impl Task {
         )
     }
 
+    // TODO: Delete or rename
     pub fn fn_uri(&self) -> String {
         format!(
             "{}|{}|{}",
             self.namespace, self.compute_graph_name, self.compute_fn_name
         )
+    }
+
+    pub fn function_uri(&self) -> FunctionURI {
+        FunctionURI {
+            namespace: self.namespace.clone(),
+            compute_graph_name: self.compute_graph_name.clone(),
+            compute_fn_name: self.compute_fn_name.clone(),
+            version: Some(self.graph_version.clone()),
+        }
     }
 
     pub fn key_prefix_for_invocation(
@@ -1237,6 +1260,23 @@ pub enum ExecutorState {
     Stopped,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FunctionExecutorId(String);
+impl FunctionExecutorId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+impl Default for FunctionExecutorId {
+    fn default() -> Self {
+        Self::new(nanoid::nanoid!())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum FunctionExecutorStatus {
     #[default]
@@ -1254,7 +1294,8 @@ pub enum FunctionExecutorStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
-    pub id: String,
+    pub id: FunctionExecutorId,
+    pub executor_id: ExecutorId,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
@@ -1262,8 +1303,43 @@ pub struct FunctionExecutor {
     pub status: FunctionExecutorStatus,
 }
 
+impl FunctionExecutor {
+    pub fn fn_uri_str(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.namespace, self.compute_graph_name, self.compute_fn_name, self.version,
+        )
+    }
+
+    /// Checks if this FunctionExecutor matches the given FunctionURI.
+    ///
+    /// A match occurs when:
+    /// 1. The namespace, compute_graph_name, and compute_fn_name are equal
+    /// 2. Either the FunctionURI has no version specified (None), OR the
+    ///    versions match
+    pub fn matches(&self, uri: &FunctionURI) -> bool {
+        // Check if namespace, compute_graph_name, and compute_fn_name match
+        let basic_match = self.namespace == uri.namespace &&
+            self.compute_graph_name == uri.compute_graph_name &&
+            self.compute_fn_name == uri.compute_fn_name;
+
+        // If the basic fields match, then check the version
+        if basic_match {
+            // If the URI version is None, it matches any version
+            uri.version.as_ref().map_or(true, |v| self.version == *v)
+        } else {
+            false
+        }
+    }
+}
+
 impl FunctionExecutorBuilder {
     pub fn build(&mut self) -> Result<FunctionExecutor> {
+        let id = self.id.clone().unwrap_or(FunctionExecutorId::default());
+        let executor_id = self
+            .executor_id
+            .clone()
+            .ok_or(anyhow!("executor_id is required"))?;
         let namespace = self
             .namespace
             .clone()
@@ -1278,9 +1354,9 @@ impl FunctionExecutorBuilder {
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
-        let id = nanoid::nanoid!();
         Ok(FunctionExecutor {
             id,
+            executor_id,
             namespace,
             compute_graph_name,
             compute_fn_name,
@@ -1296,10 +1372,11 @@ pub struct ExecutorMetadata {
     pub id: ExecutorId,
     #[serde(default = "default_executor_ver")]
     pub executor_version: String,
+    pub development_mode: bool,
     pub function_allowlist: Option<Vec<FunctionURI>>,
     pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
-    pub function_executors: HashMap<String, FunctionExecutor>,
+    pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
     pub tombstoned: bool,
@@ -1332,10 +1409,15 @@ impl ExecutorMetadataBuilder {
             .state_hash
             .clone()
             .ok_or(anyhow!("state_hash is required"))?;
+        let development_mode = self
+            .development_mode
+            .clone()
+            .ok_or(anyhow!("dev_mode is required"))?;
         let tombstoned = self.tombstoned.unwrap_or(false);
         Ok(ExecutorMetadata {
             id,
             executor_version,
+            development_mode,
             function_allowlist,
             addr,
             labels,
@@ -1419,7 +1501,7 @@ pub enum ChangeType {
     TaskOutputsIngested(TaskOutputsIngestedEvent),
     TombstoneComputeGraph(TombstoneComputeGraphEvent),
     TombstoneInvocation(TombstoneInvocationEvent),
-    ExecutorAdded(ExecutorAddedEvent),
+    ExecutorUpserted(ExecutorAddedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
     ExecutorRemoved(ExecutorRemovedEvent),
 }
@@ -1444,7 +1526,7 @@ impl fmt::Display for ChangeType {
                 "TombstoneComputeGraph ns: {}, compute_graph: {}",
                 ev.namespace, ev.compute_graph
             ),
-            ChangeType::ExecutorAdded(e) => {
+            ChangeType::ExecutorUpserted(e) => {
                 write!(f, "ExecutorAdded, executor_id: {}", e.executor_id)
             }
             ChangeType::TombStoneExecutor(ev) => {
@@ -1537,6 +1619,7 @@ pub struct Namespace {
 mod tests {
     use std::collections::HashMap;
 
+    use super::*;
     use crate::{
         test_objects::tests::test_compute_fn,
         ComputeGraph,
@@ -2032,5 +2115,93 @@ mod tests {
                 ]);
             },
         );
+    }
+
+    #[test]
+    fn test_matches_all_fields_equal() {
+        let executor = FunctionExecutor {
+            id: FunctionExecutorId::default(),
+            executor_id: ExecutorId::default(),
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: GraphVersion("v1".to_string()),
+            status: FunctionExecutorStatus::Idle,
+        };
+
+        let uri = FunctionURI {
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: Some(GraphVersion("v1".to_string())),
+        };
+
+        assert!(executor.matches(&uri));
+    }
+
+    #[test]
+    fn test_matches_with_none_version() {
+        let executor = FunctionExecutor {
+            id: FunctionExecutorId::default(),
+            executor_id: ExecutorId::default(),
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: GraphVersion("v1".to_string()),
+            status: FunctionExecutorStatus::Idle,
+        };
+
+        let uri = FunctionURI {
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: None,
+        };
+
+        assert!(executor.matches(&uri));
+    }
+
+    #[test]
+    fn test_no_match_different_versions() {
+        let executor = FunctionExecutor {
+            id: FunctionExecutorId::default(),
+            executor_id: ExecutorId::default(),
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: GraphVersion("v1".to_string()),
+            status: FunctionExecutorStatus::Idle,
+        };
+
+        let uri = FunctionURI {
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: Some(GraphVersion("v2".to_string())),
+        };
+
+        assert!(!executor.matches(&uri));
+    }
+
+    #[test]
+    fn test_no_match_different_namespace() {
+        let executor = FunctionExecutor {
+            id: FunctionExecutorId::default(),
+            executor_id: ExecutorId::default(),
+            namespace: "ns1".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: GraphVersion("v1".to_string()),
+            status: FunctionExecutorStatus::Idle,
+        };
+
+        let uri = FunctionURI {
+            namespace: "different_ns".to_string(),
+            compute_graph_name: "graph1".to_string(),
+            compute_fn_name: "fn1".to_string(),
+            version: None,
+        };
+
+        assert!(!executor.matches(&uri));
     }
 }

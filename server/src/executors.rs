@@ -82,11 +82,11 @@ impl ExecutorManager {
             tokio::time::sleep(EXECUTOR_TIMEOUT).await;
 
             // Get all executor IDs of executors that haven't registered.
-            let missing_executor_ids: Vec<String> = {
+            let missing_executor_ids: Vec<_> = {
                 let indexes = indexify_state.in_memory_state.read().await;
 
                 indexes
-                    .allocations_by_fn
+                    .allocations_by_executor
                     .keys()
                     .filter(|id| !indexes.executors.contains_key(&**id))
                     .cloned()
@@ -97,13 +97,13 @@ impl ExecutorManager {
             for executor_id in missing_executor_ids {
                 let sm_req = StateMachineUpdateRequest {
                     payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                        executor_id: ExecutorId::new(executor_id.clone()),
+                        executor_id: executor_id.clone(),
                     }),
                     processed_state_changes: vec![],
                 };
                 if let Err(err) = indexify_state.write(sm_req).await {
                     error!(
-                        executor_id = executor_id,
+                        executor_id = executor_id.get(),
                         "failed to deregister lapsed executor: {:?}", err
                     );
                 }
@@ -278,27 +278,41 @@ impl ExecutorManager {
         Ok(executors)
     }
 
-    pub async fn list_allocations(&self) -> HashMap<String, HashMap<String, Vec<Allocation>>> {
-        self.indexify_state
-            .in_memory_state
-            .read()
-            .await
-            .allocations_by_fn
+    pub async fn list_allocations(&self) -> HashMap<ExecutorId, HashMap<String, Vec<Allocation>>> {
+        let state = self.indexify_state.in_memory_state.read().await;
+        let allocations_by_executor = &state.allocations_by_executor;
+        let function_executors_by_executor = &state.function_executors_by_executor;
+
+        function_executors_by_executor
             .iter()
-            .map(|(executor_id, fns)| {
-                let executor_id = executor_id.clone();
-                let fns = fns
-                    .iter()
-                    .map(|(fn_name, allocations)| {
-                        let fn_name = fn_name.clone();
-                        let mut allocs: Vec<Allocation> = vec![];
-                        for allocation in allocations {
-                            allocs.push((**allocation).clone());
+            .map(|(executor_id, function_executors)| {
+                // Create a HashMap to collect and merge allocations by function URI
+                let mut function_allocations: HashMap<String, Vec<Allocation>> = HashMap::new();
+
+                // Process each function executor
+                for (_, function_executor) in function_executors {
+                    // Get the function URI string
+                    let fn_uri = function_executor.fn_uri_str();
+
+                    // Find allocations for this function executor if they exist
+                    if let Some(executor_allocations) = allocations_by_executor.get(executor_id) {
+                        if let Some(fe_allocations) =
+                            executor_allocations.get(&function_executor.id)
+                        {
+                            // Convert allocation HashMap values to a Vec
+                            let allocation_vec: Vec<Allocation> =
+                                fe_allocations.iter().map(|i| *i.clone()).collect();
+
+                            // Merge with existing allocations for this function URI
+                            function_allocations
+                                .entry(fn_uri)
+                                .and_modify(|existing| existing.extend(allocation_vec.clone()))
+                                .or_insert(allocation_vec);
                         }
-                        (fn_name, allocs)
-                    })
-                    .collect();
-                (executor_id, fns)
+                    }
+                }
+
+                (executor_id.clone(), function_allocations)
             })
             .collect()
     }
@@ -325,6 +339,7 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -359,6 +374,7 @@ mod tests {
         let executor1 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-1".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -372,6 +388,7 @@ mod tests {
         let executor2 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-2".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -385,6 +402,7 @@ mod tests {
         let executor3 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-3".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
