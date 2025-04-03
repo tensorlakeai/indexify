@@ -18,7 +18,7 @@ use crate::{
     state_machine::IndexifyObjectsColumns,
 };
 
-const SERVER_DB_VERSION: u64 = 6;
+const SERVER_DB_VERSION: u64 = 7;
 
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
@@ -33,8 +33,12 @@ pub fn migrate(path: &Path) -> Result<StateMachineMetadata> {
         Ok(cfs) => cfs,
         Err(e) if e.kind() == rocksdb::ErrorKind::IOError => {
             // No migration needed, just return the default metadata.
+            info!(
+                "no state store migration needed, new state at version {}",
+                SERVER_DB_VERSION
+            );
             return Ok(StateMachineMetadata {
-                db_version: 0,
+                db_version: SERVER_DB_VERSION,
                 last_change_idx: 0,
             });
         }
@@ -104,6 +108,12 @@ pub fn migrate(path: &Path) -> Result<StateMachineMetadata> {
             sm_meta.db_version += 1;
             migrate_v5_to_v6_migrate_allocations(&db, &txn).context("migrating from v5 to v6")?;
             migrate_v5_to_v6_clean_orphaned_tasks(&db, &txn).context("migrating from v5 to v6")?;
+        }
+
+        if sm_meta.db_version == 6 {
+            sm_meta.db_version += 1;
+            migrate_v6_to_v7_reallocate_allocated_tasks(&db, &txn)
+                .context("migrating from v6 to v7")?;
         }
 
         // add new migrations before this line and increment SERVER_DB_VERSION
@@ -445,6 +455,82 @@ pub fn migrate_v5_to_v6_clean_orphaned_tasks(
     info!(
         "Deleted {} orphaned tasks out of {}",
         num_deleted_tasks, num_total_tasks
+    );
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(db, txn))]
+pub fn migrate_v6_to_v7_reallocate_allocated_tasks(
+    db: &TransactionDB,
+    txn: &Transaction<TransactionDB>,
+) -> Result<()> {
+    // Set up read options with reasonable readahead size
+    let mut read_options = ReadOptions::default();
+    read_options.set_readahead_size(10_194_304); // 10MB
+
+    // Iterate through all Allocations
+    let iter = db.iterator_cf_opt(
+        IndexifyObjectsColumns::Allocations.cf_db(&db),
+        read_options,
+        IteratorMode::Start,
+    );
+
+    let mut num_total_allocations = 0;
+    let mut num_deleted_allocations = 0;
+    let mut num_updated_tasks = 0;
+
+    for kv in iter {
+        num_total_allocations += 1;
+        let (key, val_bytes) = kv?;
+        let allocation: serde_json::Value = serde_json::from_slice(&val_bytes)
+            .map_err(|e| anyhow::anyhow!("error deserializing Allocations json bytes, {:#?}", e))?;
+
+        // Extract task information from the allocation
+        let namespace = get_string_val(&allocation, "namespace")?;
+        let compute_graph = get_string_val(&allocation, "compute_graph")?;
+        let invocation_id = get_string_val(&allocation, "invocation_id")?;
+        let compute_fn = get_string_val(&allocation, "compute_fn")?;
+        let task_id = get_string_val(&allocation, "task_id")?;
+
+        // Construct the task key
+        let task_key = format!(
+            "{}|{}|{}|{}|{}",
+            namespace, compute_graph, invocation_id, compute_fn, task_id
+        );
+
+        // Get the task
+        if let Some(task_bytes) = db.get_cf(&IndexifyObjectsColumns::Tasks.cf_db(&db), &task_key)? {
+            let mut task: serde_json::Value = serde_json::from_slice(&task_bytes)
+                .map_err(|e| anyhow::anyhow!("error deserializing Task json bytes, {:#?}", e))?;
+
+            // Update task status to Pending
+            if let Some(task_obj) = task.as_object_mut() {
+                task_obj.insert(
+                    "status".to_string(),
+                    serde_json::Value::String("Pending".to_string()),
+                );
+
+                // Update the task in the database
+                let updated_task_bytes = serde_json::to_vec(&task)
+                    .map_err(|e| anyhow::anyhow!("error serializing task: {:#?}", e))?;
+                txn.put_cf(
+                    &IndexifyObjectsColumns::Tasks.cf_db(&db),
+                    &task_key,
+                    &updated_task_bytes,
+                )?;
+                num_updated_tasks += 1;
+            }
+        }
+
+        // Delete the allocation
+        txn.delete_cf(IndexifyObjectsColumns::Allocations.cf_db(&db), &key)?;
+        num_deleted_allocations += 1;
+    }
+
+    info!(
+        "Dropped {} allocations and updated {} tasks out of {} total allocations",
+        num_deleted_allocations, num_updated_tasks, num_total_allocations
     );
 
     Ok(())

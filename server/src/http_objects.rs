@@ -740,7 +740,7 @@ pub struct UnallocatedTasks {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ExecutorFns {
+pub struct FnExecutor {
     pub count: usize,
     pub fn_name: String,
     pub allocations: Vec<Allocation>,
@@ -749,7 +749,7 @@ pub struct ExecutorFns {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorAllocations {
     pub total: usize,
-    pub executor_fns: Vec<ExecutorFns>,
+    pub function_executors: Vec<FnExecutor>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

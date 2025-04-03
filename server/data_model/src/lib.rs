@@ -1221,6 +1221,30 @@ pub struct FunctionURI {
     pub version: Option<GraphVersion>,
 }
 
+impl FunctionURI {
+    pub fn matches(&self, other: &FunctionURI) -> bool {
+        self.namespace == other.namespace &&
+            self.compute_graph_name == other.compute_graph_name &&
+            self.compute_fn_name == other.compute_fn_name &&
+            (self.version.is_none() || self.version == other.version)
+    }
+}
+
+impl Display for FunctionURI {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}|{}|{}|{}",
+            self.namespace,
+            self.compute_graph_name,
+            self.compute_fn_name,
+            self.version
+                .as_ref()
+                .map_or("None".to_string(), |v| v.to_string())
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GpuResources {
     pub count: u32,
@@ -1330,6 +1354,13 @@ impl FunctionExecutor {
         } else {
             false
         }
+    }
+
+    pub fn matches_fn(&self, other: &FunctionExecutor) -> bool {
+        self.namespace == other.namespace &&
+            self.compute_graph_name == other.compute_graph_name &&
+            self.compute_fn_name == other.compute_fn_name &&
+            self.version == other.version
     }
 }
 

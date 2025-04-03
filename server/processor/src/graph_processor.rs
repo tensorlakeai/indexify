@@ -209,28 +209,16 @@ impl GraphProcessor {
     ) -> Result<StateMachineUpdateRequest> {
         debug!("processing state change: {}", state_change);
         let mut indexes = self.indexify_state.in_memory_state.read().await.clone();
-        match &state_change.change_type {
+        let req = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
-                let scheduler_update = self
+                let mut scheduler_update = self
                     .task_creator
                     .invoke(&state_change.change_type, &mut indexes)
-                    .await;
-                if let Ok(mut result) = scheduler_update {
-                    let placement_result = self.task_allocator.allocate(&mut indexes)?;
-                    result
-                        .new_allocations
-                        .extend(placement_result.new_allocations);
-                    result.updated_tasks.extend(placement_result.updated_tasks);
-                    Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::SchedulerUpdate(Box::new(result)),
-                        processed_state_changes: vec![state_change.clone()],
-                    })
-                } else {
-                    error!("error invoking task creator: {:?}", scheduler_update.err());
-                    Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::Noop,
-                        processed_state_changes: vec![state_change.clone()],
-                    })
+                    .await?;
+                scheduler_update.extend(self.task_allocator.allocate(&mut indexes)?);
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
+                    processed_state_changes: vec![state_change.clone()],
                 }
             }
             ChangeType::ExecutorUpserted(_) |
@@ -238,38 +226,28 @@ impl GraphProcessor {
             ChangeType::TombStoneExecutor(_) => {
                 let scheduler_update = self
                     .task_allocator
-                    .invoke(&state_change.change_type, &mut indexes);
-                if let Ok(result) = scheduler_update {
-                    Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::SchedulerUpdate(Box::new(result)),
-                        processed_state_changes: vec![state_change.clone()],
-                    })
-                } else {
-                    error!(
-                        "error invoking task allocator: {:?}",
-                        scheduler_update.err()
-                    );
-                    Ok(StateMachineUpdateRequest {
-                        payload: RequestPayload::Noop,
-                        processed_state_changes: vec![state_change.clone()],
-                    })
+                    .invoke(&state_change.change_type, &mut indexes)?;
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
+                    processed_state_changes: vec![state_change.clone()],
                 }
             }
-            ChangeType::TombstoneComputeGraph(request) => Ok(StateMachineUpdateRequest {
+            ChangeType::TombstoneComputeGraph(request) => StateMachineUpdateRequest {
                 payload: RequestPayload::DeleteComputeGraphRequest(DeleteComputeGraphRequest {
                     namespace: request.namespace.clone(),
                     name: request.compute_graph.clone(),
                 }),
                 processed_state_changes: vec![state_change.clone()],
-            }),
-            ChangeType::TombstoneInvocation(request) => Ok(StateMachineUpdateRequest {
+            },
+            ChangeType::TombstoneInvocation(request) => StateMachineUpdateRequest {
                 payload: RequestPayload::DeleteInvocationRequest(DeleteInvocationRequest {
                     namespace: request.namespace.clone(),
                     compute_graph: request.compute_graph.clone(),
                     invocation_id: request.invocation_id.clone(),
                 }),
                 processed_state_changes: vec![state_change.clone()],
-            }),
-        }
+            },
+        };
+        Ok(req)
     }
 }
