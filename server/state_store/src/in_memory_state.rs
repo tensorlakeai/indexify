@@ -735,7 +735,15 @@ impl InMemoryState {
                     }
                 }
 
-                // TODO: New function executors
+                for function_executor in &req.new_function_executors {
+                    self.function_executors_by_executor
+                        .entry(function_executor.executor_id.clone())
+                        .or_default()
+                        .insert(
+                            function_executor.id.clone(),
+                            Box::new(function_executor.clone()),
+                        );
+                }
 
                 // Note: We don't need to process req.remove_allocations here, as they are
                 // already removed when removing an executor.
@@ -768,6 +776,17 @@ impl InMemoryState {
                             "task not found for new allocation"
                         );
                     }
+                }
+
+                for function_executor in &req.remove_function_executors {
+                    self.allocations_by_executor
+                        .get_mut(&function_executor.executor_id)
+                        .and_then(|allocation_map| {
+                            allocation_map.remove(&function_executor.function_executor_id)
+                        });
+                    self.function_executors_by_executor
+                        .get_mut(&function_executor.executor_id)
+                        .and_then(|fe_map| fe_map.remove(&function_executor.function_executor_id));
                 }
 
                 for executor_id in &req.remove_executors {

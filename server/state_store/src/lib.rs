@@ -292,20 +292,8 @@ impl IndexifyState {
                     .entry(request.executor.id.clone())
                     .or_default();
 
-                // Only trigger a state change if the executor is newly registered as opposed to
-                // an update of metadata.
-                if !self
-                    .in_memory_state
-                    .read()
-                    .await
-                    .executors
-                    .contains_key(&request.executor.id)
-                {
-                    state_changes::register_executor(&self.last_state_change_id, &request)
-                        .map_err(|e| anyhow!("error getting state changes {}", e))?
-                } else {
-                    vec![]
-                }
+                state_changes::register_executor(&self.last_state_change_id, &request)
+                    .map_err(|e| anyhow!("error getting state changes {}", e))?
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
