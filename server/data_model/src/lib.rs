@@ -1221,6 +1221,30 @@ pub struct FunctionURI {
     pub version: Option<GraphVersion>,
 }
 
+impl FunctionURI {
+    pub fn matches(&self, other: &FunctionURI) -> bool {
+        self.namespace == other.namespace &&
+            self.compute_graph_name == other.compute_graph_name &&
+            self.compute_fn_name == other.compute_fn_name &&
+            (self.version.is_none() || self.version == other.version)
+    }
+}
+
+impl Display for FunctionURI {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}|{}|{}|{}",
+            self.namespace,
+            self.compute_graph_name,
+            self.compute_fn_name,
+            self.version
+                .as_ref()
+                .map_or("None".to_string(), |v| v.to_string())
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GpuResources {
     pub count: u32,
@@ -1315,13 +1339,13 @@ impl FunctionExecutor {
     ///
     /// A match occurs when:
     /// 1. The namespace, compute_graph_name, and compute_fn_name are equal
-    /// 2. Either the FunctionURI has no version specified (None), OR
-    ///    the versions match
+    /// 2. Either the FunctionURI has no version specified (None), OR the
+    ///    versions match
     pub fn matches(&self, uri: &FunctionURI) -> bool {
         // Check if namespace, compute_graph_name, and compute_fn_name match
-        let basic_match = self.namespace == uri.namespace
-            && self.compute_graph_name == uri.compute_graph_name
-            && self.compute_fn_name == uri.compute_fn_name;
+        let basic_match = self.namespace == uri.namespace &&
+            self.compute_graph_name == uri.compute_graph_name &&
+            self.compute_fn_name == uri.compute_fn_name;
 
         // If the basic fields match, then check the version
         if basic_match {
@@ -1330,6 +1354,13 @@ impl FunctionExecutor {
         } else {
             false
         }
+    }
+
+    pub fn matches_fn(&self, other: &FunctionExecutor) -> bool {
+        self.namespace == other.namespace &&
+            self.compute_graph_name == other.compute_graph_name &&
+            self.compute_fn_name == other.compute_fn_name &&
+            self.version == other.version
     }
 }
 
@@ -1617,12 +1648,18 @@ pub struct Namespace {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
 
+    use super::*;
     use crate::{
-        test_objects::tests::test_compute_fn, ComputeGraph, ComputeGraphCode, ComputeGraphVersion,
-        DynamicEdgeRouter, GraphVersion, Node, RuntimeInformation,
+        test_objects::tests::test_compute_fn,
+        ComputeGraph,
+        ComputeGraphCode,
+        ComputeGraphVersion,
+        DynamicEdgeRouter,
+        GraphVersion,
+        Node,
+        RuntimeInformation,
     };
 
     #[test]

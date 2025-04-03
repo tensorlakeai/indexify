@@ -30,9 +30,9 @@ def success_func(sleep_secs: float) -> str:
 class TestServerTaskDistribution(unittest.TestCase):
     def test_server_distributes_invocations_fairly_between_two_executors(self):
         print(
-            "Waiting for 10 seconds for Server to notice that any previously existing Executors exited."
+            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
         )
-        time.sleep(10)
+        time.sleep(30)
 
         with ExecutorProcessContextManager(
             [
@@ -81,9 +81,9 @@ class TestServerTaskDistribution(unittest.TestCase):
 
     def test_server_redistributes_invocations_when_new_executor_joins(self):
         print(
-            "Waiting for 10 seconds for Server to notice that any previously existing Executors exited."
+            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
         )
-        time.sleep(10)
+        time.sleep(30)
 
         graph = Graph(
             name=test_graph_name(self),

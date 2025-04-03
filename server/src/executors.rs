@@ -6,7 +6,10 @@ use indexify_utils::dynamic_sleep::DynamicSleepFuture;
 use priority_queue::PriorityQueue;
 use state_store::{
     requests::{
-        DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest,
+        DeregisterExecutorRequest,
+        RequestPayload,
+        StateMachineUpdateRequest,
+        UpsertExecutorRequest,
     },
     IndexifyState,
 };
@@ -144,6 +147,11 @@ impl ExecutorManager {
             .map(|stored_hash| stored_hash == &executor.state_hash)
             .unwrap_or(false)
         {
+            trace!(
+                executor_id = executor.id.get(),
+                state_hash = executor.state_hash,
+                "Executor state hash changed, registering executor"
+            );
             // TODO: Add clock check only act on the heartbeat for the latest state change
             if let Err(e) = self.register_executor(executor.clone()).await {
                 error!(
@@ -291,6 +299,8 @@ impl ExecutorManager {
                     // Get the function URI string
                     let fn_uri = function_executor.fn_uri_str();
 
+                    function_allocations.entry(fn_uri.clone()).or_default();
+
                     // Find allocations for this function executor if they exist
                     if let Some(executor_allocations) = allocations_by_executor.get(executor_id) {
                         if let Some(fe_allocations) =
@@ -303,8 +313,7 @@ impl ExecutorManager {
                             // Merge with existing allocations for this function URI
                             function_allocations
                                 .entry(fn_uri)
-                                .and_modify(|existing| existing.extend(allocation_vec.clone()))
-                                .or_insert(allocation_vec);
+                                .and_modify(|existing| existing.extend(allocation_vec.clone()));
                         }
                     }
                 }
