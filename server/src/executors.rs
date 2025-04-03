@@ -14,7 +14,7 @@ use state_store::{
     IndexifyState,
 };
 use tokio::{
-    sync::{watch, Mutex},
+    sync::{watch, Mutex, RwLock},
     time::Instant,
 };
 use tracing::{error, trace};
@@ -48,6 +48,7 @@ pub struct ExecutorManager {
     heartbeat_future: Arc<Mutex<DynamicSleepFuture>>,
     heartbeat_deadline_updater: watch::Sender<Instant>,
     indexify_state: Arc<IndexifyState>,
+    executor_hashes: RwLock<HashMap<ExecutorId, String>>,
 }
 
 impl ExecutorManager {
@@ -64,6 +65,7 @@ impl ExecutorManager {
         let heartbeat_future = Arc::new(Mutex::new(heartbeat_future));
         let em = ExecutorManager {
             indexify_state,
+            executor_hashes: RwLock::new(HashMap::new()),
             heartbeat_deadline_queue: Mutex::new(PriorityQueue::new()),
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
@@ -80,11 +82,11 @@ impl ExecutorManager {
             tokio::time::sleep(EXECUTOR_TIMEOUT).await;
 
             // Get all executor IDs of executors that haven't registered.
-            let missing_executor_ids: Vec<String> = {
+            let missing_executor_ids: Vec<_> = {
                 let indexes = indexify_state.in_memory_state.read().await;
 
                 indexes
-                    .allocations_by_fn
+                    .allocations_by_executor
                     .keys()
                     .filter(|id| !indexes.executors.contains_key(&**id))
                     .cloned()
@@ -95,13 +97,13 @@ impl ExecutorManager {
             for executor_id in missing_executor_ids {
                 let sm_req = StateMachineUpdateRequest {
                     payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                        executor_id: ExecutorId::new(executor_id.clone()),
+                        executor_id: executor_id.clone(),
                     }),
                     processed_state_changes: vec![],
                 };
                 if let Err(err) = indexify_state.write(sm_req).await {
                     error!(
-                        executor_id = executor_id,
+                        executor_id = executor_id.get(),
                         "failed to deregister lapsed executor: {:?}", err
                     );
                 }
@@ -135,11 +137,33 @@ impl ExecutorManager {
         // 5. Update the heartbeat future with the new earliest deadline
         self.heartbeat_deadline_updater.send(peeked_deadline)?;
 
-        // 6. Register the executor to upsert its metadata
-        let err = self.register_executor(executor.clone()).await;
-        if let Err(e) = err {
-            error!("failed to register executor {}: {:?}", executor.id.get(), e);
-            return Err(e);
+        // 6. Register the executor to upsert its metadata only if the state_hash is
+        //    different to prevent doing duplicate work.
+        if !self
+            .executor_hashes
+            .read()
+            .await
+            .get(&executor.id)
+            .map(|stored_hash| stored_hash == &executor.state_hash)
+            .unwrap_or(false)
+        {
+            trace!(
+                executor_id = executor.id.get(),
+                state_hash = executor.state_hash,
+                "Executor state hash changed, registering executor"
+            );
+            // TODO: Add clock check only act on the heartbeat for the latest state change
+            if let Err(e) = self.register_executor(executor.clone()).await {
+                error!(
+                    executor_id = executor.id.get(),
+                    "failed to register executor: {:?}", e
+                );
+                return Err(e);
+            }
+            self.executor_hashes
+                .write()
+                .await
+                .insert(executor.id.clone(), executor.state_hash.clone());
         }
 
         Ok(())
@@ -147,7 +171,6 @@ impl ExecutorManager {
 
     /// Wait for the an executor heartbeat deadline to lapse.
     async fn wait_executor_heartbeat_deadline(&self) {
-        // 1. Retrieve the next deadline from the queue
         let mut fut = self.heartbeat_future.lock().await;
 
         trace!("Waiting for next executor deadline");
@@ -260,27 +283,42 @@ impl ExecutorManager {
         Ok(executors)
     }
 
-    pub async fn list_allocations(&self) -> HashMap<String, HashMap<String, Vec<Allocation>>> {
-        self.indexify_state
-            .in_memory_state
-            .read()
-            .await
-            .allocations_by_fn
+    pub async fn list_allocations(&self) -> HashMap<ExecutorId, HashMap<String, Vec<Allocation>>> {
+        let state = self.indexify_state.in_memory_state.read().await;
+        let allocations_by_executor = &state.allocations_by_executor;
+        let function_executors_by_executor = &state.function_executors_by_executor;
+
+        function_executors_by_executor
             .iter()
-            .map(|(executor_id, fns)| {
-                let executor_id = executor_id.clone();
-                let fns = fns
-                    .iter()
-                    .map(|(fn_name, allocations)| {
-                        let fn_name = fn_name.clone();
-                        let mut allocs: Vec<Allocation> = vec![];
-                        for allocation in allocations {
-                            allocs.push((**allocation).clone());
+            .map(|(executor_id, function_executors)| {
+                // Create a HashMap to collect and merge allocations by function URI
+                let mut function_allocations: HashMap<String, Vec<Allocation>> = HashMap::new();
+
+                // Process each function executor
+                for (_, function_executor) in function_executors {
+                    // Get the function URI string
+                    let fn_uri = function_executor.fn_uri_str();
+
+                    function_allocations.entry(fn_uri.clone()).or_default();
+
+                    // Find allocations for this function executor if they exist
+                    if let Some(executor_allocations) = allocations_by_executor.get(executor_id) {
+                        if let Some(fe_allocations) =
+                            executor_allocations.get(&function_executor.id)
+                        {
+                            // Convert allocation HashMap values to a Vec
+                            let allocation_vec: Vec<Allocation> =
+                                fe_allocations.iter().map(|i| *i.clone()).collect();
+
+                            // Merge with existing allocations for this function URI
+                            function_allocations
+                                .entry(fn_uri)
+                                .and_modify(|existing| existing.extend(allocation_vec.clone()));
                         }
-                        (fn_name, allocs)
-                    })
-                    .collect();
-                (executor_id, fns)
+                    }
+                }
+
+                (executor_id.clone(), function_allocations)
             })
             .collect()
     }
@@ -307,6 +345,7 @@ mod tests {
         let executor = ExecutorMetadata {
             id: ExecutorId::new("test".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -314,6 +353,7 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
         executor_manager.register_executor(executor).await?;
 
@@ -340,6 +380,7 @@ mod tests {
         let executor1 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-1".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -347,11 +388,13 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
 
         let executor2 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-2".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -359,11 +402,13 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
 
         let executor3 = ExecutorMetadata {
             id: ExecutorId::new("test-executor-3".to_string()),
             executor_version: "1.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -371,6 +416,7 @@ mod tests {
             host_resources: Default::default(),
             state: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         };
 
         // Pause time and send an initial heartbeats

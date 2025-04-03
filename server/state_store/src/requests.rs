@@ -5,6 +5,8 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
+    FunctionExecutor,
+    FunctionExecutorId,
     GraphInvocationCtx,
     InvocationPayload,
     NodeOutput,
@@ -37,6 +39,21 @@ pub enum RequestPayload {
     Noop,
 }
 
+#[derive(Debug, Clone)]
+pub struct FunctionExecutorIdWithExecutionId {
+    pub function_executor_id: FunctionExecutorId,
+    pub executor_id: ExecutorId,
+}
+
+impl FunctionExecutorIdWithExecutionId {
+    pub fn new(function_executor_id: FunctionExecutorId, executor_id: ExecutorId) -> Self {
+        Self {
+            function_executor_id,
+            executor_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
@@ -45,6 +62,32 @@ pub struct SchedulerUpdateRequest {
     pub updated_invocations_states: Vec<GraphInvocationCtx>,
     pub reduction_tasks: ReductionTasks,
     pub remove_executors: Vec<ExecutorId>,
+    pub new_function_executors: Vec<FunctionExecutor>,
+    pub remove_function_executors: Vec<FunctionExecutorIdWithExecutionId>,
+}
+
+impl SchedulerUpdateRequest {
+    /// Extends this SchedulerUpdateRequest with contents from another one
+    pub fn extend(&mut self, other: SchedulerUpdateRequest) {
+        self.new_allocations.extend(other.new_allocations);
+        self.remove_allocations.extend(other.remove_allocations);
+        self.updated_tasks.extend(other.updated_tasks);
+        self.updated_invocations_states
+            .extend(other.updated_invocations_states);
+
+        self.reduction_tasks
+            .new_reduction_tasks
+            .extend(other.reduction_tasks.new_reduction_tasks);
+        self.reduction_tasks
+            .processed_reduction_tasks
+            .extend(other.reduction_tasks.processed_reduction_tasks);
+
+        self.remove_executors.extend(other.remove_executors);
+        self.new_function_executors
+            .extend(other.new_function_executors);
+        self.remove_function_executors
+            .extend(other.remove_function_executors);
+    }
 }
 
 #[derive(Debug, Clone)]

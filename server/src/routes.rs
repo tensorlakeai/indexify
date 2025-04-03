@@ -43,7 +43,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
     ExecutorAllocations,
-    ExecutorFns,
+    FnExecutor,
     Invocation,
     InvocationStatus,
     StateChangesResponse,
@@ -722,12 +722,12 @@ async fn list_allocations(
             .into_iter()
             .map(|(executor_id, fns)| {
                 (
-                    executor_id.clone(),
+                    executor_id.get().to_string(),
                     ExecutorAllocations {
                         total: fns.iter().map(|(_, allocations)| allocations.len()).sum(),
-                        executor_fns: fns
+                        function_executors: fns
                             .iter()
-                            .map(|(fn_name, allocations)| ExecutorFns {
+                            .map(|(fn_name, allocations)| FnExecutor {
                                 count: allocations.len(),
                                 fn_name: fn_name.clone(),
                                 allocations: allocations.iter().map(|a| a.clone().into()).collect(),

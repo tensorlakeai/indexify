@@ -313,6 +313,7 @@ pub mod tests {
         ExecutorMetadata {
             id: mock_executor_id(),
             executor_version: "1.0.0".to_string(),
+            development_mode: true,
             function_allowlist: None,
             addr: "".to_string(),
             labels: Default::default(),
@@ -320,6 +321,7 @@ pub mod tests {
             state: Default::default(),
             function_executors: Default::default(),
             tombstoned: false,
+            state_hash: "state_hash".to_string(),
         }
     }
 }
