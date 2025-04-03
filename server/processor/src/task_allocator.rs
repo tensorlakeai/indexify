@@ -2,11 +2,19 @@ use std::vec;
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    Allocation, AllocationBuilder, ChangeType, ExecutorId, ExecutorMetadata, FunctionExecutor,
-    FunctionExecutorId, FunctionExecutorStatus, FunctionURI, Task, TaskStatus,
+    Allocation,
+    AllocationBuilder,
+    ChangeType,
+    ExecutorId,
+    ExecutorMetadata,
+    FunctionExecutor,
+    FunctionExecutorId,
+    FunctionExecutorStatus,
+    FunctionURI,
+    Task,
+    TaskStatus,
 };
 use itertools::Itertools;
-use rand::seq::IndexedRandom;
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
     requests::{FunctionExecutorIdWithExecutionId, SchedulerUpdateRequest},
@@ -31,6 +39,7 @@ pub struct ExecutorCandidate {
     pub executor_id: ExecutorId,
     pub function_executor_id: Option<FunctionExecutorId>, // None if needs to be created
     pub function_uri: FunctionURI,
+    pub allocation_count: usize, // Number of allocations for this function executor
 }
 
 pub struct TaskAllocationProcessor {}
@@ -441,6 +450,7 @@ impl TaskAllocationProcessor {
 
     // Get available executors considering dev mode and allowlists
     #[tracing::instrument(skip(self, task, indexes))]
+    #[tracing::instrument(skip(self, task, indexes))]
     fn get_executor_candidates(
         &self,
         task: &Task,
@@ -455,8 +465,8 @@ impl TaskAllocationProcessor {
             }
 
             // Skip if this executor can't handle this function (due to allowlist)
-            if !executor.development_mode
-                && executor
+            if !executor.development_mode &&
+                executor
                     .function_allowlist
                     .as_ref()
                     .map_or(false, |allowlist| {
@@ -482,23 +492,27 @@ impl TaskAllocationProcessor {
                         .map(|(id, _)| id.clone())
                 });
 
-            // Check allocation count for specific function executor (if it exists)
-            let should_skip_due_to_capacity = matching_fe
+            // Get the allocation count specifically for the function executor we're
+            // considering If no matching function executor exists, allocation
+            // count is 0
+            let allocation_count = matching_fe
                 .as_ref()
-                .map(|fe_id| {
+                .and_then(|fe_id| {
                     indexes
                         .allocations_by_executor
                         .get(executor_id)
-                        .and_then(|allocations_by_fe| allocations_by_fe.get(fe_id))
-                        .map(|allocations_vector| {
-                            allocations_vector.len() >= MAX_ALLOCATIONS_PER_FN_EXECUTOR
-                        })
-                        .unwrap_or(false)
+                        .and_then(|alloc_map| alloc_map.get(fe_id))
+                        .map(|allocs| allocs.len())
                 })
-                .unwrap_or(false);
+                .unwrap_or(0);
 
-            if should_skip_due_to_capacity {
-                trace!("executor skipped due to capacity - {}", executor.id.get());
+            // Check if the specific function executor is at capacity
+            if allocation_count >= MAX_ALLOCATIONS_PER_FN_EXECUTOR {
+                trace!(
+                    "executor {} skipped due to function executor at capacity (allocations: {})",
+                    executor.id.get(),
+                    allocation_count
+                );
                 continue;
             }
 
@@ -506,20 +520,25 @@ impl TaskAllocationProcessor {
                 executor_id: executor_id.clone(),
                 function_executor_id: matching_fe,
                 function_uri: fn_uri.clone(),
+                allocation_count,
             });
         }
 
         candidates
     }
 
-    // Select a random executor from candidates
+    #[tracing::instrument(skip(self, candidates))]
     fn select_executor(&self, candidates: &[ExecutorCandidate]) -> Option<ExecutorCandidate> {
         if candidates.is_empty() {
             return None;
         }
 
-        // Use random selection for load balancing
-        candidates.choose(&mut rand::thread_rng()).cloned()
+        // Find the candidate with the fewest allocations using the pre-calculated
+        // allocation_count
+        candidates
+            .iter()
+            .min_by_key(|candidate| candidate.allocation_count)
+            .cloned()
     }
 
     // Ensure function executor exists (or create it)
@@ -567,11 +586,11 @@ impl TaskAllocationProcessor {
         // Step 1: Get candidates
         let candidates = self.get_executor_candidates(task, indexes);
 
-        // Step 2: Select random candidate
+        // Step 2: Select best candidate
         let candidate = match self.select_executor(&candidates) {
             Some(c) => c,
             None => {
-                debug!("No suitable executor candidates available");
+                trace!("No suitable executor candidates available");
                 return Ok((None, None));
             }
         };
