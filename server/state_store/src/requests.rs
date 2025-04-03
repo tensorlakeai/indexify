@@ -5,10 +5,7 @@ use data_model::{
     ComputeGraph,
     ExecutorId,
     ExecutorMetadata,
-<<<<<<< HEAD
-=======
     FunctionExecutor,
->>>>>>> f501d85f (feat: creating and removing function executors)
     FunctionExecutorId,
     GraphInvocationCtx,
     InvocationPayload,
