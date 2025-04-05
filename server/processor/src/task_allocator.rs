@@ -14,7 +14,7 @@ use data_model::{
     TaskStatus,
 };
 use itertools::Itertools;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
     requests::SchedulerUpdateRequest,
@@ -301,7 +301,9 @@ impl TaskAllocationProcessor {
         let filtered_executors =
             self.filter_executors(&compute_graph_version, &compute_fn, executors)?;
 
-        let executor_id = filtered_executors.executors.choose(&mut rand::thread_rng());
+        let mut rng = rand::rng();
+
+        let executor_id = filtered_executors.executors.choose(&mut rng);
         if let Some(executor_id) = executor_id {
             info!("assigning task {:?} to executor {:?}", task.id, executor_id);
             let allocation = AllocationBuilder::default()

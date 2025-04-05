@@ -1,7 +1,7 @@
 pub mod tests {
     use std::collections::HashMap;
 
-    use rand::{distributions::Alphanumeric, Rng};
+    use rand::Rng;
 
     use super::super::{
         ComputeFn,
@@ -86,11 +86,11 @@ pub mod tests {
         compute_fn_name: &str,
         reducer_fn: Option<String>,
     ) -> NodeOutput {
-        let mut path: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
+        let mut path = rand::rng()
+            .sample_iter(rand::distr::Alphanumeric)
             .take(7)
             .map(char::from)
-            .collect();
+            .collect::<String>(); // Generate a random string for the path
         if let Some(reducer_fn) = reducer_fn {
             // Simulating overriding the existing output for accumulators
             path = format!("{}-{}-{}", invocation_id, graph, reducer_fn);
