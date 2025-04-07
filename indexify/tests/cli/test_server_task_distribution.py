@@ -9,6 +9,7 @@ from tensorlake.remote_graph import RemoteGraph
 from testing import (
     ExecutorProcessContextManager,
     executor_pid,
+    function_uri,
     test_graph_name,
     wait_executor_startup,
     wait_function_output,
@@ -29,14 +30,13 @@ def success_func(sleep_secs: float) -> str:
 
 class TestServerTaskDistribution(unittest.TestCase):
     def test_server_distributes_invocations_fairly_between_two_executors(self):
-        print(
-            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
-        )
-        time.sleep(30)
+        graph_name = test_graph_name(self)
+        version = str(time.time())
 
         with ExecutorProcessContextManager(
             [
-                "--dev",
+                "--function",
+                function_uri("default", graph_name, "get_executor_pid", version),
                 "--ports",
                 "60000",
                 "60001",
@@ -50,9 +50,10 @@ class TestServerTaskDistribution(unittest.TestCase):
             wait_executor_startup(7001)
 
             graph = Graph(
-                name=test_graph_name(self),
+                name=graph_name,
                 description="test",
                 start_node=get_executor_pid,
+                version=version,
             )
             graph = RemoteGraph.deploy(graph, additional_modules=[testing])
 
@@ -80,15 +81,14 @@ class TestServerTaskDistribution(unittest.TestCase):
                 self.assertLess(invocations_count, 125)
 
     def test_server_redistributes_invocations_when_new_executor_joins(self):
-        print(
-            "Waiting for 30 seconds for Server to notice that any previously existing Executors exited."
-        )
-        time.sleep(30)
+        graph_name = test_graph_name(self)
+        version = str(time.time())
 
         graph = Graph(
-            name=test_graph_name(self),
+            name=graph_name,
             description="test",
             start_node=get_executor_pid,
+            version=version,
         )
         graph = RemoteGraph.deploy(graph, additional_modules=[testing])
 
@@ -101,7 +101,8 @@ class TestServerTaskDistribution(unittest.TestCase):
 
         with ExecutorProcessContextManager(
             [
-                "--dev",
+                "--function",
+                function_uri("default", graph_name, "get_executor_pid", version),
                 "--ports",
                 "60000",
                 "60001",
@@ -130,44 +131,44 @@ class TestServerTaskDistribution(unittest.TestCase):
                 self.assertGreater(invocations_count, 50)
                 self.assertLess(invocations_count, 150)
 
-    # def test_all_tasks_succeed_when_executor_exits(self):
-    #     print(
-    #         "Waiting for 10 seconds for Server to notice that any previously existing Executors exited."
-    #     )
-    #     time.sleep(10)
+    def test_all_tasks_succeed_when_executor_exits(self):
+        graph_name = test_graph_name(self)
+        version = str(time.time())
 
-    #     with ExecutorProcessContextManager(
-    #         [
-    #             "--dev",
-    #             "--ports",
-    #             "60000",
-    #             "60001",
-    #             "--monitoring-server-port",
-    #             "7001",
-    #         ],
-    #         keep_std_outputs=False,
-    #     ) as executor_a:
-    #         executor_a: subprocess.Popen
-    #         print(f"Started Executor A with PID: {executor_a.pid}")
-    #         wait_executor_startup(7001)
+        with ExecutorProcessContextManager(
+            [
+                "--function",
+                function_uri("default", graph_name, "success_func", version),
+                "--ports",
+                "60000",
+                "60001",
+                "--monitoring-server-port",
+                "7001",
+            ],
+            keep_std_outputs=False,
+        ) as executor_a:
+            executor_a: subprocess.Popen
+            print(f"Started Executor A with PID: {executor_a.pid}")
+            wait_executor_startup(7001)
 
-    #         graph = Graph(
-    #             name=test_graph_name(self),
-    #             description="test",
-    #             start_node=success_func,
-    #         )
-    #         graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+            graph = Graph(
+                name=graph_name,
+                description="test",
+                start_node=success_func,
+                version=version,
+            )
+            graph = RemoteGraph.deploy(graph, additional_modules=[testing])
 
-    #         invocation_ids: List[str] = []
-    #         # Run many invokes to collect enough samples.
-    #         for _ in range(200):
-    #             invocation_id = graph.run(block_until_done=False, sleep_secs=0.1)
-    #             invocation_ids.append(invocation_id)
+            invocation_ids: List[str] = []
+            # Run many invokes to collect enough samples.
+            for _ in range(200):
+                invocation_id = graph.run(block_until_done=False, sleep_secs=0.1)
+                invocation_ids.append(invocation_id)
 
-    #     for invocation_id in invocation_ids:
-    #         output = wait_function_output(graph, invocation_id, "success_func")
-    #         self.assertEqual(len(output), 1)
-    #         self.assertEqual(output[0], "success")
+        for invocation_id in invocation_ids:
+            output = wait_function_output(graph, invocation_id, "success_func")
+            self.assertEqual(len(output), 1)
+            self.assertEqual(output[0], "success")
 
 
 if __name__ == "__main__":
