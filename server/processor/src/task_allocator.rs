@@ -15,6 +15,7 @@ use data_model::{
     TaskStatus,
 };
 use itertools::Itertools;
+use rand::seq::SliceRandom;
 use state_store::{
     in_memory_state::{InMemoryState, UnallocatedTaskId},
     requests::{FunctionExecutorIdWithExecutionId, SchedulerUpdateRequest},
@@ -533,10 +534,16 @@ impl TaskAllocationProcessor {
             return None;
         }
 
-        // Find the candidate with the fewest allocations using the pre-calculated
-        // allocation_count
-        candidates
-            .iter()
+        // Create an array of indices and shuffle them
+        let mut indices: Vec<usize> = (0..candidates.len()).collect();
+        indices.shuffle(&mut rand::thread_rng());
+
+        // Use these indices to iterate through candidates in a random order
+        // ensuring that we select the one with the least allocation count
+        // without relying on the order of candidates.
+        indices
+            .into_iter()
+            .map(|i| &candidates[i])
             .min_by_key(|candidate| candidate.allocation_count)
             .cloned()
     }
@@ -594,6 +601,15 @@ impl TaskAllocationProcessor {
                 return Ok((None, None));
             }
         };
+
+        trace!(
+            "available executor candidates: {:#?} - picked: {:#?}",
+            candidates
+                .iter()
+                .map(|c| format!("{} - {}", c.executor_id.get(), c.allocation_count))
+                .collect::<Vec<_>>(),
+            candidate,
+        );
 
         // Step 3: Ensure function executor exists
         let (function_executor_id, maybe_new_fe) = self.ensure_function_executor(&candidate)?;
