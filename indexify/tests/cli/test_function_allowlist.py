@@ -1,7 +1,8 @@
+import contextlib
 import subprocess
 import time
 import unittest
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import testing
 from tensorlake import Graph, tensorlake_function
@@ -14,16 +15,13 @@ from testing import (
     wait_executor_startup,
 )
 
-# There's a dev mode executor already running in the testing environment.
-# It's used for all other tests that don't check the function allowlist.
-# This existing Executor can run any function.
-dev_mode_executor_pid: Optional[int] = None
-# This Executor can only run function_a.
-function_a_executor_pid: Optional[int] = None
-# This Executor can only run function_b.
-function_b_executor_pid: Optional[int] = None
-# This Executor can only run function_c any version.
-function_c_executor_pid: Optional[int] = None
+# Executor PIDs for different function executors
+executors_pid: Dict[str, Optional[int]] = {
+    "dev_mode": None,  # Existing dev mode executor that can run any function
+    "function_a": None,  # Executor that can only run function_a
+    "function_b": None,  # Executor that can only run function_b
+    "function_c": None,  # Executor that can only run function_c any version
+}
 
 
 @tensorlake_function()
@@ -33,12 +31,11 @@ def get_dev_mode_executor_pid() -> int:
 
 @tensorlake_function()
 def function_a() -> int:
-    global dev_mode_executor_pid
-    global function_a_executor_pid
-    global function_b_executor_pid
-
     current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [function_a_executor_pid, dev_mode_executor_pid]
+    allowed_executor_pids: List[int] = [
+        executors_pid["function_a"],
+        executors_pid["dev_mode"],
+    ]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
             f"function_a Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
@@ -48,10 +45,11 @@ def function_a() -> int:
 
 @tensorlake_function()
 def function_b(_: str) -> int:
-    global function_b_executor_pid
-
     current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [function_b_executor_pid, dev_mode_executor_pid]
+    allowed_executor_pids: List[int] = [
+        executors_pid["function_b"],
+        executors_pid["dev_mode"],
+    ]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
             f"function_b Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
@@ -61,10 +59,11 @@ def function_b(_: str) -> int:
 
 @tensorlake_function()
 def function_c(_: str) -> int:
-    global function_c_executor_pid
-
     current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [function_c_executor_pid, dev_mode_executor_pid]
+    allowed_executor_pids: List[int] = [
+        executors_pid["function_c"],
+        executors_pid["dev_mode"],
+    ]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
             f"function_c Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
@@ -75,7 +74,7 @@ def function_c(_: str) -> int:
 @tensorlake_function()
 def function_dev(_: str) -> int:
     current_executor_pid: int = executor_pid()
-    allowed_executor_pids: List[int] = [dev_mode_executor_pid]
+    allowed_executor_pids: List[int] = [executors_pid["dev_mode"]]
     if current_executor_pid not in allowed_executor_pids:
         raise Exception(
             f"function_dev Executor PID {current_executor_pid} is not in the allowlist: {allowed_executor_pids}"
@@ -87,6 +86,8 @@ class TestFunctionAllowlist(unittest.TestCase):
     def test_function_routing(self):
         graph_name = test_graph_name(self)
         version = str(time.time())
+
+        # Get dev mode executor PID
         graph = Graph(
             name=graph_name + "_dev",
             description="test",
@@ -94,139 +95,185 @@ class TestFunctionAllowlist(unittest.TestCase):
             version=version,
         )
         graph = RemoteGraph.deploy(graph, additional_modules=[testing])
-
-        global dev_mode_executor_pid
         invocation_id = graph.run(block_until_done=True)
         output = graph.output(invocation_id, "get_dev_mode_executor_pid")
         self.assertEqual(len(output), 1)
-        dev_mode_executor_pid = output[0]
-        print(f"Found dev mode Executor PID: {dev_mode_executor_pid}")
+        executors_pid["dev_mode"] = output[0]
+        print(f"Found dev mode Executor PID: {executors_pid['dev_mode']}")
 
-        with ExecutorProcessContextManager(
-            [
-                "--function",
-                function_uri(
-                    "default",
-                    graph_name,
-                    "function_a",
-                    version,
-                ),
-                "--ports",
-                "60000",
-                "60001",
-                "--monitoring-server-port",
-                "7001",
-            ]
-        ) as executor_a:
-            executor_a: subprocess.Popen
-            global function_a_executor_pid
-            function_a_executor_pid = executor_a.pid
-            print(f"Started Executor A with PID: {function_a_executor_pid}")
-            wait_executor_startup(7001)
-
-            with ExecutorProcessContextManager(
-                [
+        # Define executor configurations
+        executor_configs = [
+            {
+                "name": "function_a",
+                "args": [
                     "--function",
-                    function_uri(
-                        "default",
-                        graph_name,
-                        "function_b",
-                        version,
-                    ),
+                    function_uri("default", graph_name, "function_a", version),
+                    "--ports",
+                    "60000",
+                    "60001",
+                    "--monitoring-server-port",
+                    "7001",
+                ],
+                "monitoring_port": 7001,
+            },
+            {
+                "name": "function_b",
+                "args": [
+                    "--function",
+                    function_uri("default", graph_name, "function_b", version),
                     "--ports",
                     "60001",
                     "60002",
                     "--monitoring-server-port",
                     "7002",
-                ]
-            ) as executor_b:
-                executor_b: subprocess.Popen
-                global function_b_executor_pid
-                function_b_executor_pid = executor_b.pid
-                print(f"Started Executor B with PID: {function_b_executor_pid}")
-                wait_executor_startup(7002)
+                ],
+                "monitoring_port": 7002,
+            },
+            {
+                "name": "function_c",
+                "args": [
+                    "--function",
+                    function_uri("default", graph_name, "function_c"),
+                    "--ports",
+                    "60003",
+                    "60004",
+                    "--monitoring-server-port",
+                    "7003",
+                ],
+                "monitoring_port": 7003,
+            },
+        ]
 
-                with ExecutorProcessContextManager(
-                    [
-                        "--function",
-                        function_uri(
-                            "default",
-                            graph_name,
-                            "function_c",
-                        ),
-                        "--ports",
-                        "60003",
-                        "60004",
-                        "--monitoring-server-port",
-                        "7003",
-                    ]
-                ) as executor_c:
-                    executor_c: subprocess.Popen
-                    global function_c_executor_pid
-                    function_c_executor_pid = executor_c.pid
-                    print(f"Started Executor C with PID: {function_c_executor_pid}")
-                    wait_executor_startup(7002)
+        # Create context managers for each executor
+        executor_cms = [
+            ExecutorProcessContextManager(
+                config["args"],
+                keep_std_outputs=False,
+            )
+            for config in executor_configs
+        ]
 
-                    graph = Graph(
-                        name=graph_name,
-                        description="test",
-                        start_node=function_a,
-                        version=version,
+        # Use contextlib.ExitStack to manage multiple context managers
+        with contextlib.ExitStack() as stack:
+            # First enter all executor context managers to start them
+            for i, (cm, config) in enumerate(zip(executor_cms, executor_configs)):
+                proc = stack.enter_context(cm)
+                # Store the PID for this executor
+                executors_pid[config["name"]] = proc.pid
+                print(f"Started Executor {config['name']} with PID: {proc.pid}")
+
+            # Now wait for all executors to be ready
+            for config in executor_configs:
+                wait_executor_startup(config["monitoring_port"])
+                print(f"Executor {config['name']} is ready")
+
+            # Create and deploy the main graph
+            graph = Graph(
+                name=graph_name,
+                description="test",
+                start_node=function_a,
+                version=version,
+            )
+            graph.add_edge(function_a, function_b)
+            graph.add_edge(function_b, function_c)
+            graph.add_edge(function_c, function_dev)
+            graph = RemoteGraph.deploy(graph, additional_modules=[testing])
+
+            # Track invocations per executor
+            invocations_per_pid = {}
+
+            # Define number of total runs
+            num_runs = 400
+
+            # Run the graph multiple times to ensure we land on all executors
+            for _ in range(num_runs):
+                invocation_id = graph.run(block_until_done=True)
+
+                # Check outputs for each function
+                for func_name in [
+                    "function_a",
+                    "function_b",
+                    "function_c",
+                    "function_dev",
+                ]:
+                    output = graph.output(invocation_id, func_name)
+                    self.assertEqual(len(output), 1)
+                    invocations_per_pid[output[0]] = (
+                        invocations_per_pid.get(output[0], 0) + 1
                     )
-                    graph.add_edge(function_a, function_b)
-                    graph.add_edge(function_b, function_c)
-                    graph.add_edge(function_c, function_dev)
-                    graph = RemoteGraph.deploy(graph, additional_modules=[testing])
 
-                    invocations_per_pid = {}
+            # Create mapping of executor PIDs to names for better reporting
+            executor_names = {
+                executors_pid["dev_mode"]: "executor_dev",
+                executors_pid["function_a"]: "executor_a",
+                executors_pid["function_b"]: "executor_b",
+                executors_pid["function_c"]: "executor_c",
+            }
 
-                    # As invocations might land on dev Executor, we need to run the graph multiple times
-                    # to ensure that we land on all executors.
-                    for _ in range(200):
-                        invocation_id = graph.run(block_until_done=True)
-                        output = graph.output(invocation_id, "function_a")
-                        self.assertEqual(len(output), 1)
-                        invocations_per_pid[output[0]] = (
-                            invocations_per_pid.get(output[0], 0) + 1
-                        )
+            # Format the invocation counts
+            formatted_invocations = {
+                executor_names.get(
+                    pid, f"unknown_executor_{pid}"
+                ): invocations_per_pid.get(pid, 0)
+                for pid in executor_names.keys()
+            }
 
-                        output = graph.output(invocation_id, "function_b")
-                        self.assertEqual(len(output), 1)
-                        invocations_per_pid[output[0]] = (
-                            invocations_per_pid.get(output[0], 0) + 1
-                        )
-                        output = graph.output(invocation_id, "function_c")
-                        self.assertEqual(len(output), 1)
-                        invocations_per_pid[output[0]] = (
-                            invocations_per_pid.get(output[0], 0) + 1
-                        )
+            print(f"Invocation distribution: {formatted_invocations}")
 
-                        output = graph.output(invocation_id, "function_dev")
-                        self.assertEqual(len(output), 1)
-                        invocations_per_pid[output[0]] = (
-                            invocations_per_pid.get(output[0], 0) + 1
-                        )
+            # Assert that all executors were used
+            self.assertEqual(
+                len(invocations_per_pid),
+                4,
+                f"Not all executors were used: {formatted_invocations}",
+            )
 
-                        # Check that all invocations have been routed to the correct executors
-                        # at least once.
-                        if len(invocations_per_pid) == 4:
-                            break
+            # Assert that all executors were used
+            self.assertEqual(
+                len(invocations_per_pid),
+                4,
+                f"Not all executors were used: {formatted_invocations}",
+            )
 
-                executor_names = {
-                    dev_mode_executor_pid: "executor_dev",
-                    function_a_executor_pid: "executor_a",
-                    function_b_executor_pid: "executor_b",
-                    function_c_executor_pid: "executor_c",
-                }
-                formatted_invocations = {
-                    executor_names.get(
-                        pid, f"unknown_executor_{pid}"
-                    ): invocations_per_pid.get(pid, 0)
-                    for pid in executor_names.keys()
-                }
-                assert (
-                    len(invocations_per_pid) == 4
-                ), f"Not all executors were used: {formatted_invocations}"
+            # For each function, calculate the expected distribution
+            # The dev executor should handle:
+            # - All function_dev invocations
+            # - Roughly 50% of function_a, function_b, and function_c invocations
+            expected_counts = {
+                executor_names[executors_pid["dev_mode"]]: num_runs
+                * (1 + 0.5 * 3),  # 100% of function_dev + ~50% of others
+                executor_names[executors_pid["function_a"]]: num_runs
+                * 0.5,  # ~50% of function_a
+                executor_names[executors_pid["function_b"]]: num_runs
+                * 0.5,  # ~50% of function_b
+                executor_names[executors_pid["function_c"]]: num_runs
+                * 0.5,  # ~50% of function_c
+            }
+
+            # Print a more detailed analysis of the distribution
+            print("Distribution Analysis:")
+            print(f"- Total invocations: {num_runs * 4}")
+            for executor_name, count in formatted_invocations.items():
+                print(
+                    f"- {executor_name}: {count} invocations ({count / (num_runs * 4) * 100:.1f}%)"
+                )
+                print(
+                    f"  Expected: {expected_counts[executor_name]} ({expected_counts[executor_name] / (num_runs * 4) * 100:.1f}%)"
+                )
+
+            # Check that distributions are reasonably close to expected
+            for executor_name, expected_count in expected_counts.items():
+                actual_count = formatted_invocations[executor_name]
+
+                # Allow for 20% deviation from expected values
+                lower_bound = expected_count * 0.8
+                upper_bound = expected_count * 1.2
+
+                self.assertTrue(
+                    lower_bound <= actual_count <= upper_bound,
+                    f"Executor {executor_name} invocation count ({actual_count}) "
+                    f"is not within 20% of expected count ({expected_count}). "
+                    f"Distribution: {formatted_invocations}",
+                )
 
 
 if __name__ == "__main__":
