@@ -531,7 +531,7 @@ impl TaskAllocationProcessor {
 
         // Create an array of indices and shuffle them
         let mut indices: Vec<usize> = (0..candidates.len()).collect();
-        indices.shuffle(&mut rand::thread_rng());
+        indices.shuffle(&mut rand::rng());
 
         // Use these indices to iterate through candidates in a random order
         // ensuring that we select the one with the least allocation count
