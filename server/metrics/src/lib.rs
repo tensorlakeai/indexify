@@ -322,16 +322,6 @@ impl Display for FnMetricsId {
     }
 }
 
-/*
- * StateStoreMetrics is a struct that holds metrics for the state store.
- * It keeps track of the number of tasks completed, the number of tasks
- * completed with errors, the number of assigned tasks, and the number of
- * unassigned tasks. Currently metrics are not persisted across restarts.
- *
- * TODO: When the server starts up, we should scan the database for assigned
- * and unassigned tasks. But for now, it's fine to just emit metrics which
- * reflect the current state of the system since starting the server.
- */
 #[derive(Clone, Debug)]
 pub struct StateStoreMetrics {
     pub state_write: Histogram<f64>,

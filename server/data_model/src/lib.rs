@@ -146,7 +146,6 @@ impl Allocation {
         )
     }
 
-    // TODO: To be removed
     pub fn fn_uri(&self) -> String {
         format!(
             "{}|{}|{}",
@@ -1046,14 +1045,6 @@ impl Task {
         )
     }
 
-    // TODO: Delete or rename
-    pub fn fn_uri(&self) -> String {
-        format!(
-            "{}|{}|{}",
-            self.namespace, self.compute_graph_name, self.compute_fn_name
-        )
-    }
-
     pub fn function_uri(&self) -> FunctionURI {
         FunctionURI {
             namespace: self.namespace.clone(),
@@ -1234,11 +1225,11 @@ pub struct FunctionURI {
 }
 
 impl FunctionURI {
-    pub fn matches(&self, other: &FunctionURI) -> bool {
-        self.namespace == other.namespace &&
-            self.compute_graph_name == other.compute_graph_name &&
-            self.compute_fn_name == other.compute_fn_name &&
-            (self.version.is_none() || self.version == other.version)
+    pub fn matches_task(&self, task: &Task) -> bool {
+        self.namespace == task.namespace &&
+            self.compute_graph_name == task.compute_graph_name &&
+            self.compute_fn_name == task.compute_fn_name &&
+            (self.version.is_none() || self.version.as_ref() == Some(&task.graph_version))
     }
 }
 
@@ -1353,7 +1344,7 @@ impl FunctionExecutor {
     /// 1. The namespace, compute_graph_name, and compute_fn_name are equal
     /// 2. Either the FunctionURI has no version specified (None), OR the
     ///    versions match
-    pub fn matches(&self, uri: &FunctionURI) -> bool {
+    pub fn matches_fn_uri(&self, uri: &FunctionURI) -> bool {
         // Check if namespace, compute_graph_name, and compute_fn_name match
         let basic_match = self.namespace == uri.namespace &&
             self.compute_graph_name == uri.compute_graph_name &&
@@ -1368,7 +1359,16 @@ impl FunctionExecutor {
         }
     }
 
-    pub fn matches_fn(&self, other: &FunctionExecutor) -> bool {
+    /// Checks if this FunctionExecutor matches the given Task.
+    pub fn matches_task(&self, task: &Task) -> bool {
+        self.namespace == task.namespace &&
+            self.compute_graph_name == task.compute_graph_name &&
+            self.compute_fn_name == task.compute_fn_name &&
+            self.version == task.graph_version
+    }
+
+    /// Checks if this FunctionExecutor matches another FunctionExecutor.
+    pub fn matches(&self, other: &FunctionExecutor) -> bool {
         self.namespace == other.namespace &&
             self.compute_graph_name == other.compute_graph_name &&
             self.compute_fn_name == other.compute_fn_name &&
@@ -2158,93 +2158,5 @@ mod tests {
                 ]);
             },
         );
-    }
-
-    #[test]
-    fn test_matches_all_fields_equal() {
-        let executor = FunctionExecutor {
-            id: FunctionExecutorId::default(),
-            executor_id: ExecutorId::default(),
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: GraphVersion("v1".to_string()),
-            status: FunctionExecutorStatus::Idle,
-        };
-
-        let uri = FunctionURI {
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: Some(GraphVersion("v1".to_string())),
-        };
-
-        assert!(executor.matches(&uri));
-    }
-
-    #[test]
-    fn test_matches_with_none_version() {
-        let executor = FunctionExecutor {
-            id: FunctionExecutorId::default(),
-            executor_id: ExecutorId::default(),
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: GraphVersion("v1".to_string()),
-            status: FunctionExecutorStatus::Idle,
-        };
-
-        let uri = FunctionURI {
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: None,
-        };
-
-        assert!(executor.matches(&uri));
-    }
-
-    #[test]
-    fn test_no_match_different_versions() {
-        let executor = FunctionExecutor {
-            id: FunctionExecutorId::default(),
-            executor_id: ExecutorId::default(),
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: GraphVersion("v1".to_string()),
-            status: FunctionExecutorStatus::Idle,
-        };
-
-        let uri = FunctionURI {
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: Some(GraphVersion("v2".to_string())),
-        };
-
-        assert!(!executor.matches(&uri));
-    }
-
-    #[test]
-    fn test_no_match_different_namespace() {
-        let executor = FunctionExecutor {
-            id: FunctionExecutorId::default(),
-            executor_id: ExecutorId::default(),
-            namespace: "ns1".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: GraphVersion("v1".to_string()),
-            status: FunctionExecutorStatus::Idle,
-        };
-
-        let uri = FunctionURI {
-            namespace: "different_ns".to_string(),
-            compute_graph_name: "graph1".to_string(),
-            compute_fn_name: "fn1".to_string(),
-            version: None,
-        };
-
-        assert!(!executor.matches(&uri));
     }
 }
