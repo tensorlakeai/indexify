@@ -4,6 +4,28 @@ syntax = "proto3";
 // Existing clients won't find the service if the package name changes.
 package executor_api_pb;
 
+// ===== DataPayload =====
+enum DataPayloadEncoding {
+    DATA_PAYLOAD_ENCODING_UNKNOWN = 0;
+    // These encodings are currently mapping 1:1 to mime types.
+    // TODO: use SDK specific encodings becase 1:1 mapping might not work in the future.
+    DATA_PAYLOAD_ENCODING_UTF8_JSON = 1;
+    DATA_PAYLOAD_ENCODING_UTF8_TEXT = 2;
+    DATA_PAYLOAD_ENCODING_BINARY_PICKLE = 3;
+}
+
+message DataPayload {
+    optional string path = 1; // deprecated, TODO: remove when URI us used everywhere
+    optional uint64 size = 2;
+    optional string sha256_hash = 3;
+    // URI of the data.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix if the data is stored on a local file system.
+    optional string uri = 4;
+    optional DataPayloadEncoding encoding = 5;
+    optional uint64 encoding_version = 6;
+}
+
 // ===== report_executor_state RPC =====
 
 enum GPUModel {
@@ -72,6 +94,7 @@ message FunctionExecutorDescription {
     optional HostResources resource_limits = 8;
     // Timeout for customer code duration during FE creation.
     optional uint32 customer_code_timeout_ms = 9;
+    optional DataPayload graph = 10;
 }
 
 message FunctionExecutorState {
@@ -134,9 +157,15 @@ message Task {
     optional string graph_version = 4;
     optional string function_name = 5;
     optional string graph_invocation_id = 6;
-    optional string input_key = 8;
-    optional string reducer_output_key = 9;
+    optional string input_key = 8; // deprecated. TODO: remove when input is used everywhere
+    optional string reducer_output_key = 9; // deprecated. TODO: remove when reducer_input is used everywhere
     optional uint32 timeout_ms = 10;
+    optional DataPayload input = 11;
+    optional DataPayload reducer_input = 12;
+    // URI prefix for the output payloads.
+    // S3 URI if the data is stored in S3.
+    // Starts with "file://"" prefix followed by an absolute directory path if the data is stored on a local file system.
+    optional string output_payload_uri_prefix = 13;
 }
 
 message TaskAllocation {
@@ -166,12 +195,6 @@ enum TaskOutcome {
     TASK_OUTCOME_FAILURE = 2;
 }
 
-message DataPayload {
-    optional string path = 1;
-    optional uint64 size = 2;
-    optional string sha256_hash = 3;
-}
-
 enum OutputEncoding {
     OUTPUT_ENCODING_UNKNOWN = 0;
     OUTPUT_ENCODING_JSON = 1;
@@ -186,7 +209,7 @@ message ReportTaskOutcomeRequest {
     optional string function_name = 4;
     optional string graph_invocation_id = 6;
     optional TaskOutcome outcome = 7;
-    optional string invocation_id = 8;
+    optional string invocation_id = 8; // deprecated. TODO: remove when graph_invocation_id is used everywhere
     optional string executor_id = 9;
     optional bool reducer = 10;
 
@@ -199,10 +222,10 @@ message ReportTaskOutcomeRequest {
     optional DataPayload stdout = 14;
     optional DataPayload stderr = 15;
     // Output encoding of all the outputs of a function have to be same.
-    optional OutputEncoding output_encoding = 13;
+    optional OutputEncoding output_encoding = 13; // deprecated. TODO: remove when DataPayload.encoding is used everywhere
     // This allows us to change how we encode the output from functions
     // and serialize them into storage.
-    optional uint64 output_encoding_version = 5;
+    optional uint64 output_encoding_version = 5;  // deprecated. TODO: remove when DataPayload.encoding_version is used everywhere
 }
 
 message ReportTaskOutcomeResponse {

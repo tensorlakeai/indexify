@@ -27,6 +27,7 @@ use data_model::{
 use executor_api_pb::{
     executor_api_server::ExecutorApi,
     AllowedFunction,
+    DataPayloadEncoding,
     DesiredExecutorState,
     ExecutorState,
     ExecutorStatus,
@@ -361,9 +362,9 @@ impl ExecutorApi for ExecutorAPIService {
             .ok_or(Status::invalid_argument("compute_fn is required"))?;
         let invocation_id = request
             .get_ref()
-            .invocation_id
+            .graph_invocation_id
             .clone()
-            .ok_or(Status::invalid_argument("invocation_id is required"))?;
+            .ok_or(Status::invalid_argument("graph_invocation_id is required"))?;
         let task = self
             .indexify_state
             .reader()
@@ -375,22 +376,10 @@ impl ExecutorApi for ExecutorAPIService {
                 &task_id,
             )
             .map_err(|e| Status::internal(e.to_string()))?;
-        let output_encoding = request
-            .get_ref()
-            .output_encoding
-            .ok_or(Status::invalid_argument("output_encoding is required"))?;
         if task.is_none() {
             warn!("Task not found for task_id: {}", task_id);
             return Ok(Response::new(ReportTaskOutcomeResponse {}));
         }
-        let encoding = OutputEncoding::try_from(output_encoding)
-            .map_err(|e| Status::invalid_argument(e.to_string()))?;
-        let encoding_str = match encoding {
-            OutputEncoding::Json => "application/json",
-            OutputEncoding::Pickle => "application/octet-stream",
-            OutputEncoding::Binary => "application/octet-stream",
-            OutputEncoding::Unknown => "unknown",
-        };
         let mut task = task.unwrap();
         match task_outcome {
             executor_api_pb::TaskOutcome::Success => {
@@ -410,7 +399,8 @@ impl ExecutorApi for ExecutorAPIService {
         for output in request.get_ref().fn_outputs.clone() {
             let path = output
                 .path
-                .ok_or(Status::invalid_argument("path is required"))?;
+                .or(output.uri)
+                .ok_or(Status::invalid_argument("path or uri is required"))?;
             let size = output
                 .size
                 .ok_or(Status::invalid_argument("size is required"))?;
@@ -422,6 +412,39 @@ impl ExecutorApi for ExecutorAPIService {
                 size,
                 sha256_hash,
             };
+            let encoding_str = match output.encoding {
+                Some(value) => {
+                    let output_encoding = DataPayloadEncoding::try_from(value)
+                        .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                    match output_encoding {
+                        DataPayloadEncoding::Utf8Json => Ok("application/json"),
+                        DataPayloadEncoding::BinaryPickle => Ok("application/octet-stream"),
+                        DataPayloadEncoding::Utf8Text => Ok("text/plain"),
+                        DataPayloadEncoding::Unknown => {
+                            Err(Status::invalid_argument("unknown data payload encoding"))
+                        }
+                    }
+                }
+                // Fallback to the deprecated request encoding if not set
+                None => match request.get_ref().output_encoding {
+                    Some(value) => {
+                        let output_encoding = OutputEncoding::try_from(value)
+                            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+                        match output_encoding {
+                            OutputEncoding::Json => Ok("application/json"),
+                            OutputEncoding::Pickle => Ok("application/octet-stream"),
+                            OutputEncoding::Binary => Ok("application/octet-stream"),
+                            OutputEncoding::Unknown => {
+                                Err(Status::invalid_argument("unknown request output encoding"))
+                            }
+                        }
+                    }
+                    None => Err(Status::invalid_argument(
+                        "data payload encoding or request output encoding is required",
+                    )),
+                },
+            }?;
+
             let node_output = NodeOutputBuilder::default()
                 .namespace(namespace.to_string())
                 .compute_graph_name(compute_graph.to_string())
@@ -481,18 +504,20 @@ fn prepare_data_payload(
     if msg.is_none() {
         return None;
     }
-    if msg.as_ref().unwrap().path.as_ref().is_none() {
-        return None;
-    }
-    if msg.as_ref().unwrap().size.as_ref().is_none() {
-        return None;
-    }
-    if msg.as_ref().unwrap().sha256_hash.as_ref().is_none() {
-        return None;
-    }
     let msg = msg.unwrap();
+    if msg.uri.is_none() && msg.path.is_none() {
+        return None;
+    }
+    if msg.size.as_ref().is_none() {
+        return None;
+    }
+    if msg.sha256_hash.as_ref().is_none() {
+        return None;
+    }
+
     Some(data_model::DataPayload {
-        path: msg.path.unwrap(),
+        // Fallback to deprecated path if uri is not set.
+        path: msg.uri.or(msg.path).unwrap(),
         size: msg.size.unwrap(),
         sha256_hash: msg.sha256_hash.unwrap(),
     })
