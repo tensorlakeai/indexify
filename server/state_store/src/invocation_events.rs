@@ -7,12 +7,10 @@ use crate::requests::IngestTaskOutputsRequest;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InvocationStateChangeEvent {
-    AsyncInvocation(InvocationStarted),
     TaskCreated(TaskCreated),
     TaskAssigned(TaskAssigned),
     TaskCompleted(TaskCompleted),
     InvocationFinished(InvocationFinishedEvent),
-    DiagnosticMessage(DiagnosticMessage),
 }
 
 impl InvocationStateChangeEvent {
@@ -27,7 +25,6 @@ impl InvocationStateChangeEvent {
 
     pub fn invocation_id(&self) -> String {
         match self {
-            InvocationStateChangeEvent::AsyncInvocation(InvocationStarted { id }) => id.clone(),
             InvocationStateChangeEvent::InvocationFinished(InvocationFinishedEvent { id }) => {
                 id.clone()
             }
@@ -40,21 +37,12 @@ impl InvocationStateChangeEvent {
             InvocationStateChangeEvent::TaskCompleted(TaskCompleted { invocation_id, .. }) => {
                 invocation_id.clone()
             }
-            InvocationStateChangeEvent::DiagnosticMessage(DiagnosticMessage {
-                invocation_id,
-                ..
-            }) => invocation_id.clone(),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InvocationFinishedEvent {
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct InvocationStarted {
     pub id: String,
 }
 

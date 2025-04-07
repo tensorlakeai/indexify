@@ -704,6 +704,7 @@ pub(crate) fn handle_scheduler_update(
             invocation_id = task.invocation_id,
             function_name = task.compute_fn_name,
             task_id = task.id.to_string(),
+            outcome = task.outcome.to_string(),
             "updated task",
         );
         let serialized_task = JsonEncoder::encode(&task)?;
@@ -717,6 +718,15 @@ pub(crate) fn handle_scheduler_update(
     processed_reduction_tasks(db.clone(), txn, &request.reduction_tasks)?;
 
     for invocation_ctx in &request.updated_invocations_states {
+        if invocation_ctx.completed {
+            info!(
+                invocation_id = invocation_ctx.invocation_id.to_string(),
+                namespace = invocation_ctx.namespace,
+                compute_graph = invocation_ctx.compute_graph_name,
+                outcome = invocation_ctx.outcome.to_string(),
+                "invocation completed"
+            );
+        }
         let serialized_graph_ctx = JsonEncoder::encode(&invocation_ctx)?;
         txn.put_cf(
             &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),

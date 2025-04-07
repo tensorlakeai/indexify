@@ -6,6 +6,7 @@ use std::{
     error::Error,
     fmt::{self, Display},
     hash::{DefaultHasher, Hash, Hasher},
+    str,
     time::{SystemTime, UNIX_EPOCH},
     vec,
 };
@@ -748,6 +749,17 @@ impl From<TaskOutcome> for GraphInvocationOutcome {
             TaskOutcome::Failure => GraphInvocationOutcome::Failure,
             TaskOutcome::Unknown => GraphInvocationOutcome::Undefined,
         }
+    }
+}
+
+impl Display for GraphInvocationOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str_val = match self {
+            GraphInvocationOutcome::Success => "Success",
+            GraphInvocationOutcome::Failure => "Failure",
+            GraphInvocationOutcome::Undefined => "Undefined",
+        };
+        write!(f, "{}", str_val)
     }
 }
 
