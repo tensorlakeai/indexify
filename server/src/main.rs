@@ -23,6 +23,7 @@ mod executors;
 mod gc_test;
 mod http_objects;
 mod integration_test;
+mod reconciliation_test;
 mod routes;
 mod service;
 #[cfg(test)]

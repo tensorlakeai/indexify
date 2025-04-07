@@ -221,14 +221,53 @@ impl TaskAllocationProcessor {
         if executor.development_mode {
             return Ok(update);
         }
+
         // Reconcile the function executors with the allowlist.
-        if let Some(functions) = &executor.function_allowlist {
+
+        let remove_all = executor
+            .function_allowlist
+            .as_ref()
+            .map_or(true, |functions| functions.is_empty());
+
+        if remove_all {
+            // Remove all if the allowlist is empty or not present.
+            let all_function_executor_ids: Vec<_> = executor
+                .function_executors
+                .iter()
+                .map(|(_id, fe)| fe.id.clone())
+                .collect();
+
+            if !all_function_executor_ids.is_empty() {
+                info!(
+                    "executor {} has {} allowlist, removing all {} function executors",
+                    executor.id.get(),
+                    if executor.function_allowlist.is_some() {
+                        "empty"
+                    } else {
+                        "no"
+                    },
+                    all_function_executor_ids.len()
+                );
+            }
+
+            update.extend(self.remove_function_executors(
+                &executor.id,
+                &all_function_executor_ids,
+                indexes,
+            )?);
+        } else {
+            // Has non-empty allowlist - remove only non-allowlisted executors
             let function_executor_ids_without_allowlist = executor
                 .function_executors
                 .iter()
                 .filter_map(|(_id, fe)| {
-                    if !functions.iter().any(|f| fe.matches_fn_uri(f)) {
-                        // this function executor is not allowlisted
+                    if !executor
+                        .function_allowlist
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .any(|f| fe.matches_fn_uri(f))
+                    {
                         Some(fe.id.clone())
                     } else {
                         None
@@ -462,11 +501,11 @@ impl TaskAllocationProcessor {
 
             // Skip if this executor can't handle this task due to allowlist
             if !executor.development_mode &&
-                executor
+                !executor
                     .function_allowlist
                     .as_ref()
                     .map_or(false, |allowlist| {
-                        !allowlist.iter().any(|f| f.matches_task(task))
+                        allowlist.iter().any(|f| f.matches_task(task))
                     })
             {
                 trace!(
