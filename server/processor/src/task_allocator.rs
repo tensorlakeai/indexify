@@ -104,7 +104,7 @@ impl TaskAllocationProcessor {
             debug!("attempting to allocate task {:?} ", task.id);
 
             match self.allocate_task(&task, indexes) {
-                Ok((Some(allocation), maybe_new_fe)) => {
+                Ok(Some((allocation, function_executor))) => {
                     info!(
                         task_id = &task.id.to_string(),
                         namespace = &task.namespace,
@@ -113,7 +113,6 @@ impl TaskAllocationProcessor {
                         invocation_id = &task.invocation_id,
                         executor_id = &allocation.executor_id.get(),
                         function_executor_id = &allocation.function_executor_id.get(),
-                        creating_fe = maybe_new_fe.is_some(),
                         "allocated task"
                     );
 
@@ -131,19 +130,18 @@ impl TaskAllocationProcessor {
                     }
 
                     // Record new function executor
-                    {
-                        if let Some(new_fe) = maybe_new_fe {
-                            update.new_function_executors.push(new_fe.clone());
+                    if let Some(function_executor) = function_executor {
+                        update
+                            .new_function_executors
+                            .push(function_executor.clone());
 
-                            indexes
-                                .function_executors_by_executor
-                                .entry(allocation.executor_id.clone())
-                                .or_default()
-                                .entry(allocation.function_executor_id.clone())
-                                .or_insert_with(|| Box::new(new_fe));
-                        }
+                        indexes
+                            .function_executors_by_executor
+                            .entry(allocation.executor_id.clone())
+                            .or_default()
+                            .entry(allocation.function_executor_id.clone())
+                            .or_insert_with(|| Box::new(function_executor));
                     }
-
                     // Record task status update
                     {
                         task.status = TaskStatus::Running;
@@ -155,7 +153,7 @@ impl TaskAllocationProcessor {
                             .remove(&UnallocatedTaskId::new(&task));
                     }
                 }
-                Ok((None, _)) => {
+                Ok(None) => {
                     debug!(
                         task_id = task.id.to_string(),
                         namespace = task.namespace,
@@ -209,11 +207,6 @@ impl TaskAllocationProcessor {
         // Reconcile function executors
         update.extend(self.reconcile_function_executors(&executor, indexes)?);
 
-        // TODO: for get_desired_state, manage the lifecycle of function executors so
-        // that       1- we remove any function executors that are unhealthy or
-        // non-existent       2- we reallocate any tasks on a function executor
-        // being removed
-
         return Ok(update);
     }
 
@@ -234,7 +227,7 @@ impl TaskAllocationProcessor {
                 .function_executors
                 .iter()
                 .filter_map(|(_id, fe)| {
-                    if !functions.iter().any(|f| fe.matches(f)) {
+                    if !functions.iter().any(|f| fe.matches_fn_uri(f)) {
                         // this function executor is not allowlisted
                         Some(fe.id.clone())
                     } else {
@@ -269,6 +262,8 @@ impl TaskAllocationProcessor {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
+        // TODO: handle function executor statuses
+
         // Get the function executors from the indexes
         let function_executors_in_indexes = indexes
             .function_executors_by_executor
@@ -296,7 +291,7 @@ impl TaskAllocationProcessor {
                         executor.function_executors.iter().any(|(fe_id, fe)| {
                             if fe_id.get().starts_with("not_versioned/") {
                                 // Compare function URIs
-                                indexed_fe.matches_fn(&fe)
+                                indexed_fe.matches(&fe)
                             } else {
                                 false
                             }
@@ -314,8 +309,8 @@ impl TaskAllocationProcessor {
             .collect_vec();
 
         if !function_executor_ids_to_remove.is_empty() {
-            info!(
-                "executor {} has function executors in indexes that don't match: {}",
+            trace!(
+                "executor {} has function executors ({}) in indexes to be removed",
                 executor.id.get(),
                 function_executor_ids_to_remove.len()
             );
@@ -465,13 +460,13 @@ impl TaskAllocationProcessor {
                 continue;
             }
 
-            // Skip if this executor can't handle this function (due to allowlist)
+            // Skip if this executor can't handle this task due to allowlist
             if !executor.development_mode &&
                 executor
                     .function_allowlist
                     .as_ref()
                     .map_or(false, |allowlist| {
-                        !allowlist.iter().any(|f| f.matches(&fn_uri))
+                        !allowlist.iter().any(|f| f.matches_task(task))
                     })
             {
                 trace!(
@@ -489,7 +484,7 @@ impl TaskAllocationProcessor {
                 .and_then(|executors| {
                     executors
                         .iter()
-                        .find(|(_, fe)| fe.matches(&fn_uri))
+                        .find(|(_, fe)| fe.matches_task(task))
                         .map(|(id, _)| id.clone())
                 });
 
@@ -553,10 +548,10 @@ impl TaskAllocationProcessor {
     fn ensure_function_executor(
         &self,
         candidate: &ExecutorCandidate,
-    ) -> Result<(FunctionExecutorId, Option<FunctionExecutor>)> {
+    ) -> Result<Option<FunctionExecutor>> {
         // If function executor already exists, return its ID
-        if let Some(fe_id) = &candidate.function_executor_id {
-            return Ok((fe_id.clone(), None));
+        if candidate.function_executor_id.is_some() {
+            return Ok(None);
         }
 
         // Otherwise, we need to create a new one (for dev mode)
@@ -574,13 +569,13 @@ impl TaskAllocationProcessor {
             status: FunctionExecutorStatus::Idle,
         };
 
-        tracing::info!(
+        trace!(
             "creating new function executor: {:?} for task {:?}",
             function_executor_id,
             candidate.function_uri
         );
 
-        return Ok((function_executor_id, Some(function_executor)));
+        return Ok(Some(function_executor));
     }
 
     // Refactored allocate_task method
@@ -589,7 +584,7 @@ impl TaskAllocationProcessor {
         &self,
         task: &Task,
         indexes: &mut Box<InMemoryState>,
-    ) -> Result<(Option<Allocation>, Option<FunctionExecutor>)> {
+    ) -> Result<Option<(Allocation, Option<FunctionExecutor>)>> {
         // Step 1: Get candidates
         let candidates = self.get_executor_candidates(task, indexes);
 
@@ -598,7 +593,7 @@ impl TaskAllocationProcessor {
             Some(c) => c,
             None => {
                 trace!("No suitable executor candidates available");
-                return Ok((None, None));
+                return Ok(None);
             }
         };
 
@@ -612,17 +607,19 @@ impl TaskAllocationProcessor {
         );
 
         // Step 3: Ensure function executor exists
-        let (function_executor_id, maybe_new_fe) = self.ensure_function_executor(&candidate)?;
+        let function_executor = self.ensure_function_executor(&candidate)?;
+
+        let function_executor_id = match function_executor {
+            Some(ref fe) => fe.id.clone(),
+            None => match candidate.function_executor_id {
+                Some(ref fe_id) => fe_id.clone(),
+                None => {
+                    return Err(anyhow!("No function executor ID available"));
+                }
+            },
+        };
 
         // Step 4: Create allocation
-        info!(
-            "assigning task {:?} to executor {}/{:?} - creating: {}",
-            task.id,
-            candidate.executor_id,
-            function_executor_id,
-            maybe_new_fe.is_some()
-        );
-
         let allocation = AllocationBuilder::default()
             .namespace(task.namespace.clone())
             .compute_graph(task.compute_graph_name.clone())
@@ -633,6 +630,6 @@ impl TaskAllocationProcessor {
             .function_executor_id(function_executor_id)
             .build()?;
 
-        Ok((Some(allocation), maybe_new_fe))
+        Ok(Some((allocation, function_executor)))
     }
 }
