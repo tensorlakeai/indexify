@@ -246,17 +246,23 @@ impl ExecutorManager {
                 lapsed_after_s = (deadline - now).as_secs_f64(),
                 "Deregistering lapsed executor"
             );
-
-            let sm_req = StateMachineUpdateRequest {
-                payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                    executor_id: executor_id.clone(),
-                }),
-                processed_state_changes: vec![],
-            };
-
-            self.indexify_state.write(sm_req).await?;
+            self.deregister_lapsed_executor(executor_id).await?;
         }
 
+        Ok(())
+    }
+
+    async fn deregister_lapsed_executor(
+        &self,
+        executor_id: ExecutorId,
+    ) -> Result<(), anyhow::Error> {
+        let sm_req = StateMachineUpdateRequest {
+            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                executor_id: executor_id.clone(),
+            }),
+            processed_state_changes: vec![],
+        };
+        self.indexify_state.write(sm_req).await?;
         Ok(())
     }
 

@@ -15,7 +15,7 @@ use data_model::{
     Task,
     TaskOutputsIngestionStatus,
 };
-use indexify_utils::{get_epoch_time_in_ms, OptionInspectNone};
+use indexify_utils::{get_elapsed_time, get_epoch_time_in_ms, OptionInspectNone, TimeUnit};
 use rocksdb::{
     AsColumnFamilyRef,
     ColumnFamily,
@@ -704,7 +704,9 @@ pub(crate) fn handle_scheduler_update(
             invocation_id = task.invocation_id,
             function_name = task.compute_fn_name,
             task_id = task.id.to_string(),
+            status = task.status.to_string(),
             outcome = task.outcome.to_string(),
+            duration_secs = get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
             "updated task",
         );
         let serialized_task = JsonEncoder::encode(&task)?;
@@ -724,6 +726,8 @@ pub(crate) fn handle_scheduler_update(
                 namespace = invocation_ctx.namespace,
                 compute_graph = invocation_ctx.compute_graph_name,
                 outcome = invocation_ctx.outcome.to_string(),
+                duration_secs =
+                    get_elapsed_time(invocation_ctx.created_at.into(), TimeUnit::Milliseconds),
                 "invocation completed"
             );
         }

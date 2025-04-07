@@ -3,22 +3,23 @@ use std::sync::Arc;
 use anyhow::Result;
 use blob_store::BlobStorageConfig;
 use data_model::{
-    test_objects::tests::{mock_executor, mock_node_fn_output},
+    test_objects::tests::mock_node_fn_output,
     DataPayload,
-    ExecutorId,
     ExecutorMetadata,
+    FunctionExecutor,
+    FunctionURI,
     Task,
     TaskDiagnostics,
     TaskOutcome,
     TaskStatus,
 };
+use nanoid::nanoid;
 use state_store::{
     requests::{
         DeregisterExecutorRequest,
         IngestTaskOutputsRequest,
         RequestPayload,
         StateMachineUpdateRequest,
-        UpsertExecutorRequest,
     },
     state_machine::IndexifyObjectsColumns,
 };
@@ -99,23 +100,15 @@ impl TestService {
         Ok(())
     }
 
-    pub async fn register_executor(&self, executor_id: ExecutorId) -> Result<TestExecutor> {
-        let mut executor = mock_executor();
-        executor.id = executor_id.clone();
-        self.service
-            .indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest {
-                    executor: executor.clone(),
-                }),
-                processed_state_changes: vec![],
-            })
-            .await?;
+    pub async fn create_executor(&self, executor: ExecutorMetadata) -> Result<TestExecutor> {
+        let e = TestExecutor {
+            executor,
+            test_service: self,
+        };
 
-        Ok(TestExecutor {
-            executor: executor.clone(),
-            service: self,
-        })
+        e.heartbeat().await?;
+
+        Ok(e)
     }
 
     pub async fn assert_task_states(
@@ -255,12 +248,50 @@ impl FinalizeTaskArgs {
 
 pub struct TestExecutor<'a> {
     pub executor: ExecutorMetadata,
-    pub service: &'a TestService,
+    pub test_service: &'a TestService,
 }
 
 impl TestExecutor<'_> {
+    pub async fn heartbeat(&self) -> Result<()> {
+        self.test_service
+            .service
+            .executor_manager
+            .heartbeat(self.executor.clone())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_config(
+        &mut self,
+        dev_mode: Option<bool>,
+        functions: Option<Option<Vec<FunctionURI>>>,
+    ) -> Result<()> {
+        if let Some(dev_mode) = dev_mode {
+            self.executor.development_mode = dev_mode;
+        }
+        if let Some(functions) = functions {
+            self.executor.function_allowlist = functions;
+        }
+        self.executor.state_hash = nanoid!();
+        self.heartbeat().await?;
+        Ok(())
+    }
+
+    pub async fn update_function_executors(
+        &mut self,
+        function_executors: Vec<FunctionExecutor>,
+    ) -> Result<()> {
+        self.executor.function_executors = function_executors
+            .into_iter()
+            .map(|fe| (fe.id.clone(), fe))
+            .collect();
+        self.executor.state_hash = nanoid!();
+        self.heartbeat().await?;
+        Ok(())
+    }
+
     pub async fn deregister(&self) -> Result<()> {
-        self.service
+        self.test_service
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
@@ -273,9 +304,43 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
+    pub async fn assert_state(&self, num_func_executors: usize, num_tasks: usize) -> Result<()> {
+        let indexes = self
+            .test_service
+            .service
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await;
+
+        let func_executors = indexes
+            .function_executors_by_executor
+            .get(&self.executor.id)
+            .iter()
+            .flat_map(|inner_map| inner_map.iter())
+            .map(|(_key, value)| value)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            num_func_executors,
+            func_executors.len(),
+            "function executors: {:#?}",
+            func_executors
+        );
+
+        let tasks = indexes.active_tasks_for_executor(&self.executor.id);
+        assert_eq!(num_tasks, tasks.len(), "tasks: {:#?}", tasks);
+
+        Ok(())
+    }
+
+    pub async fn get_function_executors(&self) -> Result<Vec<FunctionExecutor>> {
+        Ok(self.executor.function_executors.values().cloned().collect())
+    }
+
     pub async fn get_tasks(&self) -> Result<Vec<Task>> {
         let tasks = self
-            .service
+            .test_service
             .service
             .indexify_state
             .in_memory_state
@@ -303,7 +368,7 @@ impl TestExecutor<'_> {
         task.status = TaskStatus::Completed;
         task.diagnostics = args.diagnostics.clone();
 
-        self.service
+        self.test_service
             .service
             .indexify_state
             .write(StateMachineUpdateRequest {
