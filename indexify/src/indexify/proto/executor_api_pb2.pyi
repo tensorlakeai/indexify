@@ -11,6 +11,13 @@ from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class DataPayloadEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DATA_PAYLOAD_ENCODING_UNKNOWN: _ClassVar[DataPayloadEncoding]
+    DATA_PAYLOAD_ENCODING_UTF8_JSON: _ClassVar[DataPayloadEncoding]
+    DATA_PAYLOAD_ENCODING_UTF8_TEXT: _ClassVar[DataPayloadEncoding]
+    DATA_PAYLOAD_ENCODING_BINARY_PICKLE: _ClassVar[DataPayloadEncoding]
+
 class GPUModel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     GPU_MODEL_UNKNOWN: _ClassVar[GPUModel]
@@ -70,6 +77,10 @@ class OutputEncoding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     OUTPUT_ENCODING_PICKLE: _ClassVar[OutputEncoding]
     OUTPUT_ENCODING_BINARY: _ClassVar[OutputEncoding]
 
+DATA_PAYLOAD_ENCODING_UNKNOWN: DataPayloadEncoding
+DATA_PAYLOAD_ENCODING_UTF8_JSON: DataPayloadEncoding
+DATA_PAYLOAD_ENCODING_UTF8_TEXT: DataPayloadEncoding
+DATA_PAYLOAD_ENCODING_BINARY_PICKLE: DataPayloadEncoding
 GPU_MODEL_UNKNOWN: GPUModel
 GPU_MODEL_NVIDIA_TESLA_T4_16GB: GPUModel
 GPU_MODEL_NVIDIA_TESLA_V100_16GB: GPUModel
@@ -107,6 +118,30 @@ OUTPUT_ENCODING_UNKNOWN: OutputEncoding
 OUTPUT_ENCODING_JSON: OutputEncoding
 OUTPUT_ENCODING_PICKLE: OutputEncoding
 OUTPUT_ENCODING_BINARY: OutputEncoding
+
+class DataPayload(_message.Message):
+    __slots__ = ("path", "size", "sha256_hash", "uri", "encoding", "encoding_version")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
+    URI_FIELD_NUMBER: _ClassVar[int]
+    ENCODING_FIELD_NUMBER: _ClassVar[int]
+    ENCODING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    size: int
+    sha256_hash: str
+    uri: str
+    encoding: DataPayloadEncoding
+    encoding_version: int
+    def __init__(
+        self,
+        path: _Optional[str] = ...,
+        size: _Optional[int] = ...,
+        sha256_hash: _Optional[str] = ...,
+        uri: _Optional[str] = ...,
+        encoding: _Optional[_Union[DataPayloadEncoding, str]] = ...,
+        encoding_version: _Optional[int] = ...,
+    ) -> None: ...
 
 class GPUResources(_message.Message):
     __slots__ = ("count", "model")
@@ -165,6 +200,7 @@ class FunctionExecutorDescription(_message.Message):
         "secret_names",
         "resource_limits",
         "customer_code_timeout_ms",
+        "graph",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -175,6 +211,7 @@ class FunctionExecutorDescription(_message.Message):
     SECRET_NAMES_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_LIMITS_FIELD_NUMBER: _ClassVar[int]
     CUSTOMER_CODE_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    GRAPH_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -184,6 +221,7 @@ class FunctionExecutorDescription(_message.Message):
     secret_names: _containers.RepeatedScalarFieldContainer[str]
     resource_limits: HostResources
     customer_code_timeout_ms: int
+    graph: DataPayload
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -195,6 +233,7 @@ class FunctionExecutorDescription(_message.Message):
         secret_names: _Optional[_Iterable[str]] = ...,
         resource_limits: _Optional[_Union[HostResources, _Mapping]] = ...,
         customer_code_timeout_ms: _Optional[int] = ...,
+        graph: _Optional[_Union[DataPayload, _Mapping]] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
@@ -307,6 +346,9 @@ class Task(_message.Message):
         "input_key",
         "reducer_output_key",
         "timeout_ms",
+        "input",
+        "reducer_input",
+        "output_payload_uri_prefix",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     NAMESPACE_FIELD_NUMBER: _ClassVar[int]
@@ -317,6 +359,9 @@ class Task(_message.Message):
     INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
     REDUCER_OUTPUT_KEY_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    INPUT_FIELD_NUMBER: _ClassVar[int]
+    REDUCER_INPUT_FIELD_NUMBER: _ClassVar[int]
+    OUTPUT_PAYLOAD_URI_PREFIX_FIELD_NUMBER: _ClassVar[int]
     id: str
     namespace: str
     graph_name: str
@@ -326,6 +371,9 @@ class Task(_message.Message):
     input_key: str
     reducer_output_key: str
     timeout_ms: int
+    input: DataPayload
+    reducer_input: DataPayload
+    output_payload_uri_prefix: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -337,6 +385,9 @@ class Task(_message.Message):
         input_key: _Optional[str] = ...,
         reducer_output_key: _Optional[str] = ...,
         timeout_ms: _Optional[int] = ...,
+        input: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        reducer_input: _Optional[_Union[DataPayload, _Mapping]] = ...,
+        output_payload_uri_prefix: _Optional[str] = ...,
     ) -> None: ...
 
 class TaskAllocation(_message.Message):
@@ -374,21 +425,6 @@ class DesiredExecutorState(_message.Message):
         ] = ...,
         task_allocations: _Optional[_Iterable[_Union[TaskAllocation, _Mapping]]] = ...,
         clock: _Optional[int] = ...,
-    ) -> None: ...
-
-class DataPayload(_message.Message):
-    __slots__ = ("path", "size", "sha256_hash")
-    PATH_FIELD_NUMBER: _ClassVar[int]
-    SIZE_FIELD_NUMBER: _ClassVar[int]
-    SHA256_HASH_FIELD_NUMBER: _ClassVar[int]
-    path: str
-    size: int
-    sha256_hash: str
-    def __init__(
-        self,
-        path: _Optional[str] = ...,
-        size: _Optional[int] = ...,
-        sha256_hash: _Optional[str] = ...,
     ) -> None: ...
 
 class ReportTaskOutcomeRequest(_message.Message):
