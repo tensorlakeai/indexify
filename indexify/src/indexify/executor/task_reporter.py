@@ -9,6 +9,7 @@ from tensorlake.utils.http_client import get_httpx_client
 
 from indexify.proto.executor_api_pb2 import (
     DataPayload,
+    DataPayloadEncoding,
     OutputEncoding,
     ReportTaskOutcomeRequest,
     TaskOutcome,
@@ -121,6 +122,7 @@ class TaskReporter:
             "files": output_files if len(output_files) > 0 else FORCE_MULTIPART,
         }
 
+        # TODO: Instead of uploading the files to server, upload them to S3.
         start_time = time.time()
         with metric_server_ingest_files_latency.time():
             metric_server_ingest_files_requests.inc()
@@ -159,23 +161,32 @@ class TaskReporter:
         for data_payload in ingested_files.data_payloads:
             fn_outputs.append(
                 DataPayload(
-                    path=data_payload.path,
+                    path=data_payload.path,  # TODO: stop using this deprecated field once Server side migration is done.
+                    uri=data_payload.path,
                     size=data_payload.size,
                     sha256_hash=data_payload.sha256_hash,
+                    encoding=_to_grpc_data_payload_encoding(output),
+                    encoding_version=0,
                 )
             )
         stdout, stderr = None, None
         if ingested_files.stdout:
             stdout = DataPayload(
-                path=ingested_files.stdout.path,
+                path=ingested_files.stdout.path,  # TODO: stop using this deprecated field once Server side migration is done.
+                uri=ingested_files.stdout.path,
                 size=ingested_files.stdout.size,
                 sha256_hash=ingested_files.stdout.sha256_hash,
+                encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
+                encoding_version=0,
             )
         if ingested_files.stderr:
             stderr = DataPayload(
-                path=ingested_files.stderr.path,
+                path=ingested_files.stderr.path,  # TODO: stop using this deprecated field once Server side migration is done.
+                uri=ingested_files.stderr.path,
                 size=ingested_files.stderr.size,
                 sha256_hash=ingested_files.stderr.sha256_hash,
+                encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT,
+                encoding_version=0,
             )
 
         request = ReportTaskOutcomeRequest(
@@ -337,3 +348,10 @@ def _to_grpc_output_encoding(task_output: TaskOutput) -> OutputEncoding:
         return OutputEncoding.OUTPUT_ENCODING_JSON
     else:
         return OutputEncoding.OUTPUT_ENCODING_PICKLE
+
+
+def _to_grpc_data_payload_encoding(task_output: TaskOutput) -> DataPayloadEncoding:
+    if task_output.output_encoding == "json":
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON
+    else:
+        return DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE
