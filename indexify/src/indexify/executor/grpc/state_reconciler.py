@@ -6,11 +6,6 @@ from tensorlake.function_executor.proto.message_validator import MessageValidato
 from indexify.proto.executor_api_pb2 import (
     DesiredExecutorState,
     FunctionExecutorDescription,
-)
-from indexify.proto.executor_api_pb2 import (
-    FunctionExecutorStatus as FunctionExecutorStatusProto,
-)
-from indexify.proto.executor_api_pb2 import (
     GetDesiredExecutorStatesRequest,
     TaskAllocation,
 )

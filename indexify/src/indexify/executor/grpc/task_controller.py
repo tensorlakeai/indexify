@@ -67,7 +67,10 @@ def validate_task(task: Task) -> None:
     validator.required_field("graph_version")
     validator.required_field("function_name")
     validator.required_field("graph_invocation_id")
-    validator.required_field("input_key")
+    if not (task.HasField("input_key") or task.HasField("input")):
+        raise ValueError(
+            "Task must have either input_key or input field set. " f"Got task: {task}"
+        )
 
 
 def task_logger(task: Task, logger: Any) -> Any:
@@ -185,15 +188,28 @@ class TaskController:
             graph_name=self._task.graph_name,
             graph_invocation_id=self._task.graph_invocation_id,
             input_key=self._task.input_key,
+            data_payload=self._task.input if self._task.HasField("input") else None,
             logger=self._logger,
         )
-        if self._task.HasField("reducer_output_key"):
+
+        if self._task.HasField("reducer_output_key") or self._task.HasField(
+            "reducer_input"
+        ):
             self._init_value = await self._downloader.download_init_value(
                 namespace=self._task.namespace,
                 graph_name=self._task.graph_name,
                 function_name=self._task.function_name,
                 graph_invocation_id=self._task.graph_invocation_id,
-                reducer_output_key=self._task.reducer_output_key,
+                reducer_output_key=(
+                    self._task.reducer_output_key
+                    if self._task.HasField("reducer_output_key")
+                    else ""
+                ),
+                data_payload=(
+                    self._task.reducer_input
+                    if self._task.HasField("reducer_input")
+                    else None
+                ),
                 logger=self._logger,
             )
 
@@ -294,8 +310,14 @@ class TaskController:
             task_id=self._task.id,
             function_input=self._input,
         )
+        # Don't keep the input in memory after we started running the task.
+        self._input = None
+
         if self._init_value is not None:
             request.function_init_value.CopyFrom(self._init_value)
+            # Don't keep the init value in memory after we started running the task.
+            self._init_value = None
+
         channel: grpc.aio.Channel = (
             self._function_executor_state.function_executor.channel()
         )

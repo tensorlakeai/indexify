@@ -17,9 +17,6 @@ from indexify.proto.executor_api_pb2 import (
 from ..downloader import Downloader
 from ..function_executor.function_executor import CustomerError, FunctionExecutor
 from ..function_executor.function_executor_state import FunctionExecutorState
-from ..function_executor.function_executor_states_container import (
-    FunctionExecutorStatesContainer,
-)
 from ..function_executor.function_executor_status import FunctionExecutorStatus
 from ..function_executor.health_checker import HealthCheckResult
 from ..function_executor.server.function_executor_server_factory import (
@@ -41,6 +38,7 @@ def validate_function_executor_description(
     validator.required_field("graph_name")
     validator.required_field("graph_version")
     validator.required_field("function_name")
+    # TODO: Make graph required after we migrate to direct S3 downloads.
     # image_uri is optional.
     # secret_names can be empty.
     # resource_limits is optional.
@@ -324,6 +322,11 @@ async def _create_function_executor(
         graph_name=function_executor_description.graph_name,
         graph_version=function_executor_description.graph_version,
         logger=logger,
+        data_payload=(
+            function_executor_description.graph
+            if function_executor_description.HasField("graph")
+            else None
+        ),
     )
 
     config: FunctionExecutorServerConfiguration = FunctionExecutorServerConfiguration(

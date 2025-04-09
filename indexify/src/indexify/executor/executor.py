@@ -12,6 +12,7 @@ from tensorlake.utils.logging import suppress as suppress_logging
 from indexify.proto.executor_api_pb2 import ExecutorStatus
 
 from .api_objects import FunctionURI, Task
+from .blob_store.blob_store import BLOBStore
 from .downloader import Downloader
 from .executor_flavor import ExecutorFlavor
 from .function_executor.function_executor_states_container import (
@@ -69,6 +70,7 @@ class Executor:
         monitoring_server_host: str,
         monitoring_server_port: int,
         enable_grpc_state_reconciler: bool,
+        blob_store: BLOBStore,
     ):
         self._logger = structlog.get_logger(module=__name__)
         self._is_shutdown: bool = False
@@ -95,7 +97,10 @@ class Executor:
             self._function_executor_states
         )
         self._downloader = Downloader(
-            code_path=code_path, base_url=self._base_url, config_path=config_path
+            code_path=code_path,
+            base_url=self._base_url,
+            blob_store=blob_store,
+            config_path=config_path,
         )
         self._function_allowlist: Optional[List[FunctionURI]] = function_allowlist
         self._function_executor_server_factory = function_executor_server_factory
@@ -299,12 +304,14 @@ class Executor:
             graph_name=task.compute_graph,
             graph_version=task.graph_version,
             logger=logger,
+            data_payload=None,
         )
         input: SerializedObject = await self._downloader.download_input(
             namespace=task.namespace,
             graph_name=task.compute_graph,
             graph_invocation_id=task.invocation_id,
             input_key=task.input_key,
+            data_payload=None,
             logger=logger,
         )
         init_value: Optional[SerializedObject] = (
@@ -317,6 +324,7 @@ class Executor:
                     function_name=task.compute_fn,
                     graph_invocation_id=task.invocation_id,
                     reducer_output_key=task.reducer_output_id,
+                    data_payload=None,
                     logger=logger,
                 )
             )
