@@ -25,6 +25,9 @@ from rich.theme import Theme
 from tensorlake.functions_sdk.image import Image
 
 from indexify.executor.api_objects import FunctionURI
+from indexify.executor.blob_store.blob_store import BLOBStore
+from indexify.executor.blob_store.local_fs_blob_store import LocalFSBLOBStore
+from indexify.executor.blob_store.s3_blob_store import S3BLOBStore
 from indexify.executor.executor import Executor
 from indexify.executor.executor_flavor import ExecutorFlavor
 from indexify.executor.function_executor.server.subprocess_function_executor_server_factory import (
@@ -197,6 +200,14 @@ def executor(
         )
         exit(1)
 
+    # Enable all available blob stores in OSS because we don't know which one is going to be used.
+    blob_store: BLOBStore = BLOBStore(
+        # Local FS mode is used in tests and in cases when user wants to store data on NFS.
+        local=LocalFSBLOBStore(),
+        # S3 is initiliazed lazily so it's okay to create it even if the user is not going to use it.
+        s3=S3BLOBStore(),
+    )
+
     prometheus_client.Info("cli", "CLI information").info(
         {
             "package": "indexify",
@@ -222,6 +233,7 @@ def executor(
         monitoring_server_host=monitoring_server_host,
         monitoring_server_port=monitoring_server_port,
         enable_grpc_state_reconciler=enable_grpc_state_reconciler,
+        blob_store=blob_store,
     ).run()
 
 

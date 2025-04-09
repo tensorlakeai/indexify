@@ -1,6 +1,9 @@
 import asyncio
 import os
+import os.path
+import shutil
 import signal
+import tempfile
 import threading
 import time
 import unittest
@@ -9,14 +12,19 @@ from typing import Any, Callable, Generator, List, Optional
 from unittest.mock import MagicMock
 
 import grpc
+import parameterized
 import structlog
 from tensorlake import Graph, TensorlakeCompute, tensorlake_function
 from tensorlake.function_executor.proto.function_executor_pb2 import (
     FunctionOutput,
     SerializedObject,
 )
-from tensorlake.functions_sdk.object_serializer import CloudPickleSerializer
+from tensorlake.functions_sdk.object_serializer import (
+    CloudPickleSerializer,
+)
 
+from indexify.executor.blob_store.blob_store import BLOBStore
+from indexify.executor.blob_store.local_fs_blob_store import LocalFSBLOBStore
 from indexify.executor.downloader import Downloader
 from indexify.executor.executor_flavor import ExecutorFlavor
 from indexify.executor.function_executor.function_executor_states_container import (
@@ -31,6 +39,8 @@ from indexify.executor.grpc.state_reconciler import ExecutorStateReconciler
 from indexify.executor.grpc.state_reporter import ExecutorStateReporter
 from indexify.executor.task_reporter import TaskReporter
 from indexify.proto.executor_api_pb2 import (
+    DataPayload,
+    DataPayloadEncoding,
     DesiredExecutorState,
     ExecutorState,
     FunctionExecutorDescription,
@@ -244,12 +254,17 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             server_ports=range(60000, 60500),
         )
 
-    async def asyncSetUp(self) -> None:
-        logger = structlog.get_logger(module=__name__)
+    async def _setup(self, use_blob_store) -> None:
+        self.logger = structlog.get_logger(module=__name__)
 
         self.mock_downloader = MagicMock(spec=Downloader, name="Mock Downloader")
-        self.mock_downloader.download_graph.return_value = SerializedObject()  # TODO
-        self.mock_downloader.download_input.return_value = SerializedObject()  # TODO
+        self.tmp_dir_path = tempfile.mkdtemp()
+        self.blob_store = BLOBStore(local=LocalFSBLOBStore())
+        self.downloader = Downloader(
+            self.tmp_dir_path,
+            base_url="http://no_server_calls_allowed/",
+            blob_store=self.blob_store,
+        )
 
         self.mock_task_reporter = MagicMock(
             spec=TaskReporter, name="Mock Task Reporter"
@@ -257,9 +272,11 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.mock_task_reporter.report.return_value = None
 
         self.channel_manager = ChannelManager(
-            server_address=self.API_SERVER_ADDRESS, config_path=None, logger=logger
+            server_address=self.API_SERVER_ADDRESS, config_path=None, logger=self.logger
         )
-        self.function_executor_states = FunctionExecutorStatesContainer(logger=logger)
+        self.function_executor_states = FunctionExecutorStatesContainer(
+            logger=self.logger
+        )
 
         self.state_reporter = ExecutorStateReporter(
             executor_id="test-executor-id",
@@ -270,7 +287,7 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             function_allowlist=[],
             function_executor_states=self.function_executor_states,
             channel_manager=self.channel_manager,
-            logger=logger,
+            logger=self.logger,
             reporting_interval_sec=0.1,  # Speed up tests using the shorter interval.
         )
         self.state_reporter_task = asyncio.create_task(self.state_reporter.run())
@@ -282,11 +299,11 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             base_url="http://localhost/this_is_a_dummy_url",
             function_executor_states=self.function_executor_states,
             config_path=None,
-            downloader=self.mock_downloader,
+            downloader=self.downloader if use_blob_store else self.mock_downloader,
             task_reporter=self.mock_task_reporter,
             channel_manager=self.channel_manager,
             state_reporter=self.state_reporter,
-            logger=logger,
+            logger=self.logger,
         )
         self.state_reconciler_task = asyncio.create_task(self.state_reconciler.run())
         self.desired_states_generator = DesiredStatesGenerator()
@@ -314,6 +331,7 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.desired_states_generator.shutdown()
         if self.executor_api_server_test_scenario is not None:
             self.executor_api_server_test_scenario.stop()
+        shutil.rmtree(self.tmp_dir_path)
 
     def create_executor_api_server_test_scenario(
         self,
@@ -328,6 +346,17 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             executor_states_reported_by_executor,
         )
 
+    async def make_data_payload(
+        self, value: bytes, encoding: DataPayloadEncoding
+    ) -> DataPayload:
+        object_path = os.path.join(self.tmp_dir_path, f"file_{os.urandom(8).hex()}")
+        object_uri = f"file://{object_path}"
+        await self.blob_store.put(object_uri, value, logger=self.logger)
+        return DataPayload(
+            uri=object_uri,
+            encoding=encoding,
+        )
+
     def deserialize_function_output(self, function_output: FunctionOutput) -> List[Any]:
         outputs: List[Any] = []
         for output in function_output.outputs:
@@ -336,7 +365,17 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             outputs.append(CloudPickleSerializer.deserialize(output.bytes))
         return outputs
 
-    async def test_no_function_executors_and_task_in_desired_states(self):
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
+    async def test_no_function_executors_and_task_in_desired_states(
+        self, test_case_name: str, use_blob_store: bool
+    ):
+        await self._setup(use_blob_store)
+
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
             self.desired_states_generator, reported_states
@@ -365,36 +404,56 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(latest_state.HasField("server_clock"))
 
         # Verify expcted mock calls.
-        self.mock_downloader.download_graph.assert_not_called()
-        self.mock_downloader.download_input.assert_not_called()
+        if not use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
-    async def test_create_function_executor_from_malformed_graph_and_destroy_it(self):
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
+    async def test_create_function_executor_from_malformed_graph_and_destroy_it(
+        self, test_case_name: str, use_blob_store: bool
+    ):
+        await self._setup(use_blob_store)
+
+        desired_fe_description = FunctionExecutorDescription(
+            id="fe-1",
+            namespace="test-namespace-1",
+            graph_name="test-graph-1",
+            graph_version="test-version-1",
+            function_name="test_function_one",
+        )
+
+        if use_blob_store:
+            desired_fe_description.graph.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize([]),  # malformed graph
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = SerializedObject(
+                bytes=CloudPickleSerializer.serialize([]),  # malformed graph
+                content_type=CloudPickleSerializer.content_type,
+            )
+
         self.desired_states_generator.set_desired_state(
             DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="test_function_one",
-                    ),
-                ],
+                function_executors=[desired_fe_description],
                 task_allocations=[],
             )
         )
-
-        self.mock_downloader.download_graph.return_value = (
-            SerializedObject()
-        )  # malformed graph
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
             self.desired_states_generator, reported_states
         )
 
-        def function_executor_has_platform_error_status() -> bool:
+        def function_executor_has_customer_error_status() -> bool:
             if len(reported_states) == 0:
                 return False
             latest_state: ExecutorState = reported_states[-1]
@@ -405,11 +464,11 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
                 return False
             return (
                 fe_state.status
-                == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR
+                == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR
             )
 
-        await wait_condition(function_executor_has_platform_error_status)
-        self.assertTrue(function_executor_has_platform_error_status())
+        await wait_condition(function_executor_has_customer_error_status)
+        self.assertTrue(function_executor_has_customer_error_status())
 
         self.assertEqual(len(reported_states[-1].function_executor_states), 1)
         self.assertEqual(len(self.function_executor_states._states), 1)
@@ -449,36 +508,59 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
     async def test_create_function_executor_with_function_that_fails_to_initialize_and_destroy_it(
-        self,
+        self, test_case_name: str, use_blob_store: bool
     ):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="FunctionThatFailsToInitialize",
-                    ),
-                ],
-                task_allocations=[],
-            )
+        await self._setup(use_blob_store)
+
+        desired_fe_description = FunctionExecutorDescription(
+            id="fe-1",
+            namespace="test-namespace-1",
+            graph_name="test-graph-1",
+            graph_version="test-version-1",
+            function_name="FunctionThatFailsToInitialize",
         )
 
-        self.mock_downloader.download_graph.return_value = (
-            create_test_graph_with_function(FunctionThatFailsToInitialize)
+        if use_blob_store:
+            desired_fe_description.graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph_with_function(
+                        FunctionThatFailsToInitialize
+                    ).bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = (
+                create_test_graph_with_function(FunctionThatFailsToInitialize)
+            )
+
+        self.desired_states_generator.set_desired_state(
+            DesiredExecutorState(
+                function_executors=[desired_fe_description],
+                task_allocations=[],
+            )
         )
 
         reported_states: List[ExecutorState] = []
@@ -534,37 +616,63 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
     async def test_create_function_executor_with_customer_initialization_code_timeout_and_destroy_it(
-        self,
+        self, test_case_name: str, use_blob_store: bool
     ):
+        await self._setup(use_blob_store)
+
+        desired_fe_description = FunctionExecutorDescription(
+            id="fe-1",
+            namespace="test-namespace-1",
+            graph_name="test-graph-1",
+            graph_version="test-version-1",
+            function_name="FunctionThatSleepsForeverOnInitialization",
+            customer_code_timeout_ms=5 * 1000,  # 5 seconds
+        )
+
+        if use_blob_store:
+            desired_fe_description.graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph_with_function(
+                        FunctionThatSleepsForeverOnInitialization
+                    ).bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = (
+                create_test_graph_with_function(
+                    FunctionThatSleepsForeverOnInitialization
+                )
+            )
+
         self.desired_states_generator.set_desired_state(
             DesiredExecutorState(
                 function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="FunctionThatSleepsForeverOnInitialization",
-                        customer_code_timeout_ms=5 * 1000,  # 5 seconds
-                    ),
+                    desired_fe_description,
                 ],
                 task_allocations=[],
             )
-        )
-
-        self.mock_downloader.download_graph.return_value = (
-            create_test_graph_with_function(FunctionThatSleepsForeverOnInitialization)
         )
 
         reported_states: List[ExecutorState] = []
@@ -622,37 +730,63 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
     # TODO: We need be able to cancel Function Executor startup at any moment to give more control to Server.
     async def test_remove_function_executor_while_starting_it_up_nothing_happens(
-        self,
+        self, test_case_name: str, use_blob_store: bool
     ):
+        await self._setup(use_blob_store)
+
+        desired_fe_description = FunctionExecutorDescription(
+            id="fe-1",
+            namespace="test-namespace-1",
+            graph_name="test-graph-1",
+            graph_version="test-version-1",
+            function_name="FunctionThatSleepsForeverOnInitialization",
+        )
+
+        if use_blob_store:
+            desired_fe_description.graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph_with_function(
+                        FunctionThatSleepsForeverOnInitialization
+                    ).bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = (
+                create_test_graph_with_function(
+                    FunctionThatSleepsForeverOnInitialization
+                )
+            )
+
         self.desired_states_generator.set_desired_state(
             DesiredExecutorState(
                 function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="FunctionThatSleepsForeverOnInitialization",
-                    ),
+                    desired_fe_description,
                 ],
                 task_allocations=[],
             )
-        )
-
-        self.mock_downloader.download_graph.return_value = (
-            create_test_graph_with_function(FunctionThatSleepsForeverOnInitialization)
         )
 
         reported_states: List[ExecutorState] = []
@@ -698,37 +832,61 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 1)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
     async def test_create_function_executor_that_fails_health_checks_and_destroy_it(
-        self,
+        self, test_case_name: str, use_blob_store: bool
     ):
+        await self._setup(use_blob_store)
+
+        desired_fe_description = FunctionExecutorDescription(
+            id="fe-1",
+            namespace="test-namespace-1",
+            graph_name="test-graph-1",
+            graph_version="test-version-1",
+            function_name="FunctionThatKillsCurrentProcessIn10SecsAfterInitialization",
+        )
+
+        if use_blob_store:
+            desired_fe_description.graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph_with_function(
+                        FunctionThatKillsCurrentProcessIn10SecsAfterInitialization
+                    ).bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = (
+                create_test_graph_with_function(
+                    FunctionThatKillsCurrentProcessIn10SecsAfterInitialization
+                )
+            )
+
         self.desired_states_generator.set_desired_state(
             DesiredExecutorState(
                 function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="FunctionThatKillsCurrentProcessIn10SecsAfterInitialization",
-                    ),
+                    desired_fe_description,
                 ],
                 task_allocations=[],
-            )
-        )
-
-        self.mock_downloader.download_graph.return_value = (
-            create_test_graph_with_function(
-                FunctionThatKillsCurrentProcessIn10SecsAfterInitialization
             )
         )
 
@@ -797,47 +955,70 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
-    async def test_create_idle_function_executors_and_destroy_them(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="function_a",
-                    ),
-                    FunctionExecutorDescription(
-                        id="fe-2",
-                        namespace="test-namespace-2",
-                        graph_name="test-graph-2",
-                        graph_version="test-version-2",
-                        function_name="function_b",
-                    ),
-                    FunctionExecutorDescription(
-                        id="fe-3",
-                        namespace="test-namespace-3",
-                        graph_name="test-graph-3",
-                        graph_version="test-version-3",
-                        function_name="function_c",
-                    ),
-                ],
-                task_allocations=[],
-            )
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
+    async def test_create_idle_function_executors_and_destroy_them(
+        self, test_case_name: str, use_blob_store: bool
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="function_a",
+                ),
+                FunctionExecutorDescription(
+                    id="fe-2",
+                    namespace="test-namespace-2",
+                    graph_name="test-graph-2",
+                    graph_version="test-version-2",
+                    function_name="function_b",
+                ),
+                FunctionExecutorDescription(
+                    id="fe-3",
+                    namespace="test-namespace-3",
+                    graph_name="test-graph-3",
+                    graph_version="test-version-3",
+                    function_name="function_c",
+                ),
+            ],
+            task_allocations=[],
         )
 
-        self.mock_downloader.download_graph.return_value = create_test_graph()
+        if use_blob_store:
+            for fe_description in desired_state.function_executors:
+                fe_description.graph.CopyFrom(
+                    await self.make_data_payload(
+                        value=create_test_graph().bytes,
+                        encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                    )
+                )
+        else:
+            self.mock_downloader.download_graph.return_value = create_test_graph()
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -890,45 +1071,77 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-2",
-            graph_name="test-graph-2",
-            graph_version="test-version-2",
-            logger=unittest.mock.ANY,
-        )
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-3",
-            graph_name="test-graph-3",
-            graph_version="test-version-3",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 3)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-2",
+                graph_name="test-graph-2",
+                graph_version="test-version-2",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-3",
+                graph_name="test-graph-3",
+                graph_version="test-version-3",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 3)
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
-    async def test_create_function_executor_then_run_task(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="function_a",
-                    ),
-                ],
-                task_allocations=[],
-            )
+    @parameterized.parameterized.expand(
+        [
+            (
+                "executor_uses_blob_store_via_server",
+                False,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+            ),
+        ]
+    )
+    async def test_create_function_executor_then_run_task(
+        self,
+        test_case_name: str,
+        use_blob_store: bool,
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="function_a",
+                ),
+            ],
+            task_allocations=[],
         )
 
-        self.mock_downloader.download_graph.return_value = create_test_graph()
+        if use_blob_store:
+            desired_state.function_executors[0].graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph().bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = create_test_graph()
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -960,32 +1173,33 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(executor_fe_state.function_executor)
 
         # Run a task on the FE.
-        self.mock_downloader.download_input.return_value = create_test_input(
-            "test-input-function-a"
+        task = Task(
+            id="task-1",
+            namespace="test-namespace-1",
+            graph_name="test-graph-1",
+            graph_version="test-version-1",
+            function_name="function_a",
+            graph_invocation_id="test-graph-invocation",
         )
+        if use_blob_store:
+            task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize("test-input-function-a"),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            task.input_key = "test-input-key"
+            self.mock_downloader.download_input.return_value = create_test_input(
+                "test-input-function-a"
+            )
         self.desired_states_generator.set_desired_state(
             DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="function_a",
-                    ),
-                ],
+                function_executors=desired_state.function_executors,
                 task_allocations=[
                     TaskAllocation(
                         function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="function_a",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                        ),
+                        task=task,
                     )
                 ],
             )
@@ -1013,22 +1227,28 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
 
-        self.mock_downloader.download_input.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_invocation_id="test-graph-invocation",
-            input_key="test-input-key",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_input.call_count, 1)
+            self.mock_downloader.download_input.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_invocation_id="test-graph-invocation",
+                input_key="test-input-key",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_input.call_count, 1)
 
         self.assertEqual(self.mock_task_reporter.report.call_count, 1)
         self.assertIn("output", self.mock_task_reporter.report.call_args.kwargs)
@@ -1038,41 +1258,70 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0], "function_a: test-input-function-a")
 
+    @parameterized.parameterized.expand(
+        [
+            (
+                "executor_uses_blob_store_via_server",
+                False,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+            ),
+        ]
+    )
     async def test_create_function_executor_and_task_allocation_in_the_same_desired_state(
         self,
+        test_case_name: str,
+        use_blob_store: bool,
     ):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="function_a",
+                ),
+            ],
+            task_allocations=[
+                TaskAllocation(
+                    function_executor_id="fe-1",
+                    task=Task(
+                        id="task-1",
                         namespace="test-namespace-1",
                         graph_name="test-graph-1",
                         graph_version="test-version-1",
                         function_name="function_a",
+                        graph_invocation_id="test-graph-invocation",
                     ),
-                ],
-                task_allocations=[
-                    TaskAllocation(
-                        function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="function_a",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                        ),
-                    )
-                ],
+                )
+            ],
+        )
+        if use_blob_store:
+            desired_state.function_executors[0].graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph().bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
             )
-        )
+            desired_state.task_allocations[0].task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize("test-input-function-a"),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            desired_state.task_allocations[0].task.input_key = "test-input-key"
+            self.mock_downloader.download_graph.return_value = create_test_graph()
+            self.mock_downloader.download_input.return_value = create_test_input(
+                "test-input-function-a"
+            )
 
-        self.mock_downloader.download_graph.return_value = create_test_graph()
-        self.mock_downloader.download_input.return_value = create_test_input(
-            "test-input-function-a"
-        )
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -1116,22 +1365,28 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
 
-        self.mock_downloader.download_input.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_invocation_id="test-graph-invocation",
-            input_key="test-input-key",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_input.call_count, 1)
+            self.mock_downloader.download_input.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_invocation_id="test-graph-invocation",
+                input_key="test-input-key",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_input.call_count, 1)
 
         self.assertEqual(self.mock_task_reporter.report.call_count, 1)
         self.assertIn("output", self.mock_task_reporter.report.call_args.kwargs)
@@ -1141,45 +1396,86 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0], "function_a: test-input-function-a")
 
-    async def test_run_task_on_function_executor_that_failed_to_startup(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
+    @parameterized.parameterized.expand(
+        [
+            (
+                "executor_uses_blob_store_via_server",
+                False,
+                DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+                DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+                DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON,
+            ),
+        ]
+    )
+    async def test_run_task_on_function_executor_that_failed_to_startup(
+        self,
+        test_case_name: str,
+        use_blob_store: bool,
+        input_encoding: DataPayloadEncoding,
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="function_a",
+                ),
+            ],
+            task_allocations=[
+                TaskAllocation(
+                    function_executor_id="fe-1",
+                    task=Task(
+                        id="task-1",
                         namespace="test-namespace-1",
                         graph_name="test-graph-1",
                         graph_version="test-version-1",
                         function_name="function_a",
+                        graph_invocation_id="test-graph-invocation",
                     ),
-                ],
-                task_allocations=[
-                    TaskAllocation(
-                        function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="function_a",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                        ),
-                    )
-                ],
-            )
+                )
+            ],
         )
 
-        self.mock_downloader.download_graph.return_value = (
-            SerializedObject()
-        )  # malformed graph results in FE startup failure (platform error).
+        if use_blob_store:
+            desired_state.function_executors[0].graph.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize([]),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+            desired_state.task_allocations[0].task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize("test-input-function-a"),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = SerializedObject(
+                bytes=CloudPickleSerializer.serialize([]),
+                content_type=CloudPickleSerializer.content_type,
+            )  # malformed graph results in FE startup failure (customer error).
+            desired_state.task_allocations[0].task.input_key = "test-input-key"
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
             self.desired_states_generator, reported_states
         )
 
-        def function_executor_has_platform_error_status() -> bool:
+        def function_executor_has_customer_error_status() -> bool:
             if len(reported_states) == 0:
                 return False
             latest_state: ExecutorState = reported_states[-1]
@@ -1190,11 +1486,11 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
                 return False
             return (
                 fe_state.status
-                == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_PLATFORM_ERROR
+                == FunctionExecutorStatus.FUNCTION_EXECUTOR_STATUS_STARTUP_FAILED_CUSTOMER_ERROR
             )
 
-        await wait_condition(function_executor_has_platform_error_status)
-        self.assertTrue(function_executor_has_platform_error_status())
+        await wait_condition(function_executor_has_customer_error_status)
+        self.assertTrue(function_executor_has_customer_error_status())
 
         # Wait for more time to make sure that the task is stuck cause no FE to run on and it's not doing anything.
         await asyncio.sleep(5)
@@ -1217,46 +1513,80 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
-        # Verify that task input still got prefetched while waiting for FE.
-        self.mock_downloader.download_input.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_invocation_id="test-graph-invocation",
-            input_key="test-input-key",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_input.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+            # Verify that task input still got prefetched while waiting for FE.
+            self.mock_downloader.download_input.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_invocation_id="test-graph-invocation",
+                input_key="test-input-key",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_input.call_count, 1)
         # Verify that still no outcome reported after explicit cancellation.
         self.mock_task_reporter.report.assert_not_called()
 
-    async def test_run_task_on_unhealthy_function_executor(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
-                        namespace="test-namespace-1",
-                        graph_name="test-graph-1",
-                        graph_version="test-version-1",
-                        function_name="FunctionThatKillsCurrentProcessIn10SecsAfterInitialization",
-                    ),
-                ],
-                task_allocations=[],
-            )
+    @parameterized.parameterized.expand(
+        [
+            (
+                "executor_uses_blob_store_via_server",
+                False,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+            ),
+        ]
+    )
+    async def test_run_task_on_unhealthy_function_executor(
+        self,
+        test_case_name: str,
+        use_blob_store: bool,
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="FunctionThatKillsCurrentProcessIn10SecsAfterInitialization",
+                ),
+            ],
+            task_allocations=[],
         )
 
-        self.mock_downloader.download_graph.return_value = (
-            create_test_graph_with_function(
-                FunctionThatKillsCurrentProcessIn10SecsAfterInitialization
+        if use_blob_store:
+            desired_state.function_executors[0].graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph_with_function(
+                        FunctionThatKillsCurrentProcessIn10SecsAfterInitialization
+                    ).bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
             )
-        )
+        else:
+            self.mock_downloader.download_graph.return_value = (
+                create_test_graph_with_function(
+                    FunctionThatKillsCurrentProcessIn10SecsAfterInitialization
+                )
+            )
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -1286,34 +1616,36 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(executor_fe_state.function_executor)
 
         # Allocate the task on the unhealthy FE.
-        self.mock_downloader.download_input.return_value = create_test_input("whatever")
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
+        desired_state = DesiredExecutorState(
+            function_executors=desired_state.function_executors,
+            task_allocations=[
+                TaskAllocation(
+                    function_executor_id="fe-1",
+                    task=Task(
+                        id="task-1",
                         namespace="test-namespace-1",
                         graph_name="test-graph-1",
                         graph_version="test-version-1",
                         function_name="FunctionThatKillsCurrentProcessIn10SecsAfterInitialization",
+                        graph_invocation_id="test-graph-invocation",
                     ),
-                ],
-                task_allocations=[
-                    TaskAllocation(
-                        function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="FunctionThatKillsCurrentProcessIn10SecsAfterInitialization",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                        ),
-                    )
-                ],
-            )
+                )
+            ],
         )
+        if use_blob_store:
+            desired_state.task_allocations[0].task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize("whatever"),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_input.return_value = create_test_input(
+                "whatever"
+            )
+            desired_state.task_allocations[0].task.input_key = "test-input-key"
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         # Wait for more time to make sure that the task is stuck cause no FE to run on and it's not doing anything.
         await asyncio.sleep(5)
@@ -1336,45 +1668,71 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
-        # Verify that task input still got prefetched while waiting for FE.
-        self.mock_downloader.download_input.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_invocation_id="test-graph-invocation",
-            input_key="test-input-key",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_input.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+            # Verify that task input still got prefetched while waiting for FE.
+            self.mock_downloader.download_input.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_invocation_id="test-graph-invocation",
+                input_key="test-input-key",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_input.call_count, 1)
         # Verify that still no outcome reported after explicit cancellation.
         self.mock_task_reporter.report.assert_not_called()
 
-    async def test_run_task_on_function_executor_that_doesnt_exist(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[],
-                task_allocations=[
-                    TaskAllocation(
-                        function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="function_a",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                        ),
-                    )
-                ],
-            )
+    @parameterized.parameterized.expand(
+        [
+            ("executor_uses_blob_store_via_server", False),
+            ("executor_uses_blob_store_directly", True),
+            ("executor_uses_blob_store_directly", True),
+        ]
+    )
+    async def test_run_task_on_function_executor_that_doesnt_exist(
+        self, test_case_name: str, use_blob_store: bool
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[],
+            task_allocations=[
+                TaskAllocation(
+                    function_executor_id="fe-1",
+                    task=Task(
+                        id="task-1",
+                        namespace="test-namespace-1",
+                        graph_name="test-graph-1",
+                        graph_version="test-version-1",
+                        function_name="function_a",
+                        graph_invocation_id="test-graph-invocation",
+                    ),
+                )
+            ],
         )
+
+        if use_blob_store:
+            desired_state.task_allocations[0].task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=b"whatever",
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            desired_state.task_allocations[0].task.input_key = "test-input-key"
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -1394,40 +1752,72 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.mock_downloader.download_input.assert_not_called()
         self.mock_task_reporter.report.assert_not_called()
 
-    async def test_task_timeout(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
+    @parameterized.parameterized.expand(
+        [
+            (
+                "executor_uses_blob_store_via_server",
+                False,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+            ),
+        ]
+    )
+    async def test_task_timeout(
+        self,
+        test_case_name: str,
+        use_blob_store: bool,
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="function_a",
+                ),
+            ],
+            task_allocations=[
+                TaskAllocation(
+                    function_executor_id="fe-1",
+                    task=Task(
+                        id="task-1",
                         namespace="test-namespace-1",
                         graph_name="test-graph-1",
                         graph_version="test-version-1",
                         function_name="function_a",
+                        graph_invocation_id="test-graph-invocation",
+                        timeout_ms=5000,  # 5 seconds
                     ),
-                ],
-                task_allocations=[
-                    TaskAllocation(
-                        function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="function_a",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                            timeout_ms=5000,  # 5 seconds
-                        ),
-                    )
-                ],
-            )
+                )
+            ],
         )
 
-        self.mock_downloader.download_graph.return_value = create_test_graph()
-        self.mock_downloader.download_input.return_value = create_test_input(
-            "sleep_forever"
-        )
+        if use_blob_store:
+            desired_state.function_executors[0].graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph().bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+            desired_state.task_allocations[0].task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize("sleep_forever"),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            self.mock_downloader.download_graph.return_value = create_test_graph()
+            self.mock_downloader.download_input.return_value = create_test_input(
+                "sleep_forever"
+            )
+            desired_state.task_allocations[0].task.input_key = "test-input-key"
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -1475,22 +1865,28 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.function_executor_states._states), 0)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
 
-        self.mock_downloader.download_input.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_invocation_id="test-graph-invocation",
-            input_key="test-input-key",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_input.call_count, 1)
+            self.mock_downloader.download_input.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_invocation_id="test-graph-invocation",
+                input_key="test-input-key",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_input.call_count, 1)
 
         self.assertEqual(self.mock_task_reporter.report.call_count, 1)
         self.assertIn("output", self.mock_task_reporter.report.call_args.kwargs)
@@ -1500,39 +1896,75 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
             output.stderr, "Function exceeded its configured timeout of 5.000 sec."
         )
 
-    async def test_cancel_running_task(self):
-        self.desired_states_generator.set_desired_state(
-            DesiredExecutorState(
-                function_executors=[
-                    FunctionExecutorDescription(
-                        id="fe-1",
+    @parameterized.parameterized.expand(
+        [
+            (
+                "executor_uses_blob_store_via_server",
+                False,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+            ),
+            (
+                "executor_uses_blob_store_directly",
+                True,
+            ),
+        ]
+    )
+    async def test_cancel_running_task(
+        self,
+        test_case_name: str,
+        use_blob_store: bool,
+    ):
+        await self._setup(use_blob_store)
+
+        desired_state = DesiredExecutorState(
+            function_executors=[
+                FunctionExecutorDescription(
+                    id="fe-1",
+                    namespace="test-namespace-1",
+                    graph_name="test-graph-1",
+                    graph_version="test-version-1",
+                    function_name="function_a",
+                ),
+            ],
+            task_allocations=[
+                TaskAllocation(
+                    function_executor_id="fe-1",
+                    task=Task(
+                        id="task-1",
                         namespace="test-namespace-1",
                         graph_name="test-graph-1",
                         graph_version="test-version-1",
                         function_name="function_a",
+                        graph_invocation_id="test-graph-invocation",
                     ),
-                ],
-                task_allocations=[
-                    TaskAllocation(
-                        function_executor_id="fe-1",
-                        task=Task(
-                            id="task-1",
-                            namespace="test-namespace-1",
-                            graph_name="test-graph-1",
-                            graph_version="test-version-1",
-                            function_name="function_a",
-                            graph_invocation_id="test-graph-invocation",
-                            input_key="test-input-key",
-                        ),
-                    )
-                ],
-            )
+                )
+            ],
         )
 
-        self.mock_downloader.download_graph.return_value = create_test_graph()
-        self.mock_downloader.download_input.return_value = create_test_input(
-            "sleep_forever"
-        )
+        if use_blob_store:
+            desired_state.function_executors[0].graph.CopyFrom(
+                await self.make_data_payload(
+                    value=create_test_graph().bytes,
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+            desired_state.task_allocations[0].task.input.CopyFrom(
+                await self.make_data_payload(
+                    value=CloudPickleSerializer.serialize("sleep_forever"),
+                    encoding=DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE,
+                )
+            )
+        else:
+            desired_state.task_allocations[0].task.input_key = "test-input-key"
+            self.mock_downloader.download_graph.return_value = create_test_graph()
+            self.mock_downloader.download_input.return_value = create_test_input(
+                "sleep_forever"
+            )
+
+        self.desired_states_generator.set_desired_state(desired_state)
 
         reported_states: List[ExecutorState] = []
         self.create_executor_api_server_test_scenario(
@@ -1590,22 +2022,28 @@ class TestExecutorStateReconciler(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(executor_fe_state.function_executor)
 
         # Verify expected mock calls.
-        self.mock_downloader.download_graph.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_version="test-version-1",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
+        if use_blob_store:
+            self.mock_downloader.download_graph.assert_not_called()
+            self.mock_downloader.download_input.assert_not_called()
+        else:
+            self.mock_downloader.download_graph.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_version="test-version-1",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_graph.call_count, 1)
 
-        self.mock_downloader.download_input.assert_any_call(
-            namespace="test-namespace-1",
-            graph_name="test-graph-1",
-            graph_invocation_id="test-graph-invocation",
-            input_key="test-input-key",
-            logger=unittest.mock.ANY,
-        )
-        self.assertEqual(self.mock_downloader.download_input.call_count, 1)
+            self.mock_downloader.download_input.assert_any_call(
+                namespace="test-namespace-1",
+                graph_name="test-graph-1",
+                graph_invocation_id="test-graph-invocation",
+                input_key="test-input-key",
+                data_payload=None,
+                logger=unittest.mock.ANY,
+            )
+            self.assertEqual(self.mock_downloader.download_input.call_count, 1)
 
         # The cancelled task outcome should never be reported to Server.
         self.mock_task_reporter.report.assert_not_called()

@@ -5,9 +5,15 @@ from typing import Any, Optional
 import httpx
 import nanoid
 from tensorlake.function_executor.proto.function_executor_pb2 import SerializedObject
+from tensorlake.function_executor.proto.message_validator import MessageValidator
 from tensorlake.utils.http_client import get_httpx_client
 
-from .api_objects import Task
+from indexify.proto.executor_api_pb2 import (
+    DataPayload,
+    DataPayloadEncoding,
+)
+
+from .blob_store.blob_store import BLOBStore
 from .metrics.downloader import (
     metric_graph_download_errors,
     metric_graph_download_latency,
@@ -27,14 +33,24 @@ from .metrics.downloader import (
 
 class Downloader:
     def __init__(
-        self, code_path: str, base_url: str, config_path: Optional[str] = None
+        self,
+        code_path: str,
+        base_url: str,
+        blob_store: BLOBStore,
+        config_path: Optional[str] = None,
     ):
-        self.code_path = code_path
+        self._code_path = code_path
         self._base_url = base_url
         self._client = get_httpx_client(config_path, make_async=True)
+        self._blob_store: BLOBStore = blob_store
 
     async def download_graph(
-        self, namespace: str, graph_name: str, graph_version: str, logger: Any
+        self,
+        namespace: str,
+        graph_name: str,
+        graph_version: str,
+        data_payload: Optional[DataPayload],
+        logger: Any,
     ) -> SerializedObject:
         logger = logger.bind(module=__name__)
         with (
@@ -47,6 +63,7 @@ class Downloader:
                 namespace=namespace,
                 graph_name=graph_name,
                 graph_version=graph_version,
+                data_payload=data_payload,
                 logger=logger,
             )
 
@@ -56,6 +73,7 @@ class Downloader:
         graph_name: str,
         graph_invocation_id: str,
         input_key: str,
+        data_payload: Optional[DataPayload],
         logger: Any,
     ) -> SerializedObject:
         logger = logger.bind(module=__name__)
@@ -70,6 +88,7 @@ class Downloader:
                 graph_name=graph_name,
                 graph_invocation_id=graph_invocation_id,
                 input_key=input_key,
+                data_payload=data_payload,
                 logger=logger,
             )
 
@@ -80,6 +99,7 @@ class Downloader:
         function_name: str,
         graph_invocation_id: str,
         reducer_output_key: str,
+        data_payload: Optional[DataPayload],
         logger: Any,
     ) -> SerializedObject:
         logger = logger.bind(module=__name__)
@@ -89,21 +109,27 @@ class Downloader:
             metric_reducer_init_value_download_latency.time(),
         ):
             metric_reducer_init_value_downloads.inc()
-            return await self._fetch_function_init_value(
+            return await self._download_init_value(
                 namespace=namespace,
                 graph_name=graph_name,
                 function_name=function_name,
                 graph_invocation_id=graph_invocation_id,
                 reducer_output_key=reducer_output_key,
+                data_payload=data_payload,
                 logger=logger,
             )
 
     async def _download_graph(
-        self, namespace: str, graph_name: str, graph_version: str, logger: Any
+        self,
+        namespace: str,
+        graph_name: str,
+        graph_version: str,
+        data_payload: Optional[DataPayload],
+        logger: Any,
     ) -> SerializedObject:
         # Cache graph to reduce load on the server.
         graph_path = os.path.join(
-            self.code_path,
+            self._code_path,
             "graph_cache",
             namespace,
             graph_name,
@@ -118,12 +144,27 @@ class Downloader:
             metric_graphs_from_cache.inc()
             return graph
 
-        graph: SerializedObject = await self._fetch_graph(
-            namespace=namespace,
-            graph_name=graph_name,
-            graph_version=graph_version,
-            logger=logger,
-        )
+        if data_payload is None:
+            graph: SerializedObject = await self._fetch_graph_from_server(
+                namespace=namespace,
+                graph_name=graph_name,
+                graph_version=graph_version,
+                logger=logger,
+            )
+        else:
+            (
+                MessageValidator(data_payload)
+                .required_field("uri")
+                .required_field("encoding")
+            )
+            data: bytes = await self._blob_store.get(
+                uri=data_payload.uri, logger=logger
+            )
+            return _data_payload_to_serialized_object(
+                data_payload=data_payload,
+                data=data,
+            )
+
         # Filesystem operations are synchronous.
         # Run in a separate thread to not block the main event loop.
         # We don't need to wait for the write completion so we use create_task.
@@ -146,7 +187,7 @@ class Downloader:
             # Another task already cached the graph.
             return None
 
-        tmp_path = os.path.join(self.code_path, "task_graph_cache", nanoid.generate())
+        tmp_path = os.path.join(self._code_path, "task_graph_cache", nanoid.generate())
         os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
         with open(tmp_path, "wb") as f:
             f.write(graph.SerializeToString())
@@ -163,21 +204,71 @@ class Downloader:
         graph_name: str,
         graph_invocation_id: str,
         input_key: str,
+        data_payload: Optional[DataPayload],
         logger: Any,
     ) -> SerializedObject:
-        first_function_in_graph = graph_invocation_id == input_key.split("|")[-1]
-        if first_function_in_graph:
-            # The first function in Graph gets its input from graph invocation payload.
-            return await self._fetch_graph_invocation_payload(
+        if data_payload is None:
+            first_function_in_graph = graph_invocation_id == input_key.split("|")[-1]
+            if first_function_in_graph:
+                # The first function in Graph gets its input from graph invocation payload.
+                return await self._fetch_graph_invocation_payload_from_server(
+                    namespace=namespace,
+                    graph_name=graph_name,
+                    graph_invocation_id=graph_invocation_id,
+                    logger=logger,
+                )
+            else:
+                return await self._fetch_function_input_from_server(
+                    input_key=input_key, logger=logger
+                )
+        else:
+            (
+                MessageValidator(data_payload)
+                .required_field("uri")
+                .required_field("encoding")
+            )
+            data: bytes = await self._blob_store.get(
+                uri=data_payload.uri, logger=logger
+            )
+            return _data_payload_to_serialized_object(
+                data_payload=data_payload,
+                data=data,
+            )
+
+    async def _download_init_value(
+        self,
+        namespace: str,
+        graph_name: str,
+        function_name: str,
+        graph_invocation_id: str,
+        reducer_output_key: str,
+        data_payload: Optional[DataPayload],
+        logger: Any,
+    ) -> SerializedObject:
+        if data_payload is None:
+            return await self._fetch_function_init_value_from_server(
                 namespace=namespace,
                 graph_name=graph_name,
+                function_name=function_name,
                 graph_invocation_id=graph_invocation_id,
+                reducer_output_key=reducer_output_key,
                 logger=logger,
             )
         else:
-            return await self._fetch_function_input(input_key=input_key, logger=logger)
+            (
+                MessageValidator(data_payload)
+                .required_field("uri")
+                .required_field("encoding")
+            )
+            data: bytes = await self._blob_store.get(
+                uri=data_payload.uri, logger=logger
+            )
+            return _data_payload_to_serialized_object(
+                data_payload=data_payload,
+                data=data,
+            )
 
-    async def _fetch_graph(
+    async def _fetch_graph_from_server(
         self, namespace: str, graph_name: str, graph_version: str, logger: Any
     ) -> SerializedObject:
         """Downloads the compute graph for the task and returns it."""
@@ -187,7 +278,7 @@ class Downloader:
             logger=logger,
         )
 
-    async def _fetch_graph_invocation_payload(
+    async def _fetch_graph_invocation_payload_from_server(
         self, namespace: str, graph_name: str, graph_invocation_id: str, logger: Any
     ) -> SerializedObject:
         return await self._fetch_url(
@@ -196,7 +287,7 @@ class Downloader:
             logger=logger,
         )
 
-    async def _fetch_function_input(
+    async def _fetch_function_input_from_server(
         self, input_key: str, logger: Any
     ) -> SerializedObject:
         return await self._fetch_url(
@@ -205,7 +296,7 @@ class Downloader:
             logger=logger,
         )
 
-    async def _fetch_function_init_value(
+    async def _fetch_function_init_value_from_server(
         self,
         namespace: str,
         graph_name: str,
@@ -253,3 +344,32 @@ def serialized_object_from_http_response(response: httpx.Response) -> Serialized
         return SerializedObject(
             string=response.text, content_type=response.headers["content-type"]
         )
+
+
+def _data_payload_to_serialized_object(
+    data_payload: DataPayload, data: bytes
+) -> SerializedObject:
+    """Converts the given data payload and its data into SerializedObject accepted by Function Executor.
+
+    Raises ValueError if the supplied data payload can't be converted into serialized object.
+    """
+    if data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_BINARY_PICKLE:
+        return SerializedObject(
+            bytes=data,
+            content_type="application/octet-stream",
+        )
+    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_TEXT:
+        return SerializedObject(
+            content_type="text/plain",
+            string=data.decode("utf-8"),
+        )
+    elif data_payload.encoding == DataPayloadEncoding.DATA_PAYLOAD_ENCODING_UTF8_JSON:
+        result = SerializedObject(
+            content_type="application/json",
+            string=data.decode("utf-8"),
+        )
+        return result
+
+    raise ValueError(
+        f"Can't convert data payload {data_payload} into serialized object"
+    )
