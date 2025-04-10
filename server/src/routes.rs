@@ -17,7 +17,7 @@ use axum_tracing_opentelemetry::{
 };
 use base64::prelude::*;
 use blob_store::PutResult;
-use data_model::{ComputeGraphError, ExecutorId};
+use data_model::ComputeGraphError;
 use futures::StreamExt;
 use hyper::StatusCode;
 use indexify_ui::Assets as UiAssets;
@@ -37,7 +37,7 @@ use state_store::{
     IndexifyState,
 };
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::info;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -209,10 +209,6 @@ pub fn create_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/unprocessed_state_changes",
             get(list_unprocessed_state_changes).with_state(route_state.clone()),
-        )
-        .route(
-            "/internal/executors/{id}/tasks",
-            post(executor_tasks).with_state(route_state.clone()),
         )
         .route(
             "/internal/fn_outputs/{input_key}",
@@ -791,29 +787,6 @@ async fn list_unallocated_tasks(
     }))
 }
 
-async fn executor_tasks(
-    Path(executor_id): Path<ExecutorId>,
-    State(state): State<RouteState>,
-    Json(_payload): Json<ExecutorMetadata>,
-) -> Result<impl IntoResponse, IndexifyAPIError> {
-    let stream = state_store::task_stream(state.indexify_state, executor_id.clone());
-    let stream = stream.map(|item| match item {
-        Ok(item) => {
-            let item: Vec<Task> = item.into_iter().map(Into::into).collect();
-            axum::response::sse::Event::default().json_data(item)
-        }
-        Err(e) => {
-            error!("error in task stream: {:?}", e);
-            Err(axum::Error::new(e))
-        }
-    });
-    Ok(axum::response::Sse::new(stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(Duration::from_secs(1))
-            .text("keep-alive-text"),
-    ))
-}
-
 /// List tasks for an invocation
 #[utoipa::path(
     get,
@@ -956,7 +929,7 @@ async fn find_invocation(
     Ok(Json(invocation_ctx.into()))
 }
 
-/// Delete a specific invocation  
+/// Delete a specific invocation
 #[utoipa::path(
     delete,
     path = "/namespaces/{namespace}/compute_graphs/{compute_graph}/invocations/{invocation_id}",

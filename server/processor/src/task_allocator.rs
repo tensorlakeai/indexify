@@ -2,18 +2,10 @@ use std::vec;
 
 use anyhow::{anyhow, Result};
 use data_model::{
-    Allocation,
-    AllocationBuilder,
-    ChangeType,
-    ExecutorId,
-    ExecutorMetadata,
-    FunctionExecutor,
-    FunctionExecutorId,
-    FunctionExecutorStatus,
-    FunctionURI,
-    Task,
-    TaskStatus,
+    Allocation, AllocationBuilder, ChangeType, ExecutorId, ExecutorMetadata, FunctionExecutor,
+    FunctionExecutorId, FunctionExecutorStatus, Task, TaskStatus,
 };
+use im::HashMap;
 use itertools::Itertools;
 use rand::seq::SliceRandom;
 use state_store::{
@@ -34,13 +26,18 @@ pub struct FilteredExecutors {
 // - function timeout configuration
 const MAX_ALLOCATIONS_PER_FN_EXECUTOR: usize = 20;
 
+// Maximum number of function executors allowed for each function on each executor.
+//
+// In the future, this should be a dynamic value based on the function concurrency configuration.
+const MAX_FUNCTION_EXECUTORS_PER_FUNCTION_PER_EXECUTOR: usize = 1;
+
 #[derive(Debug, Clone)]
 // Define a struct to represent a candidate executor for allocation
 pub struct ExecutorCandidate {
     pub executor_id: ExecutorId,
     pub function_executor_id: Option<FunctionExecutorId>, // None if needs to be created
-    pub function_uri: FunctionURI,
-    pub allocation_count: usize, // Number of allocations for this function executor
+    pub allocation_count: usize,                          /* Number of allocations for this
+                                                           * function executor */
 }
 
 pub struct TaskAllocationProcessor {}
@@ -162,6 +159,7 @@ impl TaskAllocationProcessor {
                         invocation_id = task.invocation_id.to_string(),
                         "no executors available for task"
                     );
+                    // Remove FEs using prev version
                 }
                 Err(err) => {
                     error!(
@@ -301,7 +299,12 @@ impl TaskAllocationProcessor {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // TODO: handle function executor statuses
+        // Only considering healthy function executors
+        let healthy_function_executors = executor
+            .function_executors
+            .iter()
+            .filter(|(_, fe)| fe.status.is_healthy())
+            .collect::<HashMap<_, _>>();
 
         // Get the function executors from the indexes
         let function_executors_in_indexes = indexes
@@ -316,7 +319,7 @@ impl TaskAllocationProcessor {
             .iter()
             .filter_map(|(indexed_fe_id, indexed_fe)| {
                 // Check if there's a direct ID match in the executor's function executors
-                let id_match_exists = executor.function_executors.contains_key(indexed_fe_id);
+                let id_match_exists = healthy_function_executors.contains_key(indexed_fe_id);
 
                 if id_match_exists {
                     // Direct ID match found, keep it
@@ -327,7 +330,7 @@ impl TaskAllocationProcessor {
                     // Which are the ones created by the host executor using the task stream as
                     // opposed to the get_desired_state stream.
                     let not_versioned_match_exists =
-                        executor.function_executors.iter().any(|(fe_id, fe)| {
+                        healthy_function_executors.iter().any(|(fe_id, fe)| {
                             if fe_id.get().starts_with("not_versioned/") {
                                 // Compare function URIs
                                 indexed_fe.matches(&fe)
@@ -485,7 +488,6 @@ impl TaskAllocationProcessor {
 
     // Get available executors considering dev mode and allowlists
     #[tracing::instrument(skip(self, task, indexes))]
-    #[tracing::instrument(skip(self, task, indexes))]
     fn get_executor_candidates(
         &self,
         task: &Task,
@@ -500,8 +502,8 @@ impl TaskAllocationProcessor {
             }
 
             // Skip if this executor can't handle this task due to allowlist
-            if !executor.development_mode &&
-                !executor
+            if !executor.development_mode
+                && !executor
                     .function_allowlist
                     .as_ref()
                     .map_or(false, |allowlist| {
@@ -527,36 +529,67 @@ impl TaskAllocationProcessor {
                         .map(|(id, _)| id.clone())
                 });
 
-            // Get the allocation count specifically for the function executor we're
-            // considering If no matching function executor exists, allocation
-            // count is 0
-            let allocation_count = matching_fe
-                .as_ref()
-                .and_then(|fe_id| {
-                    indexes
+            let mut candidate = ExecutorCandidate {
+                executor_id: executor_id.clone(),
+                function_executor_id: matching_fe.clone(),
+                allocation_count: 0,
+            };
+
+            match matching_fe {
+                Some(fe_id) => {
+                    // Get the allocation count specifically for the function executor we're
+                    // considering If no matching function executor exists, allocation
+                    // count is 0
+                    candidate.allocation_count = indexes
                         .allocations_by_executor
                         .get(executor_id)
-                        .and_then(|alloc_map| alloc_map.get(fe_id))
+                        .and_then(|alloc_map| alloc_map.get(&fe_id))
                         .map(|allocs| allocs.len())
-                })
-                .unwrap_or(0);
+                        .unwrap_or(0);
 
-            // Check if the specific function executor is at capacity
-            if allocation_count >= MAX_ALLOCATIONS_PER_FN_EXECUTOR {
-                trace!(
-                    "executor {} skipped due to function executor at capacity (allocations: {})",
-                    executor.id.get(),
-                    allocation_count
-                );
-                continue;
+                    // Check if the specific function executor is at capacity
+                    if candidate.allocation_count >= MAX_ALLOCATIONS_PER_FN_EXECUTOR {
+                        trace!(
+                        "executor {} skipped due to function executor at capacity (allocations: {})",
+                        executor.id.get(),
+                        candidate.allocation_count
+                    );
+                        continue;
+                    }
+                }
+                None => {
+                    // Count existing function executors for this function (ignoring version)
+                    let existing_function_executors_count = indexes
+                        .function_executors_by_executor
+                        .get(executor_id)
+                        .map(|executors| {
+                            executors
+                                .iter()
+                                .filter(|(_, fe)| {
+                                    fe.namespace == task.namespace
+                                        && fe.compute_graph_name == task.compute_graph_name
+                                        && fe.compute_fn_name == task.compute_fn_name
+                                })
+                                .count()
+                        })
+                        .unwrap_or(0);
+
+                    // Check if we've reached the maximum number of function executors for this function
+                    if existing_function_executors_count
+                        >= MAX_FUNCTION_EXECUTORS_PER_FUNCTION_PER_EXECUTOR
+                    {
+                        trace!(
+                            "executor {} skipped due to reaching max function executors ({}) for function {}",
+                            executor.id.get(),
+                            MAX_FUNCTION_EXECUTORS_PER_FUNCTION_PER_EXECUTOR,
+                            fn_uri
+                        );
+                        continue;
+                    }
+                }
             }
 
-            candidates.push(ExecutorCandidate {
-                executor_id: executor_id.clone(),
-                function_executor_id: matching_fe,
-                function_uri: fn_uri.clone(),
-                allocation_count,
-            });
+            candidates.push(candidate);
         }
 
         candidates
@@ -586,6 +619,7 @@ impl TaskAllocationProcessor {
     #[tracing::instrument(skip(self, candidate))]
     fn ensure_function_executor(
         &self,
+        task: &Task,
         candidate: &ExecutorCandidate,
     ) -> Result<Option<FunctionExecutor>> {
         // If function executor already exists, return its ID
@@ -599,19 +633,23 @@ impl TaskAllocationProcessor {
         let function_executor = FunctionExecutor {
             id: function_executor_id.clone(),
             executor_id: candidate.executor_id.clone(),
-            namespace: candidate.function_uri.namespace.clone(),
-            compute_graph_name: candidate.function_uri.compute_graph_name.clone(),
-            compute_fn_name: candidate.function_uri.compute_fn_name.clone(),
-            version: candidate.function_uri.version.clone().ok_or(anyhow!(
-                "function uri version is required for function executor creation"
-            ))?,
+            namespace: task.namespace.clone(),
+            compute_graph_name: task.compute_graph_name.clone(),
+            compute_fn_name: task.compute_fn_name.clone(),
+            version: task.graph_version.clone(),
+            secret_names: task.secret_names.clone().unwrap_or_default(),
+            image_uri: task.image_uri.clone(),
+            // TODO: Support timeouts
+            customer_code_timeout_ms: None,
+            // TODO: Support resource limits
+            resource_limits: None,
             status: FunctionExecutorStatus::Idle,
         };
 
         trace!(
             "creating new function executor: {:?} for task {:?}",
             function_executor_id,
-            candidate.function_uri
+            task.function_uri(),
         );
 
         return Ok(Some(function_executor));
@@ -646,13 +684,14 @@ impl TaskAllocationProcessor {
         );
 
         // Step 3: Ensure function executor exists
-        let function_executor = self.ensure_function_executor(&candidate)?;
+        let function_executor = self.ensure_function_executor(task, &candidate)?;
 
         let function_executor_id = match function_executor {
             Some(ref fe) => fe.id.clone(),
             None => match candidate.function_executor_id {
                 Some(ref fe_id) => fe_id.clone(),
                 None => {
+                    // This error should not happen, as we should have created a function executor
                     return Err(anyhow!("No function executor ID available"));
                 }
             },

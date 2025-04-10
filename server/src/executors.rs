@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
-use data_model::{Allocation, ExecutorId, ExecutorMetadata};
+use data_model::{AllocatedTask, Allocation, DesiredExecutorState, ExecutorId, ExecutorMetadata};
 use indexify_utils::dynamic_sleep::DynamicSleepFuture;
 use priority_queue::PriorityQueue;
 use state_store::{
@@ -153,7 +153,7 @@ impl ExecutorManager {
                 "Executor state hash changed, registering executor"
             );
             // TODO: Add clock check only act on the heartbeat for the latest state change
-            if let Err(e) = self.register_executor(executor.clone()).await {
+            if let Err(e) = self.upsert_executor(executor.clone()).await {
                 error!(
                     executor_id = executor.id.get(),
                     "failed to register executor: {:?}", e
@@ -257,16 +257,63 @@ impl ExecutorManager {
         executor_id: ExecutorId,
     ) -> Result<(), anyhow::Error> {
         let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                executor_id: executor_id.clone(),
-            }),
+            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest { executor_id }),
             processed_state_changes: vec![],
         };
         self.indexify_state.write(sm_req).await?;
         Ok(())
     }
 
-    pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
+    pub async fn subscribe(&self, executor_id: &ExecutorId) -> Option<watch::Receiver<()>> {
+        self.indexify_state
+            .executor_states
+            .write()
+            .await
+            .get_mut(executor_id)
+            .map(|s| s.subscribe())
+    }
+
+    pub async fn get_executor_state(&self, executor_id: &ExecutorId) -> DesiredExecutorState {
+        let indexes = self.indexify_state.in_memory_state.read().await.clone();
+        DesiredExecutorState {
+            function_executors: indexes
+                .function_executors_by_executor
+                .get(executor_id)
+                .iter()
+                .flat_map(|fe| fe.values())
+                .map(|fe| *fe.clone())
+                .collect::<Vec<_>>(),
+            task_allocations: indexes
+                .allocations_by_executor
+                .get(executor_id)
+                .iter()
+                .flat_map(|allocations| allocations.values())
+                .flat_map(|allocations| allocations)
+                .filter_map(|allocation| {
+                    let task = match indexes.tasks.get(&allocation.task_key()) {
+                        Some(task) => *task.clone(),
+                        None => {
+                            error!(
+                                executor_id = executor_id.get(),
+                                task_id = allocation.task_id.get(),
+                                task_key = allocation.task_key(),
+                                "Task not found in indexes"
+                            );
+                            return None;
+                        }
+                    };
+                    Some(AllocatedTask {
+                        function_executor_id: allocation.function_executor_id.clone(),
+                        executor_id: executor_id.clone(),
+                        task,
+                    })
+                })
+                .collect::<Vec<_>>(),
+            clock: indexes.clock,
+        }
+    }
+
+    pub async fn upsert_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let sm_req = StateMachineUpdateRequest {
             payload: RequestPayload::UpsertExecutor(UpsertExecutorRequest { executor }),
             processed_state_changes: vec![],
@@ -361,7 +408,7 @@ mod tests {
             tombstoned: false,
             state_hash: "state_hash".to_string(),
         };
-        executor_manager.register_executor(executor).await?;
+        executor_manager.upsert_executor(executor).await?;
 
         let executors = indexify_state
             .in_memory_state

@@ -1,18 +1,9 @@
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 
 use anyhow::Result;
 use data_model::{
-    Allocation,
-    ComputeGraph,
-    ComputeGraphVersion,
-    ExecutorId,
-    ExecutorMetadata,
-    FunctionExecutor,
-    FunctionExecutorId,
-    GraphInvocationCtx,
-    ReduceTask,
-    Task,
-    TaskStatus,
+    Allocation, ComputeGraph, ComputeGraphVersion, ExecutorId, ExecutorMetadata, FunctionExecutor,
+    FunctionExecutorId, GraphInvocationCtx, ReduceTask, Task, TaskStatus,
 };
 use indexify_utils::{get_elapsed_time, TimeUnit};
 use metrics::low_latency_boundaries;
@@ -34,14 +25,14 @@ use crate::{
 /// queue.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnallocatedTaskId {
-    pub creation_time_ns: u128,
+    pub task_creation_time_ns: u128,
     pub task_key: String,
 }
 
 impl UnallocatedTaskId {
     pub fn new(task: &Task) -> Self {
         Self {
-            creation_time_ns: task.creation_time_ns,
+            task_creation_time_ns: task.creation_time_ns,
             task_key: task.key(),
         }
     }
@@ -56,7 +47,7 @@ impl PartialOrd for UnallocatedTaskId {
 impl Ord for UnallocatedTaskId {
     fn cmp(&self, other: &Self) -> Ordering {
         // First, compare creation times
-        match self.creation_time_ns.cmp(&other.creation_time_ns) {
+        match self.task_creation_time_ns.cmp(&other.task_creation_time_ns) {
             Ordering::Equal => {
                 // If creation times are equal, compare task keys
                 self.task_key.cmp(&other.task_key)
@@ -67,6 +58,9 @@ impl Ord for UnallocatedTaskId {
 }
 
 pub struct InMemoryState {
+    // clock is the value of the state_id this in-memory state is at.
+    pub clock: u64,
+
     pub namespaces: im::HashMap<String, [u8; 0]>,
 
     // Namespace|CG Name -> ComputeGraph
@@ -329,7 +323,7 @@ impl InMemoryMetrics {
 }
 
 impl InMemoryState {
-    pub fn new(reader: StateReader) -> Result<Self> {
+    pub fn new(clock: u64, reader: StateReader) -> Result<Self> {
         let meter = opentelemetry::global::meter("state_store");
 
         // Create histogram metrics for task latency measurements
@@ -464,6 +458,7 @@ impl InMemoryState {
         }
 
         let in_memory_state = Self {
+            clock,
             namespaces,
             compute_graphs,
             compute_graph_versions,
@@ -525,8 +520,15 @@ impl InMemoryState {
 
     pub fn update_state(
         &mut self,
+        new_clock: u64,
         state_machine_update_request: &StateMachineUpdateRequest,
-    ) -> Result<()> {
+    ) -> Result<HashSet<ExecutorId>> {
+        // keep track of what clock we are at for this update state
+        self.clock = new_clock;
+
+        // Collect all executors that are being changed to notify them.
+        let mut changed_executors = HashSet::new();
+
         match &state_machine_update_request.payload {
             RequestPayload::InvokeComputeGraph(req) => {
                 self.invocation_ctx
@@ -585,6 +587,9 @@ impl InMemoryState {
                             // Remove the function if no allocations left
                             allocation_map.retain(|_, f| !f.is_empty());
                         });
+
+                    // Executor's allocation is removed
+                    changed_executors.insert(req.executor_id.clone());
                 }
 
                 // Record metrics
@@ -743,10 +748,29 @@ impl InMemoryState {
                             function_executor.id.clone(),
                             Box::new(function_executor.clone()),
                         );
+
+                    // Executor has a new function executor
+                    changed_executors.insert(function_executor.executor_id.clone());
                 }
 
-                // Note: We don't need to process req.remove_allocations here, as they are
-                // already removed when removing an executor.
+                for allocation in &req.remove_allocations {
+                    self.allocations_by_executor
+                        .get_mut(&allocation.executor_id)
+                        .map(|allocation_map| {
+                            allocation_map
+                                .get_mut(&allocation.function_executor_id)
+                                .map(|allocations| {
+                                    if let Some(index) =
+                                        allocations.iter().position(|a| a.id == allocation.id)
+                                    {
+                                        allocations.remove(index);
+                                    }
+                                });
+                        });
+
+                    // Executor has a removed allocation
+                    changed_executors.insert(allocation.executor_id.clone());
+                }
 
                 for allocation in &req.new_allocations {
                     if let Some(task) = self.tasks.get(&allocation.task_key()) {
@@ -765,6 +789,9 @@ impl InMemoryState {
                             get_elapsed_time(task.creation_time_ns, TimeUnit::Nanoseconds),
                             &[],
                         );
+
+                        // Executor has a new allocation
+                        changed_executors.insert(allocation.executor_id.clone());
                     } else {
                         error!(
                             namespace = &allocation.namespace,
@@ -787,12 +814,18 @@ impl InMemoryState {
                     self.function_executors_by_executor
                         .get_mut(&function_executor.executor_id)
                         .and_then(|fe_map| fe_map.remove(&function_executor.function_executor_id));
+
+                    // Executor has a removed function executor
+                    changed_executors.insert(function_executor.executor_id.clone());
                 }
 
                 for executor_id in &req.remove_executors {
                     self.executors.remove(executor_id);
                     self.allocations_by_executor.remove(executor_id);
                     self.function_executors_by_executor.remove(executor_id);
+
+                    // Executor is removed
+                    changed_executors.insert(executor_id.clone());
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
@@ -807,7 +840,8 @@ impl InMemoryState {
             }
             _ => {}
         }
-        Ok(())
+
+        Ok(changed_executors)
     }
 
     pub fn next_reduction_task(
@@ -874,6 +908,7 @@ impl InMemoryState {
 
     pub fn clone(&self) -> Box<Self> {
         Box::new(InMemoryState {
+            clock: self.clock,
             namespaces: self.namespaces.clone(),
             compute_graphs: self.compute_graphs.clone(),
             compute_graph_versions: self.compute_graph_versions.clone(),
@@ -900,23 +935,23 @@ mod tests {
     fn test_unallocated_task_id_ordering() {
         {
             let task1 = UnallocatedTaskId {
-                creation_time_ns: 100,
+                task_creation_time_ns: 100,
                 task_key: "task1".to_string(),
             };
             let task2 = UnallocatedTaskId {
-                creation_time_ns: 200,
+                task_creation_time_ns: 200,
                 task_key: "task1".to_string(),
             };
             let task3 = UnallocatedTaskId {
-                creation_time_ns: 300,
+                task_creation_time_ns: 300,
                 task_key: "task1".to_string(),
             };
             let task4 = UnallocatedTaskId {
-                creation_time_ns: 400,
+                task_creation_time_ns: 400,
                 task_key: "task1".to_string(),
             };
             let task5 = UnallocatedTaskId {
-                creation_time_ns: 1000,
+                task_creation_time_ns: 1000,
                 task_key: "task1".to_string(),
             };
 
@@ -928,19 +963,19 @@ mod tests {
 
         {
             let task1 = UnallocatedTaskId {
-                creation_time_ns: 100,
+                task_creation_time_ns: 100,
                 task_key: "task1".to_string(),
             };
             let task2 = UnallocatedTaskId {
-                creation_time_ns: 100,
+                task_creation_time_ns: 100,
                 task_key: "task2".to_string(),
             };
             let task3 = UnallocatedTaskId {
-                creation_time_ns: 100,
+                task_creation_time_ns: 100,
                 task_key: "task3".to_string(),
             };
             let task4 = UnallocatedTaskId {
-                creation_time_ns: 100,
+                task_creation_time_ns: 100,
                 task_key: "task4".to_string(),
             };
 
@@ -952,19 +987,19 @@ mod tests {
         // test that task key is only used as a tie breaker.
         {
             let task1 = UnallocatedTaskId {
-                creation_time_ns: 400,
+                task_creation_time_ns: 400,
                 task_key: "task1".to_string(),
             };
             let task2 = UnallocatedTaskId {
-                creation_time_ns: 300,
+                task_creation_time_ns: 300,
                 task_key: "task2".to_string(),
             };
             let task3 = UnallocatedTaskId {
-                creation_time_ns: 200,
+                task_creation_time_ns: 200,
                 task_key: "task3".to_string(),
             };
             let task4 = UnallocatedTaskId {
-                creation_time_ns: 100,
+                task_creation_time_ns: 100,
                 task_key: "task4".to_string(),
             };
 
