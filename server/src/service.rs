@@ -152,6 +152,7 @@ impl Service {
         let mut shutdown_rx = self.shutdown_rx.clone();
         let indexify_state = self.indexify_state.clone();
         let executor_manager = self.executor_manager.clone();
+        let blob_storage = self.blob_storage.clone();
         tokio::spawn(async move {
             info!("server grpc listening on {}", addr_grpc);
             let reflection_service = tonic_reflection::server::Builder::configure()
@@ -163,6 +164,7 @@ impl Service {
                     indexify_state,
                     executor_manager,
                     api_metrics,
+                    blob_storage,
                 )))
                 .add_service(reflection_service)
                 .serve_with_shutdown(addr_grpc, async move {

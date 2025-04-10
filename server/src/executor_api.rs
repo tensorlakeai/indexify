@@ -48,7 +48,7 @@ use state_store::{
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::executors::ExecutorManager;
 
@@ -235,6 +235,7 @@ pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
     api_metrics: Arc<api_io_stats::Metrics>,
+    blob_storage: Arc<blob_store::BlobStorage>,
 }
 
 impl ExecutorAPIService {
@@ -242,11 +243,13 @@ impl ExecutorAPIService {
         indexify_state: Arc<IndexifyState>,
         executor_manager: Arc<ExecutorManager>,
         api_metrics: Arc<api_io_stats::Metrics>,
+        blob_storage: Arc<blob_store::BlobStorage>,
     ) -> Self {
         Self {
             indexify_state,
             executor_manager,
             api_metrics,
+            blob_storage,
         }
     }
 }
@@ -401,6 +404,12 @@ impl ExecutorApi for ExecutorAPIService {
                 .path
                 .or(output.uri)
                 .ok_or(Status::invalid_argument("path or uri is required"))?;
+
+            let path = blob_store_url_to_path(
+                &path,
+                &self.blob_storage.get_url_scheme(),
+                &self.blob_storage.get_url(),
+            );
             let size = output
                 .size
                 .ok_or(Status::invalid_argument("size is required"))?;
@@ -471,8 +480,16 @@ impl ExecutorApi for ExecutorAPIService {
             node_outputs.push(node_output);
         }
         let task_diagnostic = TaskDiagnostics {
-            stdout: prepare_data_payload(request.get_ref().stdout.clone()),
-            stderr: prepare_data_payload(request.get_ref().stderr.clone()),
+            stdout: prepare_data_payload(
+                request.get_ref().stdout.clone(),
+                &self.blob_storage.get_url_scheme(),
+                &self.blob_storage.get_url(),
+            ),
+            stderr: prepare_data_payload(
+                request.get_ref().stderr.clone(),
+                &self.blob_storage.get_url_scheme(),
+                &self.blob_storage.get_url(),
+            ),
         };
         task.diagnostics = Some(task_diagnostic.clone());
         let request = RequestPayload::IngestTaskOutputs(IngestTaskOutputsRequest {
@@ -500,6 +517,8 @@ impl ExecutorApi for ExecutorAPIService {
 
 fn prepare_data_payload(
     msg: Option<executor_api_pb::DataPayload>,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
 ) -> Option<data_model::DataPayload> {
     if msg.is_none() {
         return None;
@@ -515,10 +534,88 @@ fn prepare_data_payload(
         return None;
     }
 
+    // Fallback to deprecated path if uri is not set.
+    let path = msg.uri.or(msg.path).unwrap();
     Some(data_model::DataPayload {
-        // Fallback to deprecated path if uri is not set.
-        path: msg.uri.or(msg.path).unwrap(),
+        path: blob_store_url_to_path(&path, blob_store_url_scheme, blob_store_url),
         size: msg.size.unwrap(),
         sha256_hash: msg.sha256_hash.unwrap(),
     })
+}
+
+pub fn blob_store_path_to_url(
+    path: &str,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
+) -> String {
+    if blob_store_url_scheme == "file" {
+        // Local file blob store implementation is always using absolute paths without
+        // "/"" prefix. The paths are not relative to the configure blob_store_url path.
+        return format!("{}:///{}", blob_store_url_scheme, path);
+    } else if blob_store_url_scheme == "s3" {
+        // S3 blob store implementation uses paths relative to its bucket from
+        // blob_store_url.
+        return format!(
+            "{}://{}/{}",
+            blob_store_url_scheme,
+            bucket_name_from_s3_blob_store_url(blob_store_url),
+            path
+        );
+    } else {
+        return format!("not supported blob store scheme: {}", blob_store_url_scheme);
+    }
+}
+
+pub fn blob_store_url_to_path(
+    url: &str,
+    blob_store_url_scheme: &str,
+    blob_store_url: &str,
+) -> String {
+    if blob_store_url_scheme == "file" {
+        // Local file blob store implementation is always using absolute paths without
+        // "/"" prefix. The paths are not relative to the configure blob_store_url path.
+        return url
+            .strip_prefix(&format!("{}:///", blob_store_url_scheme).to_string())
+            // The url doesn't include blob_store_scheme if this payload was uploaded to server
+            // instead of directly to blob storage.
+            .unwrap_or(url)
+            .to_string();
+    } else if blob_store_url_scheme == "s3" {
+        // S3 blob store implementation uses paths relative to its bucket from
+        // blob_store_url.
+        return url
+            .strip_prefix(
+                &format!(
+                    "{}://{}/",
+                    blob_store_url_scheme,
+                    bucket_name_from_s3_blob_store_url(blob_store_url)
+                )
+                .to_string(),
+            )
+            // The url doesn't include blob_store_url if this payload was uploaded to server instead
+            // of directly to blob storage.
+            .unwrap_or(url)
+            .to_string();
+    } else {
+        return format!("not supported blob store scheme: {}", blob_store_url_scheme);
+    }
+}
+
+fn bucket_name_from_s3_blob_store_url(blob_store_url: &str) -> String {
+    match url::Url::parse(blob_store_url) {
+        Ok(url) => match url.host_str() {
+            Some(bucket) => bucket.into(),
+            None => {
+                error!("Didn't find bucket name in S3 url: {}", blob_store_url);
+                return String::new();
+            }
+        },
+        Err(e) => {
+            error!(
+                "Failed to parse blob_store_url: {}. Error: {}",
+                blob_store_url, e
+            );
+            return String::new();
+        }
+    }
 }
