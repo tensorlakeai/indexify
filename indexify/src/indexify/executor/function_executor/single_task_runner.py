@@ -96,6 +96,7 @@ class SingleTaskRunner:
                     graph_invocation_id=self._task_input.task.invocation_id,
                     stderr=str(e),
                     success=False,
+                    output_payload_uri_prefix=self._task_input.task.output_payload_uri_prefix,
                 )
 
         try:
@@ -311,6 +312,7 @@ def _task_output(task: Task, response: RunTaskResponse) -> TaskOutput:
         reducer=response.is_reducer,
         success=response.success,
         metrics=metrics,
+        output_payload_uri_prefix=task.output_payload_uri_prefix,
     )
 
     if response.HasField("function_output"):
