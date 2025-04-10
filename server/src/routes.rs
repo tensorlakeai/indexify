@@ -42,6 +42,7 @@ use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::http_objects::{
+    into_task_with_data_payloads,
     ExecutorAllocations,
     FnExecutor,
     Invocation,
@@ -796,10 +797,24 @@ async fn executor_tasks(
     State(state): State<RouteState>,
     Json(_payload): Json<ExecutorMetadata>,
 ) -> Result<impl IntoResponse, IndexifyAPIError> {
+    let indexify_state = state.indexify_state.clone();
+    let blob_store_url_scheme = state.blob_storage.get_url_scheme();
+    let blob_store_url = state.blob_storage.get_url();
+
     let stream = state_store::task_stream(state.indexify_state, executor_id.clone());
-    let stream = stream.map(|item| match item {
+    let stream = stream.map(move |item| match item {
         Ok(item) => {
-            let item: Vec<Task> = item.into_iter().map(Into::into).collect();
+            let item: Vec<Task> = item
+                .into_iter()
+                .map(|task| {
+                    into_task_with_data_payloads(
+                        task,
+                        indexify_state.clone(),
+                        blob_store_url_scheme.clone(),
+                        blob_store_url.clone(),
+                    )
+                })
+                .collect();
             axum::response::sse::Event::default().json_data(item)
         }
         Err(e) => {

@@ -58,6 +58,8 @@ pub struct PutResult {
 
 pub struct BlobStorage {
     object_store: Arc<dyn ObjectStore>,
+    url_scheme: String,
+    url: String,
     path: Path,
     metrics: blob_storage::Metrics,
 }
@@ -69,6 +71,8 @@ impl BlobStorage {
         let (object_store, path) = Self::build_object_store(url)?;
         Ok(Self {
             object_store: Arc::new(object_store),
+            url_scheme: url.parse::<Url>()?.scheme().to_string(),
+            url: url.clone(),
             path,
             metrics: blob_storage::Metrics::new(),
         })
@@ -95,6 +99,14 @@ impl BlobStorage {
 
     pub fn get_object_store(&self) -> Arc<dyn ObjectStore> {
         self.object_store.clone()
+    }
+
+    pub fn get_url(&self) -> String {
+        self.url.clone()
+    }
+
+    pub fn get_url_scheme(&self) -> String {
+        self.url_scheme.clone()
     }
 
     pub fn get_path(&self) -> Path {
