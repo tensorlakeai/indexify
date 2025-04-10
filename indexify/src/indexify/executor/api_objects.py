@@ -3,6 +3,13 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 
+class DataPayload(BaseModel):
+    path: str
+    size: int
+    sha256_hash: str
+    content_type: Optional[str] = None
+
+
 class Task(BaseModel):
     id: str
     namespace: str
@@ -16,6 +23,10 @@ class Task(BaseModel):
     "image_uri defines the URI of the image of this task. Optional since some executors do not require it."
     secret_names: Optional[List[str]] = None
     "secret_names defines the names of the secrets to set on function executor. Optional for backward compatibility."
+    graph_payload: Optional[DataPayload] = None
+    input_payload: Optional[DataPayload] = None
+    reducer_input_payload: Optional[DataPayload] = None
+    output_payload_uri_prefix: Optional[str] = None
 
 
 class FunctionURI(BaseModel):
@@ -47,12 +58,6 @@ class TaskResult(BaseModel):
     executor_id: str
     task_id: str
     reducer: bool = False
-
-
-class DataPayload(BaseModel):
-    path: str
-    size: int
-    sha256_hash: str
 
 
 class IngestFnOutputsResponse(BaseModel):

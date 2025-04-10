@@ -128,6 +128,7 @@ class Executor:
             executor_id=id,
             config_path=config_path,
             channel_manager=self._channel_manager,
+            blob_store=blob_store,
         )
 
         # HTTP mode task runner
@@ -261,6 +262,7 @@ class Executor:
                 function_name=task.compute_fn,
                 graph_version=task.graph_version,
                 graph_invocation_id=task.invocation_id,
+                output_payload_uri_prefix=task.output_payload_uri_prefix,
             )
             logger.error("task execution failed", exc_info=e)
 
@@ -304,19 +306,19 @@ class Executor:
             graph_name=task.compute_graph,
             graph_version=task.graph_version,
             logger=logger,
-            data_payload=None,
+            data_payload=task.graph_payload,
         )
         input: SerializedObject = await self._downloader.download_input(
             namespace=task.namespace,
             graph_name=task.compute_graph,
             graph_invocation_id=task.invocation_id,
             input_key=task.input_key,
-            data_payload=None,
+            data_payload=task.input_payload,
             logger=logger,
         )
         init_value: Optional[SerializedObject] = (
             None
-            if task.reducer_output_id is None
+            if task.reducer_output_id is None and task.reducer_input_payload is None
             else (
                 await self._downloader.download_init_value(
                     namespace=task.namespace,
@@ -324,7 +326,7 @@ class Executor:
                     function_name=task.compute_fn,
                     graph_invocation_id=task.invocation_id,
                     reducer_output_key=task.reducer_output_id,
-                    data_payload=None,
+                    data_payload=task.reducer_input_payload,
                     logger=logger,
                 )
             )

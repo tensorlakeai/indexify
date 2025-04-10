@@ -396,6 +396,11 @@ class TaskController:
             function_name=self._task.function_name,
             graph_version=self._task.graph_version,
             graph_invocation_id=self._task.graph_invocation_id,
+            output_payload_uri_prefix=(
+                self._task.output_payload_uri_prefix
+                if self._task.HasField("output_payload_uri_prefix")
+                else None
+            ),
         )
 
     def _function_timeout_output(self, timeout_sec: float) -> TaskOutput:
@@ -407,6 +412,11 @@ class TaskController:
             graph_version=self._task.graph_version,
             graph_invocation_id=self._task.graph_invocation_id,
             timeout_sec=timeout_sec,
+            output_payload_uri_prefix=(
+                self._task.output_payload_uri_prefix
+                if self._task.HasField("output_payload_uri_prefix")
+                else None
+            ),
         )
 
 
@@ -437,6 +447,11 @@ def _task_output_from_function_executor_response(
         reducer=response.is_reducer,
         success=response.success,
         metrics=metrics,
+        output_payload_uri_prefix=(
+            task.output_payload_uri_prefix
+            if task.HasField("output_payload_uri_prefix")
+            else None
+        ),
     )
 
     if response.HasField("function_output"):
