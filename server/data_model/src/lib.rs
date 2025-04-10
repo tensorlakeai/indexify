@@ -830,18 +830,6 @@ impl GraphInvocationCtx {
         key
     }
 
-    pub fn secondary_index_key_prefix_from_compute_graph(
-        namespace: &str,
-        compute_graph_name: &str,
-    ) -> Vec<u8> {
-        let mut key = Vec::new();
-        key.extend_from_slice(namespace.as_bytes());
-        key.push(b'|');
-        key.extend_from_slice(compute_graph_name.as_bytes());
-        key.push(b'|');
-        key
-    }
-
     pub fn get_invocation_id_from_secondary_index_key(key: &[u8]) -> Option<String> {
         key.split(|&b| b == b'|')
             .nth(3)

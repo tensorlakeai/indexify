@@ -18,7 +18,7 @@ use crate::{
     state_machine::IndexifyObjectsColumns,
 };
 
-const SERVER_DB_VERSION: u64 = 7;
+const SERVER_DB_VERSION: u64 = 8;
 
 // Note: should never be used with data model types to guarantee it works with
 // different versions.
@@ -114,6 +114,12 @@ pub fn migrate(path: &Path) -> Result<StateMachineMetadata> {
             sm_meta.db_version += 1;
             migrate_v6_to_v7_reallocate_allocated_tasks(&db, &txn)
                 .context("migrating from v6 to v7")?;
+        }
+
+        if sm_meta.db_version == 7 {
+            sm_meta.db_version += 1;
+            migrate_v7_to_v8_recompute_invocation_ctx_secondary_index(&db, &txn)
+                .context("migrating from v7 to v8")?;
         }
 
         // add new migrations before this line and increment SERVER_DB_VERSION
@@ -533,6 +539,52 @@ pub fn migrate_v6_to_v7_reallocate_allocated_tasks(
         num_deleted_allocations, num_updated_tasks, num_total_allocations
     );
 
+    Ok(())
+}
+
+#[tracing::instrument(skip(db, txn))]
+pub fn migrate_v7_to_v8_recompute_invocation_ctx_secondary_index(
+    db: &TransactionDB,
+    txn: &Transaction<TransactionDB>,
+) -> Result<()> {
+    let mut num_total_invocation_ctx: usize = 0;
+    let mut num_migrated_invocation_ctx: usize = 0;
+
+    panic!("TODO");
+
+    {
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+
+        let iter = db.iterator_cf_opt(
+            &IndexifyObjectsColumns::GraphInvocationCtx.cf_db(&db),
+            read_options,
+            IteratorMode::Start,
+        );
+
+        for kv in iter {
+            num_total_invocation_ctx += 1;
+            let (_key, value) = kv?;
+
+            let graph_invocation_ctx = JsonEncoder::decode::<GraphInvocationCtx>(&value)?;
+
+            let secondary_index_key =
+                GraphInvocationCtx::secondary_index_key(&graph_invocation_ctx);
+
+            txn.put_cf(
+                &IndexifyObjectsColumns::GraphInvocationCtxSecondaryIndex.cf_db(&db),
+                &secondary_index_key,
+                &[],
+            )?;
+
+            num_migrated_invocation_ctx += 1;
+        }
+    }
+
+    info!(
+        "Migrated {}/{} invocation context secondary indexes from v3 to v4",
+        num_migrated_invocation_ctx, num_total_invocation_ctx
+    );
     Ok(())
 }
 
