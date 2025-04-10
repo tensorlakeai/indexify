@@ -15,24 +15,18 @@ use state_store::{
     IndexifyState,
 };
 use tokio::sync::Notify;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
-use crate::{task_allocator, task_creator};
+use crate::{task_allocator::TaskAllocationProcessor, task_creator};
 
 pub struct GraphProcessor {
     pub indexify_state: Arc<IndexifyState>,
-    pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
-    pub task_creator: Arc<task_creator::TaskCreator>,
     pub state_transition_latency: Histogram<f64>,
     pub processor_processing_latency: Histogram<f64>,
 }
 
 impl GraphProcessor {
-    pub fn new(
-        indexify_state: Arc<IndexifyState>,
-        task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
-        task_creator: Arc<task_creator::TaskCreator>,
-    ) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let processor_processing_latency = meter
@@ -51,8 +45,6 @@ impl GraphProcessor {
 
         Self {
             indexify_state,
-            task_allocator,
-            task_creator,
             state_transition_latency,
             processor_processing_latency,
         }
@@ -168,8 +160,6 @@ impl GraphProcessor {
             }
         };
 
-        trace!("writing state change: {:#?}", sm_update);
-
         // 6. Write the state change
         if let Err(err) = self.indexify_state.write(sm_update).await {
             // TODO: Determine if error is transient or not to determine if retrying should
@@ -207,15 +197,16 @@ impl GraphProcessor {
         &self,
         state_change: &StateChange,
     ) -> Result<StateMachineUpdateRequest> {
-        debug!("processing state change: {}", state_change);
-        let mut indexes = self.indexify_state.in_memory_state.read().await.clone();
+        trace!("processing state change: {}", state_change);
+        let indexes = self.indexify_state.in_memory_state.read().await.clone();
         let req = match &state_change.change_type {
             ChangeType::InvokeComputeGraph(_) | ChangeType::TaskOutputsIngested(_) => {
-                let mut scheduler_update = self
-                    .task_creator
-                    .invoke(&state_change.change_type, &mut indexes)
-                    .await?;
-                scheduler_update.extend(self.task_allocator.allocate(&mut indexes)?);
+                let mut task_creator =
+                    task_creator::TaskCreator::new(self.indexify_state.clone(), indexes);
+                let mut scheduler_update = task_creator.invoke(&state_change.change_type).await?;
+
+                let mut task_allocator = TaskAllocationProcessor::new(task_creator.in_memory_state);
+                scheduler_update.extend(task_allocator.allocate()?);
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],
@@ -224,9 +215,8 @@ impl GraphProcessor {
             ChangeType::ExecutorUpserted(_) |
             ChangeType::ExecutorRemoved(_) |
             ChangeType::TombStoneExecutor(_) => {
-                let scheduler_update = self
-                    .task_allocator
-                    .invoke(&state_change.change_type, &mut indexes)?;
+                let mut task_allocator = TaskAllocationProcessor::new(indexes);
+                let scheduler_update = task_allocator.invoke(&state_change.change_type)?;
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(Box::new(scheduler_update)),
                     processed_state_changes: vec![state_change.clone()],

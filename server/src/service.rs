@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum_server::Handle;
 use blob_store::BlobStorage;
 use metrics::init_provider;
-use processor::{gc::Gc, graph_processor::GraphProcessor, task_allocator, task_creator};
+use processor::{gc::Gc, graph_processor::GraphProcessor};
 use prometheus::Registry;
 use state_store::{kv::KVS, IndexifyState};
 use tokio::{
@@ -40,8 +40,6 @@ pub struct Service {
     pub kvs: Arc<KVS>,
     pub gc_executor: Arc<Mutex<Gc>>,
     pub metrics_registry: Arc<Registry>,
-    pub task_allocator: Arc<task_allocator::TaskAllocationProcessor>,
-    pub task_creator: Arc<task_creator::TaskCreator>,
     pub graph_processor: Arc<GraphProcessor>,
 }
 
@@ -57,7 +55,7 @@ impl Service {
         );
 
         let indexify_state = IndexifyState::new(config.state_store_path.parse()?).await?;
-        let executor_manager = Arc::new(ExecutorManager::new(indexify_state.clone()).await);
+        let executor_manager = ExecutorManager::new(indexify_state.clone()).await;
 
         let gc_executor = Arc::new(Mutex::new(Gc::new(
             indexify_state.clone(),
@@ -70,13 +68,7 @@ impl Service {
                 .await
                 .context("error initializing KVS")?,
         );
-        let task_allocator = Arc::new(task_allocator::TaskAllocationProcessor::new());
-        let task_creator = Arc::new(task_creator::TaskCreator::new(indexify_state.clone()));
-        let graph_processor = Arc::new(GraphProcessor::new(
-            indexify_state.clone(),
-            task_allocator.clone(),
-            task_creator.clone(),
-        ));
+        let graph_processor = Arc::new(GraphProcessor::new(indexify_state.clone()));
         Ok(Self {
             config,
             shutdown_tx,
@@ -87,8 +79,6 @@ impl Service {
             kvs,
             gc_executor,
             metrics_registry,
-            task_allocator,
-            task_creator,
             graph_processor,
         })
     }

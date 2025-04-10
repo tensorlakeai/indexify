@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use anyhow::Result;
     use data_model::{
         test_objects::tests::{mock_dev_executor, mock_executor_id, TEST_NAMESPACE},
@@ -12,7 +14,7 @@ mod tests {
 
     use crate::{
         service::Service,
-        testing::{self, FinalizeTaskArgs},
+        testing::{self, ExecutorStateAssertions, FinalizeTaskArgs, TaskStateAssertions},
     };
 
     #[tokio::test]
@@ -29,8 +31,21 @@ mod tests {
             executor
         };
 
-        test_srv.assert_task_states(0, 0, 0, 0).await?;
-        executor.assert_state(0, 0).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 0,
+                allocated: 0,
+                unallocated: 0,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 0,
+                num_allocated_tasks: 0,
+            })
+            .await?;
 
         // create a task
         {
@@ -38,8 +53,21 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(1, 1, 0, 0).await?;
-        executor.assert_state(1, 1).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 1,
+                unallocated: 0,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 1,
+                num_allocated_tasks: 1,
+            })
+            .await?;
 
         // Toggle dev mode to false
         {
@@ -47,8 +75,21 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(1, 0, 1, 0).await?;
-        executor.assert_state(0, 0).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 0,
+                unallocated: 1,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 0,
+                num_allocated_tasks: 0,
+            })
+            .await?;
 
         // Add Allowlist
         {
@@ -66,8 +107,21 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(1, 1, 0, 0).await?;
-        executor.assert_state(1, 1).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 1,
+                unallocated: 0,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 1,
+                num_allocated_tasks: 1,
+            })
+            .await?;
 
         // Change Allowlist to different version
         {
@@ -85,8 +139,21 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(1, 0, 1, 0).await?;
-        executor.assert_state(0, 0).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 0,
+                unallocated: 1,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 0,
+                num_allocated_tasks: 0,
+            })
+            .await?;
 
         // Change Allowlist to current version
         {
@@ -104,8 +171,21 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(1, 1, 0, 0).await?;
-        executor.assert_state(1, 1).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 1,
+                unallocated: 0,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 1,
+                num_allocated_tasks: 1,
+            })
+            .await?;
 
         // Change Allowlist to any version and support fn_b
         {
@@ -137,8 +217,21 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(1, 1, 0, 0).await?;
-        executor.assert_state(1, 1).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 1,
+                allocated: 1,
+                unallocated: 0,
+                completed_success: 0,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 1,
+                num_allocated_tasks: 1,
+            })
+            .await?;
 
         // Finalize Task (create 2 more)
         {
@@ -152,15 +245,29 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(3, 2, 0, 1).await?;
-        executor.assert_state(3, 2).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 3,
+                allocated: 2,
+                unallocated: 0,
+                completed_success: 1,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 3,
+                num_allocated_tasks: 2,
+            })
+            .await?;
 
         // Remove fn_a from FunctionExecutors
         {
             let fes = executor
-                .get_function_executors()
+                .get_executor_server_state()
                 .await?
-                .into_iter()
+                .function_executors
+                .into_values()
                 // Remove fn_a from the list
                 .filter(|fe| fe.compute_fn_name != "fn_a")
                 .collect();
@@ -168,15 +275,29 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(3, 2, 0, 1).await?;
-        executor.assert_state(2, 2).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 3,
+                allocated: 2,
+                unallocated: 0,
+                completed_success: 1,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 2,
+                num_allocated_tasks: 2,
+            })
+            .await?;
 
         // Support non versioned function executors
         {
             let fes = executor
-                .get_function_executors()
+                .get_executor_server_state()
                 .await?
-                .into_iter()
+                .function_executors
+                .into_values()
                 .map(|mut fe| {
                     // change ID to not versioned
                     fe.id = FunctionExecutorId::new(format!("{}/{}", "not_versioned", fe.id.get()));
@@ -187,8 +308,78 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        test_srv.assert_task_states(3, 2, 0, 1).await?;
-        executor.assert_state(2, 2).await?;
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 3,
+                allocated: 2,
+                unallocated: 0,
+                completed_success: 1,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 2,
+                num_allocated_tasks: 2,
+            })
+            .await?;
+
+        // Unhealthy function executors ae replaced
+        {
+            let prev_fe_ids = executor
+                .get_executor_server_state()
+                .await?
+                .function_executors
+                .into_values()
+                .map(|fe| fe.id)
+                .collect::<HashSet<_>>();
+
+            let fes = executor
+                .get_executor_server_state()
+                .await?
+                .function_executors
+                .into_values()
+                .map(|mut fe| {
+                    fe.status = data_model::FunctionExecutorStatus::Unhealthy;
+                    fe
+                })
+                .collect();
+            executor.update_function_executors(fes).await?;
+            test_srv.process_all_state_changes().await?;
+
+            let new_fe_ids = executor
+                .get_executor_server_state()
+                .await?
+                .function_executors
+                .into_values()
+                .map(|fe| fe.id)
+                .collect::<HashSet<_>>();
+
+            let surviving_fes = prev_fe_ids.intersection(&new_fe_ids).collect::<Vec<_>>();
+
+            assert!(
+                surviving_fes.is_empty(),
+                "unhealthy function executors should have all been replaced. prev_fe_ids: {:?}, new_fe_ids: {:?}",
+                prev_fe_ids,
+                new_fe_ids,
+            );
+        }
+
+        test_srv
+            .assert_task_states(TaskStateAssertions {
+                total: 3,
+                allocated: 2,
+                unallocated: 0,
+                completed_success: 1,
+            })
+            .await?;
+
+        executor
+            .assert_state(ExecutorStateAssertions {
+                num_func_executors: 2,
+                num_allocated_tasks: 2,
+            })
+            .await?;
 
         Ok(())
     }

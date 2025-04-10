@@ -31,30 +31,36 @@ pub struct TaskCreationResult {
 
 pub struct TaskCreator {
     indexify_state: Arc<IndexifyState>,
+    pub in_memory_state: Box<InMemoryState>,
 }
 
 impl TaskCreator {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
-        Self { indexify_state }
+    pub fn new(indexify_state: Arc<IndexifyState>, in_memory_state: Box<InMemoryState>) -> Self {
+        Self {
+            indexify_state,
+            in_memory_state,
+        }
     }
 }
 
 impl TaskCreator {
-    #[tracing::instrument(skip(self, indexes))]
-    pub async fn invoke(
-        &self,
-        change: &ChangeType,
-        indexes: &mut Box<InMemoryState>,
-    ) -> Result<SchedulerUpdateRequest> {
+    #[tracing::instrument(skip(self))]
+    pub async fn invoke(&mut self, change: &ChangeType) -> Result<SchedulerUpdateRequest> {
         match change {
             ChangeType::TaskOutputsIngested(ev) => {
-                let result = self.handle_task_finished_inner(ev, indexes).await?;
+                let result = self.handle_task_finished_inner(ev).await?;
                 result.tasks.iter().for_each(|t| {
-                    indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                    indexes.unallocated_tasks.insert(UnallocatedTaskId::new(&t));
+                    self.in_memory_state
+                        .tasks
+                        .insert(t.key(), Box::new(t.clone()));
+                    self.in_memory_state
+                        .unallocated_tasks
+                        .insert(UnallocatedTaskId::new(&t));
                 });
                 if let Some(ctx) = result.invocation_ctx.clone() {
-                    indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
+                    self.in_memory_state
+                        .invocation_ctx
+                        .insert(ctx.key(), Box::new(ctx));
                 }
                 return Ok(SchedulerUpdateRequest {
                     updated_tasks: result
@@ -75,15 +81,19 @@ impl TaskCreator {
                 });
             }
             ChangeType::InvokeComputeGraph(ev) => {
-                let result = self
-                    .handle_invoke_compute_graph(ev.clone(), indexes)
-                    .await?;
+                let result = self.handle_invoke_compute_graph(ev.clone()).await?;
                 result.tasks.iter().for_each(|t| {
-                    indexes.tasks.insert(t.key(), Box::new(t.clone()));
-                    indexes.unallocated_tasks.insert(UnallocatedTaskId::new(&t));
+                    self.in_memory_state
+                        .tasks
+                        .insert(t.key(), Box::new(t.clone()));
+                    self.in_memory_state
+                        .unallocated_tasks
+                        .insert(UnallocatedTaskId::new(&t));
                 });
                 if let Some(ctx) = result.invocation_ctx.clone() {
-                    indexes.invocation_ctx.insert(ctx.key(), Box::new(ctx));
+                    self.in_memory_state
+                        .invocation_ctx
+                        .insert(ctx.key(), Box::new(ctx));
                 }
                 return Ok(SchedulerUpdateRequest {
                     updated_tasks: result
@@ -116,17 +126,19 @@ impl TaskCreator {
         }
     }
 
-    #[tracing::instrument(skip(self, task_finished_event, indexes))]
+    #[tracing::instrument(skip(self, task_finished_event))]
     pub async fn handle_task_finished_inner(
         &self,
         task_finished_event: &TaskOutputsIngestedEvent,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
-            &task_finished_event.namespace,
-            &task_finished_event.compute_graph,
-            &task_finished_event.invocation_id,
-        ));
+        let invocation_ctx =
+            self.in_memory_state
+                .invocation_ctx
+                .get(&GraphInvocationCtx::key_from(
+                    &task_finished_event.namespace,
+                    &task_finished_event.compute_graph,
+                    &task_finished_event.invocation_id,
+                ));
 
         let Some(invocation_ctx) = invocation_ctx else {
             trace!("no invocation ctx, stopping scheduling of child tasks");
@@ -138,7 +150,7 @@ impl TaskCreator {
             return Ok(TaskCreationResult::default());
         }
 
-        let task = indexes.tasks.get(&Task::key_from(
+        let task = self.in_memory_state.tasks.get(&Task::key_from(
             &task_finished_event.namespace,
             &task_finished_event.compute_graph,
             &task_finished_event.invocation_id,
@@ -157,7 +169,8 @@ impl TaskCreator {
             return Ok(TaskCreationResult::default());
         };
 
-        let compute_graph_version = indexes
+        let compute_graph_version = self
+            .in_memory_state
             .compute_graph_versions
             .get(&task.key_compute_graph_version());
         if compute_graph_version.is_none() {
@@ -182,22 +195,23 @@ impl TaskCreator {
             invocation_ctx.deref().clone(),
             task.clone().deref().clone(),
             *compute_graph_version.clone(),
-            indexes,
         )
         .await
     }
 
-    #[tracing::instrument(skip(self, event, indexes))]
+    #[tracing::instrument(skip(self, event))]
     pub async fn handle_invoke_compute_graph(
         &self,
         event: InvokeComputeGraphEvent,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
-        let invocation_ctx = indexes.invocation_ctx.get(&GraphInvocationCtx::key_from(
-            &event.namespace,
-            &event.compute_graph,
-            &event.invocation_id,
-        ));
+        let invocation_ctx =
+            self.in_memory_state
+                .invocation_ctx
+                .get(&GraphInvocationCtx::key_from(
+                    &event.namespace,
+                    &event.compute_graph,
+                    &event.invocation_id,
+                ));
         if invocation_ctx.is_none() {
             trace!("no invocation ctx, stopping invocation of compute graph");
             return Ok(TaskCreationResult::default());
@@ -211,7 +225,7 @@ impl TaskCreator {
             .clone();
 
         let compute_graph_version =
-            indexes
+            self.in_memory_state
                 .compute_graph_versions
                 .get(&ComputeGraphVersion::key_from(
                     &event.namespace,
@@ -258,13 +272,12 @@ impl TaskCreator {
         })
     }
 
-    #[tracing::instrument(skip(self, invocation_ctx, task, indexes))]
+    #[tracing::instrument(skip(self, invocation_ctx, task))]
     pub async fn handle_task_finished(
         &self,
         invocation_ctx: GraphInvocationCtx,
         task: Task,
         compute_graph_version: ComputeGraphVersion,
-        indexes: &mut Box<InMemoryState>,
     ) -> Result<TaskCreationResult> {
         trace!("invocation context: {:?}", invocation_ctx);
         let mut invocation_ctx = invocation_ctx.clone();
@@ -350,7 +363,7 @@ impl TaskCreator {
                             });
                         }
                     }
-                    let reduction_task = indexes.next_reduction_task(
+                    let reduction_task = self.in_memory_state.next_reduction_task(
                         &task.namespace,
                         &task.compute_graph_name,
                         &task.invocation_id,
@@ -515,7 +528,7 @@ impl TaskCreator {
                     //
                     // To do so, we need to find the previous reducer task to reuse its output.
                     if successful_tasks_for_node > 0 {
-                        let prev_reducer_tasks = indexes.get_tasks_by_fn(
+                        let prev_reducer_tasks = self.in_memory_state.get_tasks_by_fn(
                             &task.namespace,
                             &task.compute_graph_name,
                             &task.invocation_id,

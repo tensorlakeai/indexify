@@ -321,6 +321,7 @@ pub mod tests {
             function_executors: Default::default(),
             tombstoned: false,
             state_hash: "state_hash".to_string(),
+            clock: 0,
         }
     }
 }

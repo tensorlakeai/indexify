@@ -88,6 +88,7 @@ impl Allocation {
         compute_fn: &str,
         invocation_id: &str,
     ) -> String {
+        // TODO: Investigate impact of not using the function executor id
         let mut hasher = DefaultHasher::new();
         namespace.hash(&mut hasher);
         compute_graph.hash(&mut hasher);
@@ -1280,6 +1281,20 @@ fn default_executor_ver() -> String {
     "0.2.17".to_string()
 }
 
+#[derive(Debug, Clone)]
+pub struct AllocatedTask {
+    pub executor_id: ExecutorId,
+    pub function_executor_id: FunctionExecutorId,
+    pub task: Task,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DesiredExecutorState {
+    pub function_executors: Vec<FunctionExecutorServerMetadata>,
+    pub task_allocations: Vec<AllocatedTask>,
+    pub clock: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FunctionURI {
     pub namespace: String,
@@ -1357,7 +1372,7 @@ impl Default for HostResources {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr)]
 pub enum ExecutorState {
     #[default]
     Unknown,
@@ -1385,7 +1400,16 @@ impl Default for FunctionExecutorId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Hash)]
+pub enum FunctionExecutorState {
+    #[default]
+    Unknown,
+    Pending,
+    Running,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr)]
 pub enum FunctionExecutorStatus {
     #[default]
     Unknown,
@@ -1397,17 +1421,45 @@ pub enum FunctionExecutorStatus {
     Unhealthy,
     Stopping,
     Stopped,
+    Shutdown,
+}
+
+impl FunctionExecutorStatus {
+    pub fn as_state(&self) -> FunctionExecutorState {
+        self.clone().into()
+    }
+}
+
+impl Into<FunctionExecutorState> for FunctionExecutorStatus {
+    fn into(self) -> FunctionExecutorState {
+        match self {
+            FunctionExecutorStatus::Unknown => FunctionExecutorState::Unknown,
+            FunctionExecutorStatus::StartingUp => FunctionExecutorState::Pending,
+            FunctionExecutorStatus::Idle | FunctionExecutorStatus::RunningTask => {
+                FunctionExecutorState::Running
+            }
+            FunctionExecutorStatus::StartupFailedCustomerError |
+            FunctionExecutorStatus::StartupFailedPlatformError |
+            FunctionExecutorStatus::Unhealthy |
+            FunctionExecutorStatus::Stopping |
+            FunctionExecutorStatus::Stopped |
+            FunctionExecutorStatus::Shutdown => FunctionExecutorState::Terminated,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
 #[builder(build_fn(skip))]
 pub struct FunctionExecutor {
     pub id: FunctionExecutorId,
-    pub executor_id: ExecutorId,
     pub namespace: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
     pub version: GraphVersion,
+    pub secret_names: Vec<String>,
+    pub image_uri: Option<String>,
+    pub customer_code_timeout_ms: Option<u32>,
+    pub resource_limits: Option<HostResources>,
     pub status: FunctionExecutorStatus,
 }
 
@@ -1460,10 +1512,6 @@ impl FunctionExecutor {
 impl FunctionExecutorBuilder {
     pub fn build(&mut self) -> Result<FunctionExecutor> {
         let id = self.id.clone().unwrap_or(FunctionExecutorId::default());
-        let executor_id = self
-            .executor_id
-            .clone()
-            .ok_or(anyhow!("executor_id is required"))?;
         let namespace = self
             .namespace
             .clone()
@@ -1477,16 +1525,68 @@ impl FunctionExecutorBuilder {
             .clone()
             .ok_or(anyhow!("compute_fn_name is required"))?;
         let version = self.version.clone().ok_or(anyhow!("version is required"))?;
+        let secret_names = self
+            .secret_names
+            .clone()
+            .ok_or(anyhow!("secret_names is required"))?;
+        let image_uri = self
+            .image_uri
+            .clone()
+            .ok_or(anyhow!("version is required"))?;
+        let customer_code_timeout_ms = self
+            .customer_code_timeout_ms
+            .clone()
+            .ok_or(anyhow!("version is required"))?;
+        let resource_limits = self
+            .resource_limits
+            .clone()
+            .ok_or(anyhow!("resource_limits is required"))?;
         let status = self.status.clone().ok_or(anyhow!("status is required"))?;
         Ok(FunctionExecutor {
             id,
-            executor_id,
             namespace,
             compute_graph_name,
             compute_fn_name,
             version,
+            secret_names,
+            image_uri,
+            customer_code_timeout_ms,
+            resource_limits,
             status,
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct FunctionExecutorServerMetadata {
+    pub executor_id: ExecutorId,
+    pub function_executor: FunctionExecutor,
+    pub last_allocation_at: Option<SystemTime>,
+    pub desired_state: FunctionExecutorState,
+}
+impl FunctionExecutorServerMetadata {
+    pub fn new(
+        executor_id: ExecutorId,
+        function_executor: FunctionExecutor,
+        desired_state: FunctionExecutorState,
+        last_allocation_at: Option<SystemTime>,
+    ) -> Self {
+        Self {
+            executor_id,
+            function_executor,
+            desired_state,
+            last_allocation_at,
+        }
+    }
+
+    pub fn fn_uri_str(&self) -> String {
+        self.function_executor.fn_uri_str()
+    }
+
+    /// Checks if this FunctionExecutor matches another FunctionExecutor.
+    pub fn matches(&self, other: &FunctionExecutor) -> bool {
+        self.function_executor.matches(other)
     }
 }
 
@@ -1505,6 +1605,7 @@ pub struct ExecutorMetadata {
     pub state: ExecutorState,
     pub tombstoned: bool,
     pub state_hash: String,
+    pub clock: u64,
 }
 
 impl ExecutorMetadataBuilder {
@@ -1538,6 +1639,7 @@ impl ExecutorMetadataBuilder {
             .clone()
             .ok_or(anyhow!("dev_mode is required"))?;
         let tombstoned = self.tombstoned.unwrap_or(false);
+        let clock = self.clock.unwrap_or(0);
         Ok(ExecutorMetadata {
             id,
             executor_version,
@@ -1550,6 +1652,7 @@ impl ExecutorMetadataBuilder {
             state,
             tombstoned,
             state_hash,
+            clock,
         })
     }
 }

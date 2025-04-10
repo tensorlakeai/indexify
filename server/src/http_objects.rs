@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, fmt};
 
 use axum::{
     http::StatusCode,
@@ -7,11 +7,8 @@ use axum::{
 use data_model::{ComputeGraphCode, GraphInvocationCtx, GraphInvocationOutcome};
 use indexify_utils::get_epoch_time_in_ms;
 use serde::{Deserialize, Serialize};
-use state_store::IndexifyState;
 use tracing::error;
 use utoipa::{IntoParams, ToSchema};
-
-use crate::{config::ExecutorConfig, executor_api::blob_store_path_to_url};
 
 #[derive(Debug, ToSchema, Serialize, Deserialize)]
 pub struct IndexifyAPIError {
@@ -1126,9 +1123,16 @@ pub struct FunctionURI {
 pub struct ExecutorMetadata {
     pub id: String,
     pub executor_version: String,
-    pub addr: String,
+    pub development_mode: bool,
     pub function_allowlist: Option<Vec<FunctionURI>>,
+    pub addr: String,
     pub labels: HashMap<String, serde_json::Value>,
+    pub function_executors: Vec<serde_json::Value>,
+    pub host_resources: serde_json::Value,
+    pub state: String,
+    pub tombstoned: bool,
+    pub state_hash: String,
+    pub clock: u64,
 }
 
 impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
@@ -1150,6 +1154,18 @@ impl From<data_model::ExecutorMetadata> for ExecutorMetadata {
             addr: executor.addr,
             function_allowlist,
             labels: executor.labels,
+            development_mode: executor.development_mode,
+            function_executors: executor
+                .function_executors
+                .values()
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                .collect(),
+            host_resources: serde_json::to_value(executor.host_resources)
+                .unwrap_or(serde_json::Value::Null),
+            state: executor.state.as_ref().to_string(),
+            tombstoned: executor.tombstoned,
+            state_hash: executor.state_hash,
+            clock: executor.clock,
         }
     }
 }
@@ -1218,19 +1234,23 @@ pub struct UnallocatedTasks {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnExecutor {
     pub count: usize,
-    pub fn_name: String,
+    pub function_executor_id: String,
+    pub fn_uri: String,
+    pub status: String,
+    pub desired_state: String,
     pub allocations: Vec<Allocation>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorAllocations {
-    pub total: usize,
+    pub count: usize,
+    pub executor_id: String,
     pub function_executors: Vec<FnExecutor>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ExecutorsAllocationsResponse {
-    pub allocations: HashMap<String, ExecutorAllocations>,
+    pub executors: Vec<ExecutorAllocations>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

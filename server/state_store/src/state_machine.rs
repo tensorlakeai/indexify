@@ -26,7 +26,7 @@ use rocksdb::{
     TransactionDB,
 };
 use strum::AsRefStr;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use super::serializer::{JsonEncode, JsonEncoder};
 use crate::requests::{
@@ -901,7 +901,7 @@ pub(crate) fn mark_state_changes_processed(
     processed_state_changes: &[StateChange],
 ) -> Result<()> {
     for state_change in processed_state_changes {
-        debug!(
+        trace!(
             change_type = %state_change.change_type,
             "marking state change as processed"
         );
